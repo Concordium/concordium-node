@@ -1,0 +1,20 @@
+[package]
+name = "net"
+description = "Network communication implementation in Rust"
+version = "0.0.1"
+authors = [ "Ian Johannesen <ij@nordic-t.me>", "Martin Karlsen Jensen <mj@nordic-t.me>"]
+exclude = [
+    ".gitignore",
+    ".gitlab-ci.yml",
+    "test/**/*"
+]
+
+[dependencies]
+log = "^0.3"
+rand = "^0.5"
+rustc-serialize = "^0.3"
+hacl-star = "^0.0.10"
+
+[lib]
+name = "net"
+path = "src/lib.rs"

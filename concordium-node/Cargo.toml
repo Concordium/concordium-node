@@ -1,0 +1,28 @@
+[package]
+name = "rustcoin"
+version = "0.0.1"
+description = "Rust Coin skel"
+authors = [ "Ian Johannesen <ij@nordic-t.me>", "Martin Karlsen Jensen <mj@nordic-t.me>"]
+exclude = [
+    ".gitignore",
+    ".gitlab-ci.yml",
+    "test/**/*"
+]
+
+[features]
+default = []
+valgrind = []
+
+[dependencies]
+libc = "0.2"
+structopt = "0.2"
+clap = "2"
+dht = { path = "dht" }
+net = { path = "net" }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "rustcoin"
