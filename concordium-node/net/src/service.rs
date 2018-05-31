@@ -4,6 +4,7 @@ use tokio::prelude::*;
 use tokio::*;
 use futures::sync::mpsc;
 use futures::future::{self, Either};
+use futures::Map;
 use bytes::{BytesMut, Bytes, BufMut};
 use mio::Token;
 use tokio::runtime::Runtime;
@@ -36,6 +37,8 @@ impl P2PNode {
     fn connect(&mut self, addr: &String) {
         let addr = addr.parse::<SocketAddr>().unwrap();
         let connect_future = TcpStream::connect(&addr);
+   
+        //MPSC tunnel for communicating inside closure?
 
         let task = connect_future.and_then(move |stream| {
             let stream = stream;
@@ -48,7 +51,16 @@ impl P2PNode {
         })
         .map_err(|e| println!("Failed to connect; {:?}", e));
 
+        //self.peers.insert(Token(self.token_counter), stream);
+
         self.runtime.spawn(task);
+    }
+
+    fn process(&mut self, socket: TcpStream) {
+        match socket.peer_addr() {
+            Ok(x) => println!("Address is {}", x),
+            Err(y) => println!("Error: {}",y ),
+        };
     }
 }
 
