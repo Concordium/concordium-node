@@ -1,23 +1,85 @@
-// TODO : impl network with tls layer
+use tokio::io;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::prelude::*;
+use tokio::*;
+use futures::sync::mpsc;
+use futures::future::{self, Either};
+use bytes::{BytesMut, Bytes, BufMut};
+use mio::Token;
+use tokio::runtime::Runtime;
 
-#[cfg(test)]
-pub mod test {
-    use rand::OsRng;
-    use hacl_star::curve25519::*;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn test_sign_test() {
-        // Basic curve test to see HACL* C binding works
-        let (mut sk1, mut pk1) = (SecretKey::default(), PublicKey::default());
-        let (mut sk2, mut pk2) = (SecretKey::default(), PublicKey::default());
-        let (mut out1, mut out2) = ([0; 32], [0; 32]);
+const SERVER_TOKEN: Token = Token(0);
 
-        keypair(OsRng::new().unwrap(), &mut sk1, &mut pk1);
-        keypair(OsRng::new().unwrap(), &mut sk2, &mut pk2);
+struct P2PNode {
+    token_counter: usize,
+    peers: HashMap<Token, Arc<TcpStream>>,
+    runtime: Runtime,
 
-        sk1.exchange(&pk2, &mut out1);
-        sk2.exchange(&pk1, &mut out2);
+}
 
-        assert_eq!(out1, out2);
+impl P2PNode {
+    fn new() -> P2PNode {
+        let mut rt = Runtime::new().unwrap();
+
+        P2PNode {
+            token_counter: 0,
+            peers: HashMap::new(),
+            runtime: rt
+        }
     }
+
+    //Connect to new peer
+    fn connect(&mut self, addr: &String) {
+        let addr = addr.parse::<SocketAddr>().unwrap();
+        let connect_future = TcpStream::connect(&addr);
+
+        let task = connect_future.and_then(move |stream| {
+            let stream = stream;
+            println!("Connected successfully!");
+            match stream.peer_addr() {
+                Err(e) => println!("Error: {}", e),
+                Ok(x) => println!("Remote Address is {}", x)
+            }
+            Ok(())
+        })
+        .map_err(|e| println!("Failed to connect; {:?}", e));
+
+        self.runtime.spawn(task);
+    }
+}
+
+fn main() {
+    let addr = "127.0.0.1:8888".parse().unwrap();
+    let listener = TcpListener::bind(&addr).unwrap();
+
+    let server = listener.incoming()
+        .map_err(|e| println!("Error= {}", e))
+        .for_each(|socket| {
+            future::lazy(move || {
+                println!("Handling socket");
+                match socket.peer_addr() {
+                    Err(e) => println!("Error: {}", e),
+                    Ok(x) => println!("Remote Address is {}", x)
+                }
+                Ok(())
+        })
+    });
+    
+    let mut node = P2PNode::new();
+
+    node.runtime.spawn(server);
+
+
+    node.connect(&String::from("127.0.0.1:8888"));
+    node.connect(&String::from("127.0.0.1:8888"));
+    node.connect(&String::from("127.0.0.1:8888"));
+    node.connect(&String::from("127.0.0.1:8888"));
+    
+
+    node.runtime.shutdown_on_idle()
+        .wait().unwrap();
 }
