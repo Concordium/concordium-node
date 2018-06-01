@@ -28,13 +28,13 @@ fn main() {
                     let socket = server.accept();
 
                     match socket {
-                        Some(x) => {
+                        Ok(x) => {
                             match x.peer_addr() {
                                 Ok(y) => println!("Peer addr: {}", y),
-                                Err => println!("Couldn't retrieve peer address")
+                                Err(_) => println!("Couldn't retrieve peer address")
                             }
                         },
-                        None => println!("Broken")
+                        Err(_) => println!("Broken")
                     };
                 },
                 CLIENT => {
