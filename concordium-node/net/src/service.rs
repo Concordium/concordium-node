@@ -28,7 +28,7 @@ fn main() {
                     let socket = server.accept();
 
                     match socket {
-                        Ok(x) => {
+                        Ok((x,y)) => {
                             match x.peer_addr() {
                                 Ok(y) => println!("Peer addr: {}", y),
                                 Err(_) => println!("Couldn't retrieve peer address")
