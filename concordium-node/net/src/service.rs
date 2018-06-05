@@ -9,16 +9,35 @@ use std::io;
 use std::collections::HashMap;
 use std::thread;
 use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
+use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc;
+use std::time::Duration;
 
 
 const SERVER: Token = Token(0);
+
+struct P2PPeer {
+    socket: TcpStream,
+    rx: Receiver<[u8; 256]>,
+    tx: Sender<[u8; 256]>,
+}
+
+impl P2PPeer {
+    fn new(socket: TcpStream, rx: Receiver<[u8; 256]>, tx: Sender<[u8; 256]>) -> Self {
+        P2PPeer {
+            socket,
+            rx,
+            tx
+        }
+    }
+}
 
 struct P2PNode {
     listener: TcpListener,
     poll: Poll,
     token_counter: usize,
-    peers: HashMap<Token, TcpStream>,
+    peers: HashMap<Token, P2PPeer>,
 }
 
 impl P2PNode {
@@ -47,10 +66,12 @@ impl P2PNode {
 
     fn connect(&mut self, addr: SocketAddr) -> Result<(), Error> {
         let stream = TcpStream::connect(&addr).unwrap();
-        let res = self.poll.register(&stream, Token::from(self.token_counter), Ready::readable() | Ready::writable(), PollOpt::edge());
+        let token = Token(self.token_counter);
+        let res = self.poll.register(&stream, token, Ready::readable() | Ready::writable(), PollOpt::edge());
         match res {
             Ok(x) => {
-                self.peers.insert(Token::from(self.token_counter), stream);
+                let (tx, rx) = mpsc::channel();
+                self.peers.insert(token, P2PPeer::new(stream, rx, tx));
                 println!("Inserting connection");
                 self.token_counter += 1;
                 Ok(x)
@@ -61,8 +82,24 @@ impl P2PNode {
         }
     }
 
+    fn send(&mut self, receiver: Token, msg: [u8; 256]) {
+        let peer = self.peers.get_mut(&receiver).unwrap();
+        peer.tx.send(msg).unwrap();
+    }
+
+    fn receive(&mut self, sender: Token) -> Result<[u8; 256], TryRecvError>{
+        let peer = self.peers.get_mut(&sender).unwrap();
+        match peer.rx.try_recv() {
+            Ok(x) => {
+                Ok(x)
+            },
+            Err(e) => {
+                Err(e)
+            }
+        }
+    }
+
     fn process(&mut self, events: &mut Events, channel: &mut Receiver<SocketAddr>) {
-        let mut buf = [0; 256];
         loop {
             //Check if we have messages to receive
             match channel.try_recv() {
@@ -74,17 +111,24 @@ impl P2PNode {
                 }
             }
 
-            self.poll.poll(events, None).unwrap();
+            self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
 
             for event in events.iter() {
+                
                 match event.token() {
                     SERVER => {
                         loop {
                             match self.listener.accept() {
-                                Ok((socket, _)) => {
-                                    let token = Token::from(self.token_counter);
+                                Ok((mut socket, _)) => {
+                                    let token = Token(self.token_counter);
                                     println!("Accepting connection from {}", socket.peer_addr().unwrap());
-                                    self.poll.register(&socket, token, Ready::readable(), PollOpt::edge()).unwrap();
+                                    self.poll.register(&socket, token, Ready::readable() | Ready::writable(), PollOpt::edge()).unwrap();
+
+                                    let (tx, rx) = mpsc::channel();
+
+                                    self.peers.insert(token, P2PPeer::new(socket, rx, tx));
+
+                                    self.token_counter += 1;
                                 }
                                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                                     break;
@@ -94,16 +138,21 @@ impl P2PNode {
                             
                         }
                     }
-                    token => {
+                    x => {
                         loop {
-                            match self.peers.get_mut(&token).unwrap().read(&mut buf) {
+                            let mut buf = [0; 256];
+                            let y = x;
+                            match self.peers.get_mut(&x).unwrap().socket.read(&mut buf) {
                                 Ok(0) => {
-                                    self.peers.remove(&token);
+                                    println!("Closing connection!");
+                                    self.peers.remove(&x);
                                     break;
                                 }
-                                Ok(_) => {
+                                Ok(x) => {
                                     //let socket = self.peers.get_mut(&token);
-                                    println!("Received was: {:?}", String::from_utf8_lossy(&buf));
+                                    let peer = self.peers.get_mut(&y).unwrap();
+                                    peer.tx.send(buf).unwrap();
+                                    
                                 },
                                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                                     break;
@@ -127,11 +176,6 @@ fn main() {
         let mut events = Events::with_capacity(1024);
         node.process(&mut events, &mut connect_recv);
     });
-
-    connect_send.send("127.0.0.1:8888".parse().unwrap()).unwrap();
-    connect_send.send("127.0.0.1:8888".parse().unwrap()).unwrap();
-    connect_send.send("127.0.0.1:8888".parse().unwrap()).unwrap();
-    connect_send.send("127.0.0.1:8888".parse().unwrap()).unwrap();
 
     th.join().unwrap();
 
