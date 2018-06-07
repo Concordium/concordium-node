@@ -1,6 +1,6 @@
-extern crate rustcoin;
-use rustcoin::configuration;
-use rustcoin::ffi;
+extern crate p2p_client;
+use p2p_client::configuration;
+use p2p_client::ffi;
 
 fn main() {
     let conf = configuration::parse_config();

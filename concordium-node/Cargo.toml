@@ -1,5 +1,5 @@
 [package]
-name = "rustcoin"
+name = "p2p_client"
 version = "0.0.1"
 description = "Rust Coin skel"
 authors = [ "Ian Johannesen <ij@nordic-t.me>", "Martin Karlsen Jensen <mj@nordic-t.me>"]
@@ -17,12 +17,17 @@ valgrind = []
 libc = "0.2"
 structopt = "0.2"
 clap = "2"
-dht = { path = "dht" }
-net = { path = "net" }
+rand = "^0.5"
+rustc-serialize = "^0.3"
+hacl-star = "^0.0.10"
+mio = "0.6"
+futures = "0.1"
+bytes = "0.4"
 
 [lib]
 path = "src/lib.rs"
+name = "p2p_client"
 
 [[bin]]
 path = "src/main.rs"
-name = "rustcoin"
+name = "p2p_client-cli"
