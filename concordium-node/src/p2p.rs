@@ -11,6 +11,10 @@ use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
+use ring::digest;
+use ring::rand::{SecureRandom, SystemRandom};
+use ifaces;
+
 
 const SERVER: Token = Token(0);
 
@@ -47,11 +51,28 @@ pub struct P2PNode {
     peers: HashMap<Token, P2PPeer>,
     out_rx: Receiver<P2PMessage>,
     in_tx: Sender<P2PMessage>,
+    id: String,
 }
 
 impl P2PNode {
     pub fn new(out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
         let addr = "127.0.0.1:8888".parse().unwrap();
+
+        println!("Creating new P2PNode");
+
+        ///Todo: Fix
+        //let ifaces = ifaces::ifaces();
+
+        let mut dest: [u8; 256] = [0; 256];
+
+        let rand = SystemRandom::new();
+        rand.fill(&mut dest).unwrap();
+
+        let d = digest::digest(&digest::SHA256, &dest);
+        println!("Got ID: {:?}", d.as_ref().to_hex());
+
+        println!("Got past interfaces ..");
+
         let poll = Poll::new().unwrap();
 
         let server = TcpListener::bind(&addr).unwrap();
@@ -66,6 +87,7 @@ impl P2PNode {
                     peers: HashMap::new(),
                     out_rx,
                     in_tx,
+                    id: "".to_string(),
                 }
             },
             Err(x) => {

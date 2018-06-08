@@ -2,6 +2,7 @@ use libc::{c_int,c_char};
 use std::ffi::CStr;
 use std::str;
 
+/*
 #[link(name = "cpuid")]
 extern {
     fn cpuid_lib_version() -> *const c_char;
@@ -40,3 +41,4 @@ fn test_is_present() {
 fn test_freq() {
     assert_ne!(clock_frequency().unwrap_or(-1), -1);
 }
+*/
