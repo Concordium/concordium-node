@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::io::Error;
 use std::io::Write;
 use std::io::Read;
+use std::io::ErrorKind;
 use std::io;
 use std::collections::HashMap;
 use std::sync::mpsc::TryRecvError;
@@ -13,8 +14,10 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 use ring::digest;
 use ring::rand::{SecureRandom, SystemRandom};
-use ifaces;
-
+use get_if_addrs;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::IpAddr::{V4, V6};
 
 const SERVER: Token = Token(0);
 
@@ -63,13 +66,15 @@ impl P2PNode {
         ///Todo: Fix
         //let ifaces = ifaces::ifaces();
 
+        P2PNode::get_ip();
+
         let mut dest: [u8; 256] = [0; 256];
 
         let rand = SystemRandom::new();
         rand.fill(&mut dest).unwrap();
 
         let d = digest::digest(&digest::SHA256, &dest);
-        println!("Got ID: {:?}", d.as_ref().to_hex());
+        println!("Got ID: {:?}", d.as_ref());
 
         println!("Got past interfaces ..");
 
@@ -96,6 +101,31 @@ impl P2PNode {
         }
 
         
+    }
+
+    pub fn get_ip() -> Option<Ipv4Addr>{
+        let mut ip : Ipv4Addr = Ipv4Addr::new(127,0,0,1);
+
+        for adapter in get_if_addrs::get_if_addrs().unwrap() {
+            match adapter.addr.ip() {
+                V4(x) => {
+                    if !x.is_loopback() && !x.is_link_local() && !x.is_multicast() && !x.is_broadcast() {
+                        ip = x;
+                    }
+                    
+                },
+                V6(_) => {
+                    //Ignore for now
+                }
+            };
+            
+        }
+
+        if ip == Ipv4Addr::new(127,0,0,1) {
+            None
+        } else {
+            Some(ip)
+        }
     }
 
     pub fn connect(&mut self, addr: SocketAddr) -> Result<Token, Error> {

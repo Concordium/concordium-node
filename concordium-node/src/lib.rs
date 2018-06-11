@@ -5,7 +5,7 @@ extern crate rand;
 extern crate bytes;
 extern crate mio;
 extern crate ring;
-extern crate ifaces;
+extern crate get_if_addrs;
 pub mod configuration;
 pub mod ffi;
 pub mod p2p;
