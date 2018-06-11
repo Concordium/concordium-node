@@ -18,6 +18,9 @@ use get_if_addrs;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::IpAddr::{V4, V6};
+use utils;
+use num_bigint::BigUint;
+use num_traits::Num;
 
 const SERVER: Token = Token(0);
 
@@ -54,7 +57,7 @@ pub struct P2PNode {
     peers: HashMap<Token, P2PPeer>,
     out_rx: Receiver<P2PMessage>,
     in_tx: Sender<P2PMessage>,
-    id: String,
+    id: BigUint,
 }
 
 impl P2PNode {
@@ -63,20 +66,13 @@ impl P2PNode {
 
         println!("Creating new P2PNode");
 
-        ///Todo: Fix
-        //let ifaces = ifaces::ifaces();
+        //Retrieve IP address octets, format to IP and SHA256 hash it
+        let octets = P2PNode::get_ip().unwrap().octets();
+        let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], 8888);
+        println!("IP: {:?}", ip_port);
 
-        P2PNode::get_ip();
-
-        let mut dest: [u8; 256] = [0; 256];
-
-        let rand = SystemRandom::new();
-        rand.fill(&mut dest).unwrap();
-
-        let d = digest::digest(&digest::SHA256, &dest);
-        println!("Got ID: {:?}", d.as_ref());
-
-        println!("Got past interfaces ..");
+        let id = BigUint::from_str_radix(&utils::to_hex_string(utils::sha256(&ip_port)), 16).unwrap();
+        println!("Got ID: {:x}", id);
 
         let poll = Poll::new().unwrap();
 
@@ -92,7 +88,7 @@ impl P2PNode {
                     peers: HashMap::new(),
                     out_rx,
                     in_tx,
-                    id: "".to_string(),
+                    id: id,
                 }
             },
             Err(x) => {
@@ -126,6 +122,10 @@ impl P2PNode {
         } else {
             Some(ip)
         }
+    }
+
+    pub fn distance(from: P2PNode, to: P2PNode) -> BigUint {
+        from.id ^ to.id
     }
 
     pub fn connect(&mut self, addr: SocketAddr) -> Result<Token, Error> {

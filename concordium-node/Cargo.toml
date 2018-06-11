@@ -25,6 +25,8 @@ futures = "0.1"
 bytes = "0.4"
 ring = "0.13.0-alpha4"
 get_if_addrs = "0.5.2"
+num-bigint = "0.2"
+num-traits = "0.2"
 
 [lib]
 path = "src/lib.rs"
