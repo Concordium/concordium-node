@@ -5,15 +5,12 @@ use std::net::SocketAddr;
 use std::io::Error;
 use std::io::Write;
 use std::io::Read;
-use std::io::ErrorKind;
 use std::io;
 use std::collections::HashMap;
-use std::sync::mpsc::TryRecvError;
+use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
-use ring::digest;
-use ring::rand::{SecureRandom, SystemRandom};
 use get_if_addrs;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -21,17 +18,25 @@ use std::net::IpAddr::{V4, V6};
 use utils;
 use num_bigint::BigUint;
 use num_traits::Num;
+use num_bigint::ToBigUint;
+use num_traits::pow;
 
 const SERVER: Token = Token(0);
+const BUCKET_SIZE: u8 = 20;
+const KEY_SIZE: u16 = 256;
 
 pub struct P2PPeer {
-    socket: TcpStream,
+    ip: IpAddr,
+    port: u16,
+    id: BigUint,
 }
 
 impl P2PPeer {
-    pub fn new(socket: TcpStream) -> Self {
+    pub fn new(ip: IpAddr, port: u16, id: BigUint) -> Self {
         P2PPeer {
-            socket,
+            ip,
+            port,
+            id,
         }
     }
 }
@@ -54,10 +59,11 @@ pub struct P2PNode {
     listener: TcpListener,
     poll: Poll,
     token_counter: usize,
-    peers: HashMap<Token, P2PPeer>,
+    peers: HashMap<Token, TcpStream>,
     out_rx: Receiver<P2PMessage>,
     in_tx: Sender<P2PMessage>,
     id: BigUint,
+    buckets: HashMap<u16, VecDeque<P2PPeer>>,
 }
 
 impl P2PNode {
@@ -79,6 +85,11 @@ impl P2PNode {
         let server = TcpListener::bind(&addr).unwrap();
         let res = poll.register(&server, SERVER, Ready::readable(), PollOpt::edge());
 
+        let mut buckets = HashMap::new();
+        for i in 0..KEY_SIZE {
+            buckets.insert(i, VecDeque::new());
+        }
+
         match res {
             Ok(_) => {
                 P2PNode {
@@ -89,6 +100,7 @@ impl P2PNode {
                     out_rx,
                     in_tx,
                     id: id,
+                    buckets
                 }
             },
             Err(x) => {
@@ -124,8 +136,24 @@ impl P2PNode {
         }
     }
 
-    pub fn distance(from: P2PNode, to: P2PNode) -> BigUint {
-        from.id ^ to.id
+    pub fn distance(&self, to: &P2PPeer) -> BigUint {
+        self.id.clone() ^ to.id.clone()
+    }
+
+    pub fn insert_into_bucket(&mut self, node: P2PPeer) {
+        let dist = self.distance(&node);
+        for i in 0..KEY_SIZE {
+            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
+                let bucket = self.buckets.get_mut(&i).unwrap();
+                //Check size
+                if bucket.len() >= BUCKET_SIZE as usize {
+                    //Check if front element is active
+                    bucket.pop_front();
+                }
+                bucket.push_back(node);
+                break;
+            }
+        }
     }
 
     pub fn connect(&mut self, addr: SocketAddr) -> Result<Token, Error> {
@@ -136,7 +164,7 @@ impl P2PNode {
                 let res = self.poll.register(&x, token, Ready::readable() | Ready::writable(), PollOpt::edge());
                 match res {
                     Ok(_) => {
-                        self.peers.insert(token, P2PPeer::new(x));
+                        self.peers.insert(token, x);
                         println!("Inserting connection");
                         self.token_counter += 1;
                         Ok(token)
@@ -177,12 +205,12 @@ impl P2PNode {
             match self.out_rx.try_recv() {
                 Ok(x) => {
                     let peer = self.peers.get_mut(&x.token).unwrap();
-                    match peer.socket.write(&x.msg) {
-                        Ok(x) => {
+                    match peer.write(&x.msg) {
+                        Ok(_) => {
                             
                         },
                         Err(_) => {
-                            println!("Couldn't write message out to {}", peer.socket.peer_addr().unwrap());
+                            println!("Couldn't write message out to {}", peer.peer_addr().unwrap());
                         }
                     };
                 },
@@ -202,7 +230,7 @@ impl P2PNode {
                                     println!("Accepting connection from {}", socket.peer_addr().unwrap());
                                     self.poll.register(&socket, token, Ready::readable() | Ready::writable(), PollOpt::edge()).unwrap();
 
-                                    self.peers.insert(token, P2PPeer::new(socket));
+                                    self.peers.insert(token, socket);
 
                                     self.token_counter += 1;
                                 }
@@ -218,7 +246,7 @@ impl P2PNode {
                         loop {
                             let mut buf = [0; 256];
                             let y = x;
-                            match self.peers.get_mut(&x).unwrap().socket.read(&mut buf) {
+                            match self.peers.get_mut(&x).unwrap().read(&mut buf) {
                                 Ok(0) => {
                                     println!("Closing connection!");
                                     self.peers.remove(&x);
@@ -226,7 +254,7 @@ impl P2PNode {
                                 }
                                 Ok(_) => {
                                     match self.in_tx.send(P2PMessage::new(y, buf.to_vec())) {
-                                        Ok(y) => {
+                                        Ok(_) => {
 
                                         },
                                         Err(e) => println!("Error sending message into channel {}", e)
