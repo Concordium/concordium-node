@@ -32,7 +32,10 @@ pub struct P2PPeer {
 }
 
 impl P2PPeer {
-    pub fn new(ip: IpAddr, port: u16, id: BigUint) -> Self {
+    pub fn new(ip: IpAddr, port: u16) -> Self {
+        let ip_port = format!("{}:{}", ip, port);
+        let id = BigUint::from_str_radix(&utils::to_hex_string(utils::sha256(&ip_port)), 16).unwrap();
+        println!("New peer with IP: {:?} and ID: {:x}", ip_port, id);
         P2PPeer {
             ip,
             port,
@@ -55,6 +58,22 @@ impl P2PMessage {
     }
 }
 
+pub struct PingMessage {
+    ok: i8,
+}
+
+pub struct PingResponse {
+    ok: i8,
+}
+
+pub struct FindNodeMessage {
+    id: str,
+}
+
+pub struct FindNodeResponse {
+    nodes: Vec<P2PPeer>,
+}
+
 pub struct P2PNode {
     listener: TcpListener,
     poll: Poll,
@@ -64,11 +83,12 @@ pub struct P2PNode {
     in_tx: Sender<P2PMessage>,
     id: BigUint,
     buckets: HashMap<u16, VecDeque<P2PPeer>>,
+    map: HashMap<BigUint, Token>,
 }
 
 impl P2PNode {
     pub fn new(out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
-        let addr = "127.0.0.1:8888".parse().unwrap();
+        let addr = "0.0.0.0:8888".parse().unwrap();
 
         println!("Creating new P2PNode");
 
@@ -100,7 +120,8 @@ impl P2PNode {
                     out_rx,
                     in_tx,
                     id: id,
-                    buckets
+                    buckets,
+                    map: HashMap::new(),
                 }
             },
             Err(x) => {
@@ -156,8 +177,8 @@ impl P2PNode {
         }
     }
 
-    pub fn connect(&mut self, addr: SocketAddr) -> Result<Token, Error> {
-        let stream = TcpStream::connect(&addr);
+    pub fn connect(&mut self, peer: P2PPeer) -> Result<Token, Error> {
+        let stream = TcpStream::connect(&SocketAddr::new(peer.ip, peer.port));
         match stream {
             Ok(x) => {
                 let token = Token(self.token_counter);
@@ -165,6 +186,7 @@ impl P2PNode {
                 match res {
                     Ok(_) => {
                         self.peers.insert(token, x);
+                        self.insert_into_bucket(peer);
                         println!("Inserting connection");
                         self.token_counter += 1;
                         Ok(token)
@@ -182,7 +204,7 @@ impl P2PNode {
         
     }
 
-    pub fn process(&mut self, events: &mut Events, channel: &mut Receiver<SocketAddr>) {
+    pub fn process(&mut self, events: &mut Events, channel: &mut Receiver<P2PPeer>) {
         loop {
             //Check if we have messages to receive
             match channel.try_recv() {

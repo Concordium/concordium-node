@@ -15,10 +15,10 @@ fn main() {
 
     let (connect_send, mut connect_recv) = mpsc::channel();
 
-    let tok1 = node.connect("127.0.0.1:8888".parse().unwrap()).unwrap();
+    let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
     println!("First token is: {:?}", tok1);
-    let tok2 = node.connect("127.0.0.1:8888".parse().unwrap()).unwrap();
-    let tok3 = node.connect("127.0.0.1:8888".parse().unwrap()).unwrap();
+    let tok2 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
+    let tok3 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
 
     let th = thread::spawn(move || {
         let mut events = Events::with_capacity(1024);
