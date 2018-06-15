@@ -5,9 +5,15 @@ extern crate mio;
 use std::sync::mpsc;
 use std::thread;
 use p2p_client::p2p::*;
+use p2p_client::configuration;
 use mio::Events;
 
 fn main() {
+    let conf = configuration::parse_config();
+    let node_ip = match conf.connect_to {
+        Some(x) => { x },
+        _ => { String::from("127.0.0.1") }
+    };
     let (out_tx, out_rx) = mpsc::channel();
     let (in_tx, in_rx) = mpsc::channel();
 
@@ -15,10 +21,10 @@ fn main() {
 
     let (connect_send, mut connect_recv) = mpsc::channel();
 
-    let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
+    let tok1 = node.connect(P2PPeer::new(node_ip.parse().unwrap(), 8888)).unwrap();
     println!("First token is: {:?}", tok1);
-    let tok2 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
-    let tok3 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
+    let tok2 = node.connect(P2PPeer::new(node_ip.parse().unwrap(), 8888)).unwrap();
+    let tok3 = node.connect(P2PPeer::new(node_ip.parse().unwrap(), 8888)).unwrap();
 
     let th = thread::spawn(move || {
         let mut events = Events::with_capacity(1024);
