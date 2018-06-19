@@ -69,15 +69,23 @@ impl P2PNodeId {
     pub fn to_string(self) -> String {
         format!("{:x}", self.id)
     }
+
+    pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {
+        let ip_port = format!("{}:{}", ip, port);
+        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
+    }
+
+    pub fn from_ipstring(ip_port: String) -> P2PNodeId {
+        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
+    }
 }
 
 impl P2PPeer {
     pub fn new(ip: IpAddr, port: u16) -> Self {
-        let ip_port = format!("{}:{}", ip, port);
         P2PPeer {
             ip,
             port,
-            id: P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port))),
+            id: P2PNodeId::from_ip_port(ip, port),
         }
     }
 }
@@ -103,7 +111,7 @@ pub struct P2PNode {
     peers: HashMap<Token, TcpStream>,
     out_rx: Receiver<P2PMessage>,
     in_tx: Sender<P2PMessage>,
-    id: BigUint,
+    id: P2PNodeId,
     buckets: HashMap<u16, VecDeque<P2PPeer>>,
     map: HashMap<BigUint, Token>,
 }
@@ -119,8 +127,8 @@ impl P2PNode {
         let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], 8888);
         println!("IP: {:?}", ip_port);
 
-        let id = BigUint::from_str_radix(&utils::to_hex_string(utils::sha256(&ip_port)), 16).unwrap();
-        println!("Got ID: {:x}", id);
+        let id = P2PNodeId::from_ipstring(ip_port);
+        println!("Got ID: {}", id.clone().to_string());
 
         let poll = Poll::new().unwrap();
 
@@ -180,7 +188,7 @@ impl P2PNode {
     }
 
     pub fn distance(&self, to: &P2PPeer) -> BigUint {
-        self.id.clone() ^ to.id.id.clone()
+        self.id.id.clone() ^ to.id.id.clone()
     }
 
     pub fn insert_into_bucket(&mut self, node: P2PPeer) {
