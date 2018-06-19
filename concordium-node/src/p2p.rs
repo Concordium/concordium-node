@@ -25,10 +25,45 @@ const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
 
+pub enum Message {
+    Request(Request),
+    Reply(Reply),
+}
+
+pub enum Request {
+    Ping,
+    FindNode(String),
+}
+
+pub enum Reply {
+    Ping,
+    FindNode(Vec<P2PPeer>),
+}
+
+#[derive(Debug, Clone)]
 pub struct P2PPeer {
     ip: IpAddr,
     port: u16,
     id: BigUint,
+}
+
+pub struct P2PNodeId {
+    id: BigUint,
+}
+
+impl P2PNodeId {
+    pub fn from(sid: String) -> P2PNodeId {
+        P2PNodeId {
+            id: match BigUint::from_str_radix(&sid, 16) {
+                Ok(x) => {
+                    x
+                },
+                Err(e) => {
+                    panic!("Couldn't convert ID from hex to biguint")
+                }
+            }
+        }
+    }
 }
 
 impl P2PPeer {
@@ -56,22 +91,6 @@ impl P2PMessage {
             msg
         }
     }
-}
-
-pub struct PingMessage {
-    ok: i8,
-}
-
-pub struct PingResponse {
-    ok: i8,
-}
-
-pub struct FindNodeMessage {
-    id: str,
-}
-
-pub struct FindNodeResponse {
-    nodes: Vec<P2PPeer>,
 }
 
 pub struct P2PNode {
@@ -175,6 +194,42 @@ impl P2PNode {
                 break;
             }
         }
+    }
+
+    pub fn handle_request(&mut self, req: Request, src: P2PPeer) -> Reply {
+        self.insert_into_bucket(src);
+        match req {
+            Request::Ping => {
+                Reply::Ping
+            },
+
+            Request::FindNode(id) => {
+                Reply::FindNode(self.closest_nodes(id))
+            }
+        }
+    }
+
+    pub fn closest_nodes(&self, id: String) -> Vec<P2PPeer> {
+        let mut ret : Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
+        let mut count = 0;
+        for (_, bucket) in &self.buckets {
+            //Fix later to do correctly
+            if count < KEY_SIZE {
+                for peer in bucket {
+                    if count < KEY_SIZE {
+                        ret.push(peer.clone());
+                        count += 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                break;
+            }
+
+        }
+
+        ret
     }
 
     pub fn connect(&mut self, peer: P2PPeer) -> Result<Token, Error> {
