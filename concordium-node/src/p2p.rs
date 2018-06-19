@@ -44,15 +44,16 @@ pub enum Reply {
 pub struct P2PPeer {
     ip: IpAddr,
     port: u16,
-    id: BigUint,
+    id: P2PNodeId,
 }
 
+#[derive(Debug, Clone)]
 pub struct P2PNodeId {
     id: BigUint,
 }
 
 impl P2PNodeId {
-    pub fn from(sid: String) -> P2PNodeId {
+    pub fn from_string(sid: String) -> P2PNodeId {
         P2PNodeId {
             id: match BigUint::from_str_radix(&sid, 16) {
                 Ok(x) => {
@@ -64,17 +65,19 @@ impl P2PNodeId {
             }
         }
     }
+
+    pub fn to_string(self) -> String {
+        format!("{:x}", self.id)
+    }
 }
 
 impl P2PPeer {
     pub fn new(ip: IpAddr, port: u16) -> Self {
         let ip_port = format!("{}:{}", ip, port);
-        let id = BigUint::from_str_radix(&utils::to_hex_string(utils::sha256(&ip_port)), 16).unwrap();
-        println!("New peer with IP: {:?} and ID: {:x}", ip_port, id);
         P2PPeer {
             ip,
             port,
-            id,
+            id: P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port))),
         }
     }
 }
@@ -177,7 +180,7 @@ impl P2PNode {
     }
 
     pub fn distance(&self, to: &P2PPeer) -> BigUint {
-        self.id.clone() ^ to.id.clone()
+        self.id.clone() ^ to.id.id.clone()
     }
 
     pub fn insert_into_bucket(&mut self, node: P2PPeer) {
