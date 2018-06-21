@@ -16,10 +16,14 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::IpAddr::{V4, V6};
 use utils;
+use common::{NetworkMessage,NetworkRequest, NetworkResponse, P2PNodeId};
 use num_bigint::BigUint;
 use num_traits::Num;
 use num_bigint::ToBigUint;
 use num_traits::pow;
+use env_logger;
+#[macro_use]
+use log;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -47,6 +51,7 @@ pub struct P2PPeer {
     id: P2PNodeId,
 }
 
+/*
 #[derive(Debug, Clone)]
 pub struct P2PNodeId {
     id: BigUint,
@@ -79,6 +84,7 @@ impl P2PNodeId {
         P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
     }
 }
+*/
 
 impl P2PPeer {
     pub fn new(ip: IpAddr, port: u16) -> Self {
@@ -118,46 +124,49 @@ pub struct P2PNode {
 
 impl P2PNode {
     pub fn new(port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
-        let addr = format!("0.0.0.0:{}", port);
-        let addr = addr.parse().unwrap();
+        env_logger::try_init().ok().expect("Failed to initialize logger");
+        let addr = format!("0.0.0.0:{}", port).parse().unwrap();;
 
-        println!("Creating new P2PNode");
+        info!("Creating new P2PNode");
 
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let octets = P2PNode::get_ip().unwrap().octets();
         let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], 8888);
-        println!("IP: {:?}", ip_port);
+        info!("Listening on {:?}", ip_port);
 
         let id = P2PNodeId::from_ipstring(ip_port);
         println!("Got ID: {}", id.clone().to_string());
 
-        let poll = Poll::new().unwrap();
+        let poll = match Poll::new() {
+            Ok(x) => x,
+            _ => panic!("Couldn't create poll")
+        };
 
-        let server = TcpListener::bind(&addr).unwrap();
-        let res = poll.register(&server, SERVER, Ready::readable(), PollOpt::edge());
+        let server = match TcpListener::bind(&addr) {
+            Ok(x) => x,
+            _ => panic!("Couldn't listen on port!")
+        };
+
+        match poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()) {
+            Ok(x) => (),
+            _ => panic!("Couldn't register server with poll!")
+        };
 
         let mut buckets = HashMap::new();
         for i in 0..KEY_SIZE {
             buckets.insert(i, VecDeque::new());
         }
 
-        match res {
-            Ok(_) => {
-                P2PNode {
-                    listener: server,
-                    poll,
-                    token_counter: 1,
-                    peers: HashMap::new(),
-                    out_rx,
-                    in_tx,
-                    id: id,
-                    buckets,
-                    map: HashMap::new(),
-                }
-            },
-            Err(x) => {
-                panic!("Couldn't create server! Error: {:?}", x)
-            }
+        P2PNode {
+            listener: server,
+            poll,
+            token_counter: 1,
+            peers: HashMap::new(),
+            out_rx,
+            in_tx,
+            id: id,
+            buckets,
+            map: HashMap::new(),
         }
 
         
@@ -189,7 +198,7 @@ impl P2PNode {
     }
 
     pub fn distance(&self, to: &P2PPeer) -> BigUint {
-        self.id.id.clone() ^ to.id.id.clone()
+        self.id.get_id().clone() ^ to.id.get_id().clone()
     }
 
     pub fn insert_into_bucket(&mut self, node: P2PPeer) {
@@ -208,20 +217,7 @@ impl P2PNode {
         }
     }
 
-    pub fn handle_request(&mut self, req: Request, src: P2PPeer) -> Reply {
-        self.insert_into_bucket(src);
-        match req {
-            Request::Ping => {
-                Reply::Ping
-            },
-
-            Request::FindNode(id) => {
-                Reply::FindNode(self.closest_nodes(id))
-            }
-        }
-    }
-
-    pub fn closest_nodes(&self, id: String) -> Vec<P2PPeer> {
+    pub fn closest_nodes(&self, id: P2PNodeId) -> Vec<P2PPeer> {
         let mut ret : Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
         let mut count = 0;
         for (_, bucket) in &self.buckets {
@@ -291,7 +287,7 @@ impl P2PNode {
             //Try and write out messages
             match self.out_rx.try_recv() {
                 Ok(x) => {
-                    let peer = self.peers.get_mut(self.map.get(&x.addr.id).unwrap()).unwrap();
+                    let peer = self.peers.get_mut(self.map.get(&x.addr.get_id()).unwrap()).unwrap();
                     match peer.write(&x.msg) {
                         Ok(_) => {
                             
@@ -340,12 +336,33 @@ impl P2PNode {
                                     break;
                                 }
                                 Ok(_) => {
-                                    match self.in_tx.send(P2PMessage::new(P2PNodeId::from_ip_port("127.0.0.1".parse().unwrap(), 8888), buf.to_vec())) {
-                                        Ok(_) => {
-
+                                    match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap()) {
+                                        NetworkMessage::NetworkRequest(x) => {
+                                            match x {
+                                                NetworkRequest::Ping => {
+                                                    //Respond with pong
+                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::Pong.serialize().as_bytes());
+                                                },
+                                                NetworkRequest::FindNode(x) => {
+                                                    //Return list of nodes
+                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::FindNode(self.closest_nodes(x)).serialize().as_bytes());
+                                                }
+                                            }
                                         },
-                                        Err(e) => println!("Error sending message into channel {}", e)
-                                    };
+                                        NetworkMessage::NetworkResponse(x) => {
+                                            match x {
+                                                NetworkResponse::FindNode(id, ip, port) => {
+                                                    //Process the received node list
+                                                },
+                                                NetworkResponse::Pong => {
+                                                    //Note that node responded back
+                                                }
+                                            }
+                                        },
+                                        NetworkMessage::UnknownMessage => {
+                                            info!("Unknown message received!");
+                                        }
+                                    }
                                     
                                 },
                                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
