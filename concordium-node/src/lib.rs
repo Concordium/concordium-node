@@ -15,6 +15,7 @@ extern crate log;
 extern crate env_logger;
 
 pub mod configuration;
+pub mod common;
 pub mod ffi;
 pub mod p2p;
 pub mod utils;
