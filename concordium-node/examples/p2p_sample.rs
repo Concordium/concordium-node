@@ -12,7 +12,7 @@ use p2p_client::configuration;
 use mio::Events;
 
 fn main() {
-    env_logger::init().ok().expect("Failed to initialize logger");
+    //env_logger::init().ok().expect("Failed to initialize logger");
 
     let conf = configuration::parse_config();
     let node_ip = match conf.remote_ip {
@@ -48,7 +48,7 @@ fn main() {
         loop {
             match in_rx.try_recv() {
                 Ok(x) => {
-                    println!("Received: {:?} from {:?}", String::from_utf8(x.msg).unwrap(), x.token);
+                    //println!("Received: {:?} from {:?}", String::from_utf8(x.msg).unwrap(), x.token);
                 },
                 _ => {
 
