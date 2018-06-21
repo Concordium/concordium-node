@@ -2,12 +2,18 @@ use utils;
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::IpAddr::{V4, V6};
+use std::str::FromStr;
 
 const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
 const PROTOCOL_VERSION: &'static str = "001";
+const PROTOCOL_NODE_ID_LENGTH:usize = 64;
 
 const PROTOCOL_MESSAGE_TYPE_REQUEST_PING: &'static str = "0001";
+const PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE: &'static str = "0002";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
+const PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE: &'static str = "1002";
 
 #[derive(Debug,Clone)]
 pub enum NetworkMessage {
@@ -21,12 +27,62 @@ impl NetworkMessage {
     pub fn deserialize(bytes: &str) -> NetworkMessage {
         let protocol_name_length = PROTOCOL_NAME.len();
         let protocol_version_length = PROTOCOL_VERSION.len();
-        if( bytes[..protocol_name_length] == *PROTOCOL_NAME ) {
-            if( bytes[protocol_name_length..(protocol_name_length+protocol_version_length)] == *PROTOCOL_VERSION ) {
+        if bytes[..protocol_name_length] == *PROTOCOL_NAME  {
+            if bytes[protocol_name_length..(protocol_name_length+protocol_version_length)] == *PROTOCOL_VERSION  {
                 let message_type_id = &bytes[(protocol_name_length+protocol_version_length)..(protocol_name_length+protocol_version_length+4)];
+                let inner_msg = protocol_name_length+protocol_version_length+4;
                 match message_type_id as &str{
                     PROTOCOL_MESSAGE_TYPE_REQUEST_PING => NetworkMessage::NetworkRequest(NetworkRequest::Ping),
                     PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => NetworkMessage::NetworkResponse(NetworkResponse::Pong),
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE => {
+                        let node_id = &bytes[inner_msg..];
+                        if node_id.len() != PROTOCOL_NODE_ID_LENGTH {
+                            return NetworkMessage::InvalidMessage;
+                        }
+                        NetworkMessage::NetworkRequest(NetworkRequest::FindNode(P2PNodeId::from_string(node_id.to_string())))
+                    },
+                    PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE => {
+                        let inner_msg: &str = &bytes[inner_msg..];
+                        if inner_msg.len() != PROTOCOL_NODE_ID_LENGTH+3+12+5 &&
+                            inner_msg.len() != PROTOCOL_NODE_ID_LENGTH+3+32+5 {
+                            return NetworkMessage::InvalidMessage
+                        }
+                        let node_id = &inner_msg[..PROTOCOL_NODE_ID_LENGTH];
+                        let ip_type = &inner_msg[PROTOCOL_NODE_ID_LENGTH..(PROTOCOL_NODE_ID_LENGTH+3)];
+                        let ip_start = PROTOCOL_NODE_ID_LENGTH+3;
+                        match ip_type {
+                            "IP4" => {
+                                match IpAddr::from_str(&format!("{}.{}.{}.{}", &inner_msg[ip_start..(ip_start+3)], &inner_msg[(ip_start+3)..(ip_start+6)],
+                                    &inner_msg[(ip_start+6)..(ip_start+9)],&inner_msg[(ip_start+9)..(ip_start+12)])[..]) {
+                                    Ok(ip_addr) => {
+                                        match inner_msg[(ip_start+12)..(ip_start+17)].parse::<u16>() {
+                                            Ok(port) => {
+                                                return NetworkMessage::NetworkResponse(NetworkResponse::FindNode(P2PNodeId::from_string(node_id.to_string()), ip_addr, port));
+                                            },
+                                            Err(_) => return NetworkMessage::InvalidMessage
+                                        }
+                                    },
+                                    Err(_) => return NetworkMessage::InvalidMessage
+                                }
+                            }
+                            "IP6" => {
+                                match IpAddr::from_str(&format!("{}:{}:{}:{}:{}:{}:{}:{}", &inner_msg[ip_start..(ip_start+4)], &inner_msg[(ip_start+4)..(ip_start+8)],
+                                    &inner_msg[(ip_start+8)..(ip_start+12)],&inner_msg[(ip_start+12)..(ip_start+16)],&inner_msg[(ip_start+16)..(ip_start+20)],
+                                    &inner_msg[(ip_start+20)..(ip_start+24)],&inner_msg[(ip_start+24)..(ip_start+28)],&inner_msg[(ip_start+28)..(ip_start+32)])[..]) {
+                                    Ok(ip_addr) => {
+                                        match inner_msg[(ip_start+32)..(ip_start+37)].parse::<u16>() {
+                                            Ok(port) => {
+                                                return NetworkMessage::NetworkResponse(NetworkResponse::FindNode(P2PNodeId::from_string(node_id.to_string()), ip_addr, port));
+                                            },
+                                            Err(_) => return NetworkMessage::InvalidMessage
+                                        }
+                                    },
+                                    Err(_) => return NetworkMessage::InvalidMessage
+                                }
+                            }
+                            _ => return NetworkMessage::InvalidMessage
+                        };
+                    }
                     _ => NetworkMessage::UnknownMessage
                 }
             } else { 
@@ -47,8 +103,8 @@ pub enum NetworkRequest {
 impl NetworkRequest {
      pub fn serialize(&self) -> String {
         match self {
-            Ping => format!("{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING),
-            _ => "INVALID".to_string()
+            NetworkRequest::Ping => format!("{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING),
+            NetworkRequest::FindNode(id) => format!("{}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,id.get_id() )
         }
     }
 }
@@ -56,14 +112,20 @@ impl NetworkRequest {
 #[derive(Debug,Clone)]
 pub enum NetworkResponse {
     Pong,
-    FindNode(Vec<(P2PNodeId,u8)>)
+    FindNode(P2PNodeId,IpAddr,u16)
 }
 
 impl NetworkResponse {
      pub fn serialize(&self) -> String {
         match self {
-            Pong => format!("{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG),
-            _ => "INVALID".to_string()
+            NetworkResponse::Pong => format!("{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG),
+            NetworkResponse::FindNode(id,ip,port) => {
+                let ip_port = match ip {
+                    IpAddr::V4(ip4) => format!("IP4{:03}{:03}{:03}{:03}{:05}",ip4.octets()[0], ip4.octets()[1], ip4.octets()[2], ip4.octets()[3], port),
+                    IpAddr::V6(ip6) => format!("IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:05}",ip6.octets()[0], ip6.octets()[1], ip6.octets()[2], ip6.octets()[3], ip6.octets()[4], ip6.octets()[5], ip6.octets()[6], ip6.octets()[7],ip6.octets()[8], ip6.octets()[9], ip6.octets()[10], ip6.octets()[11], ip6.octets()[12], ip6.octets()[13], ip6.octets()[14], ip6.octets()[15], port),
+                };
+                format!("{}{}{}{:x}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE,id.get_id(), ip_port)
+            }
         }
     }
 }
@@ -80,7 +142,7 @@ impl P2PNodeId {
                 Ok(x) => {
                     x
                 },
-                Err(e) => {
+                Err(_) => {
                     panic!("Couldn't convert ID from hex to biguint")
                 }
             }
@@ -135,7 +197,55 @@ mod tests {
     }
 
     #[test]
-    pub fn reps_invalid_version() {
+    pub fn req_findnode_test() {
+        const TEST_VALUE: &str = "CONCORDIUMP2P0010002da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54b";
+        let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
+        let msg = NetworkRequest::FindNode(node_id.clone());
+        let serialized = msg.serialize();
+        assert_eq!(TEST_VALUE, serialized);
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkRequest(NetworkRequest::FindNode(id)) => id.get_id() == node_id.get_id(),
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_findnode_v4_test() {
+        const TEST_VALUE: &str = "CONCORDIUMP2P0011002da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54bIP400800800800809999";
+        let port:u16 = 9999;
+        let ipaddr = IpAddr::from_str("8.8.8.8").unwrap();
+        let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
+        let msg = NetworkResponse::FindNode(node_id.clone(),ipaddr,port);
+        let serialized = msg.serialize();
+        assert_eq!(TEST_VALUE, serialized);
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(id,ip,pport)) => id.get_id() == node_id.get_id() && 
+                ip == ipaddr && port == pport ,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_findnode_v6_test() {
+        const TEST_VALUE: &str = "CONCORDIUMP2P0011002f581c4a1ba4a996b100557507d57462a8094ecfe7a76f9f941c1de256f40d31bIP6ff8000000000000000000000deadbeaf09999";
+        let port:u16 = 9999;
+        let ipaddr = IpAddr::from_str("ff80::dead:beaf").unwrap();
+        let node_id = P2PNodeId::from_ipstring("ff80::dead:beaf".to_string());
+        let msg = NetworkResponse::FindNode(node_id.clone(),ipaddr,port);
+        let serialized = msg.serialize();
+        assert_eq!(TEST_VALUE, serialized);
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(id,ip,pport)) =>  id.get_id() == node_id.get_id() && 
+                ip == ipaddr && port == pport,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_invalid_version() {
         const TEST_VALUE:&str = "CONCORDIUMP2P0021001";
         let deserialized = NetworkMessage::deserialize(TEST_VALUE);
         assert! ( match deserialized {
@@ -145,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    pub fn reps_invalid_protocol() {
+    pub fn resp_invalid_protocol() {
         const TEST_VALUE:&str = "CONC0RD1UMP2P0021001";
         let deserialized = NetworkMessage::deserialize(TEST_VALUE);
         assert! ( match deserialized {
@@ -155,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    pub fn reps_unknown_message() {
+    pub fn resp_unknown_message() {
         const TEST_VALUE:&str = "CONCORDIUMP2P0015555";
         let deserialized = NetworkMessage::deserialize(TEST_VALUE);
         assert! ( match deserialized {
