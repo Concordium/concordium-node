@@ -91,14 +91,14 @@ impl P2PPeer {
 }
 
 pub struct P2PMessage {
-    pub token: Token,
+    pub addr: P2PNodeId,
     pub msg: Vec<u8>,
 }
 
 impl P2PMessage {
-    pub fn new(token: Token, msg: Vec<u8>) -> Self {
+    pub fn new(addr: P2PNodeId, msg: Vec<u8>) -> Self {
         P2PMessage {
-            token,
+            addr,
             msg
         }
     }
@@ -117,8 +117,9 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    pub fn new(out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
-        let addr = "0.0.0.0:8888".parse().unwrap();
+    pub fn new(port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
+        let addr = format!("0.0.0.0:{}", port);
+        let addr = addr.parse().unwrap();
 
         println!("Creating new P2PNode");
 
@@ -243,7 +244,7 @@ impl P2PNode {
         ret
     }
 
-    pub fn connect(&mut self, peer: P2PPeer) -> Result<Token, Error> {
+    pub fn connect(&mut self, peer: P2PPeer) -> Result<P2PNodeId, Error> {
         let stream = TcpStream::connect(&SocketAddr::new(peer.ip, peer.port));
         match stream {
             Ok(x) => {
@@ -252,10 +253,10 @@ impl P2PNode {
                 match res {
                     Ok(_) => {
                         self.peers.insert(token, x);
-                        self.insert_into_bucket(peer);
+                        self.insert_into_bucket(peer.clone());
                         println!("Inserting connection");
                         self.token_counter += 1;
-                        Ok(token)
+                        Ok(peer.id)
                     },
                     Err(x) => {
                         Err(x)
@@ -266,8 +267,6 @@ impl P2PNode {
                 Err(e)
             }
         }
-        
-        
     }
 
     pub fn process(&mut self, events: &mut Events, channel: &mut Receiver<P2PPeer>) {
@@ -292,7 +291,7 @@ impl P2PNode {
             //Try and write out messages
             match self.out_rx.try_recv() {
                 Ok(x) => {
-                    let peer = self.peers.get_mut(&x.token).unwrap();
+                    let peer = self.peers.get_mut(self.map.get(&x.addr.id).unwrap()).unwrap();
                     match peer.write(&x.msg) {
                         Ok(_) => {
                             
@@ -341,7 +340,7 @@ impl P2PNode {
                                     break;
                                 }
                                 Ok(_) => {
-                                    match self.in_tx.send(P2PMessage::new(y, buf.to_vec())) {
+                                    match self.in_tx.send(P2PMessage::new(P2PNodeId::from_ip_port("127.0.0.1".parse().unwrap(), 8888), buf.to_vec())) {
                                         Ok(_) => {
 
                                         },
