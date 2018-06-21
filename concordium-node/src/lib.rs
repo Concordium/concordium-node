@@ -12,6 +12,7 @@ extern crate serde;
 extern crate serde_json;
 
 pub mod configuration;
+pub mod common;
 pub mod ffi;
 pub mod p2p;
 pub mod utils;
