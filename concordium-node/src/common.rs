@@ -13,7 +13,8 @@ const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
 pub enum NetworkMessage {
     NetworkRequest(NetworkRequest),
     NetworkResponse(NetworkResponse),
-    UnknownMessage
+    UnknownMessage,
+    InvalidMessage
 }
 
 impl NetworkMessage {
@@ -24,17 +25,16 @@ impl NetworkMessage {
             if( bytes[protocol_name_length..(protocol_name_length+protocol_version_length)] == *PROTOCOL_VERSION ) {
                 let message_type_id = &bytes[(protocol_name_length+protocol_version_length)..(protocol_name_length+protocol_version_length+4)];
                 match message_type_id as &str{
-                    PROTOCOL_MESSAGE_TYPE_REQUEST_PING => {NetworkMessage::NetworkRequest(NetworkRequest::Ping)},
-                    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => {NetworkMessage::NetworkResponse(NetworkResponse::Pong)},
-                    _ => {NetworkMessage::UnknownMessage }
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_PING => NetworkMessage::NetworkRequest(NetworkRequest::Ping),
+                    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => NetworkMessage::NetworkResponse(NetworkResponse::Pong),
+                    _ => NetworkMessage::UnknownMessage
                 }
             } else { 
-                panic!("Incorrect protocol version number!");
+                NetworkMessage::InvalidMessage
             }
         } else {
-            panic!("Protocol unknown!");
+            NetworkMessage::InvalidMessage
         }
-        
     }
 }
 
@@ -130,6 +130,36 @@ mod tests {
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert! ( match deserialized {
             NetworkMessage::NetworkResponse(NetworkResponse::Pong) => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn reps_invalid_version() {
+        const TEST_VALUE:&str = "CONCORDIUMP2P0021001";
+        let deserialized = NetworkMessage::deserialize(TEST_VALUE);
+        assert! ( match deserialized {
+            NetworkMessage::InvalidMessage => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn reps_invalid_protocol() {
+        const TEST_VALUE:&str = "CONC0RD1UMP2P0021001";
+        let deserialized = NetworkMessage::deserialize(TEST_VALUE);
+        assert! ( match deserialized {
+            NetworkMessage::InvalidMessage => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn reps_unknown_message() {
+        const TEST_VALUE:&str = "CONCORDIUMP2P0015555";
+        let deserialized = NetworkMessage::deserialize(TEST_VALUE);
+        assert! ( match deserialized {
+            NetworkMessage::UnknownMessage => true,
             _ => false
         } )
     }
