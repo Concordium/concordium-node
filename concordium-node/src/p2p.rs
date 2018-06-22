@@ -16,7 +16,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::IpAddr::{V4, V6};
 use utils;
-use common::{NetworkMessage,NetworkRequest, NetworkResponse, P2PNodeId};
+use common::{NetworkMessage,NetworkRequest, NetworkResponse, P2PPeer, P2PNodeId};
 use num_bigint::BigUint;
 use num_traits::Num;
 use num_bigint::ToBigUint;
@@ -44,58 +44,6 @@ pub enum Reply {
     FindNode(Vec<P2PPeer>),
 }
 
-#[derive(Debug, Clone)]
-pub struct P2PPeer {
-    ip: IpAddr,
-    port: u16,
-    id: P2PNodeId,
-}
-
-/*
-#[derive(Debug, Clone)]
-pub struct P2PNodeId {
-    id: BigUint,
-}
-
-impl P2PNodeId {
-    pub fn from_string(sid: String) -> P2PNodeId {
-        P2PNodeId {
-            id: match BigUint::from_str_radix(&sid, 16) {
-                Ok(x) => {
-                    x
-                },
-                Err(e) => {
-                    panic!("Couldn't convert ID from hex to biguint")
-                }
-            }
-        }
-    }
-
-    pub fn to_string(self) -> String {
-        format!("{:x}", self.id)
-    }
-
-    pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {
-        let ip_port = format!("{}:{}", ip, port);
-        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
-    }
-
-    pub fn from_ipstring(ip_port: String) -> P2PNodeId {
-        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
-    }
-}
-*/
-
-impl P2PPeer {
-    pub fn new(ip: IpAddr, port: u16) -> Self {
-        P2PPeer {
-            ip,
-            port,
-            id: P2PNodeId::from_ip_port(ip, port),
-        }
-    }
-}
-
 pub struct P2PMessage {
     pub addr: P2PNodeId,
     pub msg: Vec<u8>,
@@ -118,20 +66,19 @@ pub struct P2PNode {
     out_rx: Receiver<P2PMessage>,
     in_tx: Sender<P2PMessage>,
     id: P2PNodeId,
-    buckets: HashMap<u16, VecDeque<P2PPeer>>,
+    buckets: HashMap<u16, Vec<P2PPeer>>,
     map: HashMap<BigUint, Token>,
 }
 
 impl P2PNode {
     pub fn new(port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
-        env_logger::try_init().ok().expect("Failed to initialize logger");
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();;
 
         info!("Creating new P2PNode");
 
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let octets = P2PNode::get_ip().unwrap().octets();
-        let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], 8888);
+        let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], port);
         info!("Listening on {:?}", ip_port);
 
         let id = P2PNodeId::from_ipstring(ip_port);
@@ -154,7 +101,7 @@ impl P2PNode {
 
         let mut buckets = HashMap::new();
         for i in 0..KEY_SIZE {
-            buckets.insert(i, VecDeque::new());
+            buckets.insert(i, Vec::new());
         }
 
         P2PNode {
@@ -197,23 +144,39 @@ impl P2PNode {
         }
     }
 
-    pub fn distance(&self, to: &P2PPeer) -> BigUint {
-        self.id.get_id().clone() ^ to.id.get_id().clone()
+    pub fn distance(&self, to: &P2PNodeId) -> BigUint {
+        self.id.get_id().clone() ^ to.get_id().clone()
     }
 
     pub fn insert_into_bucket(&mut self, node: P2PPeer) {
-        let dist = self.distance(&node);
+        let dist = self.distance(&node.id());
         for i in 0..KEY_SIZE {
             if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
                 let bucket = self.buckets.get_mut(&i).unwrap();
                 //Check size
                 if bucket.len() >= BUCKET_SIZE as usize {
                     //Check if front element is active
-                    bucket.pop_front();
+                    bucket.remove(0);
                 }
-                bucket.push_back(node);
+                bucket.push(node);
                 break;
             }
+        }
+    }
+
+    pub fn find_bucket_id(&mut self, id: P2PNodeId) -> Option<u16> {
+        let dist = self.distance(&id);
+        let mut ret : i32 = -1;
+        for i in 0..KEY_SIZE {
+            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
+                ret = i as i32;
+            }
+        }
+
+        if ret == -1 {
+            None
+        } else {
+            Some(ret as u16)
         }
     }
 
@@ -240,8 +203,50 @@ impl P2PNode {
         ret
     }
 
+    pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
+        info!("Sending message!");
+        //Check if ID exists in bucket
+        match self.find_bucket_id(id.clone()) {
+            Some(x) => {
+                let bucket = &self.buckets[&x];
+                //Misuse equality for now
+                let node = P2PPeer::from(id, "127.0.0.1".parse().unwrap(), 8888);
+                if bucket.contains(&node) {
+                    //Send directly to peer
+                    match bucket.binary_search(&node) {
+                        Ok(idx) => {
+                            let peer = &bucket[idx];
+                            let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()];
+                            socket.write(&msg);
+                        },
+                        Err(_) => {
+                            panic!("Should never happen ..");
+                        }
+                    }
+                    
+                } else {
+                    //Send find_node to neighbors
+                    //Let's just pick one at first
+                    let nodes = &self.closest_nodes(node.id());
+                    if nodes.len() > 0 {
+                        let neighbor = &self.closest_nodes(node.id())[0];
+                        let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()];
+                        socket.write(&NetworkRequest::FindNode(node.id()).serialize().as_bytes());
+                    } else {
+                        info!("Don't have any friends, so not sending message :(");
+                    }
+
+                }
+            },
+            None => {
+                info!("ID can't exist in any bucket!");
+            }
+        }
+
+    }
+
     pub fn connect(&mut self, peer: P2PPeer) -> Result<P2PNodeId, Error> {
-        let stream = TcpStream::connect(&SocketAddr::new(peer.ip, peer.port));
+        let stream = TcpStream::connect(&SocketAddr::new(peer.ip(), peer.port()));
         match stream {
             Ok(x) => {
                 let token = Token(self.token_counter);
@@ -251,8 +256,9 @@ impl P2PNode {
                         self.peers.insert(token, x);
                         self.insert_into_bucket(peer.clone());
                         println!("Inserting connection");
+                        self.map.insert(peer.id().get_id().clone(), token);
                         self.token_counter += 1;
-                        Ok(peer.id)
+                        Ok(peer.id())
                     },
                     Err(x) => {
                         Err(x)
@@ -284,23 +290,9 @@ impl P2PNode {
                 }
             }
 
-            //Try and write out messages
-            match self.out_rx.try_recv() {
-                Ok(x) => {
-                    let peer = self.peers.get_mut(self.map.get(&x.addr.get_id()).unwrap()).unwrap();
-                    match peer.write(&x.msg) {
-                        Ok(_) => {
-                            
-                        },
-                        Err(_) => {
-                            println!("Couldn't write message out to {}", peer.peer_addr().unwrap());
-                        }
-                    };
-                },
-                _ => {}
-            }
-
             self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
+
+            self.send_message(P2PNodeId::from_string("fe1dae582f0f1f23dd75a1adf8b6c3e4688e237127867dfc66eb79d312f76d97".to_string()), String::from("Hello world!").into_bytes());
 
             for event in events.iter() {
                 
@@ -336,31 +328,45 @@ impl P2PNode {
                                     break;
                                 }
                                 Ok(_) => {
-                                    match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap()) {
+                                    //self.insert_into_bucket(node)
+                                    match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
                                         NetworkMessage::NetworkRequest(x) => {
                                             match x {
                                                 NetworkRequest::Ping => {
                                                     //Respond with pong
-                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::Pong.serialize().as_bytes());
+                                                    info!("Got request for ping");
+                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::Pong.serialize().as_bytes()).unwrap();
                                                 },
                                                 NetworkRequest::FindNode(x) => {
                                                     //Return list of nodes
-                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::FindNode(self.closest_nodes(x)).serialize().as_bytes());
+                                                    info!("Got request for FindNode");
+                                                    let nodes = self.closest_nodes(x);
+                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::FindNode(nodes).serialize().as_bytes()).unwrap();
                                                 }
                                             }
                                         },
                                         NetworkMessage::NetworkResponse(x) => {
                                             match x {
-                                                NetworkResponse::FindNode(id, ip, port) => {
+                                                NetworkResponse::FindNode(peers) => {
+                                                    info!("Got response to FindNode");
                                                     //Process the received node list
+                                                    for peer in peers.iter() {
+                                                        self.insert_into_bucket(peer.clone());
+                                                    }
                                                 },
                                                 NetworkResponse::Pong => {
+                                                    info!("Got response for ping");
                                                     //Note that node responded back
                                                 }
                                             }
                                         },
                                         NetworkMessage::UnknownMessage => {
                                             info!("Unknown message received!");
+                                            info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
+                                        },
+                                        NetworkMessage::InvalidMessage => {
+                                            info!("Invalid message received!");
+                                            info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
                                         }
                                     }
                                     
@@ -368,7 +374,7 @@ impl P2PNode {
                                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                                     break;
                                 }
-                                e => panic!("err={:?}", e),
+                                e => (),
                             }
                         }
                     }

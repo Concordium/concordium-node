@@ -3,6 +3,7 @@ use num_bigint::BigUint;
 use num_traits::Num;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::cmp::Ordering;
 
 const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
 const PROTOCOL_VERSION: &'static str = "001";
@@ -175,6 +176,47 @@ impl P2PPeer {
             id: P2PNodeId::from_ip_port(ip, port),
         }
     }
+
+    pub fn from(id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
+        P2PPeer {
+            id,
+            ip,
+            port
+        }
+    }
+
+    pub fn id(&self) -> P2PNodeId {
+        self.id.clone()
+    }
+
+    pub fn ip(&self) -> IpAddr {
+        self.ip
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl PartialEq for P2PPeer {
+    fn eq(&self, other: &P2PPeer) -> bool {
+        self.id.id == other.id().id
+    }
+}
+
+impl Ord for P2PPeer {
+    fn cmp(&self, other: &P2PPeer) -> Ordering {
+        self.id.id.cmp(&other.id().id)
+    }
+}
+
+impl PartialOrd for P2PPeer {
+    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for P2PPeer {
 }
 
 #[derive(Debug, Clone)]
