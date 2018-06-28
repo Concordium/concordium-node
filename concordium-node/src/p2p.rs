@@ -68,6 +68,7 @@ pub struct P2PNode {
     id: P2PNodeId,
     buckets: HashMap<u16, Vec<P2PPeer>>,
     map: HashMap<BigUint, Token>,
+    send_queue: VecDeque<P2PMessage>,
 }
 
 impl P2PNode {
@@ -114,6 +115,7 @@ impl P2PNode {
             id: id,
             buckets,
             map: HashMap::new(),
+            send_queue: VecDeque::new(),
         }
 
         
@@ -203,46 +205,63 @@ impl P2PNode {
         ret
     }
 
-    pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
-        info!("Sending message!");
-        //Check if ID exists in bucket
-        match self.find_bucket_id(id.clone()) {
-            Some(x) => {
-                let bucket = &self.buckets[&x];
-                //Misuse equality for now
-                let node = P2PPeer::from(id, "127.0.0.1".parse().unwrap(), 8888);
-                if bucket.contains(&node) {
-                    //Send directly to peer
-                    match bucket.binary_search(&node) {
-                        Ok(idx) => {
-                            let peer = &bucket[idx];
-                            let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()];
-                            socket.write(&msg);
+    pub fn process_messages(&mut self) {
+        //Try to send queued messages first
+        loop {
+            match self.send_queue.pop_front() {
+                Some(x) => {
+                    //We have messages to send
+                    info!("Trying to send queued message to {:?}", x.addr);
+                    match self.find_bucket_id(x.addr.clone()) {
+                        Some(y) => {
+                            //We found the appropriate bucket where the peer should be
+                            let bucket = &self.buckets[&y];
+                            let node = P2PPeer::from(x.addr, "127.0.0.1".parse().unwrap(), 8888);
+                            if bucket.contains(&node) {
+                                //Send directly to peer
+                                match bucket.binary_search(&node) {
+                                    Ok(idx) => {
+                                        let peer = &bucket[idx];
+                                        let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()];
+                                        socket.write(&x.msg).unwrap();
+                                    },
+                                    Err(_) => {
+                                        panic!("Should never happen ..");
+                                    }
+                                }
+                            } else {
+
+                            }
                         },
-                        Err(_) => {
-                            panic!("Should never happen ..");
+                        None => {
+                            //Send find_node to neighbors
+                            //Let's just pick one at first
+                            let node = P2PPeer::from(x.addr.clone(), "127.0.0.1".parse().unwrap(), 8888);
+                            let nodes = &self.closest_nodes(node.id());
+                            if nodes.len() > 0 {
+                                let neighbor = &self.closest_nodes(node.id())[0];
+                                let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()];
+                                socket.write(&NetworkRequest::FindNode(node.id()).serialize().as_bytes()).unwrap();
+                            } else {
+                                info!("Don't have any friends, so not sending message :(");
+                            }
+
+                            //Readd message
+                            info!("Requeuing message for {:?}!", x.addr);
+                            self.send_queue.push_back(x);
                         }
                     }
-                    
-                } else {
-                    //Send find_node to neighbors
-                    //Let's just pick one at first
-                    let nodes = &self.closest_nodes(node.id());
-                    if nodes.len() > 0 {
-                        let neighbor = &self.closest_nodes(node.id())[0];
-                        let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()];
-                        socket.write(&NetworkRequest::FindNode(node.id()).serialize().as_bytes());
-                    } else {
-                        info!("Don't have any friends, so not sending message :(");
-                    }
-
+                },
+                None => {
+                    break;
                 }
-            },
-            None => {
-                info!("ID can't exist in any bucket!");
             }
         }
+    }
 
+    pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
+        info!("Queueing message!");
+        self.send_queue.push_back(P2PMessage::new(id, msg));
     }
 
     pub fn connect(&mut self, peer: P2PPeer) -> Result<P2PNodeId, Error> {
@@ -289,6 +308,8 @@ impl P2PNode {
 
                 }
             }
+
+            self.process_messages();
 
             self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
 
