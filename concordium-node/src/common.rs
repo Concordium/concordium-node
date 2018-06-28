@@ -389,8 +389,8 @@ mod tests {
     #[test]
     pub fn req_ping_test() {
         const TEST_VALUE:&str = "CONCORDIUMP2P00100013f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
-        let test_msg = NetworkRequest::Ping(SELF_PEER);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let test_msg = NetworkRequest::Ping(self_peer);
         let serialized_val = test_msg.serialize();
         assert_eq!(TEST_VALUE, serialized_val );
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
@@ -403,8 +403,8 @@ mod tests {
     #[test]
     pub fn resp_pong_test() {
         const TEST_VALUE:&str = "CONCORDIUMP2P00110013f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
-        let test_msg = NetworkResponse::Pong(SELF_PEER);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let test_msg = NetworkResponse::Pong(self_peer);
         let serialized_val = test_msg.serialize();
         assert_eq!(TEST_VALUE, serialized_val );
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
@@ -417,9 +417,9 @@ mod tests {
     #[test]
     pub fn req_findnode_test() {
         const TEST_VALUE: &str = "CONCORDIUMP2P00100023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54b";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
-        let msg = NetworkRequest::FindNode(SELF_PEER, node_id.clone());
+        let msg = NetworkRequest::FindNode(self_peer, node_id.clone());
         let serialized = msg.serialize();
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -432,8 +432,8 @@ mod tests {
     #[test]
     pub fn resp_findnode_empty_test() {
         const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999000";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
-        let msg = NetworkResponse::FindNode(SELF_PEER, vec![]);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let msg = NetworkResponse::FindNode(self_peer, vec![]);
         let serialized = msg.serialize();
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -446,10 +446,10 @@ mod tests {
     #[test]
     pub fn resp_findnode_v4_test() {
         const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999001da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54bIP400800800800809999";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let port:u16 = 9999;
         let ipaddr = IpAddr::from_str("8.8.8.8").unwrap();
-        let msg = NetworkResponse::FindNode(SELF_PEER, vec![P2PPeer::new(ipaddr,port)]);
+        let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr,port)]);
         let serialized = msg.serialize();
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -462,10 +462,10 @@ mod tests {
     #[test]
     pub fn resp_findnode_v6_test() {
         const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999001f255ab0bf31f86bb745ec10a125530130be80865b02a6020df5f754a1f840842IP6ff8000000000000000000000deadbeaf09999";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let port:u16 = 9999;
         let ipaddr = IpAddr::from_str("ff80::dead:beaf").unwrap();  
-        let msg = NetworkResponse::FindNode(SELF_PEER, vec![P2PPeer::new(ipaddr,port)]);
+        let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr,port)]);
         let serialized = msg.serialize();
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -478,11 +478,11 @@ mod tests {
     #[test]
     pub fn resp_findnode_mixed_test() {
         const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999002f255ab0bf31f86bb745ec10a125530130be80865b02a6020df5f754a1f840842IP6ff8000000000000000000000deadbeaf09999da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54bIP400800800800809999";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let port:u16 = 9999;
         let ipaddr1 = IpAddr::from_str("ff80::dead:beaf").unwrap();  
         let ipaddr2 = IpAddr::from_str("8.8.8.8").unwrap();
-        let msg = NetworkResponse::FindNode(SELF_PEER, vec![P2PPeer::new(ipaddr1,port), P2PPeer::new(ipaddr2, port)]);
+        let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr1,port), P2PPeer::new(ipaddr2, port)]);
         let serialized = msg.serialize();
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -495,14 +495,14 @@ mod tests {
     #[test]
     pub fn direct_message_test() {
         const TEST_VALUE:&str = "CONCORDIUMP2P00120013f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP4010010010010099990000000012Hello world!";
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let text_msg = String::from("Hello world!");
-        let msg = NetworkPacket::DirectMessage(SELF_PEER, text_msg.clone());
+        let msg = NetworkPacket::DirectMessage(self_peer, text_msg.clone());
         let serialized = msg.serialize();
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!( match deserialized {
-            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender, msg)) => text_msg == msg,
+            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, msg)) => text_msg == msg,
             _ => false
         })
     }
@@ -517,7 +517,7 @@ mod tests {
         assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!( match deserialized {
-            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender, msg)) => text_msg == msg,
+            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg)) => text_msg == msg,
             _ => false
         })
     }
