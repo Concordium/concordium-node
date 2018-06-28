@@ -15,6 +15,7 @@ use get_if_addrs;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::IpAddr::{V4, V6};
+use std::str::FromStr;
 use utils;
 use common::{NetworkMessage,NetworkRequest, NetworkResponse, P2PPeer, P2PNodeId};
 use num_bigint::BigUint;
@@ -28,6 +29,11 @@ use log;
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
+
+// REMOVE WHEN REPLACED!!!
+pub fn get_self_peer() -> P2PPeer {
+    P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999)
+}
 
 pub enum Message {
     Request(Request),
@@ -241,7 +247,7 @@ impl P2PNode {
                             if nodes.len() > 0 {
                                 let neighbor = &self.closest_nodes(node.id())[0];
                                 let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()];
-                                socket.write(&NetworkRequest::FindNode(node.id()).serialize().as_bytes()).unwrap();
+                                socket.write(&NetworkRequest::FindNode(get_self_peer(), node.id()).serialize().as_bytes()).unwrap();
                             } else {
                                 info!("Don't have any friends, so not sending message :(");
                             }
@@ -353,29 +359,29 @@ impl P2PNode {
                                     match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
                                         NetworkMessage::NetworkRequest(x) => {
                                             match x {
-                                                NetworkRequest::Ping => {
+                                                NetworkRequest::Ping(sender) => {
                                                     //Respond with pong
                                                     info!("Got request for ping");
-                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::Pong.serialize().as_bytes()).unwrap();
+                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes()).unwrap();
                                                 },
-                                                NetworkRequest::FindNode(x) => {
+                                                NetworkRequest::FindNode(sender, x) => {
                                                     //Return list of nodes
                                                     info!("Got request for FindNode");
                                                     let nodes = self.closest_nodes(x);
-                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::FindNode(nodes).serialize().as_bytes()).unwrap();
+                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes()).unwrap();
                                                 }
                                             }
                                         },
                                         NetworkMessage::NetworkResponse(x) => {
                                             match x {
-                                                NetworkResponse::FindNode(peers) => {
+                                                NetworkResponse::FindNode(sender, peers) => {
                                                     info!("Got response to FindNode");
                                                     //Process the received node list
                                                     for peer in peers.iter() {
                                                         self.insert_into_bucket(peer.clone());
                                                     }
                                                 },
-                                                NetworkResponse::Pong => {
+                                                NetworkResponse::Pong(sender) => {
                                                     info!("Got response for ping");
                                                     //Note that node responded back
                                                 }
