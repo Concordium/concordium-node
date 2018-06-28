@@ -17,7 +17,7 @@ use std::net::Ipv4Addr;
 use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
 use utils;
-use common::{NetworkMessage,NetworkRequest, NetworkResponse, P2PPeer, P2PNodeId};
+use common::{NetworkMessage,NetworkRequest, NetworkPacket, NetworkResponse, P2PPeer, P2PNodeId};
 use num_bigint::BigUint;
 use num_traits::Num;
 use num_bigint::ToBigUint;
@@ -387,6 +387,16 @@ impl P2PNode {
                                                 }
                                             }
                                         },
+                                        NetworkMessage::NetworkPacket(x) => {
+                                            match x {
+                                                NetworkPacket::DirectMessage(sender, msg) => {
+                                                    info!("Got {} size direct message", msg.len());
+                                                },
+                                                NetworkPacket::BroadcastedMessage(sender,msg) => {
+                                                    info!("Got {} size broadcasted packet", msg.len());
+                                                }
+                                            }
+                                        },
                                         NetworkMessage::UnknownMessage => {
                                             info!("Unknown message received!");
                                             info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
@@ -394,7 +404,7 @@ impl P2PNode {
                                         NetworkMessage::InvalidMessage => {
                                             info!("Invalid message received!");
                                             info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
-                                        }
+                                        }                                        
                                     }
                                     
                                 },
