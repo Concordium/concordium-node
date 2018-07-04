@@ -8,6 +8,7 @@ extern crate ring;
 extern crate get_if_addrs;
 extern crate num_bigint;
 extern crate num_traits;
+extern crate bincode;
 #[macro_use]
 extern crate log;
 extern crate env_logger;

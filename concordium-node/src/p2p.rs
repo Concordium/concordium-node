@@ -22,6 +22,9 @@ use num_bigint::BigUint;
 use num_traits::Num;
 use num_bigint::ToBigUint;
 use num_traits::pow;
+use bytes::{Bytes, BytesMut, Buf, BufMut};
+use bincode::{serialize, deserialize};
+
 use env_logger;
 #[macro_use]
 use log;
@@ -35,19 +38,41 @@ pub fn get_self_peer() -> P2PPeer {
     P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999)
 }
 
-pub enum Message {
-    Request(Request),
-    Reply(Reply),
+struct Connection {
+    handle: TcpStream,
+    currently_read: u64,
+    expected_size: u64,
+    buffer: Option<BytesMut>
 }
 
-pub enum Request {
-    Ping,
-    FindNode(String),
-}
+impl Connection {
+    fn new(handle: TcpStream) -> Self {
+        Connection {
+            handle: handle,
+            currently_read: 0,
+            expected_size: 0,
+            buffer: None
+        }
+    }
 
-pub enum Reply {
-    Ping,
-    FindNode(Vec<P2PPeer>),
+    pub fn append_buffer(&mut self, new_data: &[u8] ) {
+        if let Some(ref mut buf) = self.buffer {
+            buf.reserve(new_data.len());
+            buf.put_slice(new_data);
+            self.currently_read += new_data.len() as u64;
+        }
+    }
+
+    pub fn clear_buffer(&mut self) {
+        if let Some(ref mut buf) = self.buffer {
+            buf.clear();
+        }
+        self.buffer = None;
+    }
+
+    pub fn setup_buffer(&mut self) {
+        self.buffer = Some(BytesMut::with_capacity(1024));
+    }
 }
 
 pub struct P2PMessage {
@@ -68,7 +93,7 @@ pub struct P2PNode {
     listener: TcpListener,
     poll: Poll,
     token_counter: usize,
-    peers: HashMap<Token, TcpStream>,
+    peers: HashMap<Token, Connection>,
     out_rx: Receiver<P2PMessage>,
     in_tx: Sender<P2PMessage>,
     id: P2PNodeId,
@@ -228,7 +253,7 @@ impl P2PNode {
                                 match bucket.binary_search(&node) {
                                     Ok(idx) => {
                                         let peer = &bucket[idx];
-                                        let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()];
+                                        let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()].handle;
                                         socket.write(&x.msg).unwrap();
                                     },
                                     Err(_) => {
@@ -246,7 +271,7 @@ impl P2PNode {
                             let nodes = &self.closest_nodes(node.id());
                             if nodes.len() > 0 {
                                 let neighbor = &self.closest_nodes(node.id())[0];
-                                let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()];
+                                let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()].handle;
                                 socket.write(&NetworkRequest::FindNode(get_self_peer(), node.id()).serialize().as_bytes()).unwrap();
                             } else {
                                 info!("Don't have any friends, so not sending message :(");
@@ -275,10 +300,10 @@ impl P2PNode {
         match stream {
             Ok(x) => {
                 let token = Token(self.token_counter);
-                let res = self.poll.register(&x, token, Ready::readable() | Ready::writable(), PollOpt::edge());
+                let res = self.poll.register(&x, token, Ready::readable() | Ready::writable(), PollOpt::level());
                 match res {
                     Ok(_) => {
-                        self.peers.insert(token, x);
+                        self.peers.insert(token, Connection::new(x));
                         self.insert_into_bucket(peer.clone());
                         println!("Inserting connection");
                         self.map.insert(peer.id().get_id().clone(), token);
@@ -330,9 +355,11 @@ impl P2PNode {
                                 Ok((mut socket, _)) => {
                                     let token = Token(self.token_counter);
                                     println!("Accepting connection from {}", socket.peer_addr().unwrap());
-                                    self.poll.register(&socket, token, Ready::readable() | Ready::writable(), PollOpt::edge()).unwrap();
+                                    self.poll.register(&socket, token, Ready::readable() | Ready::writable(), PollOpt::level()).unwrap();
 
-                                    self.peers.insert(token, socket);
+                                    let conn = Connection::new(socket);
+
+                                    self.peers.insert(token, conn);
 
                                     self.token_counter += 1;
                                 }
@@ -346,9 +373,63 @@ impl P2PNode {
                     }
                     x => {
                         loop {
+                            match self.peers.get_mut(&x) {
+                                Some(conn) => {
+                                    if conn.expected_size > 0 && conn.currently_read == conn.expected_size {
+                                        println!("Completed file with {} size", conn.currently_read);
+                                        conn.expected_size = 0;
+                                        conn.currently_read = 0;
+                                        conn.clear_buffer();
+                                    } else if conn.expected_size > 0  {
+                                        let remainder = conn.expected_size-conn.currently_read;
+                                        if remainder < 512 {
+                                            let mut buf = vec![0u8; remainder as usize];
+                                            match conn.handle.read(&mut buf) {
+                                                Ok(_) => {
+                                                    conn.append_buffer(&buf);
+                                                }
+                                                _ => {}
+                                            }
+                                        } else {
+                                            let mut buf = [0;512];
+                                            match conn.handle.read(&mut buf) {
+                                                Ok(_) => {
+                                                    conn.append_buffer(&buf);
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+
+                                        if conn.currently_read == conn.expected_size  {
+                                            println!("Completed file with {} size", conn.currently_read);
+                                            conn.expected_size = 0;
+                                            conn.currently_read = 0;
+                                            conn.clear_buffer();
+                                        }
+                                    } else {
+                                        let mut buf = [0;8];
+                                        match conn.handle.peek(&mut buf) {
+                                            Ok(n) => {
+                                                if n == 8 {
+                                                    conn.handle.read_exact(&mut buf).unwrap();
+                                                    conn.expected_size = deserialize(&buf[..]).unwrap();
+                                                    conn.setup_buffer();
+                                                    println!("Starting new file, with expected size: {}", conn.expected_size);
+                                                }
+                                            }
+                                            _ => println!("Error getting size..!")
+                                        }
+                                    }
+                                },
+                                None => {
+                                    panic!("Couldn't find connection in peers list .. Should never have happend!");
+                                }
+                            }
                             let mut buf = [0; 256];
                             let y = x;
-                            match self.peers.get_mut(&x).unwrap().read(&mut buf) {
+
+
+                            match self.peers.get_mut(&x).unwrap().handle.read(&mut buf) {
                                 Ok(0) => {
                                     println!("Closing connection!");
                                     self.peers.remove(&x);
@@ -362,13 +443,13 @@ impl P2PNode {
                                                 NetworkRequest::Ping(sender) => {
                                                     //Respond with pong
                                                     info!("Got request for ping");
-                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes()).unwrap();
+                                                    self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes()).unwrap();
                                                 },
                                                 NetworkRequest::FindNode(sender, x) => {
                                                     //Return list of nodes
                                                     info!("Got request for FindNode");
                                                     let nodes = self.closest_nodes(x);
-                                                    self.peers.get_mut(&y).unwrap().write(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes()).unwrap();
+                                                    self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes()).unwrap();
                                                 }
                                             }
                                         },
