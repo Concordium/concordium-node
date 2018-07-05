@@ -103,18 +103,19 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    pub fn new(port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
+    pub fn new(id: String, port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();;
 
         info!("Creating new P2PNode");
 
+        
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let octets = P2PNode::get_ip().unwrap().octets();
         let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], port);
         info!("Listening on {:?}", ip_port);
 
-        let id = P2PNodeId::from_ipstring(ip_port);
-        println!("Got ID: {}", id.clone().to_string());
+        let _id = P2PNodeId::from_string(id);
+        println!("Got ID: {}", _id.clone().to_string());
 
         let poll = match Poll::new() {
             Ok(x) => x,
@@ -143,7 +144,7 @@ impl P2PNode {
             peers: HashMap::new(),
             out_rx,
             in_tx,
-            id: id,
+            id: _id,
             buckets,
             map: HashMap::new(),
             send_queue: VecDeque::new(),

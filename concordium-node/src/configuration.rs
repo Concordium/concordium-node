@@ -11,6 +11,8 @@ pub struct Config {
     pub remote_port: Option<u16>,
     #[structopt(long="listen-port", short="l", help = "Port to listen on")]
     pub listen_port: Option<u16>,
+    #[structopt(long="id", short="i", help = "Wanted ID")]
+    pub id: Option<String>,
 }
 
 pub fn parse_config() -> Config  {

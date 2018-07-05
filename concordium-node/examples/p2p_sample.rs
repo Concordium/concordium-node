@@ -11,6 +11,8 @@ use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{P2PPeer,P2PNodeId};
 use mio::Events;
+extern crate time;
+use p2p_client::utils;
 
 fn main() {
     env_logger::init();
@@ -32,10 +34,23 @@ fn main() {
         _ => 8888,
     };
 
+    let id = match conf.id {
+        Some(x) => {
+            if x.chars().count() != 32 {
+                panic!("Incorrect ID specified.. Should be a sha256 value or 32 characters long!");
+            }
+            x
+        },
+        _ => {
+            let instant = time::get_time();
+            utils::to_hex_string(utils::sha256(&format!("{}.{}", instant.sec, instant.nsec)))
+        }
+    };
+
     let (out_tx, out_rx) = mpsc::channel();
     let (in_tx, in_rx) = mpsc::channel();
 
-    let mut node = P2PNode::new(listen_port, out_rx, in_tx);
+    let mut node = P2PNode::new(id, listen_port, out_rx, in_tx);
 
     let (connect_send, mut connect_recv) = mpsc::channel();
 
