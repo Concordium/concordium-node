@@ -25,6 +25,10 @@ use num_traits::pow;
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 use bincode::{serialize, deserialize};
 use time;
+use rustls;
+use webpki;
+use std::sync::Arc;
+use rustls::Session;
 
 use env_logger;
 #[macro_use]
@@ -87,6 +91,81 @@ impl P2PMessage {
             addr,
             msg
         }
+    }
+}
+
+pub struct TlsClient {
+    socket: TcpStream,
+    closing: bool,
+    clean_closure: bool,
+    tls_session: rustls::ClientSession,
+}
+
+impl io::Read for TlsClient {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.tls_session.read(bytes)
+    }
+}
+
+impl io::Write for TlsClient {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.tls_session.write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.tls_session.flush()
+    }
+}
+
+impl TlsClient {
+    fn new(sock: TcpStream, hostname: webpki::DNSNameRef, cfg: Arc<rustls::ClientConfig>) -> TlsClient {
+        TlsClient {
+            socket: sock,
+            closing: false,
+            clean_closure: false,
+            tls_session: rustls::ClientSession::new(&cfg, hostname),
+        }
+    }
+
+    fn do_read(&mut self) {
+        let rc = self.tls_session.read_tls(&mut self.socket);
+        if rc.is_err() {
+            println!("TLS read error: {:?}", rc);
+            self.closing = true;
+            return;
+        }
+
+        if rc.unwrap() == 0 {
+            println!("EOF");
+            self.closing = true;
+            self.clean_closure = true;
+            return;
+        }
+
+        let processed = self.tls_session.process_new_packets();
+        if processed.is_err() {
+            println!("TLS error: {:?}", processed.unwrap_err());
+            self.closing = true;
+            return;
+        }
+
+        let mut plaintext = Vec::new();
+        let rc = self.tls_session.read_to_end(&mut plaintext);
+        if !plaintext.is_empty() {
+             io::stdout().write_all(&plaintext).unwrap();
+        }
+
+        if rc.is_err() {
+            let err = rc.unwrap_err();
+            println!("Plaintext read error: {:?}", err);
+            self.clean_closure = err.kind() == io::ErrorKind::ConnectionAborted;
+            self.closing = true;
+            return;
+        }
+    }
+
+    fn do_write(&mut self) {
+        self.tls_session.write_tls(&mut self.socket);
     }
 }
 
@@ -359,8 +438,6 @@ impl P2PNode {
 
             self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
 
-            self.send_message(P2PNodeId::from_string("fe1dae582f0f1f23dd75a1adf8b6c3e4688e237127867dfc66eb79d312f76d97".to_string()), String::from("Hello world!").into_bytes());
-
             for event in events.iter() {
                 
                 match event.token() {
@@ -437,7 +514,7 @@ impl P2PNode {
                                     }
                                 },
                                 None => {
-                                    panic!("Couldn't find connection in peers list .. Should never have happend!");
+                                    panic!("Couldn't find connection in peers list .. Should never have happened!");
                                 }
                             }
                             let mut buf = [0; 256];

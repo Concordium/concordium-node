@@ -14,6 +14,7 @@ extern crate rustls;
 extern crate log;
 extern crate env_logger;
 extern crate time;
+extern crate webpki;
 
 pub mod configuration;
 pub mod common;
