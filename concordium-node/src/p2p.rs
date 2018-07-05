@@ -24,6 +24,7 @@ use num_bigint::ToBigUint;
 use num_traits::pow;
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 use bincode::{serialize, deserialize};
+use time;
 
 use env_logger;
 #[macro_use]
@@ -103,7 +104,7 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    pub fn new(id: String, port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
+    pub fn new(supplied_id: Option<String>, port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();;
 
         info!("Creating new P2PNode");
@@ -113,6 +114,19 @@ impl P2PNode {
         let octets = P2PNode::get_ip().unwrap().octets();
         let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], port);
         info!("Listening on {:?}", ip_port);
+
+        let id = match supplied_id {
+            Some(x) => {
+                if x.chars().count() != 32 {
+                    panic!("Incorrect ID specified.. Should be a sha256 value or 32 characters long!");
+                }
+                x
+            },
+            _ => {
+                let instant = time::get_time();
+                utils::to_hex_string(utils::sha256(&format!("{}.{}", instant.sec, instant.nsec)))
+            }
+        };
 
         let _id = P2PNodeId::from_string(id);
         println!("Got ID: {}", _id.clone().to_string());
