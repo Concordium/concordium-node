@@ -117,8 +117,8 @@ impl P2PNode {
 
         let id = match supplied_id {
             Some(x) => {
-                if x.chars().count() != 32 {
-                    panic!("Incorrect ID specified.. Should be a sha256 value or 32 characters long!");
+                if x.chars().count() != 64 {
+                    panic!("Incorrect ID specified.. Should be a sha256 value or 64 characters long!");
                 }
                 x
             },
