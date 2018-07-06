@@ -33,6 +33,8 @@ bincode = "1.0.1"
 rustls = {version = "0.12.0", features = ["logging", "dangerous_configuration"]}
 time = "0.1.40"
 webpki = "0.18.0-alpha3"
+untrusted = "0.6.2"
+openssl = "0.10.10"
 
 [lib]
 path = "src/lib.rs"

@@ -28,7 +28,8 @@ use time;
 use rustls;
 use webpki;
 use std::sync::Arc;
-use rustls::Session;
+use rustls::{Session, ServerConfig, NoClientAuth, Certificate};
+use rustls::internal::msgs::codec::Codec;
 
 use env_logger;
 #[macro_use]
@@ -165,7 +166,7 @@ impl TlsClient {
     }
 
     fn do_write(&mut self) {
-        self.tls_session.write_tls(&mut self.socket);
+        self.tls_session.write_tls(&mut self.socket).unwrap();
     }
 }
 
@@ -207,7 +208,7 @@ impl P2PNode {
             }
         };
 
-        let _id = P2PNodeId::from_string(id);
+        let _id = P2PNodeId::from_string(id.clone());
         println!("Got ID: {}", _id.clone().to_string());
 
         let poll = match Poll::new() {
@@ -229,6 +230,12 @@ impl P2PNode {
         for i in 0..KEY_SIZE {
             buckets.insert(i, Vec::new());
         }
+
+        //Generate key pair and cert
+        let cert = Certificate::read_bytes(&utils::generate_certificate(id).unwrap().to_der().unwrap());
+
+        //TLS Server config
+        let server_conf = ServerConfig::new(NoClientAuth::new());
 
         P2PNode {
             listener: server,

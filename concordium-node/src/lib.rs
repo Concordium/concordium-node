@@ -15,6 +15,8 @@ extern crate log;
 extern crate env_logger;
 extern crate time;
 extern crate webpki;
+extern crate untrusted;
+extern crate openssl;
 
 pub mod configuration;
 pub mod common;
