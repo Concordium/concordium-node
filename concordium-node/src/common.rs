@@ -11,8 +11,10 @@ const PROTOCOL_NODE_ID_LENGTH:usize = 64;
 
 const PROTOCOL_MESSAGE_TYPE_REQUEST_PING: &'static str = "0001";
 const PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE: &'static str = "0002";
+const PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE: &'static str = "0003";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE: &'static str = "1002";
+const PROTOCOL_MESSAGE_TYPE_RESPONSE_BANNODE: &'static str = "1003";
 const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &'static str = "2001";
 const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &'static str = "2002";
 
@@ -65,6 +67,25 @@ impl NetworkMessage {
                                 let node_id = &bytes[(inner_msg_size+sender_len)..];
 
                                 NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(node_id.to_string())))
+                            },
+                            _ => NetworkMessage::InvalidMessage
+                        }
+                        
+                    },
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE => {
+                        if bytes.len() < protocol_name_length+protocol_version_length+4+PROTOCOL_NODE_ID_LENGTH+3 {
+                            return NetworkMessage::InvalidMessage;
+                        }
+                        let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
+                        match sender {
+                            Some(sender) => {
+                                let sender_len = sender.serialize().len();
+                                if bytes.len() != sender_len+protocol_name_length+protocol_version_length+4+PROTOCOL_NODE_ID_LENGTH {
+                                    return NetworkMessage::InvalidMessage;
+                                }
+                                let node_id = &bytes[(inner_msg_size+sender_len)..];
+
+                                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, P2PNodeId::from_string(node_id.to_string())))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
@@ -184,14 +205,16 @@ impl NetworkPacket {
 #[derive(Debug,Clone)]
 pub enum NetworkRequest {
     Ping(P2PPeer),
-    FindNode(P2PPeer,P2PNodeId)
+    FindNode(P2PPeer,P2PNodeId),
+    BanNode(P2PPeer, P2PNodeId),
 }
 
 impl NetworkRequest {
      pub fn serialize(&self) -> String {
         match self {
             NetworkRequest::Ping(me) => format!("{}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING, me.serialize()),
-            NetworkRequest::FindNode(me, id) => format!("{}{}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,me.serialize(), id.get_id() )
+            NetworkRequest::FindNode(me, id) => format!("{}{}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,me.serialize(), id.get_id()),
+            NetworkRequest::BanNode(me, id) => format!("{}{}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,me.serialize(), id.get_id() )
         }
     }
 }
@@ -199,7 +222,8 @@ impl NetworkRequest {
 #[derive(Debug,Clone)]
 pub enum NetworkResponse {
     Pong(P2PPeer),
-    FindNode(P2PPeer, Vec<P2PPeer>)
+    FindNode(P2PPeer, Vec<P2PPeer>),
+    BanNode(P2PPeer, bool),
 }
 
 impl NetworkResponse {
@@ -212,6 +236,9 @@ impl NetworkResponse {
                     buffer.push_str(&peer.serialize()[..]);
                 }
                 format!("{}{}{}{}{:03}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE, me.serialize(), peers.len(), buffer)
+            },
+            NetworkResponse::BanNode(me, ok) => {
+                format!("{}{}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_BANNODE, me.serialize(), ok)
             }
         }
     }

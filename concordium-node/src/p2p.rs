@@ -28,7 +28,7 @@ use time;
 use rustls;
 use webpki;
 use std::sync::Arc;
-use rustls::{Session, ServerConfig, NoClientAuth, Certificate};
+use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey};
 use rustls::internal::msgs::codec::Codec;
 
 use env_logger;
@@ -232,10 +232,26 @@ impl P2PNode {
         }
 
         //Generate key pair and cert
-        let cert = Certificate::read_bytes(&utils::generate_certificate(id).unwrap().to_der().unwrap());
+        let (cert, private_key) = match utils::generate_certificate(id) {
+            Ok(x) => {
+                match x.x509.to_der() {
+                    Ok(der) => {
+                        (Certificate(der), PrivateKey(x.private_key.private_key_to_der().unwrap()))
+                    },
+                    Err(e) => {
+                        panic!("Couldn't convert certificate to DER! {:?}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                panic!("Couldn't create certificate! {:?}", e);
+            }
+        };
 
         //TLS Server config
-        let server_conf = ServerConfig::new(NoClientAuth::new());
+        let mut server_conf = ServerConfig::new(NoClientAuth::new());
+        server_conf.set_single_cert(vec![cert], private_key);
+        //server_conf.key_log = Arc::new(rustls::KeyLogFile::new());
 
         P2PNode {
             listener: server,
@@ -549,6 +565,10 @@ impl P2PNode {
                                                     info!("Got request for FindNode");
                                                     let nodes = self.closest_nodes(x);
                                                     self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes()).unwrap();
+                                                },
+                                                NetworkRequest::BanNode(sender, x) => {
+                                                    info!("Got request for BanNode");
+                                                    self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::BanNode(get_self_peer(), true).serialize().as_bytes()).unwrap();
                                                 }
                                             }
                                         },
@@ -564,6 +584,9 @@ impl P2PNode {
                                                 NetworkResponse::Pong(sender) => {
                                                     info!("Got response for ping");
                                                     //Note that node responded back
+                                                },
+                                                NetworkResponse::BanNode(sender, ok) => {
+                                                    info!("Got response to BanNode");
                                                 }
                                             }
                                         },

@@ -1,11 +1,14 @@
 use hacl_star::sha2;
-use openssl::x509::{X509, X509Builder, X509NameBuilder, X509Name};
+use openssl::x509::{X509, X509Builder, X509NameBuilder};
+use openssl::x509::extension::SubjectAlternativeName;
 use openssl::ec::{EcGroup, EcKey};
+use openssl::rsa::Rsa;
 use openssl::nid::Nid;
-use openssl::pkey::PKey;
+use openssl::pkey::{PKey, Private};
 use openssl::bn::{BigNum, MsbOption};
 use openssl::hash::MessageDigest;
 use std::io::Error;
+use openssl::asn1::Asn1Time;
 
 pub fn sha256(input: &str) -> [u8;32] {
     let mut output = [0; 32];
@@ -20,7 +23,12 @@ pub fn to_hex_string(bytes: [u8;32]) -> String {
   strs.join("")
 }
 
-pub fn generate_certificate(id: String) -> Result<X509, Error> {
+pub struct Cert {
+  pub x509: X509,
+  pub private_key: Rsa<Private>,
+}
+
+pub fn generate_certificate(id: String) -> Result<Cert, Error> {
   let group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
   match EcKey::generate(&group) {
     Ok(private_key) => {
@@ -32,19 +40,42 @@ pub fn generate_certificate(id: String) -> Result<X509, Error> {
               name_builder.append_entry_by_text("O", "Concordium").unwrap();
               name_builder.append_entry_by_text("CN", &id).unwrap();
 
-              let pkey = PKey::from_ec_key(private_key).unwrap();
+              //let pkey = PKey::from_ec_key(private_key.clone()).unwrap();
+              let private_part = Rsa::generate(2048).unwrap();
+              let pkey = PKey::from_rsa(private_part.clone()).unwrap();
 
               let name = name_builder.build();
               builder.set_subject_name(&name).unwrap();
+              builder.set_issuer_name(&name).unwrap();
               builder.set_pubkey(&pkey).unwrap();
+              builder.set_version(2).unwrap();
+
+              builder
+                .set_not_before(&Asn1Time::days_from_now(0).unwrap())
+                .unwrap();
+
+              builder
+                .set_not_after(&Asn1Time::days_from_now(365).unwrap())
+                .unwrap();
 
               let mut serial = BigNum::new().unwrap();
               serial.rand(128, MsbOption::MAYBE_ZERO, false).unwrap();
               builder.set_serial_number(&serial.to_asn1_integer().unwrap()).unwrap();
 
+              let subject_alternative_name = SubjectAlternativeName::new()
+                .dns(&format!("{}.node.concordium.com", id))
+                .build(&builder.x509v3_context(None, None))
+                .unwrap();
+              builder.append_extension(subject_alternative_name).unwrap();
+
               builder.sign(&pkey, MessageDigest::sha256()).unwrap();
 
-              Ok(builder.build())
+              Ok(Cert 
+                  {
+                    x509: builder.build(),
+                    private_key: private_part,
+                  }
+                )
 
             },
             Err(e) => {
