@@ -28,7 +28,7 @@ use time;
 use rustls;
 use webpki;
 use std::sync::Arc;
-use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey};
+use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, ServerSession};
 use rustls::internal::msgs::codec::Codec;
 
 use env_logger;
@@ -48,16 +48,18 @@ struct Connection {
     handle: TcpStream,
     currently_read: u64,
     expected_size: u64,
-    buffer: Option<BytesMut>
+    buffer: Option<BytesMut>,
+    tls_session: ServerSession,
 }
 
 impl Connection {
-    fn new(handle: TcpStream) -> Self {
+    fn new(handle: TcpStream, tls_session: ServerSession) -> Self {
         Connection {
             handle: handle,
             currently_read: 0,
             expected_size: 0,
-            buffer: None
+            buffer: None,
+            tls_session
         }
     }
 
@@ -236,7 +238,14 @@ impl P2PNode {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {
-                        (Certificate(der), PrivateKey(x.private_key.private_key_to_der().unwrap()))
+                        match x.private_key.private_key_to_der() {
+                            Ok(private_part) => {
+                                (Certificate(der), PrivateKey(private_part))
+                            },
+                            Err(e) => {
+                                panic!("Couldn't convert certificate to DER! {:?}", e);
+                            }
+                        }
                     },
                     Err(e) => {
                         panic!("Couldn't convert certificate to DER! {:?}", e);
@@ -420,7 +429,7 @@ impl P2PNode {
                 let res = self.poll.register(&x, token, Ready::readable() | Ready::writable(), PollOpt::level());
                 match res {
                     Ok(_) => {
-                        self.peers.insert(token, Connection::new(x));
+                        //self.peers.insert(token, Connection::new(x));
                         self.insert_into_bucket(peer.clone());
                         println!("Inserting connection");
                         self.map.insert(peer.id().get_id().clone(), token);
@@ -472,9 +481,9 @@ impl P2PNode {
                                     println!("Accepting connection from {}", socket.peer_addr().unwrap());
                                     self.poll.register(&socket, token, Ready::readable() | Ready::writable(), PollOpt::level()).unwrap();
 
-                                    let conn = Connection::new(socket);
+                                    //let conn = Connection::new(socket);
 
-                                    self.peers.insert(token, conn);
+                                    //self.peers.insert(token, conn);
 
                                     self.token_counter += 1;
                                 }
@@ -580,10 +589,14 @@ impl P2PNode {
                                                     for peer in peers.iter() {
                                                         self.insert_into_bucket(peer.clone());
                                                     }
+
+                                                    self.insert_into_bucket(sender);
                                                 },
                                                 NetworkResponse::Pong(sender) => {
                                                     info!("Got response for ping");
+
                                                     //Note that node responded back
+                                                    self.insert_into_bucket(sender);
                                                 },
                                                 NetworkResponse::BanNode(sender, ok) => {
                                                     info!("Got response to BanNode");

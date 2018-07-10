@@ -124,6 +124,20 @@ impl NetworkMessage {
                             _ => NetworkMessage::InvalidMessage
                         }
                     },
+                    PROTOCOL_MESSAGE_TYPE_RESPONSE_BANNODE => {
+                        let inner_msg: &str = &bytes[inner_msg_size..];
+                        let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
+                        match sender {
+                            Some(peer) => {
+                                let sender_len = peer.serialize().len();
+                                if inner_msg.len() < (3+sender_len) {
+                                    return NetworkMessage::InvalidMessage;
+                                }
+                                NetworkMessage::NetworkResponse(NetworkResponse::BanNode(peer, true))
+                            },
+                            _ => NetworkMessage::InvalidMessage
+                        }
+                    },
                     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE => {
                         if &bytes.len() < &((inner_msg_size+10)) {
                             return NetworkMessage::InvalidMessage
@@ -547,6 +561,35 @@ mod tests {
             NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg)) => text_msg == msg,
             _ => false
         })
+    }
+
+    #[test]
+    pub fn req_bannode_test() {
+        const TEST_VALUE: &str = "CONCORDIUMP2P00100033f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54b";
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
+        let msg = NetworkRequest::BanNode(self_peer, node_id.clone());
+        let serialized = msg.serialize();
+        assert_eq!(TEST_VALUE, serialized);
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, id)) => id.get_id() == node_id.get_id(),
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_bannode_successful_test() {
+        const TEST_VALUE: &str = "CONCORDIUMP2P00110033f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999true";
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let msg = NetworkResponse::BanNode(self_peer, true);
+        let serialized = msg.serialize();
+        assert_eq!(TEST_VALUE, serialized);
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::BanNode(_, ok)) => ok ,
+            _ => false
+        } )
     }
 
     #[test]
