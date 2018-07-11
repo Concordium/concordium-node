@@ -1,7 +1,7 @@
 use mio::*;
 use mio::net::TcpListener;
 use mio::net::TcpStream;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Shutdown};
 use std::io::Error;
 use std::io::Write;
 use std::io::Read;
@@ -26,10 +26,10 @@ use bytes::{Bytes, BytesMut, Buf, BufMut};
 use bincode::{serialize, deserialize};
 use time;
 use rustls;
-use webpki;
+use webpki::DNSNameRef;
 use std::sync::Arc;
-use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, ServerSession};
-use rustls::internal::msgs::codec::Codec;
+use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
+ServerSession, ClientSession, ClientConfig, ServerCertVerifier, RootCertStore, ServerCertVerified};
 
 use env_logger;
 #[macro_use]
@@ -44,42 +44,327 @@ pub fn get_self_peer() -> P2PPeer {
     P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999)
 }
 
+struct Buckets {
+    buckets: HashMap<u16, Vec<P2PPeer>>,
+}
+
+impl Buckets {
+    fn new() -> Buckets {
+        let mut buckets = HashMap::new();
+        for i in 0..KEY_SIZE {
+            buckets.insert(i, Vec::new());
+        }
+
+        Buckets {
+            buckets,
+        }
+    }
+
+    pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> BigUint {
+        from.get_id().clone() ^ to.get_id().clone()
+    }
+
+    pub fn insert_into_bucket(&mut self, node: P2PPeer, own_id: &P2PNodeId) {
+        let dist = self.distance(&own_id, &node.id());
+        for i in 0..KEY_SIZE {
+            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
+                let bucket = self.buckets.get_mut(&i).unwrap();
+                //Check size
+                if bucket.len() >= BUCKET_SIZE as usize {
+                    //Check if front element is active
+                    bucket.remove(0);
+                }
+                bucket.push(node);
+                break;
+            }
+        }
+    }
+
+    pub fn find_bucket_id(&mut self, own_id: P2PNodeId, id: P2PNodeId) -> Option<u16> {
+        let dist = self.distance(&own_id, &id);
+        let mut ret : i32 = -1;
+        for i in 0..KEY_SIZE {
+            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
+                ret = i as i32;
+            }
+        }
+
+        if ret == -1 {
+            None
+        } else {
+            Some(ret as u16)
+        }
+    }
+
+    pub fn closest_nodes(&self, id: P2PNodeId) -> Vec<P2PPeer> {
+        let mut ret : Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
+        let mut count = 0;
+        for (_, bucket) in &self.buckets {
+            //Fix later to do correctly
+            if count < KEY_SIZE {
+                for peer in bucket {
+                    if count < KEY_SIZE {
+                        ret.push(peer.clone());
+                        count += 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                break;
+            }
+
+        }
+
+        ret
+    }
+}
+
+struct TlsServer {
+    server: TcpListener,
+    connections: HashMap<Token, Connection>,
+    next_id: usize,
+    tls_config: Arc<ServerConfig>,
+    own_id: P2PNodeId,
+}
+
+impl TlsServer {
+    fn new(server: TcpListener, cfg: Arc<ServerConfig>, own_id: P2PNodeId) -> TlsServer {
+        TlsServer {
+            server,
+            connections: HashMap::new(),
+            next_id: 2,
+            tls_config: cfg,
+            own_id,
+        }
+    }
+
+    fn accept(&mut self, poll: &mut Poll) -> bool {
+        match self.server.accept() {
+            Ok((socket, addr)) => {
+                debug!("Accepting new connection from {:?}", addr);
+
+                let tls_session = ServerSession::new(&self.tls_config);
+                let token = Token(self.next_id);
+                self.next_id += 1;
+
+                self.connections.insert(token, Connection::new(socket, token, tls_session, self.own_id.clone()));
+                self.connections[&token].register(poll);
+
+                true
+            },
+            Err(e) => {
+                println!("encountered error while accepting connection; err={:?}", e);
+                false
+            }
+        }
+    }
+
+    fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets) {
+        let token = event.token();
+        if self.connections.contains_key(&token) {
+            self.connections
+                .get_mut(&token)
+                .unwrap()
+                .ready(poll, event, &mut buckets);
+
+            if self.connections[&token].is_closed() {
+                self.connections.remove(&token);
+            }
+        }
+    }
+
+
+}
+
 struct Connection {
-    handle: TcpStream,
-    currently_read: u64,
-    expected_size: u64,
-    buffer: Option<BytesMut>,
+    socket: TcpStream,
+    token: Token,
+    closing: bool,
+    closed: bool,
     tls_session: ServerSession,
+    own_id: P2PNodeId,
 }
 
 impl Connection {
-    fn new(handle: TcpStream, tls_session: ServerSession) -> Self {
+    fn new(socket: TcpStream, token: Token, tls_session: ServerSession, own_id: P2PNodeId) -> Connection {
         Connection {
-            handle: handle,
-            currently_read: 0,
-            expected_size: 0,
-            buffer: None,
-            tls_session
+            socket,
+            token,
+            closing: false,
+            closed: false,
+            tls_session,
+            own_id
         }
     }
 
-    pub fn append_buffer(&mut self, new_data: &[u8] ) {
-        if let Some(ref mut buf) = self.buffer {
-            buf.reserve(new_data.len());
-            buf.put_slice(new_data);
-            self.currently_read += new_data.len() as u64;
+    fn register(&self, poll: &mut Poll) {
+        poll.register(&self.socket,
+                      self.token,
+                      self.event_set(),
+                      PollOpt::level() | PollOpt::oneshot())
+            .unwrap();
+    }
+
+    fn reregister(&self, poll: &mut Poll) {
+        poll.reregister(&self.socket,
+                        self.token,
+                        self.event_set(),
+                        PollOpt::level() | PollOpt::oneshot())
+            .unwrap();
+    }
+
+    fn event_set(&self) -> Ready {
+        let rd = self.tls_session.wants_read();
+        let wr = self.tls_session.wants_write();
+
+        if rd && wr {
+            Ready::readable() | Ready::writable()
+        } else if wr {
+            Ready::writable()
+        } else {
+            Ready::readable()
         }
     }
 
-    pub fn clear_buffer(&mut self) {
-        if let Some(ref mut buf) = self.buffer {
-            buf.clear();
-        }
-        self.buffer = None;
+    fn is_closed(&self) -> bool {
+        self.closed
     }
 
-    pub fn setup_buffer(&mut self) {
-        self.buffer = Some(BytesMut::with_capacity(1024));
+    fn ready(&mut self, poll: &mut Poll, ev: &Event, mut buckets: &mut Buckets) {
+        if ev.readiness().is_readable() {
+            self.do_tls_read();
+            self.try_plain_read(buckets);
+        }
+
+        if ev.readiness().is_writable() {
+            self.do_tls_write();
+        }
+
+        if self.closing && !self.tls_session.wants_write() {
+            let _ = self.socket.shutdown(Shutdown::Both);
+            self.closed = true;
+        } else {
+            self.reregister(poll);
+        }
+    }
+
+    fn do_tls_read(&mut self) {
+        let rc = self.tls_session.read_tls(&mut self.socket);
+        if rc.is_err() {
+            let err = rc.unwrap_err();
+
+            if let io::ErrorKind::WouldBlock = err.kind() {
+                return;
+            }
+
+            error!("read error {:?}", err);
+            self.closing = true;
+            return;
+        }
+
+        if rc.unwrap() == 0 {
+            debug!("eof");
+            self.closing = true;
+            return;
+        }
+
+        // Process newly-received TLS messages.
+        let processed = self.tls_session.process_new_packets();
+        if processed.is_err() {
+            error!("cannot process packet: {:?}", processed);
+            self.closing = true;
+            return;
+        }
+    }
+
+    fn try_plain_read(&mut self, mut buckets: &mut Buckets) {
+        // Read and process all available plaintext.
+        let mut buf = Vec::new();
+
+        let rc = self.tls_session.read_to_end(&mut buf);
+        if rc.is_err() {
+            error!("plaintext read failed: {:?}", rc);
+            self.closing = true;
+            return;
+        }
+
+        if !buf.is_empty() {
+            debug!("plaintext read {:?}", buf.len());
+            self.incoming_plaintext(&mut buckets, &buf);
+        }
+    }
+
+    fn incoming_plaintext(&mut self, buckets: &mut Buckets, buf: &[u8]) {
+        info!("Received plaintext!"); 
+        match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
+            NetworkMessage::NetworkRequest(x) => {
+                match x {
+                    NetworkRequest::Ping(sender) => {
+                        //Respond with pong
+                        info!("Got request for ping");
+                        self.tls_session.write_all(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes());
+                    },
+                    NetworkRequest::FindNode(sender, x) => {
+                        //Return list of nodes
+                        info!("Got request for FindNode");
+                        let nodes = buckets.closest_nodes(x);
+                        self.tls_session.write_all(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes());
+                    },
+                    NetworkRequest::BanNode(sender, x) => {
+                        info!("Got request for BanNode");
+                        self.tls_session.write_all(NetworkResponse::BanNode(get_self_peer(), true).serialize().as_bytes());
+                    }
+                }
+            },
+            NetworkMessage::NetworkResponse(x) => {
+                match x {
+                    NetworkResponse::FindNode(sender, peers) => {
+                        info!("Got response to FindNode");
+                        //Process the received node list
+                        for peer in peers.iter() {
+                            buckets.insert_into_bucket(peer.clone(), &self.own_id);
+                        }
+                        buckets.insert_into_bucket(sender, &self.own_id);
+                    },
+                    NetworkResponse::Pong(sender) => {
+                        info!("Got response for ping");
+                        //Note that node responded back
+                        buckets.insert_into_bucket(sender, &self.own_id);
+                    },
+                    NetworkResponse::BanNode(sender, ok) => {
+                        info!("Got response to BanNode");
+                    }
+                }
+            },
+            NetworkMessage::NetworkPacket(x) => {
+                match x {
+                    NetworkPacket::DirectMessage(sender, msg) => {
+                        info!("Got {} size direct message", msg.len());
+                    },
+                    NetworkPacket::BroadcastedMessage(sender,msg) => {
+                        info!("Got {} size broadcasted packet", msg.len());
+                    }
+                }
+            },
+            NetworkMessage::UnknownMessage => {
+                info!("Unknown message received!");
+                info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
+            },
+            NetworkMessage::InvalidMessage => {
+                info!("Invalid message received!");
+                info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
+            }                                        
+        }
+    }
+
+    fn do_tls_write(&mut self) {
+        let rc = self.tls_session.write_tls(&mut self.socket);
+        if rc.is_err() {
+            error!("write failed {:?}", rc);
+            self.closing = true;
+            return;
+        }
     }
 }
 
@@ -101,15 +386,10 @@ pub struct TlsClient {
     socket: TcpStream,
     closing: bool,
     clean_closure: bool,
-    tls_session: rustls::ClientSession,
+    tls_session: ClientSession,
 }
 
-impl io::Read for TlsClient {
-    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.tls_session.read(bytes)
-    }
-}
-
+/// We implement `io::Write` and pass through to the TLS session
 impl io::Write for TlsClient {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.tls_session.write(bytes)
@@ -120,17 +400,66 @@ impl io::Write for TlsClient {
     }
 }
 
+impl io::Read for TlsClient {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.tls_session.read(bytes)
+    }
+}
+
+//Disable certificate verification
+pub struct NoCertificateVerification {}
+
+impl ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(&self,
+                          _roots: &RootCertStore,
+                          _presented_certs: &[Certificate],
+                          _dns_name: DNSNameRef,
+                          _ocsp: &[u8]) -> Result<ServerCertVerified, TLSError> {
+        Ok(ServerCertVerified::assertion())
+    }
+}
+
 impl TlsClient {
-    fn new(sock: TcpStream, hostname: webpki::DNSNameRef, cfg: Arc<rustls::ClientConfig>) -> TlsClient {
+    fn new(sock: TcpStream, cfg: Arc<ClientConfig>) -> TlsClient {
+        //cfg.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification {}));
         TlsClient {
             socket: sock,
             closing: false,
             clean_closure: false,
-            tls_session: rustls::ClientSession::new(&cfg, hostname),
+            tls_session: ClientSession::new(&cfg, DNSNameRef::try_from_ascii_str("example.com").unwrap()),
         }
     }
 
+    fn ready(&mut self,
+             poll: &mut Poll,
+             ev: &Event) {
+
+        if ev.readiness().is_readable() {
+            self.do_read();
+        }
+
+        if ev.readiness().is_writable() {
+            self.do_write();
+        }
+
+        if self.is_closed() {
+            println!("Connection closed");
+        }
+
+        self.reregister(poll, ev.token());
+    }
+
+    fn read_source_to_end(&mut self, rd: &mut io::Read) -> io::Result<usize> {
+        let mut buf = Vec::new();
+        let len = rd.read_to_end(&mut buf)?;
+        self.tls_session.write_all(&buf).unwrap();
+        Ok(len)
+    }
+
+    /// We're ready to do a read.
     fn do_read(&mut self) {
+        // Read TLS data.  This fails if the underlying TCP connection
+        // is broken.
         let rc = self.tls_session.read_tls(&mut self.socket);
         if rc.is_err() {
             println!("TLS read error: {:?}", rc);
@@ -138,6 +467,7 @@ impl TlsClient {
             return;
         }
 
+        // If we're ready but there's no data: EOF.
         if rc.unwrap() == 0 {
             println!("EOF");
             self.closing = true;
@@ -145,6 +475,9 @@ impl TlsClient {
             return;
         }
 
+        // Reading some TLS data might have yielded new TLS
+        // messages to process.  Errors from this indicate
+        // TLS protocol problems and are fatal.
         let processed = self.tls_session.process_new_packets();
         if processed.is_err() {
             println!("TLS error: {:?}", processed.unwrap_err());
@@ -152,12 +485,18 @@ impl TlsClient {
             return;
         }
 
+        // Having read some TLS data, and processed any new messages,
+        // we might have new plaintext as a result.
+        //
+        // Read it and then write it to stdout.
         let mut plaintext = Vec::new();
         let rc = self.tls_session.read_to_end(&mut plaintext);
         if !plaintext.is_empty() {
-             io::stdout().write_all(&plaintext).unwrap();
+            io::stdout().write_all(&plaintext).unwrap();
         }
 
+        // If that fails, the peer might have started a clean TLS-level
+        // session closure.
         if rc.is_err() {
             let err = rc.unwrap_err();
             println!("Plaintext read error: {:?}", err);
@@ -170,27 +509,57 @@ impl TlsClient {
     fn do_write(&mut self) {
         self.tls_session.write_tls(&mut self.socket).unwrap();
     }
+
+    fn register(&self, poll: &mut Poll, token: Token) {
+        poll.register(&self.socket,
+                      token,
+                      self.ready_interest(),
+                      PollOpt::level() | PollOpt::oneshot())
+            .unwrap();
+    }
+
+    fn reregister(&self, poll: &mut Poll, token: Token) {
+        poll.reregister(&self.socket,
+                        token,
+                        self.ready_interest(),
+                        PollOpt::level() | PollOpt::oneshot())
+            .unwrap();
+    }
+
+    // Use wants_read/wants_write to register for different mio-level
+    // IO readiness events.
+    fn ready_interest(&self) -> Ready {
+        let rd = self.tls_session.wants_read();
+        let wr = self.tls_session.wants_write();
+
+        if rd && wr {
+            Ready::readable() | Ready::writable()
+        } else if wr {
+            Ready::writable()
+        } else {
+            Ready::readable()
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closing
+    }
 }
 
 pub struct P2PNode {
-    listener: TcpListener,
+    tls_server: TlsServer,
     poll: Poll,
-    token_counter: usize,
-    peers: HashMap<Token, Connection>,
-    out_rx: Receiver<P2PMessage>,
-    in_tx: Sender<P2PMessage>,
     id: P2PNodeId,
-    buckets: HashMap<u16, Vec<P2PPeer>>,
+    buckets: Buckets,
     map: HashMap<BigUint, Token>,
     send_queue: VecDeque<P2PMessage>,
 }
 
 impl P2PNode {
-    pub fn new(supplied_id: Option<String>, port: u16, out_rx: Receiver<P2PMessage>, in_tx: Sender<P2PMessage>) -> Self {
-        let addr = format!("0.0.0.0:{}", port).parse().unwrap();;
-
+    pub fn new(supplied_id: Option<String>, port: u16) -> P2PNode {
+        let addr = format!("0.0.0.0:{}", port).parse().unwrap();
+        
         info!("Creating new P2PNode");
-
         
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let octets = P2PNode::get_ip().unwrap().octets();
@@ -228,11 +597,6 @@ impl P2PNode {
             _ => panic!("Couldn't register server with poll!")
         };
 
-        let mut buckets = HashMap::new();
-        for i in 0..KEY_SIZE {
-            buckets.insert(i, Vec::new());
-        }
-
         //Generate key pair and cert
         let (cert, private_key) = match utils::generate_certificate(id) {
             Ok(x) => {
@@ -262,20 +626,76 @@ impl P2PNode {
         server_conf.set_single_cert(vec![cert], private_key);
         //server_conf.key_log = Arc::new(rustls::KeyLogFile::new());
 
+        let tlsserv = TlsServer::new(server, Arc::new(server_conf), _id.clone());
+
         P2PNode {
-            listener: server,
+            tls_server: tlsserv,
             poll,
-            token_counter: 1,
-            peers: HashMap::new(),
-            out_rx,
-            in_tx,
             id: _id,
-            buckets,
+            buckets: Buckets::new(),
             map: HashMap::new(),
             send_queue: VecDeque::new(),
         }
 
-        
+    }
+
+    pub fn process_messages(&mut self) {
+        //Try to send queued messages first
+        loop {
+            match self.send_queue.pop_front() {
+                Some(x) => {
+                    //We have messages to send
+                    info!("Trying to send queued message to {:?}", x.addr);
+                    match self.buckets.find_bucket_id(self.id.clone(), x.addr.clone()) {
+                        Some(y) => {
+                            //We found the appropriate bucket where the peer should be
+                            let bucket = &self.buckets.buckets[&y];
+                            let node = P2PPeer::from(x.addr, "127.0.0.1".parse().unwrap(), 8888);
+                            if bucket.contains(&node) {
+                                //Send directly to peer
+                                match bucket.binary_search(&node) {
+                                    Ok(idx) => {
+                                        let peer = &bucket[idx];
+                                        //let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()].handle;
+                                        //socket.write(&x.msg).unwrap();
+                                    },
+                                    Err(_) => {
+                                        panic!("Should never happen ..");
+                                    }
+                                }
+                            } else {
+
+                            }
+                        },
+                        None => {
+                            //Send find_node to neighbors
+                            //Let's just pick one at first
+                            let node = P2PPeer::from(x.addr.clone(), "127.0.0.1".parse().unwrap(), 8888);
+                            let nodes = &self.buckets.closest_nodes(node.id());
+                            if nodes.len() > 0 {
+                                let neighbor = &self.buckets.closest_nodes(node.id())[0];
+                                //let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()].handle;
+                                //socket.write(&NetworkRequest::FindNode(get_self_peer(), node.id()).serialize().as_bytes()).unwrap();
+                            } else {
+                                info!("Don't have any friends, so not sending message :(");
+                            }
+
+                            //Readd message
+                            info!("Requeuing message for {:?}!", x.addr);
+                            self.send_queue.push_back(x);
+                        }
+                    }
+                },
+                None => {
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
+        info!("Queueing message!");
+        self.send_queue.push_back(P2PMessage::new(id, msg));
     }
 
     pub fn get_ip() -> Option<Ipv4Addr>{
@@ -303,333 +723,21 @@ impl P2PNode {
         }
     }
 
-    pub fn distance(&self, to: &P2PNodeId) -> BigUint {
-        self.id.get_id().clone() ^ to.get_id().clone()
-    }
-
-    pub fn insert_into_bucket(&mut self, node: P2PPeer) {
-        let dist = self.distance(&node.id());
-        for i in 0..KEY_SIZE {
-            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
-                let bucket = self.buckets.get_mut(&i).unwrap();
-                //Check size
-                if bucket.len() >= BUCKET_SIZE as usize {
-                    //Check if front element is active
-                    bucket.remove(0);
-                }
-                bucket.push(node);
-                break;
-            }
-        }
-    }
-
-    pub fn find_bucket_id(&mut self, id: P2PNodeId) -> Option<u16> {
-        let dist = self.distance(&id);
-        let mut ret : i32 = -1;
-        for i in 0..KEY_SIZE {
-            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
-                ret = i as i32;
-            }
-        }
-
-        if ret == -1 {
-            None
-        } else {
-            Some(ret as u16)
-        }
-    }
-
-    pub fn closest_nodes(&self, id: P2PNodeId) -> Vec<P2PPeer> {
-        let mut ret : Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
-        let mut count = 0;
-        for (_, bucket) in &self.buckets {
-            //Fix later to do correctly
-            if count < KEY_SIZE {
-                for peer in bucket {
-                    if count < KEY_SIZE {
-                        ret.push(peer.clone());
-                        count += 1;
-                    } else {
-                        break;
-                    }
-                }
-            } else {
-                break;
-            }
-
-        }
-
-        ret
-    }
-
-    pub fn process_messages(&mut self) {
-        //Try to send queued messages first
+    pub fn process(&mut self, events: &mut Events) {
         loop {
-            match self.send_queue.pop_front() {
-                Some(x) => {
-                    //We have messages to send
-                    info!("Trying to send queued message to {:?}", x.addr);
-                    match self.find_bucket_id(x.addr.clone()) {
-                        Some(y) => {
-                            //We found the appropriate bucket where the peer should be
-                            let bucket = &self.buckets[&y];
-                            let node = P2PPeer::from(x.addr, "127.0.0.1".parse().unwrap(), 8888);
-                            if bucket.contains(&node) {
-                                //Send directly to peer
-                                match bucket.binary_search(&node) {
-                                    Ok(idx) => {
-                                        let peer = &bucket[idx];
-                                        let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()].handle;
-                                        socket.write(&x.msg).unwrap();
-                                    },
-                                    Err(_) => {
-                                        panic!("Should never happen ..");
-                                    }
-                                }
-                            } else {
-
-                            }
-                        },
-                        None => {
-                            //Send find_node to neighbors
-                            //Let's just pick one at first
-                            let node = P2PPeer::from(x.addr.clone(), "127.0.0.1".parse().unwrap(), 8888);
-                            let nodes = &self.closest_nodes(node.id());
-                            if nodes.len() > 0 {
-                                let neighbor = &self.closest_nodes(node.id())[0];
-                                let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()].handle;
-                                socket.write(&NetworkRequest::FindNode(get_self_peer(), node.id()).serialize().as_bytes()).unwrap();
-                            } else {
-                                info!("Don't have any friends, so not sending message :(");
-                            }
-
-                            //Readd message
-                            info!("Requeuing message for {:?}!", x.addr);
-                            self.send_queue.push_back(x);
-                        }
-                    }
-                },
-                None => {
-                    break;
-                }
-            }
-        }
-    }
-
-    pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
-        info!("Queueing message!");
-        self.send_queue.push_back(P2PMessage::new(id, msg));
-    }
-
-    pub fn connect(&mut self, peer: P2PPeer) -> Result<P2PNodeId, Error> {
-        let stream = TcpStream::connect(&SocketAddr::new(peer.ip(), peer.port()));
-        match stream {
-            Ok(x) => {
-                let token = Token(self.token_counter);
-                let res = self.poll.register(&x, token, Ready::readable() | Ready::writable(), PollOpt::level());
-                match res {
-                    Ok(_) => {
-                        //self.peers.insert(token, Connection::new(x));
-                        self.insert_into_bucket(peer.clone());
-                        println!("Inserting connection");
-                        self.map.insert(peer.id().get_id().clone(), token);
-                        self.token_counter += 1;
-                        Ok(peer.id())
-                    },
-                    Err(x) => {
-                        Err(x)
-                    }
-                }
-            },
-            Err(e) => {
-                Err(e)
-            }
-        }
-    }
-
-    pub fn process(&mut self, events: &mut Events, channel: &mut Receiver<P2PPeer>) {
-        loop {
-            //Check if we have messages to receive
-            match channel.try_recv() {
-                Ok(x) => {
-                    match self.connect(x) {
-                        Ok(_) => {
-
-                        },
-                        Err(e) => {
-                            println!("Error connecting: {}", e);
-                        }
-                    }
-                },
-                _ => {
-
-                }
-            }
-
-            self.process_messages();
-
             self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
 
             for event in events.iter() {
-                
                 match event.token() {
                     SERVER => {
-                        loop {
-                            match self.listener.accept() {
-                                Ok((mut socket, _)) => {
-                                    let token = Token(self.token_counter);
-                                    println!("Accepting connection from {}", socket.peer_addr().unwrap());
-                                    self.poll.register(&socket, token, Ready::readable() | Ready::writable(), PollOpt::level()).unwrap();
-
-                                    //let conn = Connection::new(socket);
-
-                                    //self.peers.insert(token, conn);
-
-                                    self.token_counter += 1;
-                                }
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                                    break;
-                                }
-                                e => panic!("err={:?}", e),
-                            }
-                            
+                        info!("Got new connection!");
+                        if !self.tls_server.accept(&mut self.poll) {
+                            break;
                         }
-                    }
-                    x => {
-                        loop {
-                            match self.peers.get_mut(&x) {
-                                Some(conn) => {
-                                    if conn.expected_size > 0 && conn.currently_read == conn.expected_size {
-                                        println!("Completed file with {} size", conn.currently_read);
-                                        conn.expected_size = 0;
-                                        conn.currently_read = 0;
-                                        conn.clear_buffer();
-                                    } else if conn.expected_size > 0  {
-                                        let remainder = conn.expected_size-conn.currently_read;
-                                        if remainder < 512 {
-                                            let mut buf = vec![0u8; remainder as usize];
-                                            match conn.handle.read(&mut buf) {
-                                                Ok(_) => {
-                                                    conn.append_buffer(&buf);
-                                                }
-                                                _ => {}
-                                            }
-                                        } else {
-                                            let mut buf = [0;512];
-                                            match conn.handle.read(&mut buf) {
-                                                Ok(_) => {
-                                                    conn.append_buffer(&buf);
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-
-                                        if conn.currently_read == conn.expected_size  {
-                                            println!("Completed file with {} size", conn.currently_read);
-                                            conn.expected_size = 0;
-                                            conn.currently_read = 0;
-                                            conn.clear_buffer();
-                                        }
-                                    } else {
-                                        let mut buf = [0;8];
-                                        match conn.handle.peek(&mut buf) {
-                                            Ok(n) => {
-                                                if n == 8 {
-                                                    conn.handle.read_exact(&mut buf).unwrap();
-                                                    conn.expected_size = deserialize(&buf[..]).unwrap();
-                                                    conn.setup_buffer();
-                                                    println!("Starting new file, with expected size: {}", conn.expected_size);
-                                                }
-                                            }
-                                            _ => println!("Error getting size..!")
-                                        }
-                                    }
-                                },
-                                None => {
-                                    panic!("Couldn't find connection in peers list .. Should never have happened!");
-                                }
-                            }
-                            let mut buf = [0; 256];
-                            let y = x;
-
-
-                            match self.peers.get_mut(&x).unwrap().handle.read(&mut buf) {
-                                Ok(0) => {
-                                    println!("Closing connection!");
-                                    self.peers.remove(&x);
-                                    break;
-                                }
-                                Ok(_) => {
-                                    //self.insert_into_bucket(node)
-                                    match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
-                                        NetworkMessage::NetworkRequest(x) => {
-                                            match x {
-                                                NetworkRequest::Ping(sender) => {
-                                                    //Respond with pong
-                                                    info!("Got request for ping");
-                                                    self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes()).unwrap();
-                                                },
-                                                NetworkRequest::FindNode(sender, x) => {
-                                                    //Return list of nodes
-                                                    info!("Got request for FindNode");
-                                                    let nodes = self.closest_nodes(x);
-                                                    self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes()).unwrap();
-                                                },
-                                                NetworkRequest::BanNode(sender, x) => {
-                                                    info!("Got request for BanNode");
-                                                    self.peers.get_mut(&y).unwrap().handle.write(NetworkResponse::BanNode(get_self_peer(), true).serialize().as_bytes()).unwrap();
-                                                }
-                                            }
-                                        },
-                                        NetworkMessage::NetworkResponse(x) => {
-                                            match x {
-                                                NetworkResponse::FindNode(sender, peers) => {
-                                                    info!("Got response to FindNode");
-                                                    //Process the received node list
-                                                    for peer in peers.iter() {
-                                                        self.insert_into_bucket(peer.clone());
-                                                    }
-
-                                                    self.insert_into_bucket(sender);
-                                                },
-                                                NetworkResponse::Pong(sender) => {
-                                                    info!("Got response for ping");
-
-                                                    //Note that node responded back
-                                                    self.insert_into_bucket(sender);
-                                                },
-                                                NetworkResponse::BanNode(sender, ok) => {
-                                                    info!("Got response to BanNode");
-                                                }
-                                            }
-                                        },
-                                        NetworkMessage::NetworkPacket(x) => {
-                                            match x {
-                                                NetworkPacket::DirectMessage(sender, msg) => {
-                                                    info!("Got {} size direct message", msg.len());
-                                                },
-                                                NetworkPacket::BroadcastedMessage(sender,msg) => {
-                                                    info!("Got {} size broadcasted packet", msg.len());
-                                                }
-                                            }
-                                        },
-                                        NetworkMessage::UnknownMessage => {
-                                            info!("Unknown message received!");
-                                            info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
-                                        },
-                                        NetworkMessage::InvalidMessage => {
-                                            info!("Invalid message received!");
-                                            info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
-                                        }                                        
-                                    }
-                                    
-                                },
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                                    break;
-                                }
-                                e => (),
-                            }
-                        }
+                    },
+                    _ => {
+                        info!("Got data!");
+                        self.tls_server.conn_event(&mut self.poll, &event, &mut self.buckets);
                     }
                 }
             }

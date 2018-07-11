@@ -32,18 +32,13 @@ fn main() {
         _ => 8888,
     };
 
-    let (out_tx, out_rx) = mpsc::channel();
-    let (in_tx, in_rx) = mpsc::channel();
-
-    let mut node = P2PNode::new(conf.id, listen_port, out_rx, in_tx);
-
-    let (connect_send, mut connect_recv) = mpsc::channel();
+    let mut node = P2PNode::new(conf.id, listen_port);
 
     //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
 
     let th = thread::spawn(move || {
         let mut events = Events::with_capacity(1024);
-        node.process(&mut events, &mut connect_recv);
+        node.process(&mut events);
     });
 
     th.join().unwrap();
