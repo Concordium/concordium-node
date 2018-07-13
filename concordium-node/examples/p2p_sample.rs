@@ -35,6 +35,7 @@ fn main() {
     let mut node = P2PNode::new(conf.id, listen_port);
 
     //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
+    node.connect("127.0.0.1".parse().unwrap(), 8888);
 
     let th = thread::spawn(move || {
         let mut events = Events::with_capacity(1024);

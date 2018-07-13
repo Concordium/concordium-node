@@ -126,16 +126,18 @@ struct TlsServer {
     connections: HashMap<Token, Connection>,
     next_id: usize,
     server_tls_config: Arc<ServerConfig>,
+    client_tls_config: Arc<ClientConfig>,
     own_id: P2PNodeId,
 }
 
 impl TlsServer {
-    fn new(server: TcpListener, cfg: Arc<ServerConfig>, own_id: P2PNodeId) -> TlsServer {
+    fn new(server: TcpListener, server_cfg: Arc<ServerConfig>, client_cfg: Arc<ClientConfig>, own_id: P2PNodeId) -> TlsServer {
         TlsServer {
             server,
             connections: HashMap::new(),
             next_id: 2,
-            server_tls_config: cfg,
+            server_tls_config: server_cfg,
+            client_tls_config: client_cfg,
             own_id,
         }
     }
@@ -161,8 +163,32 @@ impl TlsServer {
         }
     }
 
-    fn connect(&mut self, poll: &mut Poll, addr: String) -> {
-        
+    fn connect(&mut self, poll: &mut Poll, ip: IpAddr, port: u16) -> bool {
+        match TcpStream::connect(&SocketAddr::new(ip, port)) {
+            Ok(x) => {
+                let tls_session = ClientSession::new(&self.client_tls_config, match DNSNameRef::try_from_ascii_str(&"node.concordium.com") {
+                    Ok(x) => {
+                        x
+                    },
+                    Err(e) => {
+                        panic!("The error is: {:?}", e)
+                    }
+                });
+
+                let token = Token(self.next_id);
+                self.next_id += 1;
+
+                self.connections.insert(token, Connection::new(x, token, None, Some(tls_session), true, self.own_id.clone()));
+                self.connections[&token].register(poll);
+
+                true
+
+            },
+            Err(e) => {
+                println!("encountered error while connecting; err={:?}", e);
+                false
+            }
+        }
     } 
 
     fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets) {
@@ -557,29 +583,6 @@ impl P2PMessage {
     }
 }
 
-pub struct TlsClient {
-    socket: TcpStream,
-    closing: bool,
-    clean_closure: bool,
-    tls_session: ClientSession,
-}
-
-/// We implement `io::Write` and pass through to the TLS session
-impl io::Write for TlsClient {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.tls_session.write(bytes)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.tls_session.flush()
-    }
-}
-
-impl io::Read for TlsClient {
-    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.tls_session.read(bytes)
-    }
-}
 
 //Disable certificate verification
 pub struct NoCertificateVerification {}
@@ -594,132 +597,6 @@ impl ServerCertVerifier for NoCertificateVerification {
     }
 }
 
-impl TlsClient {
-    fn new(sock: TcpStream, cfg: Arc<ClientConfig>) -> TlsClient {
-        //cfg.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification {}));
-        TlsClient {
-            socket: sock,
-            closing: false,
-            clean_closure: false,
-            tls_session: ClientSession::new(&cfg, DNSNameRef::try_from_ascii_str("example.com").unwrap()),
-        }
-    }
-
-    fn ready(&mut self,
-             poll: &mut Poll,
-             ev: &Event) {
-
-        if ev.readiness().is_readable() {
-            self.do_read();
-        }
-
-        if ev.readiness().is_writable() {
-            self.do_write();
-        }
-
-        if self.is_closed() {
-            println!("Connection closed");
-        }
-
-        self.reregister(poll, ev.token());
-    }
-
-    fn read_source_to_end(&mut self, rd: &mut io::Read) -> io::Result<usize> {
-        let mut buf = Vec::new();
-        let len = rd.read_to_end(&mut buf)?;
-        self.tls_session.write_all(&buf).unwrap();
-        Ok(len)
-    }
-
-    /// We're ready to do a read.
-    fn do_read(&mut self) {
-        // Read TLS data.  This fails if the underlying TCP connection
-        // is broken.
-        let rc = self.tls_session.read_tls(&mut self.socket);
-        if rc.is_err() {
-            println!("TLS read error: {:?}", rc);
-            self.closing = true;
-            return;
-        }
-
-        // If we're ready but there's no data: EOF.
-        if rc.unwrap() == 0 {
-            println!("EOF");
-            self.closing = true;
-            self.clean_closure = true;
-            return;
-        }
-
-        // Reading some TLS data might have yielded new TLS
-        // messages to process.  Errors from this indicate
-        // TLS protocol problems and are fatal.
-        let processed = self.tls_session.process_new_packets();
-        if processed.is_err() {
-            println!("TLS error: {:?}", processed.unwrap_err());
-            self.closing = true;
-            return;
-        }
-
-        // Having read some TLS data, and processed any new messages,
-        // we might have new plaintext as a result.
-        //
-        // Read it and then write it to stdout.
-        let mut plaintext = Vec::new();
-        let rc = self.tls_session.read_to_end(&mut plaintext);
-        if !plaintext.is_empty() {
-            io::stdout().write_all(&plaintext).unwrap();
-        }
-
-        // If that fails, the peer might have started a clean TLS-level
-        // session closure.
-        if rc.is_err() {
-            let err = rc.unwrap_err();
-            println!("Plaintext read error: {:?}", err);
-            self.clean_closure = err.kind() == io::ErrorKind::ConnectionAborted;
-            self.closing = true;
-            return;
-        }
-    }
-
-    fn do_write(&mut self) {
-        self.tls_session.write_tls(&mut self.socket).unwrap();
-    }
-
-    fn register(&self, poll: &mut Poll, token: Token) {
-        poll.register(&self.socket,
-                      token,
-                      self.ready_interest(),
-                      PollOpt::level() | PollOpt::oneshot())
-            .unwrap();
-    }
-
-    fn reregister(&self, poll: &mut Poll, token: Token) {
-        poll.reregister(&self.socket,
-                        token,
-                        self.ready_interest(),
-                        PollOpt::level() | PollOpt::oneshot())
-            .unwrap();
-    }
-
-    // Use wants_read/wants_write to register for different mio-level
-    // IO readiness events.
-    fn ready_interest(&self) -> Ready {
-        let rd = self.tls_session.wants_read();
-        let wr = self.tls_session.wants_write();
-
-        if rd && wr {
-            Ready::readable() | Ready::writable()
-        } else if wr {
-            Ready::writable()
-        } else {
-            Ready::readable()
-        }
-    }
-
-    fn is_closed(&self) -> bool {
-        self.closing
-    }
-}
 
 pub struct P2PNode {
     tls_server: TlsServer,
@@ -801,7 +678,10 @@ impl P2PNode {
         server_conf.set_single_cert(vec![cert], private_key);
         //server_conf.key_log = Arc::new(rustls::KeyLogFile::new());
 
-        let tlsserv = TlsServer::new(server, Arc::new(server_conf), _id.clone());
+        let mut client_conf = ClientConfig::new();
+        client_conf.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification {}));
+
+        let tlsserv = TlsServer::new(server, Arc::new(server_conf), Arc::new(client_conf), _id.clone());
 
         P2PNode {
             tls_server: tlsserv,
@@ -812,6 +692,10 @@ impl P2PNode {
             send_queue: VecDeque::new(),
         }
 
+    }
+
+    pub fn connect(&mut self, ip: IpAddr, port: u16) {
+        self.tls_server.connect(&mut self.poll, ip, port);
     }
 
     pub fn process_messages(&mut self) {
@@ -901,6 +785,10 @@ impl P2PNode {
     pub fn process(&mut self, events: &mut Events) {
         loop {
             self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
+
+            self.send_message(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")), String::from("Hello world!").as_bytes().to_vec());
+
+            self.process_messages();
 
             for event in events.iter() {
                 match event.token() {
