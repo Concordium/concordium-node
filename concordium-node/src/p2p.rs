@@ -6,6 +6,7 @@ use std::io::Error;
 use std::io::Write;
 use std::io::Read;
 use std::io;
+use std::io::ErrorKind;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
@@ -124,7 +125,7 @@ struct TlsServer {
     server: TcpListener,
     connections: HashMap<Token, Connection>,
     next_id: usize,
-    tls_config: Arc<ServerConfig>,
+    server_tls_config: Arc<ServerConfig>,
     own_id: P2PNodeId,
 }
 
@@ -134,7 +135,7 @@ impl TlsServer {
             server,
             connections: HashMap::new(),
             next_id: 2,
-            tls_config: cfg,
+            server_tls_config: cfg,
             own_id,
         }
     }
@@ -144,11 +145,11 @@ impl TlsServer {
             Ok((socket, addr)) => {
                 debug!("Accepting new connection from {:?}", addr);
 
-                let tls_session = ServerSession::new(&self.tls_config);
+                let tls_session = ServerSession::new(&self.server_tls_config);
                 let token = Token(self.next_id);
                 self.next_id += 1;
 
-                self.connections.insert(token, Connection::new(socket, token, tls_session, self.own_id.clone()));
+                self.connections.insert(token, Connection::new(socket, token, Some(tls_session), None, false, self.own_id.clone()));
                 self.connections[&token].register(poll);
 
                 true
@@ -159,6 +160,10 @@ impl TlsServer {
             }
         }
     }
+
+    fn connect(&mut self, poll: &mut Poll, addr: String) -> {
+        
+    } 
 
     fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets) {
         let token = event.token();
@@ -182,18 +187,22 @@ struct Connection {
     token: Token,
     closing: bool,
     closed: bool,
-    tls_session: ServerSession,
+    tls_server_session: Option<ServerSession>,
+    tls_client_session: Option<ClientSession>,
+    initiated_by_me: bool,
     own_id: P2PNodeId,
 }
 
 impl Connection {
-    fn new(socket: TcpStream, token: Token, tls_session: ServerSession, own_id: P2PNodeId) -> Connection {
+    fn new(socket: TcpStream, token: Token, tls_server_session: Option<ServerSession>, tls_client_session: Option<ClientSession>, initiated_by_me: bool, own_id: P2PNodeId) -> Connection {
         Connection {
             socket,
             token,
             closing: false,
             closed: false,
-            tls_session,
+            tls_server_session,
+            tls_client_session,
+            initiated_by_me,
             own_id
         }
     }
@@ -215,8 +224,38 @@ impl Connection {
     }
 
     fn event_set(&self) -> Ready {
-        let rd = self.tls_session.wants_read();
-        let wr = self.tls_session.wants_write();
+        let mut rd = false;
+        let mut wr = false;
+        match self.initiated_by_me {
+            true => {
+                rd = match self.tls_client_session {
+                    Some(ref x) => {
+                        x.wants_read()
+                    },
+                    _ => false,
+                };
+                wr = match self.tls_client_session {
+                    Some(ref x) => {
+                        x.wants_write()
+                    },
+                    _ => false,
+                };
+            },
+            false => {
+                rd = match self.tls_server_session {
+                    Some(ref x) => {
+                        x.wants_read()
+                    },
+                    _ => false,
+                };
+                wr = match self.tls_server_session {
+                    Some(ref x) => {
+                        x.wants_write()
+                    },
+                    _ => false,
+                };
+            }
+        };
 
         if rd && wr {
             Ready::readable() | Ready::writable()
@@ -241,16 +280,61 @@ impl Connection {
             self.do_tls_write();
         }
 
-        if self.closing && !self.tls_session.wants_write() {
-            let _ = self.socket.shutdown(Shutdown::Both);
-            self.closed = true;
-        } else {
-            self.reregister(poll);
-        }
+        match self.initiated_by_me {
+            true => {
+                if self.closing && !match self.tls_client_session {
+                    Some(ref x) => {
+                        x.wants_read()
+                    },
+                    _ => false,
+                } {
+                    let _ = self.socket.shutdown(Shutdown::Both);
+                    self.closed = true;
+                } else {
+                    self.reregister(poll);
+                }
+            },
+            false => {
+                if self.closing && !match self.tls_server_session {
+                    Some(ref x) => {
+                        x.wants_read()
+                    },
+                    _ => false,
+                } {
+                    let _ = self.socket.shutdown(Shutdown::Both);
+                    self.closed = true;
+                } else {
+                    self.reregister(poll);
+                }
+            }
+        };
+
     }
 
     fn do_tls_read(&mut self) {
-        let rc = self.tls_session.read_tls(&mut self.socket);
+        let rc = match self.initiated_by_me {
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => {
+                        x.read_tls(&mut self.socket)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            },
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => {
+                        x.read_tls(&mut self.socket)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            }
+        };
+
         if rc.is_err() {
             let err = rc.unwrap_err();
 
@@ -270,7 +354,29 @@ impl Connection {
         }
 
         // Process newly-received TLS messages.
-        let processed = self.tls_session.process_new_packets();
+        let processed = match self.initiated_by_me {
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => {
+                        x.process_new_packets()
+                    },
+                    None => {
+                        Err(TLSError::General(String::from("Couldn't find session!")))
+                    }
+                }
+            },
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => {
+                        x.process_new_packets()
+                    },
+                    None => {
+                        Err(TLSError::General(String::from("Couldn't find session!")))
+                    }
+                }
+            }
+        };
+
         if processed.is_err() {
             error!("cannot process packet: {:?}", processed);
             self.closing = true;
@@ -282,7 +388,29 @@ impl Connection {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
-        let rc = self.tls_session.read_to_end(&mut buf);
+        let rc = match self.initiated_by_me {
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => {
+                        x.read_to_end(&mut buf)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            },
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => {
+                        x.read_to_end(&mut buf)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            }
+        };
+
         if rc.is_err() {
             error!("plaintext read failed: {:?}", rc);
             self.closing = true;
@@ -295,6 +423,31 @@ impl Connection {
         }
     }
 
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error>{
+        match self.initiated_by_me {
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => {
+                        x.write_all(bytes)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            },
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => {
+                        x.write_all(bytes)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            }
+        }
+    }
+
     fn incoming_plaintext(&mut self, buckets: &mut Buckets, buf: &[u8]) {
         info!("Received plaintext!"); 
         match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
@@ -303,17 +456,17 @@ impl Connection {
                     NetworkRequest::Ping(sender) => {
                         //Respond with pong
                         info!("Got request for ping");
-                        self.tls_session.write_all(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes());
+                        self.write_all(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes());
                     },
                     NetworkRequest::FindNode(sender, x) => {
                         //Return list of nodes
                         info!("Got request for FindNode");
                         let nodes = buckets.closest_nodes(x);
-                        self.tls_session.write_all(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes());
+                        self.write_all(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes());
                     },
                     NetworkRequest::BanNode(sender, x) => {
                         info!("Got request for BanNode");
-                        self.tls_session.write_all(NetworkResponse::BanNode(get_self_peer(), true).serialize().as_bytes());
+                        self.write_all(NetworkResponse::BanNode(get_self_peer(), true).serialize().as_bytes());
                     }
                 }
             },
@@ -359,7 +512,29 @@ impl Connection {
     }
 
     fn do_tls_write(&mut self) {
-        let rc = self.tls_session.write_tls(&mut self.socket);
+        let rc = match self.initiated_by_me {
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => {
+                        x.write_tls(&mut self.socket)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            },
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => {
+                        x.write_tls(&mut self.socket)
+                    },
+                    None => {
+                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
+                    }
+                }
+            }
+        };
+
         if rc.is_err() {
             error!("write failed {:?}", rc);
             self.closing = true;
