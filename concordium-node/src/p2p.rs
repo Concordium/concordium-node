@@ -31,6 +31,7 @@ use webpki::DNSNameRef;
 use std::sync::Arc;
 use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
 ServerSession, ClientSession, ClientConfig, ServerCertVerifier, RootCertStore, ServerCertVerified};
+use std::sync::mpsc;
 
 use env_logger;
 #[macro_use]
@@ -43,6 +44,13 @@ const KEY_SIZE: u16 = 256;
 // REMOVE WHEN REPLACED!!!
 pub fn get_self_peer() -> P2PPeer {
     P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999)
+}
+
+pub enum P2PEvent {
+    ConnectEvent(String, u16),
+    DisconnectEvent(String),
+    ReceivedMessageEvent(P2PNodeId),
+    SentMessageEvent(P2PNodeId)
 }
 
 struct Buckets {
@@ -128,10 +136,11 @@ struct TlsServer {
     server_tls_config: Arc<ServerConfig>,
     client_tls_config: Arc<ClientConfig>,
     own_id: P2PNodeId,
+    event_log: Option<Sender<P2PEvent>>,
 }
 
 impl TlsServer {
-    fn new(server: TcpListener, server_cfg: Arc<ServerConfig>, client_cfg: Arc<ClientConfig>, own_id: P2PNodeId) -> TlsServer {
+    fn new(server: TcpListener, server_cfg: Arc<ServerConfig>, client_cfg: Arc<ClientConfig>, own_id: P2PNodeId, event_log: Option<Sender<P2PEvent>>) -> TlsServer {
         TlsServer {
             server,
             connections: HashMap::new(),
@@ -139,6 +148,7 @@ impl TlsServer {
             server_tls_config: server_cfg,
             client_tls_config: client_cfg,
             own_id,
+            event_log,
         }
     }
 
@@ -146,6 +156,12 @@ impl TlsServer {
         match self.server.accept() {
             Ok((socket, addr)) => {
                 debug!("Accepting new connection from {:?}", addr);
+                match self.event_log {
+                    Some(ref mut x) => {
+                        x.send(P2PEvent::ConnectEvent(format!("{}", addr.ip()), addr.port()));
+                    },
+                    _ => {},
+                }
 
                 let tls_session = ServerSession::new(&self.server_tls_config);
                 let token = Token(self.next_id);
@@ -180,6 +196,12 @@ impl TlsServer {
 
                 self.connections.insert(token, Connection::new(x, token, None, Some(tls_session), true, self.own_id.clone()));
                 self.connections[&token].register(poll);
+                match self.event_log {
+                    Some(ref mut x) => {
+                        x.send(P2PEvent::ConnectEvent(ip.to_string(), port));
+                    },
+                    _ => {},
+                }
 
                 true
 
@@ -477,7 +499,7 @@ impl Connection {
     fn incoming_plaintext(&mut self, buckets: &mut Buckets, buf: &[u8]) {
         info!("Received plaintext!"); 
         match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
-            NetworkMessage::NetworkRequest(x) => {
+            NetworkMessage::NetworkRequest(x,_,_) => {
                 match x {
                     NetworkRequest::Ping(sender) => {
                         //Respond with pong
@@ -492,11 +514,19 @@ impl Connection {
                     },
                     NetworkRequest::BanNode(sender, x) => {
                         info!("Got request for BanNode");
-                        self.write_all(NetworkResponse::BanNode(get_self_peer(), true).serialize().as_bytes());
+                    },
+                    NetworkRequest::UnbanNode(sender, x) => {
+                        info!("Got request for UnbanNode");
+                    },
+                    NetworkRequest::Handshake(sender) => {
+                        info!("Got request for Handshake");
+                    },
+                    NetworkRequest::GetPeers(sender) => {
+                        info!("Got request for GetPeers");
                     }
                 }
             },
-            NetworkMessage::NetworkResponse(x) => {
+            NetworkMessage::NetworkResponse(x, _,_) => {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         info!("Got response to FindNode");
@@ -511,14 +541,19 @@ impl Connection {
                         //Note that node responded back
                         buckets.insert_into_bucket(sender, &self.own_id);
                     },
-                    NetworkResponse::BanNode(sender, ok) => {
-                        info!("Got response to BanNode");
+                    NetworkResponse::PeerList(sender, peers) => {
+                        info!("Got response to FindNode");
+                        //Process the received node list
+                        for peer in peers.iter() {
+                            buckets.insert_into_bucket(peer.clone(), &self.own_id);
+                        }
+                        buckets.insert_into_bucket(sender, &self.own_id);
                     }
                 }
             },
-            NetworkMessage::NetworkPacket(x) => {
+            NetworkMessage::NetworkPacket(x, _,_ ) => {
                 match x {
-                    NetworkPacket::DirectMessage(sender, msg) => {
+                    NetworkPacket::DirectMessage(sender,receiver, msg) => {
                         info!("Got {} size direct message", msg.len());
                     },
                     NetworkPacket::BroadcastedMessage(sender,msg) => {
@@ -569,20 +604,6 @@ impl Connection {
     }
 }
 
-pub struct P2PMessage {
-    pub addr: P2PNodeId,
-    pub msg: Vec<u8>,
-}
-
-impl P2PMessage {
-    pub fn new(addr: P2PNodeId, msg: Vec<u8>) -> Self {
-        P2PMessage {
-            addr,
-            msg
-        }
-    }
-}
-
 
 //Disable certificate verification
 pub struct NoCertificateVerification {}
@@ -604,17 +625,21 @@ pub struct P2PNode {
     id: P2PNodeId,
     buckets: Buckets,
     map: HashMap<BigUint, Token>,
-    send_queue: VecDeque<P2PMessage>,
+    send_queue: VecDeque<NetworkPacket>,
+    ip: Ipv4Addr,
+    port: u16,
+    event_log: Option<mpsc::Sender<P2PEvent>>,
 }
 
 impl P2PNode {
-    pub fn new(supplied_id: Option<String>, port: u16) -> P2PNode {
+    pub fn new(supplied_id: Option<String>, port: u16, event_log: Option<mpsc::Sender<P2PEvent>>) -> P2PNode {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();
         
         info!("Creating new P2PNode");
         
         //Retrieve IP address octets, format to IP and SHA256 hash it
-        let octets = P2PNode::get_ip().unwrap().octets();
+        let ip = P2PNode::get_ip().unwrap();
+        let octets = ip.octets();
         let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], port);
         info!("Listening on {:?}", ip_port);
 
@@ -645,7 +670,7 @@ impl P2PNode {
         };
 
         match poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()) {
-            Ok(x) => (),
+            Ok(_x) => (),
             _ => panic!("Couldn't register server with poll!")
         };
 
@@ -681,7 +706,7 @@ impl P2PNode {
         let mut client_conf = ClientConfig::new();
         client_conf.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification {}));
 
-        let tlsserv = TlsServer::new(server, Arc::new(server_conf), Arc::new(client_conf), _id.clone());
+        let tlsserv = TlsServer::new(server, Arc::new(server_conf), Arc::new(client_conf), _id.clone(), event_log.clone());
 
         P2PNode {
             tls_server: tlsserv,
@@ -690,6 +715,9 @@ impl P2PNode {
             buckets: Buckets::new(),
             map: HashMap::new(),
             send_queue: VecDeque::new(),
+            ip: ip,
+            port: port,
+            event_log,
         }
 
     }
@@ -703,45 +731,12 @@ impl P2PNode {
         loop {
             match self.send_queue.pop_front() {
                 Some(x) => {
-                    //We have messages to send
-                    info!("Trying to send queued message to {:?}", x.addr);
-                    match self.buckets.find_bucket_id(self.id.clone(), x.addr.clone()) {
-                        Some(y) => {
-                            //We found the appropriate bucket where the peer should be
-                            let bucket = &self.buckets.buckets[&y];
-                            let node = P2PPeer::from(x.addr, "127.0.0.1".parse().unwrap(), 8888);
-                            if bucket.contains(&node) {
-                                //Send directly to peer
-                                match bucket.binary_search(&node) {
-                                    Ok(idx) => {
-                                        let peer = &bucket[idx];
-                                        //let mut socket = &self.peers[self.map.get(peer.id().get_id()).unwrap()].handle;
-                                        //socket.write(&x.msg).unwrap();
-                                    },
-                                    Err(_) => {
-                                        panic!("Should never happen ..");
-                                    }
-                                }
-                            } else {
+                    match x {
+                        NetworkPacket::DirectMessage(me, receiver, msg) => {
 
-                            }
                         },
-                        None => {
-                            //Send find_node to neighbors
-                            //Let's just pick one at first
-                            let node = P2PPeer::from(x.addr.clone(), "127.0.0.1".parse().unwrap(), 8888);
-                            let nodes = &self.buckets.closest_nodes(node.id());
-                            if nodes.len() > 0 {
-                                let neighbor = &self.buckets.closest_nodes(node.id())[0];
-                                //let mut socket = &self.peers[self.map.get(neighbor.id().get_id()).unwrap()].handle;
-                                //socket.write(&NetworkRequest::FindNode(get_self_peer(), node.id()).serialize().as_bytes()).unwrap();
-                            } else {
-                                info!("Don't have any friends, so not sending message :(");
-                            }
+                        NetworkPacket::BroadcastedMessage(me, msg) => {
 
-                            //Readd message
-                            info!("Requeuing message for {:?}!", x.addr);
-                            self.send_queue.push_back(x);
                         }
                     }
                 },
@@ -754,7 +749,7 @@ impl P2PNode {
 
     pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
         info!("Queueing message!");
-        self.send_queue.push_back(P2PMessage::new(id, msg));
+        //self.send_queue.push_back(P2PMessage::new(id, msg));
     }
 
     pub fn get_ip() -> Option<Ipv4Addr>{

@@ -32,7 +32,10 @@ fn main() {
         _ => 8888,
     };
 
-    let mut node = P2PNode::new(conf.id, listen_port);
+    //Event log
+    let (sender, receiver) = mpsc::channel();
+
+    let mut node = P2PNode::new(conf.id, listen_port, Some(sender));
 
     //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
     node.connect("127.0.0.1".parse().unwrap(), 8888);
