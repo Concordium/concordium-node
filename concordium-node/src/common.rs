@@ -4,25 +4,31 @@ use num_traits::Num;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::cmp::Ordering;
+use bincode::{serialize, deserialize};
+use time;
 
 const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
 const PROTOCOL_VERSION: &'static str = "001";
 const PROTOCOL_NODE_ID_LENGTH:usize = 64;
+const PROTOCOL_SENT_TIMESTAMP_LENGTH:usize = 16;
 
 const PROTOCOL_MESSAGE_TYPE_REQUEST_PING: &'static str = "0001";
 const PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE: &'static str = "0002";
-const PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE: &'static str = "0003";
+const PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE: &'static str = "0003";
+const PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS: &'static str = "0004";
+const PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE: &'static str = "0005";
+const PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE: &'static str = "0006";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE: &'static str = "1002";
-const PROTOCOL_MESSAGE_TYPE_RESPONSE_BANNODE: &'static str = "1003";
+const PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST: &'static str = "1003";
 const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &'static str = "2001";
 const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &'static str = "2002";
 
 #[derive(Debug,Clone)]
 pub enum NetworkMessage {
-    NetworkRequest(NetworkRequest),
-    NetworkResponse(NetworkResponse),
-    NetworkPacket(NetworkPacket),
+    NetworkRequest(NetworkRequest, Option<u64>, Option<u64>),
+    NetworkResponse(NetworkResponse, Option<u64>, Option<u64>),
+    NetworkPacket(NetworkPacket, Option<u64>, Option<u64>),
     UnknownMessage,
     InvalidMessage
 }
@@ -33,59 +39,89 @@ impl NetworkMessage {
         let protocol_version_length = PROTOCOL_VERSION.len();
         if bytes.len() >= protocol_name_length && bytes[..protocol_name_length] == *PROTOCOL_NAME  {
             if bytes.len() >= protocol_name_length+protocol_version_length && bytes[protocol_name_length..(protocol_name_length+protocol_version_length)] == *PROTOCOL_VERSION  {
-                if bytes.len() < protocol_name_length+protocol_version_length+4 {
+                if bytes.len() < protocol_name_length+protocol_version_length+4+PROTOCOL_SENT_TIMESTAMP_LENGTH {
                     return NetworkMessage::InvalidMessage;
                 }
-                let message_type_id = &bytes[(protocol_name_length+protocol_version_length)..(protocol_name_length+protocol_version_length+4)];
-                let inner_msg_size = protocol_name_length+protocol_version_length+4;
+                let timestamp_bytes = &bytes[(protocol_name_length+protocol_version_length)..(protocol_name_length+protocol_version_length+PROTOCOL_SENT_TIMESTAMP_LENGTH)];
+                let timestamp = match u64::from_str_radix(timestamp_bytes, 16) {
+                    Ok(n) => n,
+                    _ => return NetworkMessage::InvalidMessage
+                };
+                let header = protocol_name_length+protocol_version_length+PROTOCOL_SENT_TIMESTAMP_LENGTH;
+                let message_type_id = &bytes[header..(header+4)];
+                let inner_msg_size = header+4;
                 match message_type_id as &str{
                     PROTOCOL_MESSAGE_TYPE_REQUEST_PING => {
                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
-                            Some(peer) => NetworkMessage::NetworkRequest(NetworkRequest::Ping(peer)),
+                            Some(peer) => NetworkMessage::NetworkRequest(NetworkRequest::Ping(peer),  Some(timestamp), Some(get_current_stamp())),
                             _ => NetworkMessage::InvalidMessage
                         }
                     },
                     PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => {
                          let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
-                            Some(peer) => NetworkMessage::NetworkResponse(NetworkResponse::Pong(peer)),
+                            Some(peer) => NetworkMessage::NetworkResponse(NetworkResponse::Pong(peer),  Some(timestamp), Some(get_current_stamp())),
+                            _ => NetworkMessage::InvalidMessage
+                        }
+                    },
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS => {
+                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
+                        match sender {
+                            Some(peer) => NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(peer),  Some(timestamp), Some(get_current_stamp())),
+                            _ => NetworkMessage::InvalidMessage
+                        }
+                    },
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE => {
+                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
+                        match sender {
+                            Some(peer) => NetworkMessage::NetworkRequest(NetworkRequest::Handshake(peer),  Some(timestamp), Some(get_current_stamp())),
                             _ => NetworkMessage::InvalidMessage
                         }
                     },
                     PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE => {
-                        if bytes.len() < protocol_name_length+protocol_version_length+4+PROTOCOL_NODE_ID_LENGTH+3 {
-                            return NetworkMessage::InvalidMessage;
-                        }
                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
                             Some(sender) => {
                                 let sender_len = sender.serialize().len();
-                                if bytes.len() != sender_len+protocol_name_length+protocol_version_length+4+PROTOCOL_NODE_ID_LENGTH {
+                                if bytes.len() != inner_msg_size+sender_len+PROTOCOL_NODE_ID_LENGTH {
                                     return NetworkMessage::InvalidMessage;
                                 }
                                 let node_id = &bytes[(inner_msg_size+sender_len)..];
 
-                                NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(node_id.to_string())))
+                                NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(node_id.to_string())),  Some(timestamp), Some(get_current_stamp()))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
                         
                     },
                     PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE => {
-                        if bytes.len() < protocol_name_length+protocol_version_length+4+PROTOCOL_NODE_ID_LENGTH+3 {
-                            return NetworkMessage::InvalidMessage;
-                        }
                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
                             Some(sender) => {
                                 let sender_len = sender.serialize().len();
-                                if bytes.len() != sender_len+protocol_name_length+protocol_version_length+4+PROTOCOL_NODE_ID_LENGTH {
+                                if bytes.len() != inner_msg_size+sender_len+PROTOCOL_NODE_ID_LENGTH {
                                     return NetworkMessage::InvalidMessage;
                                 }
                                 let node_id = &bytes[(inner_msg_size+sender_len)..];
 
-                                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, P2PNodeId::from_string(node_id.to_string())))
+                                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, P2PNodeId::from_string(node_id.to_string())),  Some(timestamp), Some(get_current_stamp()))
+                            },
+                            _ => NetworkMessage::InvalidMessage
+                        }
+                        
+                    },
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE => {
+                        let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
+                        match sender {
+                            Some(sender) => {
+                                let sender_len = sender.serialize().len();
+                                if bytes.len() != inner_msg_size+sender_len+PROTOCOL_NODE_ID_LENGTH {
+                                    return NetworkMessage::InvalidMessage;
+                                }
+                                let node_id = &bytes[(inner_msg_size+sender_len)..];
+
+                                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, P2PNodeId::from_string(node_id.to_string())),  Some(timestamp), Some(get_current_stamp()))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
@@ -105,7 +141,7 @@ impl NetworkMessage {
                                     Err(_) => None
                                 };
                                 if peers_count.is_none() || peers_count.unwrap() == 0 {
-                                    return NetworkMessage::NetworkResponse(NetworkResponse::FindNode(sender, vec![]));
+                                    return NetworkMessage::NetworkResponse(NetworkResponse::FindNode(sender, vec![]),  Some(timestamp), Some(get_current_stamp()));
                                 }
 
                                 let mut current_peer_start:usize = 3+sender_len;
@@ -119,42 +155,61 @@ impl NetworkMessage {
                                         _ => return NetworkMessage::InvalidMessage
                                     }
                                 }
-                                return NetworkMessage::NetworkResponse(NetworkResponse::FindNode(sender,peers));
+                                return NetworkMessage::NetworkResponse(NetworkResponse::FindNode(sender,peers),  Some(timestamp), Some(get_current_stamp()));
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
                     },
-                    PROTOCOL_MESSAGE_TYPE_RESPONSE_BANNODE => {
+                    PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST => {
                         let inner_msg: &str = &bytes[inner_msg_size..];
                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
-                            Some(peer) => {
-                                let sender_len = peer.serialize().len();
+                            Some(sender) => {
+                                let sender_len = sender.serialize().len();
                                 if inner_msg.len() < (3+sender_len) {
                                     return NetworkMessage::InvalidMessage;
                                 }
-                                NetworkMessage::NetworkResponse(NetworkResponse::BanNode(peer, true))
+                                let peers_count:Option<usize> = match &inner_msg[sender_len..(3+sender_len)].parse::<usize>() {
+                                    Ok(n) => Some(*n),
+                                    Err(_) => None
+                                };
+                                if peers_count.is_none() || peers_count.unwrap() == 0 {
+                                    return NetworkMessage::NetworkResponse(NetworkResponse::PeerList(sender, vec![]),  Some(timestamp), Some(get_current_stamp()));
+                                }
+
+                                let mut current_peer_start:usize = 3+sender_len;
+                                let mut peers:Vec<P2PPeer> = vec![];
+                                for _ in 0..peers_count.unwrap() {
+                                    match P2PPeer::deserialize(&inner_msg[current_peer_start..]) {
+                                        Some(peer) => {
+                                            current_peer_start += &peer.serialize().len();
+                                            peers.push(peer);
+                                        }
+                                        _ => return NetworkMessage::InvalidMessage
+                                    }
+                                }
+                                return NetworkMessage::NetworkResponse(NetworkResponse::PeerList(sender,peers),  Some(timestamp), Some(get_current_stamp()));
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
                     },
                     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE => {
-                        if &bytes.len() < &((inner_msg_size+10)) {
-                            return NetworkMessage::InvalidMessage
-                        }
                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
                             Some(peer) => {
-                                let sender_len = &peer.serialize().len();
-                                 if bytes[(inner_msg_size+sender_len)..].len() < 10 {
+                                let sender_len = &peer.serialize().len(); 
+                                 if bytes[(inner_msg_size+sender_len)..].len() < (10+PROTOCOL_NODE_ID_LENGTH) {
                                     return NetworkMessage::InvalidMessage
                                 }
-                                match bytes[(inner_msg_size+sender_len)..(inner_msg_size+10+sender_len)].parse::<usize>() {
+                                let remainer = inner_msg_size+sender_len;
+                                let receiver_id = P2PNodeId::from_string((&bytes[remainer..(remainer+PROTOCOL_NODE_ID_LENGTH)]).to_string());
+                                match bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+10+PROTOCOL_NODE_ID_LENGTH)].parse::<usize>() {
                                     Ok(csize) => {
-                                         if bytes[(inner_msg_size+sender_len+10)..].len() != csize {
+                                         if bytes[(remainer+PROTOCOL_NODE_ID_LENGTH+10)..].len() != csize {
+                                             println!("{}", csize);
                                             return NetworkMessage::InvalidMessage
                                         }
-                                        return NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(peer, bytes[(inner_msg_size+10+sender_len)..(inner_msg_size+10+csize+sender_len)].to_string()))
+                                        return NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(peer, receiver_id, bytes[(remainer+PROTOCOL_NODE_ID_LENGTH+10)..(remainer+PROTOCOL_NODE_ID_LENGTH+10+csize)].to_string()) ,Some(timestamp), Some(get_current_stamp()))
                                     },
                                     Err(_) => {
                                         return NetworkMessage::InvalidMessage
@@ -180,7 +235,7 @@ impl NetworkMessage {
                                         if bytes[(inner_msg_size+sender_len+10)..].len() != csize {
                                             return NetworkMessage::InvalidMessage
                                         }
-                                        return NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(peer, bytes[(sender_len+inner_msg_size+10)..(inner_msg_size+10+csize+sender_len)].to_string()))
+                                        return NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(peer, bytes[(sender_len+inner_msg_size+10)..(inner_msg_size+10+csize+sender_len)].to_string()), Some(timestamp), Some(get_current_stamp()))
                                     },
                                     Err(_) => {
                                         return NetworkMessage::InvalidMessage
@@ -203,15 +258,15 @@ impl NetworkMessage {
 
 #[derive(Debug,Clone)]
 pub enum NetworkPacket {
-    DirectMessage(P2PPeer, String),
+    DirectMessage(P2PPeer, P2PNodeId, String),
     BroadcastedMessage(P2PPeer, String)
 }
 
 impl NetworkPacket {
     pub fn serialize(&self) -> String {
         match self {
-            NetworkPacket::DirectMessage(me,msg) => format!("{}{}{}{}{:010}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,me.serialize(),msg.len(),msg ), 
-            NetworkPacket::BroadcastedMessage(me,msg) => format!("{}{}{}{}{:010}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,me.serialize(),msg.len(),msg  )
+            NetworkPacket::DirectMessage(me,receiver,msg) => format!("{}{}{:016x}{}{}{:x}{:010}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,me.serialize(),receiver.get_id(),msg.len(),msg ), 
+            NetworkPacket::BroadcastedMessage(me,msg) => format!("{}{}{:016x}{}{}{:010}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,me.serialize(),msg.len(),msg  )
         }
     }
 }
@@ -221,14 +276,20 @@ pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer,P2PNodeId),
     BanNode(P2PPeer, P2PNodeId),
+    Handshake(P2PPeer),
+    GetPeers(P2PPeer),
+    UnbanNode(P2PPeer, P2PNodeId)
 }
 
 impl NetworkRequest {
      pub fn serialize(&self) -> String {
         match self {
-            NetworkRequest::Ping(me) => format!("{}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING, me.serialize()),
-            NetworkRequest::FindNode(me, id) => format!("{}{}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,me.serialize(), id.get_id()),
-            NetworkRequest::BanNode(me, id) => format!("{}{}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,me.serialize(), id.get_id() )
+            NetworkRequest::Ping(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_PING, me.serialize()),
+            NetworkRequest::FindNode(me, id) => format!("{}{}{:016x}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,me.serialize(), id.get_id()),
+            NetworkRequest::BanNode(me, id) => format!("{}{}{:016x}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,me.serialize(), id.get_id() ),
+            NetworkRequest::UnbanNode(me, id) => format!("{}{}{:016x}{}{}{:x}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(),PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE, me.serialize(), id.get_id()),
+            NetworkRequest::Handshake(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,me.serialize()),
+            NetworkRequest::GetPeers(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS, me.serialize())
         }
     }
 }
@@ -237,22 +298,26 @@ impl NetworkRequest {
 pub enum NetworkResponse {
     Pong(P2PPeer),
     FindNode(P2PPeer, Vec<P2PPeer>),
-    BanNode(P2PPeer, bool),
+    PeerList(P2PPeer, Vec<P2PPeer>)
 }
 
 impl NetworkResponse {
      pub fn serialize(&self) -> String {
         match self {
-            NetworkResponse::Pong(me) => format!("{}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, me.serialize()),
+            NetworkResponse::Pong(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, me.serialize()),
             NetworkResponse::FindNode(me, peers) => {
                 let mut buffer = String::new();
                 for peer in peers.iter() {
                     buffer.push_str(&peer.serialize()[..]);
                 }
-                format!("{}{}{}{}{:03}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE, me.serialize(), peers.len(), buffer)
+                format!("{}{}{:016x}{}{}{:03}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE, me.serialize(), peers.len(), buffer)
             },
-            NetworkResponse::BanNode(me, ok) => {
-                format!("{}{}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_BANNODE, me.serialize(), ok)
+            NetworkResponse::PeerList(me, peers) => {
+                let mut buffer = String::new();
+                for peer in peers.iter() {
+                    buffer.push_str(&peer.serialize()[..]);
+                }
+                format!("{}{}{:016x}{}{}{:03}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST, me.serialize(), peers.len(), buffer)
             }
         }
     }
@@ -424,170 +489,224 @@ impl P2PNodeId {
     }
 }
 
+fn get_current_stamp() -> u64 {
+    let current_time = time::get_time();
+    (current_time.sec as u64 * 1000) + 
+                       (current_time.nsec as u64 / 1000 / 1000)
+}
+
 #[cfg(test)]
 mod tests {
     use common::*;
     #[test]
     pub fn req_ping_test() {
-        const TEST_VALUE:&str = "CONCORDIUMP2P00100013f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let test_msg = NetworkRequest::Ping(self_peer);
         let serialized_val = test_msg.serialize();
-        assert_eq!(TEST_VALUE, serialized_val );
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkRequest(NetworkRequest::Ping(_)) => true,
+            NetworkMessage::NetworkRequest(NetworkRequest::Ping(_),_,_) => true,
             _ => false
         } )
     }
 
     #[test]
     pub fn resp_pong_test() {
-        const TEST_VALUE:&str = "CONCORDIUMP2P00110013f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let test_msg = NetworkResponse::Pong(self_peer);
         let serialized_val = test_msg.serialize();
-        assert_eq!(TEST_VALUE, serialized_val );
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkResponse(NetworkResponse::Pong(_)) => true,
+            NetworkMessage::NetworkResponse(NetworkResponse::Pong(_),_,_) => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn req_handshake() {
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let test_msg = NetworkRequest::Handshake(self_peer);
+        let serialized_val = test_msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_),_,_) => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn req_get_peers() {
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let test_msg = NetworkRequest::GetPeers(self_peer);
+        let serialized_val = test_msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(_),_,_) => true,
             _ => false
         } )
     }
 
     #[test]
     pub fn req_findnode_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00100023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54b";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
         let msg = NetworkRequest::FindNode(self_peer, node_id.clone());
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkRequest(NetworkRequest::FindNode(_, id)) => id.get_id() == node_id.get_id(),
+            NetworkMessage::NetworkRequest(NetworkRequest::FindNode(_, id),_,_) => id.get_id() == node_id.get_id(),
             _ => false
         } )
     }
 
     #[test]
     pub fn resp_findnode_empty_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999000";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let msg = NetworkResponse::FindNode(self_peer, vec![]);
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers)) => peers.len() == 0 ,
+            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers),_,_) => peers.len() == 0 ,
             _ => false
         } )
     }
 
     #[test]
     pub fn resp_findnode_v4_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999001da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54bIP400800800800809999";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let port:u16 = 9999;
         let ipaddr = IpAddr::from_str("8.8.8.8").unwrap();
         let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr,port)]);
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers)) => peers.len() == 1 && peers.get(0).unwrap().ip == ipaddr && peers.get(0).unwrap().port == port ,
+            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers),_,_) => peers.len() == 1 && peers.get(0).unwrap().ip == ipaddr && peers.get(0).unwrap().port == port ,
             _ => false
         } )
     }
 
     #[test]
     pub fn resp_findnode_v6_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999001f255ab0bf31f86bb745ec10a125530130be80865b02a6020df5f754a1f840842IP6ff8000000000000000000000deadbeaf09999";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let port:u16 = 9999;
         let ipaddr = IpAddr::from_str("ff80::dead:beaf").unwrap();  
         let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr,port)]);
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers)) =>  peers.len() == 1 && peers.get(0).unwrap().ip == ipaddr && peers.get(0).unwrap().port == port,
+            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers),_,_) =>  peers.len() == 1 && peers.get(0).unwrap().ip == ipaddr && peers.get(0).unwrap().port == port,
             _ => false
         } )
     }
     
     #[test]
     pub fn resp_findnode_mixed_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00110023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999002f255ab0bf31f86bb745ec10a125530130be80865b02a6020df5f754a1f840842IP6ff8000000000000000000000deadbeaf09999da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54bIP400800800800809999";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let port:u16 = 9999;
         let ipaddr1 = IpAddr::from_str("ff80::dead:beaf").unwrap();  
         let ipaddr2 = IpAddr::from_str("8.8.8.8").unwrap();
         let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr1,port), P2PPeer::new(ipaddr2, port)]);
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers)) =>  peers.len() == 2,
+            NetworkMessage::NetworkResponse(NetworkResponse::FindNode(_, peers),_,_) =>  peers.len() == 2,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_peerslist_v4_test() {
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let port:u16 = 9999;
+        let ipaddr = IpAddr::from_str("8.8.8.8").unwrap();
+        let msg = NetworkResponse::PeerList(self_peer, vec![P2PPeer::new(ipaddr,port)]);
+        let serialized = msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, peers),_,_) => peers.len() == 1 && peers.get(0).unwrap().ip == ipaddr && peers.get(0).unwrap().port == port ,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_peerlist_v6_test() {
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let port:u16 = 9999;
+        let ipaddr = IpAddr::from_str("ff80::dead:beaf").unwrap();  
+        let msg = NetworkResponse::PeerList(self_peer, vec![P2PPeer::new(ipaddr,port)]);
+        let serialized = msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, peers),_,_) =>  peers.len() == 1 && peers.get(0).unwrap().ip == ipaddr && peers.get(0).unwrap().port == port,
+            _ => false
+        } )
+    }
+    
+    #[test]
+    pub fn resp_peerslist_mixed_test() {
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let port:u16 = 9999;
+        let ipaddr1 = IpAddr::from_str("ff80::dead:beaf").unwrap();  
+        let ipaddr2 = IpAddr::from_str("8.8.8.8").unwrap();
+        let msg = NetworkResponse::PeerList(self_peer, vec![P2PPeer::new(ipaddr1,port), P2PPeer::new(ipaddr2, port)]);
+        let serialized = msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, peers),_,_) =>  peers.len() == 2,
             _ => false
         } )
     }
 
     #[test]
     pub fn direct_message_test() {
-        const TEST_VALUE:&str = "CONCORDIUMP2P00120013f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP4010010010010099990000000012Hello world!";
-        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let ipaddr = IpAddr::from_str("10.10.10.10").unwrap();
+        let port = 9999;
+        let self_peer:P2PPeer = P2PPeer::new(ipaddr, port);
         let text_msg = String::from("Hello world!");
-        let msg = NetworkPacket::DirectMessage(self_peer, text_msg.clone());
+        let msg = NetworkPacket::DirectMessage(self_peer, P2PNodeId::from_ip_port(ipaddr, port), text_msg.clone());
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!( match deserialized {
-            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, msg)) => text_msg == msg,
+            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, msg),_,_) => text_msg == msg,
             _ => false
         })
     }
 
     #[test]
     pub fn broadcasted_message_test() {
-        const TEST_VALUE:&str = "CONCORDIUMP2P00120023f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP4010010010010099990000000025Hello  broadcasted world!";
         let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let text_msg = String::from("Hello  broadcasted world!");
         let msg = NetworkPacket::BroadcastedMessage(SELF_PEER, text_msg.clone());
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!( match deserialized {
-            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg)) => text_msg == msg,
+            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg),_,_) => text_msg == msg,
             _ => false
         })
     }
 
     #[test]
     pub fn req_bannode_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00100033f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999da8b507f3e99f5ba979c4db6d65719add14884d581e0565fb8a7fb1a7fc7a54b";
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
         let msg = NetworkRequest::BanNode(self_peer, node_id.clone());
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, id)) => id.get_id() == node_id.get_id(),
+            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, id),_,_) => id.get_id() == node_id.get_id(),
             _ => false
         } )
     }
 
     #[test]
-    pub fn resp_bannode_successful_test() {
-        const TEST_VALUE: &str = "CONCORDIUMP2P00110033f0c4f9ec9cbbef8d020d7b6d8ac600a8f8e6d0716cd2b7c6bf99c84c42ef489IP401001001001009999true";
+    pub fn req_unbannode_test() {
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
-        let msg = NetworkResponse::BanNode(self_peer, true);
+        let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
+        let msg = NetworkRequest::UnbanNode(self_peer, node_id.clone());
         let serialized = msg.serialize();
-        assert_eq!(TEST_VALUE, serialized);
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkResponse(NetworkResponse::BanNode(_, ok)) => ok ,
+            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, id),_,_) => id.get_id() == node_id.get_id(),
             _ => false
         } )
     }
@@ -608,16 +727,6 @@ mod tests {
         let deserialized = NetworkMessage::deserialize(TEST_VALUE);
         assert! ( match deserialized {
             NetworkMessage::InvalidMessage => true,
-            _ => false
-        } )
-    }
-
-    #[test]
-    pub fn resp_unknown_message() {
-        const TEST_VALUE:&str = "CONCORDIUMP2P0015555";
-        let deserialized = NetworkMessage::deserialize(TEST_VALUE);
-        assert! ( match deserialized {
-            NetworkMessage::UnknownMessage => true,
             _ => false
         } )
     }
