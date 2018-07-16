@@ -21,6 +21,7 @@ const PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE: &'static str = "0006";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE: &'static str = "1002";
 const PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST: &'static str = "1003";
+const PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE: &'static str = "1004";
 const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &'static str = "2001";
 const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &'static str = "2002";
 
@@ -62,6 +63,13 @@ impl NetworkMessage {
                          let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
                         match sender {
                             Some(peer) => NetworkMessage::NetworkResponse(NetworkResponse::Pong(peer),  Some(timestamp), Some(get_current_stamp())),
+                            _ => NetworkMessage::InvalidMessage
+                        }
+                    },
+                    PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE => {
+                         let sender = P2PPeer::deserialize(&bytes[inner_msg_size..]);
+                        match sender {
+                            Some(peer) => NetworkMessage::NetworkResponse(NetworkResponse::Handshake(peer),  Some(timestamp), Some(get_current_stamp())),
                             _ => NetworkMessage::InvalidMessage
                         }
                     },
@@ -298,7 +306,8 @@ impl NetworkRequest {
 pub enum NetworkResponse {
     Pong(P2PPeer),
     FindNode(P2PPeer, Vec<P2PPeer>),
-    PeerList(P2PPeer, Vec<P2PPeer>)
+    PeerList(P2PPeer, Vec<P2PPeer>),
+    Handshake(P2PPeer),
 }
 
 impl NetworkResponse {
@@ -318,6 +327,9 @@ impl NetworkResponse {
                     buffer.push_str(&peer.serialize()[..]);
                 }
                 format!("{}{}{:016x}{}{}{:03}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST, me.serialize(), peers.len(), buffer)
+            },
+            NetworkResponse::Handshake(me) => {
+                format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,me.serialize())
             }
         }
     }
@@ -518,6 +530,18 @@ mod tests {
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert! ( match deserialized {
             NetworkMessage::NetworkResponse(NetworkResponse::Pong(_),_,_) => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn resp_handshake() {
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let test_msg = NetworkResponse::Handshake(self_peer);
+        let serialized_val = test_msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_),_,_) => true,
             _ => false
         } )
     }

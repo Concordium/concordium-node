@@ -520,6 +520,8 @@ impl Connection {
                     },
                     NetworkRequest::Handshake(sender) => {
                         info!("Got request for Handshake");
+                        self.write_all(NetworkResponse::Handshake(get_self_peer()).serialize().as_bytes());
+                        buckets.insert_into_bucket(sender, &self.own_id);
                     },
                     NetworkRequest::GetPeers(sender) => {
                         info!("Got request for GetPeers");
@@ -548,6 +550,10 @@ impl Connection {
                             buckets.insert_into_bucket(peer.clone(), &self.own_id);
                         }
                         buckets.insert_into_bucket(sender, &self.own_id);
+                    },
+                    NetworkResponse::Handshake(peer) => {
+                        info!("Got response to Handshake");
+                        buckets.insert_into_bucket(peer, &self.own_id);
                     }
                 }
             },
