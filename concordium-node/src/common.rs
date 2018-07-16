@@ -469,6 +469,12 @@ pub struct P2PNodeId {
     id: BigUint,
 }
 
+impl PartialEq for P2PNodeId {
+    fn eq(&self, other: &P2PNodeId) -> bool {
+        self.id == other.id
+    }
+}
+
 impl P2PNodeId {
     pub fn from_string(sid: String) -> P2PNodeId {
         P2PNodeId {

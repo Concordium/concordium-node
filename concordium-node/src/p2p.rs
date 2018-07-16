@@ -198,7 +198,7 @@ impl TlsServer {
                 self.connections[&token].register(poll);
                 match self.event_log {
                     Some(ref mut x) => {
-                        x.send(P2PEvent::ConnectEvent(ip.to_string(), port));
+                        x.send(P2PEvent::ConnectEvent(ip.to_string(), port)).unwrap();
                     },
                     _ => {},
                 }
@@ -212,6 +212,26 @@ impl TlsServer {
             }
         }
     } 
+
+    fn find_connection(&mut self, id: P2PNodeId) -> Option<&Connection> {
+        let mut ret = None;
+        for (_,connection) in &self.connections {
+            match connection.peer {
+                Some(ref x) => {
+                    if x.id() == id {
+                        ret = Some(connection)
+                    } else {
+                        break;
+                    }
+                },
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        ret
+    }
 
     fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets) {
         let token = event.token();
@@ -239,6 +259,7 @@ struct Connection {
     tls_client_session: Option<ClientSession>,
     initiated_by_me: bool,
     own_id: P2PNodeId,
+    peer: Option<P2PPeer>
 }
 
 impl Connection {
@@ -251,7 +272,8 @@ impl Connection {
             tls_server_session,
             tls_client_session,
             initiated_by_me,
-            own_id
+            own_id,
+            peer: None,
         }
     }
 
@@ -553,6 +575,7 @@ impl Connection {
                     },
                     NetworkResponse::Handshake(peer) => {
                         info!("Got response to Handshake");
+                        self.peer = Some(peer.clone());
                         buckets.insert_into_bucket(peer, &self.own_id);
                     }
                 }
