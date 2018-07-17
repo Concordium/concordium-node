@@ -554,6 +554,8 @@ impl Connection {
                     },
                     NetworkRequest::GetPeers(sender) => {
                         info!("Got request for GetPeers");
+                        let nodes = buckets.closest_nodes(x);
+                        self.write_all(NetworkResponse::PeerList(get_self_peer(), nodes).serialize().as_bytes());
                     }
                 }
             },
