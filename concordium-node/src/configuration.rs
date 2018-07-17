@@ -13,6 +13,8 @@ pub struct Config {
     pub listen_port: Option<u16>,
     #[structopt(long="id", short="i", help = "Wanted ID")]
     pub id: Option<String>,
+    #[structopt(long="debug", help = "Debug mode")]
+    pub debug: bool,
 }
 
 pub fn parse_config() -> Config  {
