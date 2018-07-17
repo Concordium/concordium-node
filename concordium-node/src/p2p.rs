@@ -43,7 +43,7 @@ const KEY_SIZE: u16 = 256;
 
 // REMOVE WHEN REPLACED!!!
 pub fn get_self_peer() -> P2PPeer {
-    P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999)
+    P2PPeer::from(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")), "10.10.10.10".parse().unwrap(), 8888)
 }
 
 pub enum P2PEvent {
@@ -202,6 +202,8 @@ impl TlsServer {
                     },
                     _ => {},
                 }
+                info!("Requesting handshake from new peer!");
+                self.connections.get_mut(&token).unwrap().write_all(NetworkRequest::Handshake(get_self_peer()).serialize().as_bytes()).unwrap();
 
                 true
 
@@ -213,13 +215,14 @@ impl TlsServer {
         }
     } 
 
-    fn find_connection(&mut self, id: P2PNodeId) -> Option<&Connection> {
-        let mut ret = None;
-        for (_,connection) in &self.connections {
+    fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
+        let mut tok = Token(0);
+        for (token,mut connection) in &self.connections {
             match connection.peer {
                 Some(ref x) => {
+                    info!("I've got ID: {} in storage", x.id().to_string());
                     if x.id() == id {
-                        ret = Some(connection)
+                        tok = *token;
                     } else {
                         break;
                     }
@@ -230,7 +233,11 @@ impl TlsServer {
             }
         }
 
-        ret
+        if tok == Token(0) {
+            None
+        } else {
+            Some(self.connections.get_mut(&tok).unwrap())
+        }
     }
 
     fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets) {
@@ -543,6 +550,7 @@ impl Connection {
                     NetworkRequest::Handshake(sender) => {
                         info!("Got request for Handshake");
                         self.write_all(NetworkResponse::Handshake(get_self_peer()).serialize().as_bytes());
+                        self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
                     },
                     NetworkRequest::GetPeers(sender) => {
@@ -757,27 +765,59 @@ impl P2PNode {
 
     pub fn process_messages(&mut self) {
         //Try to send queued messages first
+        //Resend queue
+        let mut resend_queue = VecDeque::new();
         loop {
+            //info!("Processing messages!");
             match self.send_queue.pop_front() {
                 Some(x) => {
-                    match x {
+                    //info!("Got message to process!");
+                    match x.clone() {
                         NetworkPacket::DirectMessage(me, receiver, msg) => {
-
+                            //Look up connection associated with ID
+                            match self.tls_server.find_connection(receiver.clone()) {
+                                Some(ref mut conn) => {
+                                    conn.write_all(NetworkPacket::DirectMessage(me, receiver,msg).serialize().as_bytes()).unwrap();
+                                },
+                                _ => {
+                                    resend_queue.push_back(x);
+                                    //info!("Couldn't find connection, requeuing message!");
+                                },
+                            };                          
                         },
                         NetworkPacket::BroadcastedMessage(me, msg) => {
-
+                            let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
+                            for (_,mut conn) in &mut self.tls_server.connections {
+                                conn.write_all(pkt.clone().serialize().as_bytes()).unwrap();
+                            }
                         }
                     }
                 },
                 None => {
+                    self.send_queue.append(&mut resend_queue);
                     break;
                 }
             }
         }
     }
 
-    pub fn send_message(&mut self, id: P2PNodeId, msg: Vec<u8>) {
+    pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: String, broadcast: bool) {
         info!("Queueing message!");
+        match broadcast {
+            true => {
+                self.send_queue.push_back(NetworkPacket::BroadcastedMessage(get_self_peer(), msg));
+            },
+            false => {
+                match id {
+                    Some(x) => {
+                        self.send_queue.push_back(NetworkPacket::DirectMessage(get_self_peer(), x, msg));
+                    },
+                    None => {
+                        info!("Invalid receiver ID for message!");
+                    }
+                }
+            }
+        }
         //self.send_queue.push_back(P2PMessage::new(id, msg));
     }
 
@@ -810,7 +850,7 @@ impl P2PNode {
         loop {
             self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
 
-            self.send_message(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")), String::from("Hello world!").as_bytes().to_vec());
+            self.send_message(Some(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2"))), String::from("Hello world!"), false);
 
             self.process_messages();
 
