@@ -220,7 +220,6 @@ impl TlsServer {
         for (token,mut connection) in &self.connections {
             match connection.peer {
                 Some(ref x) => {
-                    info!("I've got ID: {} in storage", x.id().to_string());
                     if x.id() == id {
                         tok = *token;
                     } else {
@@ -591,10 +590,10 @@ impl Connection {
             NetworkMessage::NetworkPacket(x, _,_ ) => {
                 match x {
                     NetworkPacket::DirectMessage(sender,receiver, msg) => {
-                        info!("Got {} size direct message", msg.len());
+                        info!("Received {} of size {} as a direct message", msg, msg.len());
                     },
                     NetworkPacket::BroadcastedMessage(sender,msg) => {
-                        info!("Got {} size broadcasted packet", msg.len());
+                        info!("Received {} of size {} as a broadcast message", msg, msg.len());
                     }
                 }
             },
