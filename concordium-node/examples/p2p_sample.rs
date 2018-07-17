@@ -33,9 +33,26 @@ fn main() {
     };
 
     //Event log
-    let (sender, receiver) = mpsc::channel();
 
-    let mut node = P2PNode::new(conf.id, listen_port, Some(sender));
+    let mut node = if conf.debug {
+        let (sender, receiver) = mpsc::channel();
+        let _guard = thread::spawn(move|| {
+            loop {
+                if let Ok(msg) = receiver.recv() {
+                    match msg {
+                        P2PEvent::ConnectEvent(ip, port) => info!("Received connection from {}:{}", ip, port),
+                        P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
+                        P2PEvent::ReceivedMessageEvent(nodeId) => info!("Received message from {:?}", nodeId),
+                        P2PEvent::SentMessageEvent(nodeId) => info!("Sent message to {:?}", nodeId),
+                        _ => error!("Received unknown event!")
+                    }
+                }
+            }
+        });
+        P2PNode::new(conf.id, listen_port, Some(sender))
+    } else {
+        P2PNode::new(conf.id, listen_port, None)
+    };
 
     //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
     node.connect("127.0.0.1".parse().unwrap(), 8888);
