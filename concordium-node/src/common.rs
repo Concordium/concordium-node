@@ -214,7 +214,6 @@ impl NetworkMessage {
                                 match bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+10+PROTOCOL_NODE_ID_LENGTH)].parse::<usize>() {
                                     Ok(csize) => {
                                          if bytes[(remainer+PROTOCOL_NODE_ID_LENGTH+10)..].len() != csize {
-                                             println!("{}", csize);
                                             return NetworkMessage::InvalidMessage
                                         }
                                         return NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(peer, receiver_id, bytes[(remainer+PROTOCOL_NODE_ID_LENGTH+10)..(remainer+PROTOCOL_NODE_ID_LENGTH+10+csize)].to_string()) ,Some(timestamp), Some(get_current_stamp()))
@@ -383,12 +382,7 @@ impl P2PPeer {
                                 Ok(ip_addr) => {
                                     match buf[(ip_start+12)..(ip_start+17)].parse::<u16>() {
                                         Ok(port) => {
-                                            let _node_id = P2PNodeId::from_ip_port(ip_addr, port);
-                                            if _node_id.get_id() == node_id.get_id() {
-                                                return Some(P2PPeer{id: node_id, ip: ip_addr, port: port})
-                                            } else {
-                                                return None
-                                            }
+                                            return Some(P2PPeer{id: node_id, ip: ip_addr, port: port})
                                         },
                                         Err(_) => return None
                                     }
@@ -555,6 +549,18 @@ mod tests {
     #[test]
     pub fn req_handshake() {
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let test_msg = NetworkRequest::Handshake(self_peer);
+        let serialized_val = test_msg.serialize();
+        let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
+        assert! ( match deserialized {
+            NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_),_,_) => true,
+            _ => false
+        } )
+    }
+
+    #[test]
+    pub fn req_handshake_000() {
+        let self_peer:P2PPeer = P2PPeer::from(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")), "10.10.10.10".parse().unwrap(), 8888);
         let test_msg = NetworkRequest::Handshake(self_peer);
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
