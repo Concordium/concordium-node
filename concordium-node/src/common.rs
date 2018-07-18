@@ -501,7 +501,7 @@ impl P2PNodeId {
     }
 }
 
-fn get_current_stamp() -> u64 {
+pub fn get_current_stamp() -> u64 {
     let current_time = time::get_time();
     (current_time.sec as u64 * 1000) + 
                        (current_time.nsec as u64 / 1000 / 1000)
