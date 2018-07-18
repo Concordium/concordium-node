@@ -43,7 +43,7 @@ fn main() {
                     NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,receiver, msg),sent,received) => info!( "DirectMessage with text {} received", msg),
                     NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,msg),sent,received) => info!("BroadcastedMessage with text {} received", msg),
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, x),sent,received)  => info!("Ban node request for {:x}", x.get_id()),
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, x), sent,received) => info!("Unban node requets for {:x}", x.get_id()), 
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, x), sent, received) => info!("Unban node requets for {:x}", x.get_id()), 
                     _ => {}
                 }
             }
