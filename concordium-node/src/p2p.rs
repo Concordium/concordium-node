@@ -19,6 +19,7 @@ use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
 use utils;
 use common::{NetworkMessage,NetworkRequest, NetworkPacket, NetworkResponse, P2PPeer, P2PNodeId};
+use common;
 use num_bigint::BigUint;
 use num_traits::Num;
 use num_bigint::ToBigUint;
@@ -125,6 +126,17 @@ impl Buckets {
             }
 
         }
+
+        ret
+    }
+
+    pub fn get_all_nodes(&self) -> Vec<P2PPeer> {
+        let mut ret : Vec<P2PPeer> = Vec::new();
+        for (_, bucket) in &self.buckets {
+            for peer in bucket {
+                ret.push(peer.clone());
+            }
+        } 
 
         ret
     }
@@ -258,6 +270,13 @@ impl TlsServer {
         }
     }
 
+    fn cleanup_connections(&mut self) {
+        for conn in self.connections.values_mut() {
+            if conn.last_seen + 300000 < common::get_current_stamp() {
+                conn.closing = true;
+            }
+        }
+    }
 
 }
 
@@ -273,7 +292,8 @@ struct Connection {
     peer: Option<P2PPeer>,
     currently_read: u64,
     expected_size: u64,
-    pkt_buffer: Option<BytesMut>
+    pkt_buffer: Option<BytesMut>,
+    last_seen: u64,
 }
 
 impl Connection {
@@ -290,8 +310,13 @@ impl Connection {
             peer: None,
             currently_read: 0,
             expected_size: 0,
-            pkt_buffer: None
+            pkt_buffer: None,
+            last_seen: common::get_current_stamp(),
         }
+    }
+
+    pub fn update_last_seen(&mut self) {
+        self.last_seen = common::get_current_stamp();
     }
 
     pub fn append_buffer(&mut self, new_data: &[u8] ) {
@@ -562,24 +587,29 @@ impl Connection {
                     NetworkRequest::Ping(sender) => {
                         //Respond with pong
                         info!("Got request for ping");
+                        self.update_last_seen();
                         serialize_bytes(self, NetworkResponse::Pong(get_self_peer()).serialize());
                     },
                     NetworkRequest::FindNode(sender, x) => {
                         //Return list of nodes
                         info!("Got request for FindNode");
+                        self.update_last_seen();
                         let nodes = buckets.closest_nodes(x);
                         serialize_bytes(self, NetworkResponse::FindNode(get_self_peer(), nodes).serialize());
                     },
                     NetworkRequest::BanNode(sender, x) => {
                         info!("Got request for BanNode");
+                        self.update_last_seen();
                         packet_queue.send(outer.clone());
                     },
                     NetworkRequest::UnbanNode(sender, x) => {
                         info!("Got request for UnbanNode");
+                        self.update_last_seen();
                         packet_queue.send(outer.clone());
                     },
                     NetworkRequest::Handshake(sender) => {
                         info!("Got request for Handshake");
+                        self.update_last_seen();
                         serialize_bytes(self, NetworkResponse::Handshake(get_self_peer()).serialize());
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
@@ -587,7 +617,8 @@ impl Connection {
                     },
                     NetworkRequest::GetPeers(sender) => {
                         info!("Got request for GetPeers");
-                        let nodes = buckets.closest_nodes(&sender.id());
+                        self.update_last_seen();
+                        let nodes = buckets.get_all_nodes();
                         serialize_bytes(self, NetworkResponse::PeerList(get_self_peer(), nodes).serialize());
                     }
                 }
@@ -596,6 +627,7 @@ impl Connection {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         info!("Got response to FindNode");
+                        self.update_last_seen();
                         //Process the received node list
                         for peer in peers.iter() {
                             buckets.insert_into_bucket(peer, &self.own_id);
@@ -604,11 +636,13 @@ impl Connection {
                     },
                     NetworkResponse::Pong(sender) => {
                         info!("Got response for ping");
+                        self.update_last_seen();
                         //Note that node responded back
                         buckets.insert_into_bucket(sender, &self.own_id);
                     },
                     NetworkResponse::PeerList(sender, peers) => {
                         info!("Got response to FindNode");
+                        self.update_last_seen();
                         //Process the received node list
                         for peer in peers.iter() {
                             buckets.insert_into_bucket(peer, &self.own_id);
@@ -617,6 +651,7 @@ impl Connection {
                     },
                     NetworkResponse::Handshake(peer) => {
                         info!("Got response to Handshake");
+                        self.update_last_seen();
                         self.peer = Some(peer.clone());
                         buckets.insert_into_bucket(peer, &self.own_id);
                     }
@@ -625,10 +660,12 @@ impl Connection {
             NetworkMessage::NetworkPacket(x, _,_ ) => {
                 match x {
                     NetworkPacket::DirectMessage(sender,receiver, msg) => {
+                        self.update_last_seen();
                         info!("Received {} of size {} as a direct message", msg, msg.len());
                         packet_queue.send(outer.clone());
                     },
                     NetworkPacket::BroadcastedMessage(sender,msg) => {
+                        self.update_last_seen();
                         info!("Received {} of size {} as a broadcast message", msg, msg.len());
                         packet_queue.send(outer.clone());
                     }
@@ -636,10 +673,12 @@ impl Connection {
             },
             NetworkMessage::UnknownMessage => {
                 info!("Unknown message received!");
+                self.update_last_seen();
                 info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
             },
             NetworkMessage::InvalidMessage => {
                 info!("Invalid message received!");
+                self.update_last_seen();
                 info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
             }                                        
         }
@@ -940,6 +979,8 @@ impl P2PNode {
             self.send_message(Some(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2"))), String::from("Hello world!"), false);
 
             self.process_messages();
+
+            self.tls_server.cleanup_connections();
 
             for event in events.iter() {
                 match event.token() {
