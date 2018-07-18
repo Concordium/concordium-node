@@ -270,10 +270,10 @@ impl TlsServer {
         }
     }
 
-    fn cleanup_connections(&mut self) {
+    fn cleanup_connections(&mut self, mut poll: &mut Poll) {
         for conn in self.connections.values_mut() {
             if conn.last_seen + 300000 < common::get_current_stamp() {
-                conn.closing = true;
+                conn.close(&mut poll);
             }
         }
     }
@@ -399,6 +399,12 @@ impl Connection {
 
     fn is_closed(&self) -> bool {
         self.closed
+    }
+
+    fn close(&mut self, poll: &mut Poll) {
+        self.closing = true;
+        poll.deregister(&self.socket);
+        self.socket.shutdown(Shutdown::Both);
     }
 
     fn ready(&mut self, poll: &mut Poll, ev: &Event, mut buckets: &mut Buckets, packets_queue: &mpsc::Sender<NetworkMessage>) {
@@ -980,7 +986,7 @@ impl P2PNode {
 
             self.process_messages();
 
-            self.tls_server.cleanup_connections();
+            self.tls_server.cleanup_connections(&mut self.poll);
 
             for event in events.iter() {
                 match event.token() {
