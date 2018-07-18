@@ -29,6 +29,7 @@ use time;
 use rustls;
 use webpki::DNSNameRef;
 use std::sync::Arc;
+use std::rc::Rc;
 use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
 ServerSession, ClientSession, ClientConfig, ServerCertVerifier, RootCertStore, ServerCertVerified};
 use std::sync::mpsc;
@@ -73,7 +74,7 @@ impl Buckets {
         from.get_id().clone() ^ to.get_id().clone()
     }
 
-    pub fn insert_into_bucket(&mut self, node: P2PPeer, own_id: &P2PNodeId) {
+    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId) {
         let dist = self.distance(&own_id, &node.id());
         for i in 0..KEY_SIZE {
             if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
@@ -83,7 +84,7 @@ impl Buckets {
                     //Check if front element is active
                     bucket.remove(0);
                 }
-                bucket.push(node);
+                bucket.push(node.clone());
                 break;
             }
         }
@@ -105,7 +106,7 @@ impl Buckets {
         }
     }
 
-    pub fn closest_nodes(&self, id: P2PNodeId) -> Vec<P2PPeer> {
+    pub fn closest_nodes(&self, id: &P2PNodeId) -> Vec<P2PPeer> {
         let mut ret : Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
         let mut count = 0;
         for (_, bucket) in &self.buckets {
@@ -152,16 +153,20 @@ impl TlsServer {
         }
     }
 
+    fn log_event(&mut self, event: P2PEvent) {
+        match self.event_log {
+            Some(ref mut x) => { 
+                x.send(event); 
+            } ,
+            _ => {}, 
+        }
+    }
+
     fn accept(&mut self, poll: &mut Poll) -> bool {
         match self.server.accept() {
             Ok((socket, addr)) => {
                 debug!("Accepting new connection from {:?}", addr);
-                match self.event_log {
-                    Some(ref mut x) => {
-                        x.send(P2PEvent::ConnectEvent(format!("{}", addr.ip()), addr.port()));
-                    },
-                    _ => {},
-                }
+                self.log_event(P2PEvent::ConnectEvent(format!("{}", addr.ip()), addr.port()));
 
                 let tls_session = ServerSession::new(&self.server_tls_config);
                 let token = Token(self.next_id);
@@ -203,10 +208,10 @@ impl TlsServer {
                     _ => {},
                 }
                 info!("Requesting handshake from new peer!");
-                self.connections.get_mut(&token).unwrap().write_all(NetworkRequest::Handshake(get_self_peer()).serialize().as_bytes()).unwrap();
-
+                if let Some(ref mut conn) = self.connections.get_mut(&token) {
+                    serialize_bytes( conn, NetworkRequest::Handshake(get_self_peer()).serialize() )
+                }
                 true
-
             },
             Err(e) => {
                 println!("encountered error while connecting; err={:?}", e);
@@ -239,13 +244,13 @@ impl TlsServer {
         }
     }
 
-    fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets) {
+    fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets, packet_queue: &mpsc::Sender<NetworkMessage>) {
         let token = event.token();
         if self.connections.contains_key(&token) {
             self.connections
                 .get_mut(&token)
                 .unwrap()
-                .ready(poll, event, &mut buckets);
+                .ready(poll, event, &mut buckets, &packet_queue);
 
             if self.connections[&token].is_closed() {
                 self.connections.remove(&token);
@@ -265,7 +270,10 @@ struct Connection {
     tls_client_session: Option<ClientSession>,
     initiated_by_me: bool,
     own_id: P2PNodeId,
-    peer: Option<P2PPeer>
+    peer: Option<P2PPeer>,
+    currently_read: u64,
+    expected_size: u64,
+    pkt_buffer: Option<BytesMut>
 }
 
 impl Connection {
@@ -280,7 +288,29 @@ impl Connection {
             initiated_by_me,
             own_id,
             peer: None,
+            currently_read: 0,
+            expected_size: 0,
+            pkt_buffer: None
         }
+    }
+
+    pub fn append_buffer(&mut self, new_data: &[u8] ) {
+        if let Some(ref mut buf) = self.pkt_buffer {
+            buf.reserve(new_data.len());
+            buf.put_slice(new_data);
+            self.currently_read += new_data.len() as u64;
+        }
+    }
+
+    pub fn clear_buffer(&mut self) {
+        if let Some(ref mut buf) = self.pkt_buffer {
+            buf.clear();
+        }
+        self.pkt_buffer = None;
+    }
+
+    pub fn setup_buffer(&mut self) {
+        self.pkt_buffer = Some(BytesMut::with_capacity(1024));
     }
 
     fn register(&self, poll: &mut Poll) {
@@ -346,10 +376,10 @@ impl Connection {
         self.closed
     }
 
-    fn ready(&mut self, poll: &mut Poll, ev: &Event, mut buckets: &mut Buckets) {
+    fn ready(&mut self, poll: &mut Poll, ev: &Event, mut buckets: &mut Buckets, packets_queue: &mpsc::Sender<NetworkMessage>) {
         if ev.readiness().is_readable() {
             self.do_tls_read();
-            self.try_plain_read(buckets);
+            self.try_plain_read(&packets_queue, buckets);
         }
 
         if ev.readiness().is_writable() {
@@ -460,7 +490,7 @@ impl Connection {
         }
     }
 
-    fn try_plain_read(&mut self, mut buckets: &mut Buckets) {
+    fn try_plain_read(&mut self, packets_queue: &mpsc::Sender<NetworkMessage>, mut buckets: &mut Buckets) {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
@@ -495,7 +525,7 @@ impl Connection {
 
         if !buf.is_empty() {
             debug!("plaintext read {:?}", buf.len());
-            self.incoming_plaintext(&mut buckets, &buf);
+            self.incoming_plaintext(&packets_queue, &mut buckets, &buf);
         }
     }
 
@@ -524,38 +554,41 @@ impl Connection {
         }
     }
 
-    fn incoming_plaintext(&mut self, buckets: &mut Buckets, buf: &[u8]) {
-        info!("Received plaintext!"); 
-        match NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0))) {
+    fn process_complete_packet(&mut self, buckets: &mut Buckets, buf: &[u8], packet_queue: &mpsc::Sender<NetworkMessage>) {
+        let ref outer =  NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0)));
+        match outer {
             NetworkMessage::NetworkRequest(x,_,_) => {
                 match x {
                     NetworkRequest::Ping(sender) => {
                         //Respond with pong
                         info!("Got request for ping");
-                        self.write_all(NetworkResponse::Pong(get_self_peer()).serialize().as_bytes());
+                        serialize_bytes(self, NetworkResponse::Pong(get_self_peer()).serialize());
                     },
                     NetworkRequest::FindNode(sender, x) => {
                         //Return list of nodes
                         info!("Got request for FindNode");
                         let nodes = buckets.closest_nodes(x);
-                        self.write_all(NetworkResponse::FindNode(get_self_peer(), nodes).serialize().as_bytes());
+                        serialize_bytes(self, NetworkResponse::FindNode(get_self_peer(), nodes).serialize());
                     },
                     NetworkRequest::BanNode(sender, x) => {
                         info!("Got request for BanNode");
+                        packet_queue.send(outer.clone());
                     },
                     NetworkRequest::UnbanNode(sender, x) => {
                         info!("Got request for UnbanNode");
+                        packet_queue.send(outer.clone());
                     },
                     NetworkRequest::Handshake(sender) => {
                         info!("Got request for Handshake");
-                        self.write_all(NetworkResponse::Handshake(get_self_peer()).serialize().as_bytes());
+                        serialize_bytes(self, NetworkResponse::Handshake(get_self_peer()).serialize());
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
+                        packet_queue.send(outer.clone());
                     },
                     NetworkRequest::GetPeers(sender) => {
                         info!("Got request for GetPeers");
-                        let nodes = buckets.closest_nodes(x);
-                        self.write_all(NetworkResponse::PeerList(get_self_peer(), nodes).serialize().as_bytes());
+                        let nodes = buckets.closest_nodes(&sender.id());
+                        serialize_bytes(self, NetworkResponse::PeerList(get_self_peer(), nodes).serialize());
                     }
                 }
             },
@@ -565,7 +598,7 @@ impl Connection {
                         info!("Got response to FindNode");
                         //Process the received node list
                         for peer in peers.iter() {
-                            buckets.insert_into_bucket(peer.clone(), &self.own_id);
+                            buckets.insert_into_bucket(peer, &self.own_id);
                         }
                         buckets.insert_into_bucket(sender, &self.own_id);
                     },
@@ -578,7 +611,7 @@ impl Connection {
                         info!("Got response to FindNode");
                         //Process the received node list
                         for peer in peers.iter() {
-                            buckets.insert_into_bucket(peer.clone(), &self.own_id);
+                            buckets.insert_into_bucket(peer, &self.own_id);
                         }
                         buckets.insert_into_bucket(sender, &self.own_id);
                     },
@@ -593,9 +626,11 @@ impl Connection {
                 match x {
                     NetworkPacket::DirectMessage(sender,receiver, msg) => {
                         info!("Received {} of size {} as a direct message", msg, msg.len());
+                        packet_queue.send(outer.clone());
                     },
                     NetworkPacket::BroadcastedMessage(sender,msg) => {
                         info!("Received {} of size {} as a broadcast message", msg, msg.len());
+                        packet_queue.send(outer.clone());
                     }
                 }
             },
@@ -607,6 +642,50 @@ impl Connection {
                 info!("Invalid message received!");
                 info!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
             }                                        
+        }
+    }
+
+    fn incoming_plaintext(&mut self, packets_queue: &mpsc::Sender<NetworkMessage>, buckets: &mut Buckets, buf: &[u8]) {
+        debug!("Received plaintext");
+        if self.expected_size > 0 && self.currently_read == self.expected_size {
+            info!("Completed file with {} size", self.currently_read);
+            self.expected_size = 0;
+            self.currently_read = 0;
+            let mut buffered = Vec::new();
+            if let Some(ref mut buf) = self.pkt_buffer {
+                buffered = buf[..].to_vec();
+            }
+            self.process_complete_packet(buckets, &buffered, &packets_queue);
+            self.clear_buffer();
+        } else if self.expected_size > 0  && buf.len() <= (self.expected_size as usize-self.currently_read as usize) {
+             self.append_buffer(&buf);
+             if self.expected_size == self.currently_read {
+                 info!("Completed file with {} size", self.currently_read);
+                self.expected_size = 0;
+                self.currently_read = 0;
+                let mut buffered = Vec::new();
+                if let Some(ref mut buf) = self.pkt_buffer {
+                    buffered = buf[..].to_vec();
+                }
+                self.process_complete_packet(buckets, &buffered, &packets_queue);
+                self.clear_buffer();
+             }
+        } else if self.expected_size > 0 && buf.len() > (self.expected_size as usize-self.currently_read as usize) {
+            let to_take = self.expected_size-self.currently_read;
+            self.append_buffer(&buf[..to_take as usize]);
+            let mut buffered = Vec::new();
+            if let Some(ref mut buf) = self.pkt_buffer {
+                buffered = buf[..].to_vec();
+            }
+            self.process_complete_packet(buckets, &buffered, &packets_queue);
+            self.clear_buffer();
+            self.incoming_plaintext(&packets_queue, buckets, &buf[to_take as usize..]);
+        } else if buf.len() >= 8 {
+            self.expected_size = deserialize(&buf[..8]).unwrap();
+            self.setup_buffer();
+            if buf.len() > 8 {
+                self.incoming_plaintext(&packets_queue,buckets,&buf[8..]);
+            } 
         }
     }
 
@@ -656,7 +735,6 @@ impl ServerCertVerifier for NoCertificateVerification {
     }
 }
 
-
 pub struct P2PNode {
     tls_server: TlsServer,
     poll: Poll,
@@ -666,11 +744,18 @@ pub struct P2PNode {
     send_queue: VecDeque<NetworkPacket>,
     ip: Ipv4Addr,
     port: u16,
-    event_log: Option<mpsc::Sender<P2PEvent>>,
+    incoming_pkts: mpsc::Sender<NetworkMessage>,
+    event_log: Option<mpsc::Sender<P2PEvent>>
+}
+
+fn serialize_bytes(conn: &mut Connection, pkt: String ) {
+    let serialized = pkt.as_bytes();
+    conn.write_all(&serialize(&serialized.len()).unwrap());
+    conn.write_all(serialized);
 }
 
 impl P2PNode {
-    pub fn new(supplied_id: Option<String>, port: u16, event_log: Option<mpsc::Sender<P2PEvent>>) -> P2PNode {
+    pub fn new(supplied_id: Option<String>, port: u16, pkt_queue: mpsc::Sender<NetworkMessage>, event_log: Option<mpsc::Sender<P2PEvent>>) -> P2PNode {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();
         
         info!("Creating new P2PNode");
@@ -755,6 +840,7 @@ impl P2PNode {
             send_queue: VecDeque::new(),
             ip: ip,
             port: port,
+            incoming_pkts: pkt_queue,
             event_log,
         }
 
@@ -778,7 +864,7 @@ impl P2PNode {
                             //Look up connection associated with ID
                             match self.tls_server.find_connection(receiver.clone()) {
                                 Some(ref mut conn) => {
-                                    conn.write_all(NetworkPacket::DirectMessage(me, receiver,msg).serialize().as_bytes()).unwrap();
+                                    serialize_bytes(conn, NetworkPacket::DirectMessage(me, receiver,msg).serialize());
                                 },
                                 _ => {
                                     resend_queue.push_back(x);
@@ -789,7 +875,7 @@ impl P2PNode {
                         NetworkPacket::BroadcastedMessage(me, msg) => {
                             let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
                             for (_,mut conn) in &mut self.tls_server.connections {
-                                conn.write_all(pkt.clone().serialize().as_bytes()).unwrap();
+                                serialize_bytes(conn, pkt.clone().serialize());
                             }
                         }
                     }
@@ -865,7 +951,7 @@ impl P2PNode {
                     },
                     _ => {
                         info!("Got data!");
-                        self.tls_server.conn_event(&mut self.poll, &event, &mut self.buckets);
+                        self.tls_server.conn_event(&mut self.poll, &event, &mut self.buckets, &self.incoming_pkts);
                     }
                 }
             }

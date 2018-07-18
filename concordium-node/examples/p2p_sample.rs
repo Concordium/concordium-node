@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::thread;
 use p2p_client::p2p::*;
 use p2p_client::configuration;
-use p2p_client::common::{P2PPeer,P2PNodeId};
+use p2p_client::common::{P2PPeer,P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
 use mio::Events;
 
 fn main() {
@@ -32,7 +32,23 @@ fn main() {
         _ => 8888,
     };
 
-    //Event log
+    info!("Debuging enabled {}", conf.debug);
+
+    let (pkt_in,pkt_out) = mpsc::channel();
+
+    let _guard_pkt = thread::spawn(move|| {
+        loop {
+            if let Ok(msg) = pkt_out.recv() {
+                match msg {
+                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,receiver, msg),sent,received) => info!( "DirectMessage with text {} received", msg),
+                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,msg),sent,received) => info!("BroadcastedMessage with text {} received", msg),
+                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, x),sent,received)  => info!("Ban node request for {:x}", x.get_id()),
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, x), sent,received) => info!("Unban node requets for {:x}", x.get_id()), 
+                    _ => {}
+                }
+            }
+        }
+    });
 
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
@@ -49,9 +65,9 @@ fn main() {
                 }
             }
         });
-        P2PNode::new(conf.id, listen_port, Some(sender))
+        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender))
     } else {
-        P2PNode::new(conf.id, listen_port, None)
+        P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
 
     //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
