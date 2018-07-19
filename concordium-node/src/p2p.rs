@@ -1017,8 +1017,6 @@ impl P2PNode {
             }
 
             self.process_messages();
-
-            self.send_message(Some(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2"))), String::from("Hello world!"), false);
         }
     }
 }
