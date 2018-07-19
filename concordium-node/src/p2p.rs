@@ -190,7 +190,7 @@ impl TlsServer {
                 true
             },
             Err(e) => {
-                println!("encountered error while accepting connection; err={:?}", e);
+                error!("encountered error while accepting connection; err={:?}", e);
                 false
             }
         }
@@ -226,7 +226,7 @@ impl TlsServer {
                 true
             },
             Err(e) => {
-                println!("encountered error while connecting; err={:?}", e);
+                error!("encountered error while connecting; err={:?}", e);
                 false
             }
         }
@@ -351,7 +351,7 @@ impl Connection {
         poll.register(&self.socket,
                       self.token,
                       self.event_set(),
-                      PollOpt::level() | PollOpt::oneshot())
+                      PollOpt::level()| PollOpt::oneshot())
             .unwrap();
     }
 
@@ -706,7 +706,7 @@ impl Connection {
     fn incoming_plaintext(&mut self, packets_queue: &mpsc::Sender<NetworkMessage>, buckets: &mut Buckets, buf: &[u8]) {
         debug!("Received plaintext");
         if self.expected_size > 0 && self.currently_read == self.expected_size {
-            info!("Completed file with {} size", self.currently_read);
+            debug!("Completed packet with {} size", self.currently_read);
             self.expected_size = 0;
             self.currently_read = 0;
             let mut buffered = Vec::new();
@@ -715,10 +715,11 @@ impl Connection {
             }
             self.process_complete_packet(buckets, &buffered, &packets_queue);
             self.clear_buffer();
+            self.incoming_plaintext(packets_queue,buckets,buf);
         } else if self.expected_size > 0  && buf.len() <= (self.expected_size as usize-self.currently_read as usize) {
              self.append_buffer(&buf);
              if self.expected_size == self.currently_read {
-                 info!("Completed file with {} size", self.currently_read);
+                 debug!("Completed packet with {} size", self.currently_read);
                 self.expected_size = 0;
                 self.currently_read = 0;
                 let mut buffered = Vec::new();
@@ -729,6 +730,7 @@ impl Connection {
                 self.clear_buffer();
              }
         } else if self.expected_size > 0 && buf.len() > (self.expected_size as usize-self.currently_read as usize) {
+            debug!("Got more buffer than needed");
             let to_take = self.expected_size-self.currently_read;
             self.append_buffer(&buf[..to_take as usize]);
             let mut buffered = Vec::new();
@@ -739,9 +741,11 @@ impl Connection {
             self.clear_buffer();
             self.incoming_plaintext(&packets_queue, buckets, &buf[to_take as usize..]);
         } else if buf.len() >= 8 {
+            debug!("Trying to read size");
             self.expected_size = deserialize(&buf[..8]).unwrap();
             self.setup_buffer();
             if buf.len() > 8 {
+                debug!("Got enough to read it...");
                 self.incoming_plaintext(&packets_queue,buckets,&buf[8..]);
             } 
         }
@@ -808,8 +812,9 @@ pub struct P2PNode {
 
 fn serialize_bytes(conn: &mut Connection, pkt: String ) {
     let serialized = pkt.as_bytes();
+     info!("Serializing data to connection {} bytes", serialized.len());
     conn.write_all(&serialize(&serialized.len()).unwrap());
-    conn.write_all(serialized);
+    conn.write_all(serialized).unwrap();
 }
 
 impl P2PNode {
@@ -838,7 +843,6 @@ impl P2PNode {
         };
 
         let _id = P2PNodeId::from_string(id.clone());
-        println!("Got ID: {}", _id.clone().to_string());
 
         let poll = match Poll::new() {
             Ok(x) => x,
@@ -1011,6 +1015,10 @@ impl P2PNode {
                     self.tls_server.conn_event(&mut self.poll, &event, &mut self.buckets, &self.incoming_pkts);
                 }
             }
+
+            self.process_messages();
+
+            self.send_message(Some(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2"))), String::from("Hello world!"), false);
         }
     }
 }

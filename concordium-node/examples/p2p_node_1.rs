@@ -6,11 +6,12 @@ extern crate mio;
 extern crate log;
 extern crate env_logger;
 use std::sync::mpsc;
-use std::thread;
 use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{P2PPeer,P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
 use mio::Events;
+use std::sync::{Arc,Mutex};
+use std::{thread, time};
 
 fn main() {
     env_logger::init();
