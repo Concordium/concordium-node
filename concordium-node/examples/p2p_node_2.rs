@@ -11,6 +11,7 @@ use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{P2PPeer,P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
 use mio::Events;
+use std::rc::Rc;
 
 fn main() {
     env_logger::init();
@@ -70,11 +71,12 @@ fn main() {
         P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
 
-    let th = thread::spawn(move || {
-        let mut events = Events::with_capacity(1024);
-        node.process(&mut events);
-    });
+    node.connect("127.0.0.1".parse().unwrap(), 8888);
+    let mut events = Events::with_capacity(1024);
 
-    th.join().unwrap();
+    loop {
+        node.process(&mut events);
+        node.send_message(Some(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string())), "Hello world!".to_string(), false);
+    }
 
 }

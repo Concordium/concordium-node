@@ -71,13 +71,11 @@ fn main() {
     };
 
     //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
-    node.connect("127.0.0.1".parse().unwrap(), 8889);
+    //node.connect("127.0.0.1".parse().unwrap(), 8889);
 
-    let th = thread::spawn(move || {
-        let mut events = Events::with_capacity(1024);
+    let mut events = Events::with_capacity(1024);
+    loop {
         node.process(&mut events);
-    });
-
-    th.join().unwrap();
+    }
 
 }

@@ -276,6 +276,15 @@ impl TlsServer {
                 conn.close(&mut poll);
             }
         }
+
+        let closed_ones :  Vec<_> = self.connections
+                                        .iter()
+                                        .filter(|&(_, &ref v)| v.closing)
+                                        .map(|(k, _)| k.clone())
+                                        .collect();
+        for closed in closed_ones {
+            self.connections.remove(&closed);
+        }
     }
 
 }
@@ -415,6 +424,10 @@ impl Connection {
 
         if ev.readiness().is_writable() {
             self.do_tls_write();
+        }
+
+        if self.closing {
+            self.close(poll);
         }
 
         match self.initiated_by_me {
@@ -979,27 +992,23 @@ impl P2PNode {
     }
 
     pub fn process(&mut self, events: &mut Events) {
-        loop {
-            self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
+        self.poll.poll(events, Some(Duration::from_millis(500))).unwrap();
 
-            self.send_message(Some(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2"))), String::from("Hello world!"), false);
+        self.process_messages();
 
-            self.process_messages();
+        self.tls_server.cleanup_connections(&mut self.poll);
 
-            self.tls_server.cleanup_connections(&mut self.poll);
-
-            for event in events.iter() {
-                match event.token() {
-                    SERVER => {
-                        info!("Got new connection!");
-                        if !self.tls_server.accept(&mut self.poll) {
-                            break;
-                        }
-                    },
-                    _ => {
-                        info!("Got data!");
-                        self.tls_server.conn_event(&mut self.poll, &event, &mut self.buckets, &self.incoming_pkts);
+        for event in events.iter() {
+            match event.token() {
+                SERVER => {
+                    info!("Got new connection!");
+                    if !self.tls_server.accept(&mut self.poll) {
+                        break;
                     }
+                },
+                _ => {
+                    info!("Got data!");
+                    self.tls_server.conn_event(&mut self.poll, &event, &mut self.buckets, &self.incoming_pkts);
                 }
             }
         }
