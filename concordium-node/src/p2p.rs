@@ -15,6 +15,7 @@ use get_if_addrs;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::IpAddr::{V4, V6};
+use std::thread;
 use utils;
 use common::{NetworkMessage,NetworkRequest, NetworkPacket, NetworkResponse, P2PPeer, P2PNodeId};
 use common;
@@ -915,6 +916,16 @@ impl P2PNode {
             event_log,
         }
 
+    }
+
+    pub fn spawn(&mut self) -> thread::JoinHandle<()> {
+        let mut self_clone = self.clone();
+        thread::spawn(move || {
+            let mut events = Events::with_capacity(1024);
+            loop {
+                self_clone.process(&mut events);
+            }
+        })
     }
 
     pub fn connect(&mut self, ip: IpAddr, port: u16) {

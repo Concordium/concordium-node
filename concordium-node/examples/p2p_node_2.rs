@@ -9,7 +9,6 @@ use std::{thread,time};
 use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
-use mio::Events;
 
 fn main() {
     env_logger::init();
@@ -61,15 +60,8 @@ fn main() {
     };
 
     node.connect("127.0.0.1".parse().unwrap(), 8888);
-    let mut events = Events::with_capacity(1024);
 
-    let mut node_loop = node.clone();
-
-    let _th = thread::spawn(move || {
-        loop {
-            node_loop.process(&mut events);
-        }
-    });
+    let _th = node.spawn();
 
     let _app = thread::spawn(move|| {
             loop {

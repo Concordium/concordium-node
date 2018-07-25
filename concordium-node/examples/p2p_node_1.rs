@@ -8,7 +8,6 @@ use std::sync::mpsc;
 use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
-use mio::Events;
 use std::thread;
 
 fn main() {
@@ -60,9 +59,8 @@ fn main() {
         P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
 
-    let mut events = Events::with_capacity(1024);
-    loop {
-        node.process(&mut events);
-    }
+    let _th = node.spawn();
+
+    _th.join();
 
 }

@@ -11,7 +11,6 @@ mod tests {
     use std::{thread,time};
     use p2p_client::p2p::*;
     use p2p_client::common::{NetworkPacket,NetworkMessage,NetworkRequest};
-    use mio::Events;
 
     #[test]
     pub fn e2e_000() {
@@ -33,27 +32,13 @@ mod tests {
             }
         });
 
-        let node_1 = P2PNode::new(None, 8888, pkt_in_1, Some(sender));
+        let mut node_1 = P2PNode::new(None, 8888, pkt_in_1, Some(sender));
 
-        let mut _th_clone_1 = node_1.clone();
-
-        let _th_1 = thread::spawn(move || {
-            let mut events = Events::with_capacity(1024);
-            loop {
-                _th_clone_1.process(&mut events);
-            }
-        });
+        let mut _th_1 = node_1.spawn();
 
         let mut node_2 = P2PNode::new(None, 8889, pkt_in_2, None);
 
-        let mut _th_clone_2 = node_2.clone();
-        
-        let _th_1 = thread::spawn(move || {
-            let mut events = Events::with_capacity(1024);
-            loop {
-                _th_clone_2.process(&mut events);
-            }
-        });
+        let _th_2 = node_2.spawn();
 
         let msg = String::from("Hello other brother!");
 
