@@ -1,5 +1,4 @@
 extern crate p2p_client;
-#[macro_use] extern crate structopt;
 extern crate bytes;
 extern crate mio;
 #[macro_use]
@@ -17,15 +16,6 @@ fn main() {
     info!("Starting up!");
 
     let conf = configuration::parse_config();
-    let node_ip = match conf.remote_ip {
-        Some(x) => { x },
-        _ => { String::from("127.0.0.1") }
-    };
-
-    let node_port = match conf.remote_port {
-        Some(x) => x,
-        _ => 8889,
-    };
 
     let listen_port = match conf.listen_port {
         Some(x) => x,
@@ -60,7 +50,7 @@ fn main() {
                         P2PEvent::ConnectEvent(ip, port) => info!("Received connection from {}:{}", ip, port),
                         P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                         P2PEvent::ReceivedMessageEvent(node_id) => info!("Received message from {:?}", node_id),
-                        P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", nodeId),
+                        P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
                         P2PEvent::InitiatingConnection(ip,port) => info!("Initiating connection to {}:{}", ip, port),
                         _ => error!("Received unknown event!")
                     }

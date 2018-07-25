@@ -709,9 +709,9 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() {
-        let SELF_PEER:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let text_msg = String::from("Hello  broadcasted world!");
-        let msg = NetworkPacket::BroadcastedMessage(SELF_PEER, text_msg.clone());
+        let msg = NetworkPacket::BroadcastedMessage(self_peer, text_msg.clone());
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!( match deserialized {

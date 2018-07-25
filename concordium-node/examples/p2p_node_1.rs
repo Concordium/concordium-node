@@ -1,5 +1,4 @@
 extern crate p2p_client;
-#[macro_use] extern crate structopt;
 extern crate bytes;
 extern crate mio;
 #[macro_use]
@@ -17,15 +16,6 @@ fn main() {
     info!("Starting up!");
 
     let conf = configuration::parse_config();
-    let node_ip = match conf.remote_ip {
-        Some(x) => { x },
-        _ => { String::from("127.0.0.1") }
-    };
-
-    let node_port = match conf.remote_port {
-        Some(x) => x,
-        _ => 8888,
-    };
 
     let listen_port = match conf.listen_port {
         Some(x) => x,
@@ -70,9 +60,6 @@ fn main() {
     } else {
         P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
-
-    //let tok1 = node.connect(P2PPeer::new("10.0.82.68".parse().unwrap(), 8888)).unwrap();
-    //node.connect("127.0.0.1".parse().unwrap(), 8889);
 
     let mut events = Events::with_capacity(1024);
     loop {
