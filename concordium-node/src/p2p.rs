@@ -343,19 +343,23 @@ impl Connection {
     }
 
     fn register(&self, poll: &mut Poll) {
-        poll.register(&self.socket,
+        match poll.register(&self.socket,
                       self.token,
                       self.event_set(),
-                      PollOpt::level()| PollOpt::oneshot())
-            .unwrap();
+                      PollOpt::level()| PollOpt::oneshot()) {
+                            Ok(_) => {},
+                            Err(e) => error!("Error registering socket with poll, got error: {:?}", e),
+                      }
     }
 
     fn reregister(&self, poll: &mut Poll) {
-        poll.reregister(&self.socket,
+        match poll.reregister(&self.socket,
                         self.token,
                         self.event_set(),
-                        PollOpt::level() | PollOpt::oneshot())
-            .unwrap();
+                        PollOpt::level() | PollOpt::oneshot()){
+                            Ok(_) => {},
+                            Err(e) => error!("Error reregistering socket with poll, got error: {:?}", e),
+        }
     }
 
     fn event_set(&self) -> Ready {
@@ -392,9 +396,8 @@ impl Connection {
             }
         };
 
-        if ! cfg!(windows) {
-            _wr = true;
-        }
+        //Don't trust it .. It's broken and inconsistent
+        _wr = true;
 
         if _rd && _wr {
             Ready::readable() | Ready::writable()
@@ -411,8 +414,15 @@ impl Connection {
 
     fn close(&mut self, poll: &mut Poll) {
         self.closing = true;
-        poll.deregister(&self.socket).unwrap();
-        self.socket.shutdown(Shutdown::Both).unwrap();
+        match poll.deregister(&self.socket) {
+            Ok(_) => {},
+            Err(e) => error!("Error deregistering socket with poll, got error: {:?}", e)
+        }
+
+        match self.socket.shutdown(Shutdown::Both) {
+            Ok(_) => {},
+            Err(e) => error!("Error shutting down socket, got error: {:?}", e)
+        }
     }
 
     fn ready(&mut self, poll: &mut Poll, ev: &Event, buckets: &mut Buckets, packets_queue: &mpsc::Sender<NetworkMessage>) {
