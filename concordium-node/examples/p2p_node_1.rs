@@ -61,6 +61,7 @@ fn main() {
                         P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                         P2PEvent::ReceivedMessageEvent(nodeId) => info!("Received message from {:?}", nodeId),
                         P2PEvent::SentMessageEvent(nodeId) => info!("Sent message to {:?}", nodeId),
+                        P2PEvent::InitiatingConnection(ip,port) => info!("Initiating connection to {}:{}", ip, port),
                         _ => error!("Received unknown event!")
                     }
                 }

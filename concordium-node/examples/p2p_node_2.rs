@@ -9,9 +9,8 @@ use std::sync::mpsc;
 use std::thread;
 use p2p_client::p2p::*;
 use p2p_client::configuration;
-use p2p_client::common::{P2PPeer,P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
+use p2p_client::common::{P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
 use mio::Events;
-use std::rc::Rc;
 
 fn main() {
     env_logger::init();
@@ -41,7 +40,7 @@ fn main() {
         loop {
             if let Ok(msg) = pkt_out.recv() {
                 match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,receiver, msg),sent,received) => info!( "DirectMessage with text {} received", msg),
+                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => info!( "DirectMessage with text {} received", msg),
                     NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,msg),sent,received) => info!("BroadcastedMessage with text {} received", msg),
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, x),sent,received)  => info!("Ban node request for {:x}", x.get_id()),
                     NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, x), sent, received) => info!("Unban node requets for {:x}", x.get_id()), 
@@ -61,6 +60,7 @@ fn main() {
                         P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                         P2PEvent::ReceivedMessageEvent(nodeId) => info!("Received message from {:?}", nodeId),
                         P2PEvent::SentMessageEvent(nodeId) => info!("Sent message to {:?}", nodeId),
+                        P2PEvent::InitiatingConnection(ip,port) => info!("Initiating connection to {}:{}", ip, port),
                         _ => error!("Received unknown event!")
                     }
                 }
