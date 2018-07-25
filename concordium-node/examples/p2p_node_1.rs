@@ -40,10 +40,10 @@ fn main() {
         loop {
             if let Ok(msg) = pkt_out.recv() {
                 match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,receiver, msg),sent,received) => info!( "DirectMessage with text {} received", msg),
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,msg),sent,received) => info!("BroadcastedMessage with text {} received", msg),
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, x),sent,received)  => info!("Ban node request for {:x}", x.get_id()),
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, x), sent, received) => info!("Unban node requets for {:x}", x.get_id()), 
+                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => info!( "DirectMessage with text {} received", msg),
+                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,msg),_,_) => info!("BroadcastedMessage with text {} received", msg),
+                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
                     _ => {}
                 }
             }
@@ -59,7 +59,7 @@ fn main() {
                         P2PEvent::ConnectEvent(ip, port) => info!("Received connection from {}:{}", ip, port),
                         P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                         P2PEvent::ReceivedMessageEvent(node_id) => info!("Received message from {:?}", node_id),
-                        P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", nodeId),
+                        P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
                         P2PEvent::InitiatingConnection(ip,port) => info!("Initiating connection to {}:{}", ip, port),
                         _ => error!("Received unknown event!")
                     }
