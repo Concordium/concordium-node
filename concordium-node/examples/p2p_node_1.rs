@@ -8,10 +8,9 @@ extern crate env_logger;
 use std::sync::mpsc;
 use p2p_client::p2p::*;
 use p2p_client::configuration;
-use p2p_client::common::{P2PPeer,P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
+use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
 use mio::Events;
-use std::sync::{Arc,Mutex};
-use std::{thread, time};
+use std::thread;
 
 fn main() {
     env_logger::init();
@@ -59,8 +58,8 @@ fn main() {
                     match msg {
                         P2PEvent::ConnectEvent(ip, port) => info!("Received connection from {}:{}", ip, port),
                         P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                        P2PEvent::ReceivedMessageEvent(nodeId) => info!("Received message from {:?}", nodeId),
-                        P2PEvent::SentMessageEvent(nodeId) => info!("Sent message to {:?}", nodeId),
+                        P2PEvent::ReceivedMessageEvent(node_id) => info!("Received message from {:?}", node_id),
+                        P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", nodeId),
                         P2PEvent::InitiatingConnection(ip,port) => info!("Initiating connection to {}:{}", ip, port),
                         _ => error!("Received unknown event!")
                     }
