@@ -4,7 +4,6 @@ use num_traits::Num;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::cmp::Ordering;
-use bincode::{serialize, deserialize};
 use time;
 
 const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";

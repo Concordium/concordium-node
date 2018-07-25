@@ -1,6 +1,6 @@
-use libc::{c_int,c_char};
-use std::ffi::CStr;
-use std::str;
+//use libc::{c_int,c_char};
+//use std::ffi::CStr;
+//use std::str;
 
 /*
 #[link(name = "cpuid")]
