@@ -5,7 +5,7 @@ extern crate mio;
 extern crate log;
 extern crate env_logger;
 use std::sync::mpsc;
-use std::thread;
+use std::{thread,time};
 use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{P2PNodeId,NetworkRequest,NetworkPacket,NetworkMessage};
@@ -63,9 +63,23 @@ fn main() {
     node.connect("127.0.0.1".parse().unwrap(), 8888);
     let mut events = Events::with_capacity(1024);
 
-    loop {
-        node.process(&mut events);
-        node.send_message(Some(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string())), "Hello world!".to_string(), false);
-    }
+    let mut node_loop = node.clone();
+
+    let th = thread::spawn(move || {
+        loop {
+            node_loop.process(&mut events);
+        }
+    });
+
+    let _app = thread::spawn(move|| {
+            loop {
+            info!("Sending one packet");
+            node.send_message(Some(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string())), "Hello world!".to_string(), false);
+            info!("Sleeping for 1 second");
+            thread::sleep(time::Duration::from_secs(1));
+        }
+    });
+
+    _app.join();
 
 }
