@@ -35,7 +35,6 @@ fn main() {
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
                     NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
                     _ => {}
-                    _ => {}
                 }
             }
         }
@@ -52,7 +51,6 @@ fn main() {
                         P2PEvent::ReceivedMessageEvent(node_id) => info!("Received message from {:?}", node_id),
                         P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
                         P2PEvent::InitiatingConnection(ip,port) => info!("Initiating connection to {}:{}", ip, port),
-                        _ => error!("Received unknown event!")
                     }
                 }
             }
