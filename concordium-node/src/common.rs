@@ -476,7 +476,7 @@ impl P2PNodeId {
                     x
                 },
                 Err(_) => {
-                    panic!("Couldn't convert ID from hex to biguint")
+                    panic!("Couldn't convert ID {} from hex to biguint", &sid)
                 }
             }
         }
@@ -487,7 +487,7 @@ impl P2PNodeId {
     }
 
     pub fn to_string(self) -> String {
-        format!("{:x}", self.id)
+        format!("{:064x}", self.id)
     }
 
     pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {

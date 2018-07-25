@@ -65,7 +65,7 @@ fn main() {
 
     let mut node_loop = node.clone();
 
-    let th = thread::spawn(move || {
+    let _th = thread::spawn(move || {
         loop {
             node_loop.process(&mut events);
         }
@@ -80,6 +80,6 @@ fn main() {
         }
     });
 
-    _app.join();
+    _app.join().unwrap();
 
 }
