@@ -22,6 +22,7 @@ use mio::Events;
 service! {
     rpc hello(name: String) -> String;
     rpc peer_connect(ip: String, port: u16) -> bool;
+    rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
 }
 
 #[derive(Clone)]
@@ -34,6 +35,11 @@ impl SyncService for HelloServer {
 
     fn peer_connect(&self, ip: String, port: u16) -> Result<bool, Never> {
         info!("Connecting to IP: {} and port: {}!", ip, port);
+        Ok(true)
+    }
+
+    fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {
+        info!("Sending message to ID: {} with contents: {}. Broadcast? {}", id, msg, broadcast);
         Ok(true)
     }
 }
