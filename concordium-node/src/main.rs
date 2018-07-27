@@ -21,10 +21,8 @@ use mio::Events;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
-//use p2p_client::ffi;
 
 service! {
-    rpc hello(name: String) -> String;
     rpc peer_connect(ip: String, port: u16) -> bool;
     rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
 }
@@ -88,10 +86,6 @@ impl HelloServer {
 }
 
 impl SyncService for HelloServer {
-    fn hello(&self, name: String) -> Result<String, Never> {
-        Ok(format!("Hello {}!", name))
-    }
-
     fn peer_connect(&self, ip: String, port: u16) -> Result<bool, Never> {
         info!("Connecting to IP: {} and port: {}!", ip, port);
         self.node.borrow_mut().connect(ip.parse().unwrap(), port);
