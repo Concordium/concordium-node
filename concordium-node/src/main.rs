@@ -142,10 +142,8 @@ fn main() {
 
 
     let client = SyncClient::connect(rx.recv().unwrap(), client::Options::default()).unwrap();
-    client.peer_connect("127.0.0.1".to_string(), 8888).unwrap();
     thread::sleep(Duration::from_secs(5));
 
-    client.send_message(Some("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()), "Hello World!".to_string(), false).unwrap();
 
     th1.join().unwrap();
 }
