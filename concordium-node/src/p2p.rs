@@ -915,7 +915,6 @@ impl P2PNode {
             incoming_pkts: pkt_queue,
             event_log,
         }
-
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -926,6 +925,10 @@ impl P2PNode {
                 self_clone.process(&mut events);
             }
         })
+    }
+
+    pub fn get_version(&self) -> String {
+        String::from("0.0.2")
     }
 
     pub fn connect(&mut self, ip: IpAddr, port: u16) {

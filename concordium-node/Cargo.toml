@@ -1,7 +1,7 @@
 [package]
 name = "p2p_client"
-version = "0.0.1"
-description = "Rust Coin skel"
+version = "0.0.2"
+description = "Concordium P2P library"
 authors = [ "Ian Johannesen <ij@nordic-t.me>", "Martin Karlsen Jensen <mj@nordic-t.me>"]
 exclude = [
     ".gitignore",

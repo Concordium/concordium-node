@@ -15,6 +15,12 @@ pub struct Config {
     pub id: Option<String>,
     #[structopt(long="debug", help = "Debug mode")]
     pub debug: bool,
+    #[structopt(long="no-rpc-server", help ="Disable the built-in RPC server")]
+    pub no_rpc_server: bool,
+    #[structopt(long="rpc-server-port", help = "RPC server port", default_value="10000")]
+    pub rpc_server_port: u16,
+    #[structopt(long="rpc-server-addr", help = "RPC server listen address", default_value="127.0.0.1")]
+    pub rpc_server_addr: String,
 }
 
 pub fn parse_config() -> Config  {
