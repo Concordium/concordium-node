@@ -948,6 +948,10 @@ impl P2PNode {
         self.port
     }
 
+    pub fn get_nodes(&self) -> Vec<P2PPeer> {
+        self.buckets.lock().unwrap().get_all_nodes()
+    }
+
     fn log_event(&mut self, event: P2PEvent) {
         match self.event_log {
             Some(ref mut x) => { 

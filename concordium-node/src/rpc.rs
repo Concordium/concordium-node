@@ -1,12 +1,13 @@
 use tarpc::sync::server;
 use p2p::{P2PNode};
-use common::{P2PNodeId};
+use common::{P2PNodeId, P2PPeer};
 use std::cell::RefCell;
 use tarpc::util::Never;
 use std::thread;
 
 service! {
     rpc peer_connect(ip: String, port: u16) -> bool;
+    rpc peer_list() -> Vec<P2PPeerText>;
     rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
     rpc get_version() -> String;
 }
@@ -43,11 +44,39 @@ impl RpcServer {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct P2PPeerText {
+    ip: String,
+    port: u16,
+    id: String,
+}
+
+impl P2PPeerText {
+    pub fn from(peer: P2PPeer) -> P2PPeerText {
+        P2PPeerText {
+            ip: format!("{}", peer.ip()),
+            port: peer.port(),
+            id: peer.id().to_string(),
+        }
+    }
+}
+
 impl SyncService for RpcServer {
     fn peer_connect(&self, ip: String, port: u16) -> Result<bool, Never> {
         info!("Connecting to IP: {} and port: {}!", ip, port);
         self.node.borrow_mut().connect(ip.parse().unwrap(), port);
         Ok(true)
+    }
+
+    fn peer_list(&self) -> Result<Vec<P2PPeerText>, Never> {
+        let list = self.node.borrow_mut().get_nodes();
+        let mut ret = Vec::new();
+        
+        for item in list {
+            ret.push(P2PPeerText::from(item));
+        }
+
+        Ok(ret)
     }
 
     fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {

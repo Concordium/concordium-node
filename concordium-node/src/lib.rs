@@ -21,6 +21,9 @@ extern crate untrusted;
 extern crate openssl;
 #[macro_use]
 extern crate tarpc;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 pub mod configuration;
 pub mod common;
