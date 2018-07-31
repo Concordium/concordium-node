@@ -19,5 +19,6 @@ before_script:
 
 test:cargo:
   script:
+  - rustup default nightly
   - rustc --version && cargo --version      # Print version info for debugging
   - cargo test --all --verbose
