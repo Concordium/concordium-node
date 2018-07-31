@@ -52,7 +52,7 @@ pub struct P2PPeerText {
 }
 
 impl P2PPeerText {
-    pub fn from(peer: P2PPeer) -> P2PPeerText {
+    pub fn from(peer: &P2PPeer) -> P2PPeerText {
         P2PPeerText {
             ip: format!("{}", peer.ip()),
             port: peer.port(),
@@ -69,14 +69,13 @@ impl SyncService for RpcServer {
     }
 
     fn peer_list(&self) -> Result<Vec<P2PPeerText>, Never> {
-        let list = self.node.borrow_mut().get_nodes();
-        let mut ret = Vec::new();
-        
-        for item in list {
-            ret.push(P2PPeerText::from(item));
-        }
-
-        Ok(ret)
+        Ok(
+            self.node.borrow_mut()
+                .get_nodes()
+                .iter()
+                .map(|ref x| P2PPeerText::from(x))
+                .collect::<Vec<P2PPeerText>>()
+        )
     }
 
     fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {

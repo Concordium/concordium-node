@@ -5,7 +5,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::cmp::Ordering;
 use time;
-use serde::{Deserialize, Serialize};
 
 const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
 const PROTOCOL_VERSION: &'static str = "001";
