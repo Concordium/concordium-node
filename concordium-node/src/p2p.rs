@@ -758,10 +758,16 @@ impl Connection {
             let _buf = &buf[..4].to_vec();
             let mut size_bytes = Cursor::new(_buf);
             self.expected_size = size_bytes.read_u32::<NetworkEndian>().unwrap();
-            self.setup_buffer();
-            if buf.len() > 4 {
-                debug!("Got enough to read it...");
+            if self.expected_size > 268_435_456 {
+                error!("Packet can't be bigger than 256MB");
+                self.expected_size = 0;
                 self.incoming_plaintext(&packets_queue,buckets,&buf[4..]);
+            } else {
+                self.setup_buffer();
+                if buf.len() > 4 {
+                    debug!("Got enough to read it...");
+                    self.incoming_plaintext(&packets_queue,buckets,&buf[4..]);
+                }
             } 
         }
     }
