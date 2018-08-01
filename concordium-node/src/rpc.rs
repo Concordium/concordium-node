@@ -11,6 +11,8 @@ service! {
     rpc peer_uptime() -> i64;
     rpc peer_total_sent() -> u64;
     rpc peer_total_received() -> u64;
+    rpc peer_current_sent() -> u64;
+    rpc peer_current_received() -> u64;
     rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
     rpc get_version() -> String;
 }
@@ -91,6 +93,14 @@ impl SyncService for RpcServer {
 
     fn peer_total_received(&self) -> Result<u64, Never> {
         Ok(self.node.borrow_mut().get_total_received())
+    }
+
+    fn peer_current_sent(&self) -> Result<u64, Never> {
+        Ok(self.node.borrow_mut().get_current_sent())
+    }
+
+    fn peer_current_received(&self) -> Result<u64, Never> {
+        Ok(self.node.borrow_mut().get_current_received())
     }
 
     fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {

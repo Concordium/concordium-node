@@ -170,6 +170,15 @@ impl TlsServer {
         self.self_peer.clone()
     }
 
+
+    pub fn calculate_current_sent(&self) -> u64 {
+        self.connections.iter().map(|(_,y)| y.get_messages_sent()).sum()
+    }
+
+    pub fn calculate_current_received(&self) -> u64 {
+        self.connections.iter().map(|(_,y)| y.get_messages_received()).sum()
+    }
+
     fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> bool {
         match self.server.accept() {
             Ok((socket, addr)) => {
@@ -1060,6 +1069,30 @@ impl P2PNode {
             }
         }
         //self.send_queue.push_back(P2PMessage::new(id, msg));
+    }
+
+    pub fn get_current_sent(&self) -> u64 {
+        match self.tls_server.lock() {
+            Ok(x) => {
+                x.calculate_current_sent()
+            },
+            Err(e) => {
+                info!("Couldn't lock for tls_server: {:?}", e);
+                0
+            }
+        }
+    }
+
+    pub fn get_current_received(&self) -> u64 {
+        match self.tls_server.lock() {
+            Ok(x) => {
+                x.calculate_current_received()
+            },
+            Err(e) => {
+                info!("Couldn't lock for tls_server: {:?}", e);
+                0
+            }
+        }
     }
 
     pub fn get_ip() -> Option<Ipv4Addr>{
