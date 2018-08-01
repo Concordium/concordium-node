@@ -12,6 +12,8 @@ use std::thread;
 use env_logger::Env;
 
 fn main() {
+    let conf = configuration::parse_config();
+    
     let env = if conf.debug {
         Env::default()
             .filter_or("MY_LOG_LEVEL", "debug")
@@ -22,8 +24,6 @@ fn main() {
     
     env_logger::init_from_env(env);
     info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
-
-    let conf = configuration::parse_config();
 
     let listen_port = match conf.listen_port {
         Some(x) => x,
