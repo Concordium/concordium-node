@@ -1003,7 +1003,7 @@ impl P2PNode {
     }
 
     pub fn get_version(&self) -> String {
-        String::from("0.0.2")
+        ::VERSION.to_string()
     }
 
     pub fn connect(&mut self, ip: IpAddr, port: u16) {

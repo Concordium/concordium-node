@@ -9,12 +9,21 @@ use p2p_client::p2p::*;
 use p2p_client::configuration;
 use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
 use std::thread;
+use env_logger::Env;
 
 fn main() {
-    env_logger::init();
-    info!("Starting up!");
-
     let conf = configuration::parse_config();
+    
+    let env = if conf.debug {
+        Env::default()
+            .filter_or("MY_LOG_LEVEL", "debug")
+    } else {
+        Env::default()
+            .filter_or("MY_LOG_LEVEL","info")
+    };
+    
+    env_logger::init_from_env(env);
+    info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
 
     let listen_port = match conf.listen_port {
         Some(x) => x,

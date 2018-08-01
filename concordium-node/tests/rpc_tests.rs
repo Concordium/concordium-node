@@ -68,7 +68,7 @@ mod tests {
 
         let client = SyncClient::connect("127.0.0.1:10000", client::Options::default()).unwrap();
 
-        assert_eq!(client.get_version().unwrap(), "0.0.2" );
+        assert_eq!(client.get_version().unwrap(), env!("CARGO_PKG_VERSION").to_string() );
 
     }
 }
