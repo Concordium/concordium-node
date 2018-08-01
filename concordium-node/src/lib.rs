@@ -27,7 +27,6 @@ extern crate serde_derive;
 
 pub mod configuration;
 pub mod common;
-pub mod ffi;
 pub mod p2p;
 pub mod utils;
 pub mod rpc;
