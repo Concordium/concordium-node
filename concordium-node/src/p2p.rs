@@ -24,6 +24,7 @@ use num_bigint::ToBigUint;
 use num_traits::pow;
 use bytes::{BytesMut, BufMut};
 use time;
+use time::Timespec;
 use webpki::DNSNameRef;
 use std::sync::{Arc,Mutex};
 use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
@@ -139,7 +140,7 @@ struct TlsServer {
     client_tls_config: Arc<ClientConfig>,
     own_id: P2PNodeId,
     event_log: Option<Sender<P2PEvent>>,
-    self_peer: P2PPeer
+    self_peer: P2PPeer,
 }
 
 impl TlsServer {
@@ -295,6 +296,8 @@ struct Connection {
     pkt_buffer: Option<BytesMut>,
     last_seen: u64,
     self_peer: P2PPeer,
+    messages_sent: u64,
+    messages_received: u64,
 }
 
 impl Connection {
@@ -314,6 +317,8 @@ impl Connection {
             pkt_buffer: None,
             last_seen: common::get_current_stamp(),
             self_peer: self_peer,
+            messages_received: 0,
+            messages_sent: 0,
         }
     }
 
@@ -331,6 +336,14 @@ impl Connection {
 
     fn get_self_peer(&self) -> P2PPeer {
         self.self_peer.clone()
+    }
+
+    fn get_messages_received(&self) -> u64 {
+        self.messages_received
+    }
+
+    fn get_messages_sent(&self) -> u64 {
+        self.messages_sent
     }
 
     fn clear_buffer(&mut self) {
@@ -589,6 +602,7 @@ impl Connection {
             true => {
                 match self.tls_client_session {
                     Some(ref mut x) => {
+                        self.messages_sent += 1;
                         x.write_all(bytes)
                     },
                     None => {
@@ -599,6 +613,7 @@ impl Connection {
             false => {
                 match self.tls_server_session {
                     Some(ref mut x) => {
+                        self.messages_sent += 1;
                         x.write_all(bytes)
                     },
                     None => {
@@ -612,6 +627,7 @@ impl Connection {
     fn process_complete_packet(&mut self, buckets: &mut Buckets, buf: &[u8], packet_queue: &mpsc::Sender<NetworkMessage>) {
         let ref outer =  NetworkMessage::deserialize(&buf);
         let self_peer = self.get_self_peer().clone();
+        self.messages_received += 1;
         match outer {
             NetworkMessage::NetworkRequest(x,_,_) => {
                 match x {
@@ -827,7 +843,10 @@ pub struct P2PNode {
     ip: IpAddr,
     port: u16,
     incoming_pkts: mpsc::Sender<NetworkMessage>,
-    event_log: Option<mpsc::Sender<P2PEvent>>
+    event_log: Option<mpsc::Sender<P2PEvent>>,
+    start_time: Timespec,
+    total_sent: u64,
+    total_received: u64,
 }
 
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8] ) {
@@ -924,6 +943,9 @@ impl P2PNode {
             port: port,
             incoming_pkts: pkt_queue,
             event_log,
+            start_time: time::get_time(),
+            total_sent: 0,
+            total_received: 0,
         }
     }
 
@@ -971,6 +993,10 @@ impl P2PNode {
         }
     }
 
+    pub fn get_uptime(&self) -> i64 {
+        (time::get_time() - self.start_time).num_milliseconds()
+    }
+
     pub fn process_messages(&mut self) {
         //Try to send queued messages first
         //Resend queue
@@ -987,6 +1013,7 @@ impl P2PNode {
                                 //Look up connection associated with ID
                                 match self.tls_server.lock().unwrap().find_connection(receiver.clone()) {
                                     Some(ref mut conn) => {
+                                        self.total_sent += 1;
                                         serialize_bytes(conn, &NetworkPacket::DirectMessage(me, receiver,msg).serialize());
                                         debug!("Sent message");
                                     },
@@ -999,6 +1026,7 @@ impl P2PNode {
                             NetworkPacket::BroadcastedMessage(me, msg) => {
                                 let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
                                 for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
+                                    self.total_sent += 1;
                                     serialize_bytes(conn, &pkt.clone().serialize());
                                 }
                             }
@@ -1066,6 +1094,14 @@ impl P2PNode {
             self.get_listening_port())
     }
 
+    pub fn get_total_sent(&self) -> u64 {
+        self.total_sent
+    }
+
+    pub fn get_total_received(&self) -> u64 {
+        self.total_received
+    }
+
     pub fn process(&mut self, events: &mut Events) {
         self.poll.lock().unwrap().poll(events, Some(Duration::from_millis(500))).unwrap();
 
@@ -1084,6 +1120,7 @@ impl P2PNode {
                 },
                 _ => {
                     debug!("Got data!");
+                    self.total_received += 1;
                     self.tls_server.lock().unwrap().conn_event(&mut self.poll.lock().unwrap(), &event, &mut self.buckets.lock().unwrap(), &self.incoming_pkts);
                 }
             }
