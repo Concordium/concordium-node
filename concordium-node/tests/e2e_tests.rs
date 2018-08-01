@@ -44,7 +44,7 @@ mod tests {
 
         node_2.connect("127.0.0.1".parse().unwrap(), 8888);
 
-        node_2.send_message(Some(node_1.get_own_id()), msg.clone(), false);
+        node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false);
 
         thread::sleep(time::Duration::from_secs(3));
 
@@ -57,7 +57,7 @@ mod tests {
 
         match pkt_out_1.try_recv() {
             Ok(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, recv_msg),_,_)) => {
-                assert_eq!(msg, recv_msg);
+                assert_eq!(msg.as_bytes().to_vec(), recv_msg);
             },
             _ => { panic!("Didn't get message from node_2"); }
         }
@@ -100,7 +100,7 @@ mod tests {
                 if let Ok(msg) = pkt_out_2.recv() {
                     match msg {
                         NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,msg),_,_) => {
-                            _2_node.send_message(None, msg, true);
+                            _2_node.send_message(None, &msg, true);
                         }
                         _ => {}
                     }
@@ -120,13 +120,13 @@ mod tests {
 
         thread::sleep(time::Duration::from_secs(3));
 
-        node_1.send_message(None, msg.clone(), true);
+        node_1.send_message(None, &msg.as_bytes().to_vec(), true);
 
         thread::sleep(time::Duration::from_secs(3));
 
         match pkt_out_3.try_recv() {
             Ok(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, recv_msg),_,_)) => {
-                assert_eq!(msg, recv_msg);
+                assert_eq!(msg.as_bytes().to_vec(), recv_msg);
             },
             x => { panic!("Didn't get message from node_1 on node_3, but got {:?}", x); }
         }

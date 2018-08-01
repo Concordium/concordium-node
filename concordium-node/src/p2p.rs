@@ -212,7 +212,7 @@ impl TlsServer {
                 debug!("Requesting handshake from new peer!");
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
-                    serialize_bytes( conn, NetworkRequest::Handshake(self_peer).serialize() )
+                    serialize_bytes( conn, &NetworkRequest::Handshake(self_peer).serialize() )
                 }
                 true
             },
@@ -610,7 +610,7 @@ impl Connection {
     }
 
     fn process_complete_packet(&mut self, buckets: &mut Buckets, buf: &[u8], packet_queue: &mpsc::Sender<NetworkMessage>) {
-        let ref outer =  NetworkMessage::deserialize(&String::from_utf8(buf.to_vec()).unwrap().trim_matches(char::from(0)));
+        let ref outer =  NetworkMessage::deserialize(&buf);
         let self_peer = self.get_self_peer().clone();
         match outer {
             NetworkMessage::NetworkRequest(x,_,_) => {
@@ -619,14 +619,14 @@ impl Connection {
                         //Respond with pong
                         debug!("Got request for ping");
                         self.update_last_seen();
-                        serialize_bytes(self, NetworkResponse::Pong(self_peer).serialize());
+                        serialize_bytes(self, &NetworkResponse::Pong(self_peer).serialize());
                     },
                     NetworkRequest::FindNode(_, x) => {
                         //Return list of nodes
                         debug!("Got request for FindNode");
                         self.update_last_seen();
                         let nodes = buckets.closest_nodes(x);
-                        serialize_bytes(self, NetworkResponse::FindNode(self_peer, nodes).serialize());
+                        serialize_bytes(self, &NetworkResponse::FindNode(self_peer, nodes).serialize());
                     },
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
@@ -641,7 +641,7 @@ impl Connection {
                     NetworkRequest::Handshake(sender) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
-                        serialize_bytes(self, NetworkResponse::Handshake(self_peer).serialize());
+                        serialize_bytes(self, &NetworkResponse::Handshake(self_peer).serialize());
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
                         packet_queue.send(outer.clone()).unwrap();
@@ -650,7 +650,7 @@ impl Connection {
                         debug!("Got request for GetPeers");
                         self.update_last_seen();
                         let nodes = buckets.get_all_nodes();
-                        serialize_bytes(self, NetworkResponse::PeerList(self_peer, nodes).serialize());
+                        serialize_bytes(self, &NetworkResponse::PeerList(self_peer, nodes).serialize());
                     }
                 }
             },
@@ -692,12 +692,12 @@ impl Connection {
                 match x {
                     NetworkPacket::DirectMessage(_,_, msg) => {
                         self.update_last_seen();
-                        debug!("Received {} of size {} as a direct message", msg, msg.len());
+                        debug!("Received direct message of size {}", msg.len());
                         packet_queue.send(outer.clone()).unwrap();
                     },
                     NetworkPacket::BroadcastedMessage(_,msg) => {
                         self.update_last_seen();
-                        debug!("Received {} of size {} as a broadcast message", msg, msg.len());
+                        debug!("Received broadcast message of size {}",msg.len());
                         packet_queue.send(outer.clone()).unwrap();
                     }
                 }
@@ -830,13 +830,12 @@ pub struct P2PNode {
     event_log: Option<mpsc::Sender<P2PEvent>>
 }
 
-fn serialize_bytes(conn: &mut Connection, pkt: String ) {
-    let serialized = pkt.as_bytes();
-     debug!("Serializing data to connection {} bytes", serialized.len());
+fn serialize_bytes(conn: &mut Connection, pkt: &[u8] ) {
+     debug!("Serializing data to connection {} bytes", pkt.len());
      let mut size_vec = vec![];
-     size_vec.write_u32::<NetworkEndian>(serialized.len() as u32).unwrap();
+     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32).unwrap();
     conn.write_all(&size_vec[..]).unwrap();
-    conn.write_all(serialized).unwrap();
+    conn.write_all(pkt).unwrap();
 }
 
 impl P2PNode {
@@ -988,7 +987,7 @@ impl P2PNode {
                                 //Look up connection associated with ID
                                 match self.tls_server.lock().unwrap().find_connection(receiver.clone()) {
                                     Some(ref mut conn) => {
-                                        serialize_bytes(conn, NetworkPacket::DirectMessage(me, receiver,msg).serialize());
+                                        serialize_bytes(conn, &NetworkPacket::DirectMessage(me, receiver,msg).serialize());
                                         debug!("Sent message");
                                     },
                                     _ => {
@@ -1000,7 +999,7 @@ impl P2PNode {
                             NetworkPacket::BroadcastedMessage(me, msg) => {
                                 let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
                                 for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
-                                    serialize_bytes(conn, pkt.clone().serialize());
+                                    serialize_bytes(conn, &pkt.clone().serialize());
                                 }
                             }
                         }
@@ -1015,16 +1014,16 @@ impl P2PNode {
         
     }
 
-    pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: String, broadcast: bool) {
+    pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: &[u8], broadcast: bool) {
         debug!("Queueing message!");
         match broadcast {
             true => {
-                self.send_queue.lock().unwrap().push_back(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg));
+                self.send_queue.lock().unwrap().push_back(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()));
             },
             false => {
                 match id {
                     Some(x) => {
-                        self.send_queue.lock().unwrap().push_back(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg));
+                        self.send_queue.lock().unwrap().push_back(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()));
                     },
                     None => {
                         debug!("Invalid receiver ID for message!");

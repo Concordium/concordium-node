@@ -29,8 +29,8 @@ fn main() {
         loop {
             if let Ok(msg) = pkt_out.recv() {
                 match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => info!( "DirectMessage with text {} received", msg),
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,msg),_,_) => info!("BroadcastedMessage with text {} received", msg),
+                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => info!( "DirectMessage with {:?} received", msg),
+                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,msg),_,_) => info!("BroadcastedMessage with {:?} received", msg),
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
                     NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
                     _ => {}
@@ -66,7 +66,7 @@ fn main() {
     let _app = thread::spawn(move|| {
             loop {
             info!("Sending one packet");
-            node.send_message(Some(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string())), "Hello world!".to_string(), false);
+            node.send_message(Some(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string())), &String::from("Hello world!").as_bytes().to_vec(), false);
             info!("Sleeping for 1 second");
             thread::sleep(time::Duration::from_secs(1));
         }

@@ -79,13 +79,13 @@ impl SyncService for RpcServer {
     }
 
     fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {
-        info!("Sending message to ID: {:?} with contents: {}. Broadcast? {}", id, msg, broadcast);
+        info!("Sending message to ID: {:?} with contents: {}. Broadcast? {}", id,msg, broadcast);
         let id = match id {
             Some(x) => Some(P2PNodeId::from_string(x)),
             None => None,
         };
 
-        self.node.borrow_mut().send_message(id, msg, broadcast);
+        self.node.borrow_mut().send_message(id, msg.as_bytes(), broadcast);
         Ok(true)
     }
 
