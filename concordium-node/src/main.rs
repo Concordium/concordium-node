@@ -14,6 +14,7 @@ use p2p_client::rpc::RpcServer;
 use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
 extern crate tarpc;
 use env_logger::Env;
+use p2p_client::utils;
 
 fn main() {
     let conf = configuration::parse_config();
@@ -77,7 +78,7 @@ fn main() {
         }
     });
 
-    info!("Concordium P2P layer. Network enabled: {}, should connect to {}", conf.network, conf.remote_ip.unwrap_or(String::from("nothing")));
+    info!("Concordium P2P layer. Network disabled: {}", conf.no_network);
 
     if !conf.no_rpc_server {
         let mut serv = RpcServer::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port);
@@ -85,6 +86,17 @@ fn main() {
     }
 
     let _node_th = node.spawn();
+
+    if conf.connect_to.is_some() {
+        let connect_to = conf.connect_to.unwrap();
+        match utils::parse_ip_port(&connect_to) {
+            Some((ip,port)) => {
+                info!("Connecting to peer {}", &connect_to);
+                node.connect(ip, port);
+            },
+            _ => {}
+        }
+    }
 
     _node_th.join().unwrap();
 }

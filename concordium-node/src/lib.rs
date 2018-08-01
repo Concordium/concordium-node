@@ -24,12 +24,14 @@ extern crate tarpc;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate nom;
+
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
 
 pub mod configuration;
 pub mod common;
 pub mod p2p;
 pub mod utils;
 pub mod rpc;
-
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

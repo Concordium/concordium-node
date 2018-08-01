@@ -9,6 +9,9 @@ use openssl::bn::{BigNum, MsbOption};
 use openssl::hash::MessageDigest;
 use std::io::Error;
 use openssl::asn1::Asn1Time;
+use std::net::IpAddr;
+use std::str::FromStr;
+use nom::rest;
 
 pub fn sha256(input: &str) -> [u8;32] {
     let mut output = [0; 32];
@@ -91,5 +94,20 @@ pub fn generate_certificate(id: String) -> Result<Cert, Error> {
     Err(e) => {
       Err(Error::from(e))
     }
+  }
+}
+
+named!(nom_ip_port_parse<&str,(IpAddr,u16)>,
+    do_parse!(
+      ip: take_until_and_consume1!(":") >>
+      port: rest >>
+      (( IpAddr::from_str(ip).unwrap(), port.parse::<u16>().unwrap()))
+    )
+);
+
+pub fn parse_ip_port(input: &str) -> Option<(IpAddr,u16) > {
+  match nom_ip_port_parse(input) {
+    Ok((_,(ip,port))) => Some((ip,port)),
+    _ => None
   }
 }
