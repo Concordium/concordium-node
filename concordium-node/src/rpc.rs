@@ -1,5 +1,5 @@
 use tarpc::sync::server;
-use p2p::{P2PNode};
+use p2p::{P2PNode, PeerStatistic};
 use common::{P2PNodeId, P2PPeer};
 use std::cell::RefCell;
 use tarpc::util::Never;
@@ -11,8 +11,7 @@ service! {
     rpc peer_uptime() -> i64;
     rpc peer_total_sent() -> u64;
     rpc peer_total_received() -> u64;
-    rpc peer_current_sent() -> u64;
-    rpc peer_current_received() -> u64;
+    rpc peer_stats() -> Vec<PeerStatistic>;
     rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
     rpc get_version() -> String;
 }
@@ -95,13 +94,10 @@ impl SyncService for RpcServer {
         Ok(self.node.borrow_mut().get_total_received())
     }
 
-    fn peer_current_sent(&self) -> Result<u64, Never> {
-        Ok(self.node.borrow_mut().get_current_sent())
+    fn peer_stats(&self) -> Result<Vec<PeerStatistic>, Never> {
+        Ok(self.node.borrow_mut().get_peer_stats())
     }
 
-    fn peer_current_received(&self) -> Result<u64, Never> {
-        Ok(self.node.borrow_mut().get_current_received())
-    }
 
     fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {
         info!("Sending message to ID: {:?} with contents: {}. Broadcast? {}", id,msg, broadcast);
