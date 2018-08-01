@@ -132,6 +132,35 @@ impl Buckets {
     }
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct PeerStatistic {
+    id: String,
+    sent: u64,
+    received: u64,
+}
+
+impl PeerStatistic {
+    pub fn new(id: String, sent: u64, received: u64) -> PeerStatistic {
+        PeerStatistic {
+            id,
+            sent,
+            received
+        }
+    }
+
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn sent(&self) -> u64 {
+        self.sent
+    }
+
+    pub fn received(&self) -> u64 {
+        self.received
+    }
+}
+
 struct TlsServer {
     server: TcpListener,
     connections: HashMap<Token, Connection>,
@@ -171,12 +200,20 @@ impl TlsServer {
     }
 
 
-    pub fn calculate_current_sent(&self) -> u64 {
-        self.connections.iter().map(|(_,y)| y.get_messages_sent()).sum()
-    }
+    pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
+        let mut ret = vec![];
+        for (_,ref conn) in &self.connections {
+            match conn.peer {
+                Some(ref x) => {
+                    ret.push(PeerStatistic::new(x.id().to_string(), conn.get_messages_sent(), conn.get_messages_received()));
+                },
+                None => {
 
-    pub fn calculate_current_received(&self) -> u64 {
-        self.connections.iter().map(|(_,y)| y.get_messages_received()).sum()
+                }
+            }
+        }
+
+        ret
     }
 
     fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> bool {
@@ -1071,26 +1108,14 @@ impl P2PNode {
         //self.send_queue.push_back(P2PMessage::new(id, msg));
     }
 
-    pub fn get_current_sent(&self) -> u64 {
+    pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
         match self.tls_server.lock() {
             Ok(x) => {
-                x.calculate_current_sent()
+                x.get_peer_stats()
             },
             Err(e) => {
                 info!("Couldn't lock for tls_server: {:?}", e);
-                0
-            }
-        }
-    }
-
-    pub fn get_current_received(&self) -> u64 {
-        match self.tls_server.lock() {
-            Ok(x) => {
-                x.calculate_current_received()
-            },
-            Err(e) => {
-                info!("Couldn't lock for tls_server: {:?}", e);
-                0
+                vec![]
             }
         }
     }
