@@ -24,6 +24,7 @@ use num_bigint::ToBigUint;
 use num_traits::pow;
 use bytes::{BytesMut, BufMut};
 use time;
+use time::Timespec;
 use webpki::DNSNameRef;
 use std::sync::{Arc,Mutex};
 use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
@@ -821,7 +822,8 @@ pub struct P2PNode {
     ip: IpAddr,
     port: u16,
     incoming_pkts: mpsc::Sender<NetworkMessage>,
-    event_log: Option<mpsc::Sender<P2PEvent>>
+    event_log: Option<mpsc::Sender<P2PEvent>>,
+    start_time: Timespec,
 }
 
 fn serialize_bytes(conn: &mut Connection, pkt: String ) {
@@ -919,6 +921,7 @@ impl P2PNode {
             port: port,
             incoming_pkts: pkt_queue,
             event_log,
+            start_time: time::get_time(),
         }
     }
 
@@ -964,6 +967,10 @@ impl P2PNode {
             } ,
             _ => {}, 
         }
+    }
+
+    pub fn get_uptime(&self) -> i64 {
+        (time::get_time() - self.start_time).num_milliseconds()
     }
 
     pub fn process_messages(&mut self) {

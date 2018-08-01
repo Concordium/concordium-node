@@ -8,6 +8,7 @@ use std::thread;
 service! {
     rpc peer_connect(ip: String, port: u16) -> bool;
     rpc peer_list() -> Vec<P2PPeerText>;
+    rpc peer_uptime() -> i64;
     rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
     rpc get_version() -> String;
 }
@@ -76,6 +77,10 @@ impl SyncService for RpcServer {
                 .map(|ref x| P2PPeerText::from(x))
                 .collect::<Vec<P2PPeerText>>()
         )
+    }
+
+    fn peer_uptime(&self) -> Result<i64, Never> {
+        Ok(self.node.borrow_mut().get_uptime())
     }
 
     fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {
