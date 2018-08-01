@@ -13,6 +13,7 @@ use p2p_client::p2p::*;
 use p2p_client::rpc::RpcServer;
 use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
 extern crate tarpc;
+use env_logger::Env;
 
 fn main() {
     let conf = configuration::parse_config();
@@ -21,6 +22,17 @@ fn main() {
         Some(x) => x,
         _ => 8888,
     };
+
+    let env = if conf.debug {
+        Env::default()
+            .filter_or("MY_LOG_LEVEL", "debug")
+    } else {
+        Env::default()
+            .filter_or("MY_LOG_LEVEL","info")
+    };
+    
+    env_logger::init_from_env(env);
+    info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
 
     info!("Debuging enabled {}", conf.debug);
 
@@ -66,9 +78,6 @@ fn main() {
     });
 
     info!("Concordium P2P layer. Network enabled: {}, should connect to {}", conf.network, conf.remote_ip.unwrap_or(String::from("nothing")));
-
-    env_logger::init();
-    info!("Starting up!");
 
     if !conf.no_rpc_server {
         let mut serv = RpcServer::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port);

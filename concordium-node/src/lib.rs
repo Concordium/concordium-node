@@ -30,3 +30,6 @@ pub mod common;
 pub mod p2p;
 pub mod utils;
 pub mod rpc;
+
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
