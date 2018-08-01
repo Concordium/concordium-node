@@ -201,16 +201,19 @@ impl TlsServer {
 
 
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
-        self.connections.iter().map(|(_, ref y)| {
-            match y.peer {
+        let mut ret = vec![];
+        for (_,ref conn) in &self.connections {
+            match conn.peer {
                 Some(ref x) => {
-                    PeerStatistic::new(x.id().to_string(), y.get_messages_sent(), y.get_messages_received())
+                    ret.push(PeerStatistic::new(x.id().to_string(), conn.get_messages_sent(), conn.get_messages_received()));
                 },
                 None => {
-                    PeerStatistic::new("000000000000000000000000000000000000000000000000000000000000000".to_string(), 0, 0)
+
                 }
             }
-        }).collect()
+        }
+
+        ret
     }
 
     fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> bool {
