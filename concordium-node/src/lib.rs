@@ -10,7 +10,7 @@ extern crate ring;
 extern crate get_if_addrs;
 extern crate num_bigint;
 extern crate num_traits;
-extern crate bincode;
+extern crate byteorder;
 extern crate rustls;
 #[macro_use]
 extern crate log;

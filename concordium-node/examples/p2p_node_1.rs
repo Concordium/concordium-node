@@ -61,6 +61,6 @@ fn main() {
 
     let _th = node.spawn();
 
-    _th.join();
+    _th.join().unwrap();
 
 }

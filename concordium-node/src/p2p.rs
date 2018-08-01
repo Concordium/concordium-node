@@ -23,13 +23,14 @@ use num_bigint::BigUint;
 use num_bigint::ToBigUint;
 use num_traits::pow;
 use bytes::{BytesMut, BufMut};
-use bincode::{serialize, deserialize};
 use time;
 use webpki::DNSNameRef;
 use std::sync::{Arc,Mutex};
 use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
 ServerSession, ClientSession, ClientConfig, ServerCertVerifier, RootCertStore, ServerCertVerified};
 use std::sync::mpsc;
+use std::io::Cursor;
+use byteorder::{NetworkEndian,ReadBytesExt,WriteBytesExt};
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -289,8 +290,8 @@ struct Connection {
     initiated_by_me: bool,
     own_id: P2PNodeId,
     peer: Option<P2PPeer>,
-    currently_read: u64,
-    expected_size: u64,
+    currently_read: u32,
+    expected_size: u32,
     pkt_buffer: Option<BytesMut>,
     last_seen: u64,
     self_peer: P2PPeer,
@@ -324,7 +325,7 @@ impl Connection {
         if let Some(ref mut buf) = self.pkt_buffer {
             buf.reserve(new_data.len());
             buf.put_slice(new_data);
-            self.currently_read += new_data.len() as u64;
+            self.currently_read += new_data.len() as u32;
         }
     }
 
@@ -751,13 +752,15 @@ impl Connection {
             self.process_complete_packet(buckets, &buffered, &packets_queue);
             self.clear_buffer();
             self.incoming_plaintext(&packets_queue, buckets, &buf[to_take as usize..]);
-        } else if buf.len() >= 8 {
+        } else if buf.len() >= 4 {
             debug!("Trying to read size");
-            self.expected_size = deserialize(&buf[..8]).unwrap();
+            let _buf = &buf[..4].to_vec();
+            let mut size_bytes = Cursor::new(_buf);
+            self.expected_size = size_bytes.read_u32::<NetworkEndian>().unwrap();
             self.setup_buffer();
-            if buf.len() > 8 {
+            if buf.len() > 4 {
                 debug!("Got enough to read it...");
-                self.incoming_plaintext(&packets_queue,buckets,&buf[8..]);
+                self.incoming_plaintext(&packets_queue,buckets,&buf[4..]);
             } 
         }
     }
@@ -824,7 +827,9 @@ pub struct P2PNode {
 fn serialize_bytes(conn: &mut Connection, pkt: String ) {
     let serialized = pkt.as_bytes();
      debug!("Serializing data to connection {} bytes", serialized.len());
-    conn.write_all(&serialize(&serialized.len()).unwrap()).unwrap();
+     let mut size_vec = vec![];
+     size_vec.write_u32::<NetworkEndian>(serialized.len() as u32).unwrap();
+    conn.write_all(&size_vec[..]).unwrap();
     conn.write_all(serialized).unwrap();
 }
 

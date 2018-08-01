@@ -46,14 +46,14 @@ mod tests {
 
         node_2.send_message(Some(node_1.get_own_id()), msg.clone(), false);
 
-        thread::sleep(time::Duration::from_secs(1));
+        thread::sleep(time::Duration::from_secs(3));
 
         match pkt_out_1.try_recv() {
             Ok(NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_),_,_)) => {},
             _ => { panic!("Didn't get handshake"); }
         }
 
-        thread::sleep(time::Duration::from_secs(1));
+        thread::sleep(time::Duration::from_secs(3));
 
         match pkt_out_1.try_recv() {
             Ok(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, recv_msg),_,_)) => {
