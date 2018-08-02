@@ -3,6 +3,7 @@
 ## Dependencies to build the project
 * Rust (nightly)
 * openssl
+* cmake
 * [HACL*](https://github.com/mitls/hacl-c)
 
 ## Running the library as a binary (usable via RPC)
