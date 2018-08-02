@@ -5,7 +5,7 @@
 * openssl
 * cmake
 * go >=1.10
-* protobuf-compiter >= 3.0.0
+* protobuf-compiter >= 3.5.1
 * [HACL*](https://github.com/mitls/hacl-c)
 
 ## Running the library as a binary (usable via RPC)
