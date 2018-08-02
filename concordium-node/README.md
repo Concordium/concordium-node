@@ -4,6 +4,7 @@
 * Rust (nightly)
 * openssl
 * cmake
+* go >=1.7
 * [HACL*](https://github.com/mitls/hacl-c)
 
 ## Running the library as a binary (usable via RPC)
