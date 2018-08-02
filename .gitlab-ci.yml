@@ -1,6 +1,7 @@
 image: "rust:latest"
 
 before_script:
+- echo "deb http://ftp.debian.org/debian stretch-backports main" >> /etc/apt/sources.list
 - apt-get update -yqq
 - apt-get install -yqq --no-install-recommends build-essential
 - apt-get install -y cmake golang-go protobuf-compiler
