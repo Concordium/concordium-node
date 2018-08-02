@@ -6,6 +6,7 @@ extern crate log;
 extern crate env_logger;
 extern crate bytes;
 extern crate mio;
+
 use p2p_client::configuration;
 use std::sync::mpsc;
 use std::thread;

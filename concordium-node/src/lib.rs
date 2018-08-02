@@ -26,6 +26,9 @@ extern crate serde;
 extern crate serde_derive;
 #[macro_use]
 extern crate nom;
+extern crate protobuf;
+extern crate grpcio;
+extern crate futures;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
@@ -35,3 +38,4 @@ pub mod common;
 pub mod p2p;
 pub mod utils;
 pub mod rpc;
+pub mod proto;

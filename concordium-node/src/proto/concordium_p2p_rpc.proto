@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+import "google/protobuf/wrappers.proto";
+
+message NumberResponse {
+  uint64 value = 1;
+}
+
+message SuccessResponse {
+  bool value = 1;
+}
+
+message StringResponse {
+  string value = 1;
+}
+
+message PeerConnectRequest {
+  google.protobuf.StringValue ip = 1;
+  google.protobuf.Int32Value port = 2;
+}
+
+message PeerListResponse {
+  string node_id = 1; 
+  uint32 port = 2;
+  string ip = 3;
+}
+
+message PeerStatsResponse {
+  string node_id = 1; 
+  uint64 packets_sent = 2; 
+  uint64 packets_received = 3;
+}
+
+message SendMessageRequest {
+  google.protobuf.StringValue node_id = 1;
+  google.protobuf.BytesValue messagerm = 2;
+  google.protobuf.BoolValue broadcast = 3;
+}
+
+message Empty {
+
+}
+
+service P2P {
+  rpc PeerConnect (PeerConnectRequest) returns (SuccessResponse) {}
+  //rpc PeerList(Empty) returns (stream PeerListResponse) {}
+  //rpc PeerUptime(Empty) returns (NumberResponse) {}
+  //rpc PeerTotalSent(Empty) returns (NumberResponse) {}
+  //rpc PeerTotalReceived(Empty) returns(NumberResponse) {}
+  //rpc PeerStats(Empty) returns (stream PeerStatsResponse) {}
+  rpc PeerVersion(Empty) returns (StringResponse) {}
+  //rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
+}
