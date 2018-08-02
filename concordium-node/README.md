@@ -4,7 +4,7 @@
 * Rust (nightly)
 * openssl
 * cmake
-* go >=1.7
+* go >=1.10
 * protobuf-compiter >= 3.0.0
 * [HACL*](https://github.com/mitls/hacl-c)
 
