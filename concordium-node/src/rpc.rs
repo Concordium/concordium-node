@@ -12,7 +12,7 @@ service! {
     rpc peer_total_sent() -> u64;
     rpc peer_total_received() -> u64;
     rpc peer_stats() -> Vec<PeerStatistic>;
-    rpc send_message(id: Option<String>, msg: Vec<u8>, broadcast: bool) -> bool;
+    rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
     rpc get_version() -> String;
 }
 
@@ -21,14 +21,16 @@ pub struct RpcServer {
     node: RefCell<P2PNode>,
     listen_port: u16,
     listen_addr: String,
+    access_token: Option<String>,
 }
 
 impl RpcServer {
-    pub fn new(node: P2PNode, listen_addr: String, listen_port: u16) -> Self {
+    pub fn new(node: P2PNode, listen_addr: String, listen_port: u16, access_token: Option<String>) -> Self {
         RpcServer {
             node: RefCell::new(node),
             listen_addr: listen_addr,
             listen_port: listen_port,
+            access_token: access_token,
         }
     }
 
@@ -99,14 +101,14 @@ impl SyncService for RpcServer {
     }
 
 
-    fn send_message(&self, id: Option<String>, msg: Vec<u8>, broadcast: bool) -> Result<bool, Never> {
-        info!("Sending message to ID: {:?} with {} byte(s). Broadcast? {}", id,msg.len(), broadcast);
+    fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {
+        info!("Sending message to ID: {:?} with contents: {}. Broadcast? {}", id,msg, broadcast);
         let id = match id {
             Some(x) => Some(P2PNodeId::from_string(x)),
             None => None,
         };
 
-        self.node.borrow_mut().send_message(id, &msg, broadcast);
+        self.node.borrow_mut().send_message(id, msg.as_bytes(), broadcast);
         Ok(true)
     }
 

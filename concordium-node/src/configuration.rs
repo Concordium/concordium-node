@@ -19,6 +19,8 @@ pub struct Config {
     pub rpc_server_port: u16,
     #[structopt(long="rpc-server-addr", help = "RPC server listen address", default_value="127.0.0.1")]
     pub rpc_server_addr: String,
+    #[structopt(long="rpc-server-token", help = "RPC server access token")]
+    pub rpc_server_token: Option<String>
 }
 
 pub fn parse_config() -> Config  {

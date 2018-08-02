@@ -81,7 +81,7 @@ fn main() {
     info!("Concordium P2P layer. Network disabled: {}", conf.no_network);
 
     if !conf.no_rpc_server {
-        let mut serv = RpcServer::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port);
+        let mut serv = RpcServer::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
         let _th_rpc = serv.spawn();
     }
 

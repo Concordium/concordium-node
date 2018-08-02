@@ -59,7 +59,7 @@ mod tests {
 
         env_logger::init();
 
-        let mut serv = RpcServer::new(node.clone(), String::from("127.0.0.1"), 10000);
+        let mut serv = RpcServer::new(node.clone(), String::from("127.0.0.1"), 10000, None);
         let _th_rpc = serv.spawn();
 
         let _node_th = node.spawn();
