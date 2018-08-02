@@ -1,5 +1,3 @@
-#![feature(plugin, use_extern_macros, proc_macro_path_invoc)]
-#![plugin(tarpc_plugins)]
 #[macro_use] extern crate structopt;
 extern crate libc;
 extern crate hacl_star;
@@ -19,8 +17,6 @@ extern crate time;
 extern crate webpki;
 extern crate untrusted;
 extern crate openssl;
-#[macro_use]
-extern crate tarpc;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

@@ -1,19 +1,17 @@
-#![feature(plugin, use_extern_macros, proc_macro_path_invoc)]
-#![plugin(tarpc_plugins)]
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
 extern crate bytes;
 extern crate mio;
+extern crate grpcio;
 
 use p2p_client::configuration;
 use std::sync::mpsc;
 use std::thread;
 use p2p_client::p2p::*;
-use p2p_client::rpc::RpcServer;
+use p2p_client::rpc::RpcServerImpl;
 use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
-extern crate tarpc;
 use env_logger::Env;
 use p2p_client::utils;
 
@@ -81,9 +79,11 @@ fn main() {
 
     info!("Concordium P2P layer. Network disabled: {}", conf.no_network);
 
+    let mut rpc_serv:Option<RpcServerImpl> = None;
     if !conf.no_rpc_server {
-        let mut serv = RpcServer::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
-        let _th_rpc = serv.spawn();
+        let mut serv = RpcServerImpl::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
+        serv.start_server();
+        rpc_serv = Some(serv);
     }
 
     let _node_th = node.spawn();
@@ -100,4 +100,7 @@ fn main() {
     }
 
     _node_th.join().unwrap();
+    if let Some(ref mut serv) = rpc_serv {
+        serv.stop_server();
+    }
 }

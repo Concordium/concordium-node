@@ -4,22 +4,22 @@ extern crate mio;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-extern crate tarpc;
+extern crate grpcio;
 
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
-    use std::{thread,time};
     use p2p_client::p2p::*;
     use p2p_client::common::{NetworkPacket,NetworkMessage, NetworkRequest};
-    use p2p_client::rpc::RpcServer;
-    use tarpc::sync::client;
-    use tarpc::sync::client::ClientExt;
-    use p2p_client::rpc::SyncClient;
+    use p2p_client::rpc::RpcServerImpl;
     use env_logger;
+    use std::sync::Arc;
+    use grpcio::{ChannelBuilder, EnvBuilder};
+    use p2p_client::proto::*;
+    use std::thread;
 
     #[test]
-    pub fn rpc_test_000() {
+    pub fn test_grpc_version() {
         let (pkt_in,pkt_out) = mpsc::channel();
 
         let (sender, receiver) = mpsc::channel();
@@ -36,7 +36,7 @@ mod tests {
                     }
                 }
             });
-        let mut node = P2PNode::new(None, 8888, pkt_in, Some(sender));
+        let node = P2PNode::new(None, 8888, pkt_in, Some(sender));
 
         let mut _node_self_clone = node.clone();
 
@@ -59,16 +59,19 @@ mod tests {
 
         env_logger::init();
 
-        let mut serv = RpcServer::new(node.clone(), String::from("127.0.0.1"), 10000, None);
-        let _th_rpc = serv.spawn();
+        let mut rpc_serv = RpcServerImpl::new(node.clone(), "127.0.0.1".to_string(), 10000, None);
+        rpc_serv.start_server();
 
-        let _node_th = node.spawn();
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env).connect("127.0.0.1:10000");
 
-        thread::sleep(time::Duration::from_secs(3));
+        let client = P2PClient::new(ch);
+        
+        let reply = client.peer_version(&Empty::new()).expect("rpc");
 
-        let client = SyncClient::connect("127.0.0.1:10000", client::Options::default()).unwrap();
+        assert_eq!(reply.get_value(), env!("CARGO_PKG_VERSION").to_string());
 
-        assert_eq!(client.get_version().unwrap(), env!("CARGO_PKG_VERSION").to_string() );
+        rpc_serv.stop_server();
 
     }
 }

@@ -33,21 +33,19 @@ message PeerStatsResponse {
 
 message SendMessageRequest {
   google.protobuf.StringValue node_id = 1;
-  google.protobuf.BytesValue messagerm = 2;
+  google.protobuf.BytesValue message = 2;
   google.protobuf.BoolValue broadcast = 3;
 }
 
-message Empty {
-
-}
+message Empty {}
 
 service P2P {
   rpc PeerConnect (PeerConnectRequest) returns (SuccessResponse) {}
-  //rpc PeerList(Empty) returns (stream PeerListResponse) {}
-  //rpc PeerUptime(Empty) returns (NumberResponse) {}
-  //rpc PeerTotalSent(Empty) returns (NumberResponse) {}
-  //rpc PeerTotalReceived(Empty) returns(NumberResponse) {}
-  //rpc PeerStats(Empty) returns (stream PeerStatsResponse) {}
+  rpc PeerUptime(Empty) returns (NumberResponse) {}
+  rpc PeerTotalSent(Empty) returns (NumberResponse) {}
+  rpc PeerTotalReceived(Empty) returns(NumberResponse) {}
   rpc PeerVersion(Empty) returns (StringResponse) {}
-  //rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
+  rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
+  rpc PeerStats(Empty) returns (stream PeerStatsResponse) {}
+  rpc PeerList(Empty) returns (stream PeerListResponse) {}
 }

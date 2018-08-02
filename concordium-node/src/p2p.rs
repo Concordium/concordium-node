@@ -134,9 +134,9 @@ impl Buckets {
 
 #[derive(Deserialize, Serialize)]
 pub struct PeerStatistic {
-    id: String,
-    sent: u64,
-    received: u64,
+    pub id: String,
+    pub sent: u64,
+    pub received: u64,
 }
 
 impl PeerStatistic {
