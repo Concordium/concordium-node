@@ -12,7 +12,7 @@ service! {
     rpc peer_total_sent() -> u64;
     rpc peer_total_received() -> u64;
     rpc peer_stats() -> Vec<PeerStatistic>;
-    rpc send_message(id: Option<String>, msg: String, broadcast: bool) -> bool;
+    rpc send_message(id: Option<String>, msg: Vec<u8>, broadcast: bool) -> bool;
     rpc get_version() -> String;
 }
 
@@ -99,14 +99,14 @@ impl SyncService for RpcServer {
     }
 
 
-    fn send_message(&self, id: Option<String>, msg: String, broadcast: bool) -> Result<bool, Never> {
-        info!("Sending message to ID: {:?} with contents: {}. Broadcast? {}", id,msg, broadcast);
+    fn send_message(&self, id: Option<String>, msg: Vec<u8>, broadcast: bool) -> Result<bool, Never> {
+        info!("Sending message to ID: {:?} with {} byte(s). Broadcast? {}", id,msg.len(), broadcast);
         let id = match id {
             Some(x) => Some(P2PNodeId::from_string(x)),
             None => None,
         };
 
-        self.node.borrow_mut().send_message(id, msg.as_bytes(), broadcast);
+        self.node.borrow_mut().send_message(id, &msg, broadcast);
         Ok(true)
     }
 
