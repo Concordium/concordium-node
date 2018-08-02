@@ -17,9 +17,6 @@ extern crate time;
 extern crate webpki;
 extern crate untrusted;
 extern crate openssl;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 #[macro_use]
 extern crate nom;
 extern crate protobuf;

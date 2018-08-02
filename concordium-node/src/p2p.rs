@@ -132,7 +132,6 @@ impl Buckets {
     }
 }
 
-#[derive(Deserialize, Serialize)]
 pub struct PeerStatistic {
     pub id: String,
     pub sent: u64,
