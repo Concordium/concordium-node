@@ -42,7 +42,7 @@ futures         = "0.1.23"
 futures-cpupool = "0.1.8"
 tls-api         = "0.1.20"
 httpbis         = "0.4.1"
-grpcio          = "0.3"
+grpcio          = { version = "0.3.0", default-features = false, features = ["protobuf-codec"] } 
 grpc            = "0.5.0"
 
 
