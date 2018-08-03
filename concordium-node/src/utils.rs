@@ -32,7 +32,7 @@ pub struct Cert {
 }
 
 pub fn generate_certificate(id: String) -> Result<Cert, Error> {
-  let group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
+  let group = EcGroup::from_curve_name(Nid::SECP224R1).unwrap();
   match EcKey::generate(&group) {
     Ok(_) => {
       match X509Builder::new() {
