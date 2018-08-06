@@ -342,7 +342,8 @@ impl TlsServer {
     fn liveness_check(&mut self) {
         for conn in self.connections.values_mut() {
             if conn.last_seen + 300000 < common::get_current_stamp() {
-                serialize_bytes(conn, &NetworkRequest::Ping(conn.get_self_peer().clone()).serialize());
+                let self_peer = conn.get_self_peer().clone();
+                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize());
             }
         }
     }
@@ -1051,9 +1052,9 @@ impl P2PNode {
     pub fn connect(&mut self, ip: IpAddr, port: u16) {
         self.log_event(P2PEvent::InitiatingConnection(ip.clone(),port));
         match self.tls_server.lock() {
-            Ok(x) => {
+            Ok(mut x) => {
                 match self.poll.lock() {
-                    Ok(y) => {
+                    Ok(mut y) => {
                         x.connect(&mut y, ip, port, &self.get_self_peer());
                     },
                     Err(e) => {
@@ -1224,6 +1225,15 @@ impl P2PNode {
         self.process_messages();
 
         self.tls_server.lock().unwrap().cleanup_connections(&mut self.poll.lock().unwrap());
+
+        match self.tls_server.lock() {
+            Ok(mut x) => {
+                x.liveness_check()
+            },
+            Err(e) => {
+                error!("Couldn't get lock on tls_server, {:?}", e)
+            }
+        };
 
 
         for event in events.iter() {

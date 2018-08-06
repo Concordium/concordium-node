@@ -138,7 +138,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_list(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::ServerStreamingSink<PeerListResponse>) {
-        let data:Vec<_> = self.node.borrow_mut().get_nodes().iter()
+        let data:Vec<_> = self.node.borrow_mut().get_nodes().unwrap().iter()
             .filter_map(|x| {
                 let mut peer_resp = PeerListResponse::new();
                 peer_resp.set_node_id(format!("{:064x}",x.id().get_id()));
