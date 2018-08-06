@@ -1082,7 +1082,7 @@ impl P2PNode {
     pub fn get_nodes(&self) -> Result<Vec<P2PPeer>, Error> {
         match self.buckets.lock() {
             Ok(x) => Ok(x.get_all_nodes()),
-            Err(e) => Err(Error::new(ErrorKind::Other, "Couldn't get lock on buckets!")),
+            Err(_e) => Err(Error::new(ErrorKind::Other, "Couldn't get lock on buckets!")),
         }
     }
 
