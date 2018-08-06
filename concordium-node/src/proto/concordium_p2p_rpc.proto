@@ -20,15 +20,21 @@ message PeerConnectRequest {
 }
 
 message PeerListResponse {
-  string node_id = 1; 
-  uint32 port = 2;
-  string ip = 3;
+  message Peer {
+    string node_id = 1; 
+    uint32 port = 2;
+    string ip = 3;
+  }
+  repeated Peer peer = 1;
 }
 
 message PeerStatsResponse {
-  string node_id = 1; 
-  uint64 packets_sent = 2; 
-  uint64 packets_received = 3;
+  message PeerStats {
+    string node_id = 1; 
+    uint64 packets_sent = 2; 
+    uint64 packets_received = 3;
+  }
+  repeated PeerStats peerstats = 1;
 }
 
 message SendMessageRequest {
@@ -46,6 +52,6 @@ service P2P {
   rpc PeerTotalReceived(Empty) returns(NumberResponse) {}
   rpc PeerVersion(Empty) returns (StringResponse) {}
   rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
-  rpc PeerStats(Empty) returns (stream PeerStatsResponse) {}
-  rpc PeerList(Empty) returns (stream PeerListResponse) {}
+  rpc PeerStats(Empty) returns (PeerStatsResponse) {}
+  rpc PeerList(Empty) returns (PeerListResponse) {}
 }

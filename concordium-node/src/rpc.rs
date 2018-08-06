@@ -8,10 +8,6 @@ use std::str::FromStr;
 use grpcio::{ServerBuilder,Environment};
 use std::sync::{Mutex,Arc};
 use grpcio;
-use futures::Sink;
-use futures::stream;
-use grpcio::WriteFlags;
-use grpcio::Error;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -121,35 +117,37 @@ impl P2P for RpcServerImpl {
        ctx.spawn(f);
     }
 
-    fn peer_stats(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::ServerStreamingSink<PeerStatsResponse>) {
+    fn peer_stats(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::UnarySink<PeerStatsResponse>) {
         let data:Vec<_> = self.node.borrow_mut().get_peer_stats().iter()
-            .filter_map(|x| {
-                let mut peer_resp = PeerStatsResponse::new();
+            .map(|x| {
+                let mut peer_resp = PeerStatsResponse_PeerStats::new();
                 peer_resp.set_node_id(x.id.clone());
                 peer_resp.set_packets_sent(x.sent);
                 peer_resp.set_packets_received(x.received);
-                Some((peer_resp.to_owned(),WriteFlags::default()))
+                peer_resp
             })
             .collect();
-         let f = sink.send_all(stream::iter_ok::<_, Error>(data))
-            .map(|_| {})
-            .map_err(|e| error!("failed to handle listfeatures request: {:?}", e));
-        ctx.spawn(f)
+        let mut resp = PeerStatsResponse::new();
+        resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
+        let f = sink.success(resp) 
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", _req , e));
+       ctx.spawn(f);
     }
 
-    fn peer_list(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::ServerStreamingSink<PeerListResponse>) {
+    fn peer_list(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::UnarySink<PeerListResponse>) {
         let data:Vec<_> = self.node.borrow_mut().get_nodes().unwrap().iter()
-            .filter_map(|x| {
-                let mut peer_resp = PeerListResponse::new();
+            .map(|x| {
+                let mut peer_resp = PeerListResponse_Peer::new();
                 peer_resp.set_node_id(format!("{:064x}",x.id().get_id()));
                 peer_resp.set_ip(x.ip().to_string());
                 peer_resp.set_port(x.port() as u32);
-                Some((peer_resp.to_owned(),WriteFlags::default()))
+                peer_resp
             })
             .collect();
-         let f = sink.send_all(stream::iter_ok::<_, Error>(data))
-            .map(|_| {})
-            .map_err(|e| error!("failed to handle listfeatures request: {:?}", e));
-        ctx.spawn(f)
+        let mut resp = PeerListResponse::new();
+        resp.set_peer(::protobuf::RepeatedField::from_vec(data));
+        let f = sink.success(resp) 
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", _req , e));
+       ctx.spawn(f);
     }
 }
