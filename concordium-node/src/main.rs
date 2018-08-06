@@ -58,14 +58,30 @@ fn main() {
         P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
 
+    let mut rpc_serv:Option<RpcServerImpl> = None;
+    if !conf.no_rpc_server {
+        let mut serv = RpcServerImpl::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
+        serv.start_server();
+        rpc_serv = Some(serv);
+    }
+
     let mut _node_self_clone = node.clone();
 
+    let mut _rpc_clone = rpc_serv.clone();
     let _guard_pkt = thread::spawn(move|| {
         loop {
-            if let Ok(msg) = pkt_out.recv() {
-                match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => info!( "DirectMessage with text {:?} received", msg),
+            if let Ok(ref mut full_msg) = pkt_out.recv() {
+                match full_msg.clone() {
+                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => {
+                        if let Some(ref mut rpc) = _rpc_clone {
+                            rpc.queue_message(full_msg);
+                        }
+                        info!( "DirectMessage with text {:?} received", msg) ;
+                    }
                     NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,msg),_,_) => { 
+                        if let Some(ref mut rpc) = _rpc_clone {
+                            rpc.queue_message(full_msg);
+                        }
                         info!("BroadcastedMessage with text {:?} received", msg);
                         _node_self_clone.send_message(None,&msg,true);
                     },
@@ -78,13 +94,6 @@ fn main() {
     });
 
     info!("Concordium P2P layer. Network disabled: {}", conf.no_network);
-
-    let mut rpc_serv:Option<RpcServerImpl> = None;
-    if !conf.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
-        serv.start_server();
-        rpc_serv = Some(serv);
-    }
 
     let _node_th = node.spawn();
 

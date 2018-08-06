@@ -1164,7 +1164,6 @@ impl P2PNode {
                 }
             }
         }
-        //self.send_queue.push_back(P2PMessage::new(id, msg));
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {

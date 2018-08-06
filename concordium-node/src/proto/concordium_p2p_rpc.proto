@@ -43,6 +43,27 @@ message SendMessageRequest {
   google.protobuf.BoolValue broadcast = 3;
 }
 
+message MessageDirect {
+  bytes data = 1;
+}
+
+message MessageBroadcast {
+  bytes data = 1;
+}
+
+message MessageNone {}
+
+message P2PNetworkMessage {
+  uint64 received_at = 1;
+  uint64 sent_at = 2;
+  string sender = 3;
+  oneof payload {
+    MessageDirect message_direct = 20;
+    MessageBroadcast message_broadcast = 21;
+    MessageNone message_none = 22;
+  };
+}
+
 message Empty {}
 
 service P2P {
@@ -54,4 +75,7 @@ service P2P {
   rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
   rpc PeerStats(Empty) returns (PeerStatsResponse) {}
   rpc PeerList(Empty) returns (PeerListResponse) {}
+  rpc SubscriptionStart(Empty) returns (SuccessResponse) {}
+  rpc SubscriptionStop(Empty) returns (SuccessResponse) {}
+  rpc SubscriptionPoll(Empty) returns (P2PNetworkMessage) {}
 }

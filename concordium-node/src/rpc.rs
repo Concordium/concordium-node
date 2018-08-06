@@ -1,5 +1,5 @@
 use p2p::{P2PNode};
-use common::{P2PNodeId};
+use common::{P2PNodeId,NetworkMessage,NetworkPacket};
 use std::cell::RefCell;
 use proto::*;
 use futures::future::Future;
@@ -8,6 +8,7 @@ use std::str::FromStr;
 use grpcio::{ServerBuilder,Environment};
 use std::sync::{Mutex,Arc};
 use grpcio;
+use std::sync::mpsc;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -16,6 +17,8 @@ pub struct RpcServerImpl {
     listen_addr: String,
     access_token: Option<String>,
     server: Option<Arc<Mutex<grpcio::Server>>>,
+    subscription_queue_out:RefCell<Option<Arc<Mutex<mpsc::Receiver<NetworkMessage>>>>>,
+    subscription_queue_in:RefCell<Option<mpsc::Sender<NetworkMessage>>>,
 }
 
 impl RpcServerImpl {
@@ -26,7 +29,26 @@ impl RpcServerImpl {
             listen_port: listen_port,
             access_token: access_token,
             server: None,
+            subscription_queue_out: RefCell::new(None),
+            subscription_queue_in: RefCell::new(None),
         }
+    }
+
+    pub fn queue_message(&self, msg: &NetworkMessage) {
+        if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
+            sender.send(msg.clone()).unwrap();
+        }
+    }
+
+    fn start_subscription(&self) {
+        let (sender, receiver ) = mpsc::channel::<NetworkMessage>();
+        *self.subscription_queue_in.borrow_mut() = Some(sender);
+        *self.subscription_queue_out.borrow_mut() = Some(Arc::new(Mutex::new(receiver)));
+    }
+
+    fn stop_subscription(&self) {
+        *self.subscription_queue_in.borrow_mut() = None;
+        *self.subscription_queue_out.borrow_mut() = None;
     }
 
     pub fn start_server(&mut self) {
@@ -147,6 +169,56 @@ impl P2P for RpcServerImpl {
         let mut resp = PeerListResponse::new();
         resp.set_peer(::protobuf::RepeatedField::from_vec(data));
         let f = sink.success(resp) 
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", _req , e));
+       ctx.spawn(f);
+    }
+
+    fn subscription_start(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::UnarySink<SuccessResponse>) {
+        self.start_subscription();
+        let mut r: SuccessResponse = SuccessResponse::new();
+        r.set_value(true);
+        let f = sink.success(r) 
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", _req , e));
+       ctx.spawn(f);
+    }
+
+    fn subscription_stop(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::UnarySink<SuccessResponse>) {
+        self.stop_subscription();
+        let mut r: SuccessResponse = SuccessResponse::new();
+        r.set_value(true);
+        let f = sink.success(r) 
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", _req , e));
+       ctx.spawn(f);
+    }
+
+    fn subscription_poll(&self, ctx: ::grpcio::RpcContext, _req: Empty, sink: ::grpcio::UnarySink<P2PNetworkMessage>) {
+        let mut r:P2PNetworkMessage = P2PNetworkMessage::new();
+        if let Some(ref mut receiver) = *self.subscription_queue_out.borrow_mut() {
+            match receiver.lock().unwrap().try_recv() {
+                Ok(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender, _, msg),sent, received)) => {
+                    let mut i_msg = MessageDirect::new();
+                    i_msg.set_data(msg);
+                    r.set_message_direct(i_msg);
+                    r.set_sent_at(sent.unwrap());
+                    r.set_received_at(received.unwrap());
+                    r.set_sender(format!("{:064x}", sender.id().get_id()));
+                },
+                Ok(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender, msg),sent, received)) => {
+                    let mut i_msg = MessageBroadcast::new();
+                    i_msg.set_data(msg);
+                    r.set_message_broadcast(i_msg);
+                    r.set_sent_at(sent.unwrap());
+                    r.set_received_at(received.unwrap());
+                    r.set_sender(format!("{:064x}", sender.id().get_id()));
+                },
+                _ => {
+                    r.set_message_none(MessageNone::new())
+                }
+            }
+        } else {
+            r.set_message_none(MessageNone::new())
+        }
+        let f = sink.success(r) 
             .map_err(move |e| error!("failed to reply {:?}: {:?}", _req , e));
        ctx.spawn(f);
     }
