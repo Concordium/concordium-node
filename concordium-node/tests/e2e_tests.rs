@@ -46,20 +46,20 @@ mod tests {
 
         node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false);
 
-        thread::sleep(time::Duration::from_secs(3));
+        thread::sleep(time::Duration::from_secs(5));
 
         match pkt_out_1.try_recv() {
             Ok(NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_),_,_)) => {},
             _ => { panic!("Didn't get handshake"); }
         }
 
-        thread::sleep(time::Duration::from_secs(3));
+        thread::sleep(time::Duration::from_secs(5));
 
         match pkt_out_1.try_recv() {
             Ok(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, recv_msg),_,_)) => {
                 assert_eq!(msg.as_bytes().to_vec(), recv_msg);
             },
-            _ => { panic!("Didn't get message from node_2"); }
+            x => { panic!("Didn't get message from node_2, but got {:?}", x); }
         }
     }
 
@@ -118,11 +118,11 @@ mod tests {
 
         node_3.connect("127.0.0.1".parse().unwrap(), 8899);
 
-        thread::sleep(time::Duration::from_secs(3));
+        thread::sleep(time::Duration::from_secs(5));
 
         node_1.send_message(None, &msg.as_bytes().to_vec(), true);
 
-        thread::sleep(time::Duration::from_secs(3));
+        thread::sleep(time::Duration::from_secs(5));
 
         match pkt_out_3.try_recv() {
             Ok(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, recv_msg),_,_)) => {
