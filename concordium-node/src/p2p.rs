@@ -698,7 +698,7 @@ impl Connection {
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
         match outer {
-            NetworkMessage::NetworkRequest(x,_,_) => {
+            NetworkMessage::NetworkRequest(ref x,_,_) => {
                 match x {
                     NetworkRequest::Ping(_) => {
                         //Respond with pong
@@ -746,7 +746,7 @@ impl Connection {
                     }
                 }
             },
-            NetworkMessage::NetworkResponse(x, _,_) => {
+            NetworkMessage::NetworkResponse(ref x, _,_) => {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         debug!("Got response to FindNode");
@@ -780,22 +780,23 @@ impl Connection {
                     }
                 }
             },
-            NetworkMessage::NetworkPacket(x, _,_ ) => {
+            NetworkMessage::NetworkPacket(ref x, _,_ ) => {
                 match x {
-                    NetworkPacket::DirectMessage(_,_, msg) => {
+                    NetworkPacket::DirectMessage(_,_, ref msg) => {
                         self.update_last_seen();
                         debug!("Received direct message of size {}", msg.len());
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {},
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
                         };                    },
-                    NetworkPacket::BroadcastedMessage(_,msg) => {
+                    NetworkPacket::BroadcastedMessage(_,ref msg) => {
                         self.update_last_seen();
                         debug!("Received broadcast message of size {}",msg.len());
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {},
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
-                        };                    }
+                        };                    
+                    }
                 }
             },
             NetworkMessage::UnknownMessage => {

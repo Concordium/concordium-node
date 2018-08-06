@@ -71,14 +71,14 @@ fn main() {
     let _guard_pkt = thread::spawn(move|| {
         loop {
             if let Ok(ref mut full_msg) = pkt_out.recv() {
-                match full_msg.clone() {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, msg),_,_) => {
+                match full_msg {
+                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,_, ref msg),_,_) => {
                         if let Some(ref mut rpc) = _rpc_clone {
                             rpc.queue_message(full_msg);
                         }
                         info!( "DirectMessage with text {:?} received", msg) ;
                     }
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,msg),_,_) => { 
+                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msg),_,_) => { 
                         if let Some(ref mut rpc) = _rpc_clone {
                             rpc.queue_message(full_msg);
                         }
