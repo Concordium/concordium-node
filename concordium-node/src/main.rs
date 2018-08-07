@@ -94,8 +94,14 @@ fn main() {
                         info!("BroadcastedMessage with text {:?} received", msg);
                         _node_self_clone.send_message(None,&msg,true);
                     },
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
+                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x),_,_)  => {
+                        info!("Ban node request for {:x}", x.get_id());
+                        _node_self_clone.ban_node(peer.clone());
+                    },
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer, x), _, _) => {
+                        info!("Unban node requets for {:x}", x.get_id());
+                        _node_self_clone.unban_node(peer.clone());
+                    }, 
                     _ => {}
                 }
             }
