@@ -93,10 +93,10 @@ impl AppPreferences {
     }
 
     pub fn get_user_app_dir(&self) -> PathBuf {
-        get_app_root(AppDataType::UserData, &APP_INFO).unwrap()
+        app_root(AppDataType::UserData, &APP_INFO).unwrap()
     }
 
     pub fn get_user_config_dir(&self) -> PathBuf {
-        get_app_root(AppDataType::UserConfig, &APP_INFO).unwrap()
+        app_root(AppDataType::UserConfig, &APP_INFO).unwrap()
     }
 }

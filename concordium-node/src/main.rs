@@ -11,9 +11,10 @@ use std::sync::mpsc;
 use std::thread;
 use p2p_client::p2p::*;
 use p2p_client::rpc::RpcServerImpl;
-use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
+use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage, P2PPeer};
 use env_logger::Env;
 use p2p_client::utils;
+use p2p_client::db::P2PDB;
 
 fn main() {
     let conf = configuration::parse_config();
@@ -37,7 +38,12 @@ fn main() {
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
-    info!("Debuging enabled {}", conf.debug);
+    let mut db_path = app_prefs.get_user_app_dir().clone();
+    db_path.push("p2p.db");
+
+    let mut db = P2PDB::new(db_path.as_path());
+
+    info!("Debugging enabled {}", conf.debug);
 
     let (pkt_in,pkt_out) = mpsc::channel();
 
@@ -88,8 +94,14 @@ fn main() {
                         info!("BroadcastedMessage with text {:?} received", msg);
                         _node_self_clone.send_message(None,&msg,true);
                     },
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
+                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x),_,_)  => {
+                        info!("Ban node request for {:x}", x.get_id());
+                        _node_self_clone.ban_node(peer.clone());
+                    },
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer, x), _, _) => {
+                        info!("Unban node requets for {:x}", x.get_id());
+                        _node_self_clone.unban_node(peer.clone());
+                    }, 
                     _ => {}
                 }
             }
@@ -110,6 +122,20 @@ fn main() {
             _ => {}
         }
     }
+
+
+    match db.get_banlist() {
+        Some(nodes) => {
+            info!("Found existing banlist, loading up!");
+            for n in nodes {
+                node.ban_node(n.to_P2P_Peer());
+            }
+        },
+        None => {
+            info!("Couldn't find existing banlist. Creating new!");
+            db.create_banlist();
+        },
+    };
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {
