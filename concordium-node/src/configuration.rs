@@ -17,7 +17,7 @@ pub struct Config {
     pub connect_to: Option<String>,
     #[structopt(long="listen-port", short="l", help = "Port to listen on")]
     pub listen_port: Option<u16>,
-    #[structopt(long="id", short="i", help = "Wanted ID")]
+    #[structopt(long="id", short="i", help = "Set forced node id")]
     pub id: Option<String>,
     #[structopt(long="debug", short="d", help = "Debug mode")]
     pub debug: bool,
