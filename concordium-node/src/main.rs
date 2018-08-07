@@ -67,6 +67,19 @@ fn main() {
         P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
 
+    match db.get_banlist() {
+        Some(nodes) => {
+            info!("Found existing banlist, loading up!");
+            for n in nodes {
+                node.ban_node(n.to_peer());
+            }
+        },
+        None => {
+            info!("Couldn't find existing banlist. Creating new!");
+            db.create_banlist();
+        },
+    };
+
     let mut rpc_serv:Option<RpcServerImpl> = None;
     if !conf.no_rpc_server {
         let mut serv = RpcServerImpl::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
@@ -101,13 +114,16 @@ fn main() {
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x),_,_)  => {
                         info!("Ban node request for {:x}", x.get_id());
                         _node_self_clone.ban_node(peer.clone());
+                        db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone.send_ban(x.clone());
                         }
+       
                     },
                     NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer, x), _, _) => {
                         info!("Unban node requets for {:x}", x.get_id());
                         _node_self_clone.unban_node(peer.clone());
+                        db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone.send_unban(x.clone());
                         }
@@ -132,20 +148,6 @@ fn main() {
             _ => {}
         }
     }
-
-
-    match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n.to_peer());
-            }
-        },
-        None => {
-            info!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist();
-        },
-    };
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {
