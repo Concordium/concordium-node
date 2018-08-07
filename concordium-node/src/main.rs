@@ -11,7 +11,7 @@ use std::sync::mpsc;
 use std::thread;
 use p2p_client::p2p::*;
 use p2p_client::rpc::RpcServerImpl;
-use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage, P2PPeer};
+use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
 use env_logger::Env;
 use p2p_client::utils;
 use p2p_client::db::P2PDB;
@@ -128,7 +128,7 @@ fn main() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n.to_P2P_Peer());
+                node.ban_node(n.to_peer());
             }
         },
         None => {

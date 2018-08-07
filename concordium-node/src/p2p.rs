@@ -943,7 +943,7 @@ pub struct P2PNode {
     poll: Arc<Mutex<Poll>>,
     id: P2PNodeId,
     buckets: Arc<Mutex<Buckets>>,
-    send_queue: Arc<Mutex<VecDeque<NetworkPacket>>>,
+    send_queue: Arc<Mutex<VecDeque<NetworkMessage>>>,
     ip: IpAddr,
     port: u16,
     incoming_pkts: mpsc::Sender<NetworkMessage>,
@@ -1138,7 +1138,7 @@ impl P2PNode {
                     Some(x) => {
                         debug!("Got message to process!");
                         match x.clone() {
-                            NetworkPacket::DirectMessage(me, receiver, msg) => {
+                            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(me, receiver, msg), _, _) => {
                                 //Look up connection associated with ID
                                 match self.tls_server.lock().unwrap().find_connection(receiver.clone()) {
                                     Some(ref mut conn) => {
@@ -1152,7 +1152,7 @@ impl P2PNode {
                                     },
                                 };                          
                             },
-                            NetworkPacket::BroadcastedMessage(me, msg) => {
+                            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(me, msg),_,_) => {
                                 let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
                                 for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
                                     if conn.peer.is_some() {
@@ -1160,7 +1160,8 @@ impl P2PNode {
                                         serialize_bytes(conn, &pkt.clone().serialize());
                                     }
                                 }
-                            }
+                            },
+                            _ => {}
                         }
                     },
                     None => {
@@ -1177,12 +1178,12 @@ impl P2PNode {
         debug!("Queueing message!");
         match broadcast {
             true => {
-                self.send_queue.lock().unwrap().push_back(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()));
+                self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()), None, None));
             },
             false => {
                 match id {
                     Some(x) => {
-                        self.send_queue.lock().unwrap().push_back(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()));
+                        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
                     },
                     None => {
                         debug!("Invalid receiver ID for message!");
@@ -1249,9 +1250,7 @@ impl P2PNode {
             Ok(mut x) => {
                 x.ban_node(peer);
             },
-            Err(e) => {
-
-            }
+            Err(_) => {},
         }
     }
 
@@ -1260,9 +1259,7 @@ impl P2PNode {
             Ok(mut x) => {
                 x.unban_node(peer);
             },
-            Err(e) => {
-                
-            }
+            Err(_) => {},
         }
     }
 
