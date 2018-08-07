@@ -19,7 +19,7 @@ pub struct Config {
     pub listen_port: Option<u16>,
     #[structopt(long="id", short="i", help = "Wanted ID")]
     pub id: Option<String>,
-    #[structopt(long="debug", help = "Debug mode")]
+    #[structopt(long="debug", short="d", help = "Debug mode")]
     pub debug: bool,
     #[structopt(long="no-rpc-server", help ="Disable the built-in RPC server")]
     pub no_rpc_server: bool,
@@ -27,8 +27,10 @@ pub struct Config {
     pub rpc_server_port: u16,
     #[structopt(long="rpc-server-addr", help = "RPC server listen address", default_value="127.0.0.1")]
     pub rpc_server_addr: String,
-    #[structopt(long="rpc-server-token", help = "RPC server access token")]
-    pub rpc_server_token: Option<String>
+    #[structopt(long="rpc-server-token", help = "RPC server access token", default_value = "rpcadmin")]
+    pub rpc_server_token: String,
+    #[structopt(long="desired-nodes", help = "Desired nodes to always have", default_value = "50")]
+    pub desired_nodes: u8,
 }
 
 pub fn parse_config() -> Config  {

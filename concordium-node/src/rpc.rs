@@ -15,14 +15,14 @@ pub struct RpcServerImpl {
     node: RefCell<P2PNode>,
     listen_port: u16,
     listen_addr: String,
-    access_token: Option<String>,
+    access_token: String,
     server: Option<Arc<Mutex<grpcio::Server>>>,
     subscription_queue_out:RefCell<Option<Arc<Mutex<mpsc::Receiver<NetworkMessage>>>>>,
     subscription_queue_in:RefCell<Option<mpsc::Sender<NetworkMessage>>>,
 }
 
 impl RpcServerImpl {
-    pub fn new(node: P2PNode, listen_addr: String, listen_port: u16, access_token: Option<String>) -> Self {
+    pub fn new(node: P2PNode, listen_addr: String, listen_port: u16, access_token: String) -> Self {
         RpcServerImpl {
             node: RefCell::new(node),
             listen_addr: listen_addr,
