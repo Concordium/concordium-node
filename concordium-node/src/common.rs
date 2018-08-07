@@ -352,7 +352,7 @@ impl NetworkResponse {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct P2PPeer {
     ip: IpAddr,
     port: u16,
@@ -476,7 +476,7 @@ impl PartialOrd for P2PPeer {
 impl Eq for P2PPeer {
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct P2PNodeId {
     id: BigUint,
 }

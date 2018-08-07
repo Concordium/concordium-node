@@ -7,8 +7,7 @@ use std::io::Write;
 use std::io::Read;
 use std::io;
 use std::io::ErrorKind;
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque, HashSet};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 use get_if_addrs;
@@ -174,6 +173,7 @@ struct TlsServer {
     own_id: P2PNodeId,
     event_log: Option<Sender<P2PEvent>>,
     self_peer: P2PPeer,
+    banned_peers: HashSet<P2PPeer>,
 }
 
 impl TlsServer {
@@ -187,6 +187,7 @@ impl TlsServer {
             own_id,
             event_log,
             self_peer,
+            banned_peers: HashSet::new(),
         }
     }
 
@@ -221,6 +222,14 @@ impl TlsServer {
         }
 
         ret
+    }
+
+    pub fn ban_node(&mut self, peer: P2PPeer) {
+        self.banned_peers.insert(peer);
+    }
+
+    pub fn unban_node(&mut self, peer: P2PPeer) {
+        self.banned_peers.remove(&peer);
     }
 
     fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> bool {
@@ -336,6 +345,20 @@ impl TlsServer {
                                         .collect();
         for closed in closed_ones {
             self.connections.remove(&closed);
+        }
+
+        //Kill banned connections
+        for peer in &self.banned_peers {
+            for conn in self.connections.values_mut() {
+                match conn.peer.clone() {
+                    Some(ref p) => {
+                        if p == peer {
+                            conn.close(&mut poll);
+                        }
+                    },
+                    None => {},
+                }
+            }
         }
     }
 
@@ -1132,8 +1155,10 @@ impl P2PNode {
                             NetworkPacket::BroadcastedMessage(me, msg) => {
                                 let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
                                 for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
-                                    self.total_sent += 1;
-                                    serialize_bytes(conn, &pkt.clone().serialize());
+                                    if conn.peer.is_some() {
+                                        self.total_sent += 1;
+                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                    }
                                 }
                             }
                         }
@@ -1219,12 +1244,30 @@ impl P2PNode {
         self.total_received
     }
 
+    pub fn ban_node(&mut self, peer: P2PPeer) {
+        match self.tls_server.lock() {
+            Ok(mut x) => {
+                x.ban_node(peer);
+            },
+            Err(e) => {
+
+            }
+        }
+    }
+
+    pub fn unban_node(&mut self, peer: P2PPeer) {
+        match self.tls_server.lock() {
+            Ok(mut x) => {
+                x.unban_node(peer);
+            },
+            Err(e) => {
+                
+            }
+        }
+    }
+
     pub fn process(&mut self, events: &mut Events) {
         self.poll.lock().unwrap().poll(events, Some(Duration::from_millis(500))).unwrap();
-
-        self.process_messages();
-
-        self.tls_server.lock().unwrap().cleanup_connections(&mut self.poll.lock().unwrap());
 
         match self.tls_server.lock() {
             Ok(mut x) => {
@@ -1252,5 +1295,9 @@ impl P2PNode {
             }
 
         }
+
+        self.tls_server.lock().unwrap().cleanup_connections(&mut self.poll.lock().unwrap());
+
+        self.process_messages();
     }
 }

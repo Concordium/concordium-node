@@ -1,5 +1,7 @@
 use rusqlite::{Connection, Error, Result};
 use std::path::{Path};
+use common;
+use common::P2PNodeId;
 
 pub struct P2PPeer {
     ip: String,
@@ -14,6 +16,10 @@ impl P2PPeer {
             ip,
             port,
         }
+    }
+
+    pub fn to_P2P_Peer(self) -> common::P2PPeer {
+        common::P2PPeer::from(P2PNodeId::from_string(self.id), self.ip.parse().unwrap(), self.port )
     }
 }
 
