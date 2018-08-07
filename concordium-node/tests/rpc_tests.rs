@@ -59,7 +59,7 @@ mod tests {
 
         env_logger::init();
 
-        let mut rpc_serv = RpcServerImpl::new(node.clone(), "127.0.0.1".to_string(), 10000, None);
+        let mut rpc_serv = RpcServerImpl::new(node.clone(), "127.0.0.1".to_string(), 10000, "rpcadmin".to_string());
         rpc_serv.start_server();
 
         let env = Arc::new(EnvBuilder::new().build());

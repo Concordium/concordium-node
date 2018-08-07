@@ -2,7 +2,7 @@
 name = "p2p_client"
 version = "0.0.2"
 description = "Concordium P2P library"
-authors = [ "Ian Johannesen <ij@nordic-t.me>", "Martin Karlsen Jensen <mj@nordic-t.me>"]
+authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
 exclude = [
     ".gitignore",
     ".gitlab-ci.yml",
