@@ -44,7 +44,8 @@ tls-api         = "0.1.20"
 httpbis         = "0.4.1"
 grpcio          = { version = "0.3.0", default-features = false, features = ["protobuf-codec"] } 
 grpc            = "0.5.0"
-
+preferences = "^1.1.0"
+app_dirs = "^1.2.1"
 
 [build-dependencies]
 walkdir         = "2"

@@ -22,6 +22,8 @@ extern crate nom;
 extern crate protobuf;
 extern crate grpcio;
 extern crate futures;
+extern crate preferences;
+extern crate app_dirs;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

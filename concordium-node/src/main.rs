@@ -17,6 +17,7 @@ use p2p_client::utils;
 
 fn main() {
     let conf = configuration::parse_config();
+    let app_prefs = configuration::AppPreferences::new();
 
     let listen_port = match conf.listen_port {
         Some(x) => x,
@@ -33,6 +34,8 @@ fn main() {
     
     env_logger::init_from_env(env);
     info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
+    info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
+    info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
     info!("Debuging enabled {}", conf.debug);
 
