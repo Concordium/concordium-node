@@ -14,6 +14,7 @@ use p2p_client::rpc::RpcServerImpl;
 use p2p_client::common::{NetworkRequest,NetworkPacket,NetworkMessage};
 use env_logger::Env;
 use p2p_client::utils;
+use p2p_client::db::P2PDB;
 
 fn main() {
     let conf = configuration::parse_config();
@@ -37,7 +38,22 @@ fn main() {
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
-    info!("Debuging enabled {}", conf.debug);
+    let mut db_path = app_prefs.get_user_app_dir().clone();
+    db_path.push("p2p.db");
+
+    let mut db = P2PDB::new(db_path.as_path());
+
+    match db.get_banlist() {
+        Some(x) => {
+            info!("Found existing banlist, loading up!");
+        },
+        None => {
+            info!("Couldn't find existing banlist. Creating new!");
+            db.create_banlist();
+        },
+    };
+
+    info!("Debugging enabled {}", conf.debug);
 
     let (pkt_in,pkt_out) = mpsc::channel();
 

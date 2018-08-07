@@ -24,6 +24,7 @@ extern crate grpcio;
 extern crate futures;
 extern crate preferences;
 extern crate app_dirs;
+extern crate rusqlite;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
@@ -34,3 +35,4 @@ pub mod p2p;
 pub mod utils;
 pub mod rpc;
 pub mod proto;
+pub mod db;
