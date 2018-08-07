@@ -100,14 +100,14 @@ fn main() {
                         if let Some(ref mut rpc) = _rpc_clone {
                             rpc.queue_message(full_msg);
                         }
-                        info!( "DirectMessage with text {:?} received", msg) ;
+                        info!( "DirectMessage with size {} received", msg.len()) ;
                     }
                     NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msg),_,_) => { 
                         if let Some(ref mut rpc) = _rpc_clone {
                             rpc.queue_message(full_msg);
                         }
                         if !_no_trust_broadcasts {
-                            info!("BroadcastedMessage with text {:?} received", msg);
+                            info!("BroadcastedMessage with size {} received", msg.len());
                             _node_self_clone.send_message(None,&msg,true);
                         }
                     },
