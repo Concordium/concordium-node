@@ -76,6 +76,8 @@ fn main() {
 
     let mut _node_self_clone = node.clone();
 
+    let _no_trust_bans = conf.no_trust_bans;
+    let _no_trust_broadcasts = conf.no_trust_broadcasts;
     let mut _rpc_clone = rpc_serv.clone();
     let _guard_pkt = thread::spawn(move|| {
         loop {
@@ -91,16 +93,24 @@ fn main() {
                         if let Some(ref mut rpc) = _rpc_clone {
                             rpc.queue_message(full_msg);
                         }
-                        info!("BroadcastedMessage with text {:?} received", msg);
-                        _node_self_clone.send_message(None,&msg,true);
+                        if !_no_trust_broadcasts {
+                            info!("BroadcastedMessage with text {:?} received", msg);
+                            _node_self_clone.send_message(None,&msg,true);
+                        }
                     },
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x),_,_)  => {
                         info!("Ban node request for {:x}", x.get_id());
                         _node_self_clone.ban_node(peer.clone());
+                        if !_no_trust_bans {
+                            _node_self_clone.send_ban(x.clone());
+                        }
                     },
                     NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer, x), _, _) => {
                         info!("Unban node requets for {:x}", x.get_id());
                         _node_self_clone.unban_node(peer.clone());
+                        if !_no_trust_bans {
+                            _node_self_clone.send_unban(x.clone());
+                        }
                     }, 
                     _ => {}
                 }

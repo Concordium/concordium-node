@@ -31,6 +31,10 @@ pub struct Config {
     pub rpc_server_token: String,
     #[structopt(long="desired-nodes", help = "Desired nodes to always have", default_value = "50")]
     pub desired_nodes: u8,
+    #[structopt(long="no-trust-broadcasts", help = "Don't blindly relay broadcasts")]
+    pub no_trust_broadcasts: bool,
+    #[structopt(long="no-trust-bans", help = "Don't blindly trust ban/unban requests")]
+    pub no_trust_bans: bool,
 }
 
 pub fn parse_config() -> Config  {

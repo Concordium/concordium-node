@@ -1161,6 +1161,24 @@ impl P2PNode {
                                     }
                                 }
                             },
+                            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(me,id),_,_) => {
+                                let pkt = Arc::new(NetworkRequest::BanNode(me, id));
+                                for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
+                                    if conn.peer.is_some() {
+                                        self.total_sent += 1;
+                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                    }
+                                }
+                            },
+                            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(me, id),_,_) => {
+                                let pkt = Arc::new(NetworkRequest::UnbanNode(me, id));
+                                for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
+                                    if conn.peer.is_some() {
+                                        self.total_sent += 1;
+                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                    }
+                                }
+                            },
                             _ => {}
                         }
                     },
@@ -1191,6 +1209,14 @@ impl P2PNode {
                 }
             }
         }
+    }
+
+    pub fn send_ban(&mut self, id: P2PNodeId) {
+        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id), None, None));
+    }
+
+    pub fn send_unban(&mut self, id: P2PNodeId) {
+        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None));
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
