@@ -9,7 +9,7 @@ const APP_PREFERENCES_MAIN:&str = "main/config";
 const APP_PREFERENCES_KEY_VERSION:&str = "VERSION";
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "config")]
+#[structopt()]
 pub struct Config {
     #[structopt(long="no-network", short="nonet", help = "Disable network")]
     pub no_network: bool,
