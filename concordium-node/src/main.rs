@@ -149,6 +149,7 @@ fn main() {
                     }
                 }
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, peers), _, _) => {
+                    info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
                     match _node_self_clone.get_nodes() {
                         Ok(x) => {
@@ -190,18 +191,20 @@ fn main() {
     let timer = Timer::new();
 
     let _desired_nodes_count = conf.desired_nodes;
-    let _guard_timer =
-        timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-            match node.get_nodes() {
-                Ok(x) => {
-                    println!("I currently have {} nodes!", x.len());
-                    if _desired_nodes_count > x.len() as u8 {
-                        // TODO send out GetPeers to peers, and parse in callback in packet listener
-                    }
-                }
-                Err(e) => error!("Couldn't get node list, {:?}", e),
-            };
-        });
+    let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
+                                match node.get_nodes() {
+                                    Ok(x) => {
+                                        info!("I currently have {}/{} nodes!",
+                                              x.len(),
+                                              _desired_nodes_count);
+                                        if _desired_nodes_count > x.len() as u8 {
+                                            info!("Not enough nodes, sending GetPeers requests");
+                                            node.send_get_peers();
+                                        }
+                                    }
+                                    Err(e) => error!("Couldn't get node list, {:?}", e),
+                                };
+                            });
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {
