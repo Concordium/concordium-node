@@ -41,7 +41,7 @@ fn main() {
     let mut db_path = app_prefs.get_user_app_dir().clone();
     db_path.push("p2p.db");
 
-    let mut db = P2PDB::new(db_path.as_path());
+    let db = P2PDB::new(db_path.as_path());
 
     info!("Debugging enabled {}", conf.debug);
 
@@ -82,7 +82,7 @@ fn main() {
 
     let mut rpc_serv:Option<RpcServerImpl> = None;
     if !conf.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
+        let mut serv = RpcServerImpl::new(node.clone(), Some(db.clone()), conf.rpc_server_addr, conf.rpc_server_port, conf.rpc_server_token);
         serv.start_server();
         rpc_serv = Some(serv);
     }
@@ -112,8 +112,8 @@ fn main() {
                         }
                     },
                     NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x),_,_)  => {
-                        info!("Ban node request for {:x}", x.get_id());
-                        _node_self_clone.ban_node(peer.clone());
+                        info!("Ban node request for {:?}", x);
+                        _node_self_clone.ban_node(x.clone());
                         db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone.send_ban(x.clone());
@@ -121,8 +121,8 @@ fn main() {
        
                     },
                     NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer, x), _, _) => {
-                        info!("Unban node requets for {:x}", x.get_id());
-                        _node_self_clone.unban_node(peer.clone());
+                        info!("Unban node requets for {:?}", x);
+                        _node_self_clone.unban_node(x.clone());
                         db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone.send_unban(x.clone());

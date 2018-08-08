@@ -224,12 +224,12 @@ impl TlsServer {
         ret
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) {
-        self.banned_peers.insert(peer);
+    pub fn ban_node(&mut self, peer: P2PPeer) -> bool {
+        self.banned_peers.insert(peer)
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) {
-        self.banned_peers.remove(&peer);
+    pub fn unban_node(&mut self, peer: P2PPeer) -> bool {
+        self.banned_peers.remove(&peer)
     }
 
     fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> bool {
@@ -992,7 +992,7 @@ impl P2PNode {
             }
         };
 
-        let _id = P2PNodeId::from_string(id.clone());
+        let _id = P2PNodeId::from_string(id.clone()).unwrap();
 
         let poll = match Poll::new() {
             Ok(x) => x,
@@ -1211,11 +1211,11 @@ impl P2PNode {
         }
     }
 
-    pub fn send_ban(&mut self, id: P2PNodeId) {
+    pub fn send_ban(&mut self, id: P2PPeer) {
         self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id), None, None));
     }
 
-    pub fn send_unban(&mut self, id: P2PNodeId) {
+    pub fn send_unban(&mut self, id: P2PPeer) {
         self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None));
     }
 
@@ -1271,21 +1271,21 @@ impl P2PNode {
         self.total_received
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) {
+    pub fn ban_node(&mut self, peer: P2PPeer) -> bool{
         match self.tls_server.lock() {
             Ok(mut x) => {
-                x.ban_node(peer);
+                x.ban_node(peer)
             },
-            Err(_) => {},
+            Err(_) => false,
         }
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) {
+    pub fn unban_node(&mut self, peer: P2PPeer) -> bool{
         match self.tls_server.lock() {
             Ok(mut x) => {
-                x.unban_node(peer);
+                x.unban_node(peer)
             },
-            Err(_) => {},
+            Err(_) => false,
         }
     }
 

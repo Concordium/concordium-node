@@ -48,15 +48,15 @@ mod tests {
                             info!("BroadcastedMessage with {:?} received", msg);
                             _node_self_clone.send_message(None,&msg,true);
                         },
-                        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
-                        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
+                        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:?}", x),
+                        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:?}", x), 
                         _ => {}
                     }
                 }
             }
         });
 
-        let mut rpc_serv = RpcServerImpl::new(node.clone(), "127.0.0.1".to_string(), 10002, "rpcadmin".to_string());
+        let mut rpc_serv = RpcServerImpl::new(node.clone(), None, "127.0.0.1".to_string(), 10002, "rpcadmin".to_string());
         rpc_serv.start_server();
 
         let env = Arc::new(EnvBuilder::new().build());
@@ -107,15 +107,15 @@ mod tests {
                             info!("BroadcastedMessage with {:?} received", msg);
                             _node_self_clone.send_message(None,&msg,true);
                         },
-                        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:x}", x.get_id()),
-                        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:x}", x.get_id()), 
+                        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x),_,_)  => info!("Ban node request for {:?}", x),
+                        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => info!("Unban node requets for {:?}", x), 
                         _ => {}
                     }
                 }
             }
         });
 
-        let mut rpc_serv = RpcServerImpl::new(node.clone(), "127.0.0.1".to_string(), 10001, "rpcadmin".to_string());
+        let mut rpc_serv = RpcServerImpl::new(node.clone(), None, "127.0.0.1".to_string(), 10001, "rpcadmin".to_string());
         rpc_serv.start_server();
 
         let env = Arc::new(EnvBuilder::new().build());

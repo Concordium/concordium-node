@@ -1,5 +1,5 @@
 use p2p::{P2PNode};
-use common::{P2PNodeId,NetworkMessage,NetworkPacket};
+use common::{P2PNodeId,NetworkMessage,NetworkPacket,P2PPeer};
 use std::cell::RefCell;
 use proto::*;
 use futures::future::Future;
@@ -9,6 +9,7 @@ use grpcio::{ServerBuilder,Environment};
 use std::sync::{Mutex,Arc};
 use grpcio;
 use std::sync::mpsc;
+use db::P2PDB;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -19,10 +20,11 @@ pub struct RpcServerImpl {
     server: Option<Arc<Mutex<grpcio::Server>>>,
     subscription_queue_out:RefCell<Option<Arc<Mutex<mpsc::Receiver<NetworkMessage>>>>>,
     subscription_queue_in:RefCell<Option<mpsc::Sender<NetworkMessage>>>,
+    db: Option<P2PDB>,
 }
 
 impl RpcServerImpl {
-    pub fn new(node: P2PNode, listen_addr: String, listen_port: u16, access_token: String) -> Self {
+    pub fn new(node: P2PNode, db: Option<P2PDB>, listen_addr: String, listen_port: u16, access_token: String) -> Self {
         RpcServerImpl {
             node: RefCell::new(node),
             listen_addr: listen_addr,
@@ -31,6 +33,7 @@ impl RpcServerImpl {
             server: None,
             subscription_queue_out: RefCell::new(None),
             subscription_queue_in: RefCell::new(None),
+            db: db,
         }
     }
 
@@ -155,7 +158,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink,&self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
             if req.has_node_id() && req.has_message() && req.has_broadcast() && !req.get_broadcast().get_value() {
-                let id = P2PNodeId::from_string(req.get_node_id().get_value().to_string());
+                let id = P2PNodeId::from_string(req.get_node_id().get_value().to_string()).unwrap();
                 info!("Sending direct message to: {:064x}", id.get_id());
                 self.node.borrow_mut().send_message(Some(id), req.get_message().get_value(), false);
                 r.set_value(true);
@@ -195,10 +198,16 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink,&self.access_token, {
             let data:Vec<_> = self.node.borrow_mut().get_nodes().unwrap().iter()
                 .map(|x| {
-                    let mut peer_resp = PeerListResponse_Peer::new();
-                    peer_resp.set_node_id(format!("{:064x}",x.id().get_id()));
-                    peer_resp.set_ip(x.ip().to_string());
-                    peer_resp.set_port(x.port() as u32);
+                    let mut peer_resp = PeerElement::new();
+                    let mut node_id = ::protobuf::well_known_types::StringValue::new();
+                    node_id.set_value(format!("{:064x}",x.id().get_id()));
+                    peer_resp.set_node_id(node_id);
+                    let mut ip = ::protobuf::well_known_types::StringValue::new();
+                    ip.set_value(x.ip().to_string());
+                    peer_resp.set_ip(ip);
+                    let mut port = ::protobuf::well_known_types::Int32Value::new();
+                    port.set_value(x.port() as i32);
+                    peer_resp.set_port(port);
                     peer_resp
                 })
                 .collect();
@@ -259,6 +268,78 @@ impl P2P for RpcServerImpl {
                 }
             } else {
                 r.set_message_none(MessageNone::new())
+            }
+            let f = sink.success(r) 
+                .map_err(move |e| error!("failed to reply {:?}: {:?}", req , e));
+            ctx.spawn(f);
+        });
+    }
+
+    fn ban_node(&self, ctx: ::grpcio::RpcContext, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>) {
+        authenticate!(ctx, req, sink,&self.access_token, {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            if req.has_node_id() && req.has_ip() && req.has_port() {
+                let node_id = P2PNodeId::from_string(req.get_node_id().get_value().to_string());
+                let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
+                let port = req.get_port().get_value() as u16;
+                if node_id.is_ok() && ip.is_ok() {
+                    let mut node = self.node.borrow_mut();
+                    let peer = P2PPeer::from(node_id.unwrap(), ip.unwrap(), port);
+                     if node.ban_node(peer.clone()) {
+                        let db_done = if let Some(ref db) = self.db {
+                            db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port())
+                         } else { 
+                             true 
+                        };
+                        if db_done {
+                            node.send_ban(peer.clone());
+                            r.set_value(true);
+                        } else {
+                            node.unban_node(peer.clone());
+                            r.set_value(false);
+                        }
+                     }
+                } else {
+                    r.set_value(false);
+                }
+            } else {
+                r.set_value(false);
+            }
+            let f = sink.success(r) 
+                .map_err(move |e| error!("failed to reply {:?}: {:?}", req , e));
+            ctx.spawn(f);
+        });
+    }
+
+    fn unban_node(&self, ctx: ::grpcio::RpcContext, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>) {
+                authenticate!(ctx, req, sink,&self.access_token, {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            if req.has_node_id() && req.has_ip() && req.has_port() {
+                let node_id = P2PNodeId::from_string(req.get_node_id().get_value().to_string());
+                let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
+                let port = req.get_port().get_value() as u16;
+                if node_id.is_ok() && ip.is_ok() {
+                    let mut node = self.node.borrow_mut();
+                    let peer = P2PPeer::from(node_id.unwrap(), ip.unwrap(), port);
+                     if node.unban_node(peer.clone()) {
+                        let db_done = if let Some(ref db) = self.db {
+                            db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port())
+                         } else { 
+                             true 
+                        };
+                        if db_done {
+                            node.send_unban(peer.clone());
+                            r.set_value(true);
+                        } else {
+                            node.ban_node(peer.clone());
+                            r.set_value(false);
+                        }
+                     }
+                } else {
+                    r.set_value(false);
+                }
+            } else {
+                r.set_value(false);
             }
             let f = sink.success(r) 
                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req , e));

@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use std::path::{Path};
 use common;
 use common::P2PNodeId;
+use std::sync::{Arc,Mutex};
 
 pub struct P2PPeer {
     ip: String,
@@ -19,12 +20,13 @@ impl P2PPeer {
     }
 
     pub fn to_peer(self) -> common::P2PPeer {
-        common::P2PPeer::from(P2PNodeId::from_string(self.id), self.ip.parse().unwrap(), self.port )
+        common::P2PPeer::from(P2PNodeId::from_string(self.id).unwrap(), self.ip.parse().unwrap(), self.port )
     }
 }
 
+#[derive(Clone)]
 pub struct P2PDB {
-    conn: Option<Connection>,
+    conn: Option<Arc<Mutex<Connection>>>,
 }
 
 impl P2PDB {
@@ -33,7 +35,7 @@ impl P2PDB {
             conn: match Connection::open(path) {
                 Ok(x) => {
                     info!("Database loaded!");
-                    Some(x)
+                    Some(Arc::new(Mutex::new(x)))
                 },
                 Err(e) => {
                     error!("Couldn't open database! {:?}", e);
@@ -43,42 +45,46 @@ impl P2PDB {
         }
     }
 
-    pub fn get_banlist(&mut self) -> Option<Vec<P2PPeer>> {
+    pub fn get_banlist(&self) -> Option<Vec<P2PPeer>> {
         let mut list = vec![];
         match self.conn {
-            Some(ref mut conn) => {
-                match conn.prepare("SELECT id, ip, port FROM bans") {
-                    Ok(mut x) => {
-                        match x.query_map(&[], |row| {
-                            P2PPeer {
-                                id: row.get(0),
-                                ip: row.get(1),
-                                port: row.get(2),
-                            }
-                        }) {
-                            Ok(rows) => {
-                                for row in rows {
-                                    match row {
-                                        Ok(x) => {
-                                            list.push(x);
-                                        },
-                                        Err(e) => {
-                                            error!("Couldn't get item, {:?}", e);
+            Some(ref conn) => {
+                {
+                    let mut conn_mut = conn.lock().unwrap();
+                    let res = conn_mut.prepare("SELECT id, ip, port FROM bans");
+                    match  res {
+                        Ok(mut x) => {
+                            match x.query_map(&[], |row| {
+                                P2PPeer {
+                                    id: row.get(0),
+                                    ip: row.get(1),
+                                    port: row.get(2),
+                                }
+                            }) {
+                                Ok(rows) => {
+                                    for row in rows {
+                                        match row {
+                                            Ok(x) => {
+                                                list.push(x);
+                                            },
+                                            Err(e) => {
+                                                error!("Couldn't get item, {:?}", e);
+                                            }
                                         }
                                     }
-                                }
 
-                                Some(list)
-                            },
-                            Err(e) => {
-                                error!("Couldn't map rows, {:?}", e);
-                                None
-                            },
+                                    Some(list)
+                                },
+                                Err(e) => {
+                                    error!("Couldn't map rows, {:?}", e);
+                                    None
+                                },
+                            }
+                        },
+                        Err(e) => {
+                            error!("Couldn't execute query! {:?}", e);
+                            None
                         }
-                    },
-                    Err(e) => {
-                        error!("Couldn't execute query! {:?}", e);
-                        None
                     }
                 }
             },
@@ -88,16 +94,19 @@ impl P2PDB {
         }
     }
 
-    pub fn create_banlist(&mut self) {
+    pub fn create_banlist(&self) {
         match self.conn {
-            Some(ref mut conn) => {
-                match conn.execute("CREATE TABLE bans(id VARCHAR, ip VARCHAR, port INTEGER)", &[]) {
-                    Ok(mut _x) => {
-                        
-                    },
-                    Err(e) => {
-                        error!("Couldn't execute query! {:?}", e);
-                        
+            Some(ref conn) => {
+                {
+                    let conn_mut = conn.lock().unwrap();
+                    match conn_mut.execute("CREATE TABLE bans(id VARCHAR, ip VARCHAR, port INTEGER)", &[]) {
+                        Ok(mut _x) => {
+                            
+                        },
+                        Err(e) => {
+                            error!("Couldn't execute query! {:?}", e);
+                            
+                        }
                     }
                 }
             },
@@ -106,20 +115,23 @@ impl P2PDB {
         }
     }
 
-    pub fn insert_ban(&mut self, id: String, ip: String, port: u16) -> bool{
+    pub fn insert_ban(&self, id: String, ip: String, port: u16) -> bool{
         match self.conn {
-            Some(ref mut conn) => {
-                match conn.execute("INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)", &[&id, &ip, &port]) {
-                    Ok(updated) => {
-                        if updated > 0 {
-                            true
-                        } else {
+            Some(ref conn) => {
+                {
+                    let conn_mut = conn.lock().unwrap();
+                    match conn_mut.execute("INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)", &[&id, &ip, &port]) {
+                        Ok(updated) => {
+                            if updated > 0 {
+                                true
+                            } else {
+                                false
+                            }
+                        },
+                        Err(e) => {
+                            error!("Couldn't execute query! {:?}", e);
                             false
                         }
-                    },
-                    Err(e) => {
-                        error!("Couldn't execute query! {:?}", e);
-                        false
                     }
                 }
             },
@@ -129,10 +141,11 @@ impl P2PDB {
         }
     }
 
-    pub fn delete_ban(&mut self, id: String, ip: String, port: u16) -> bool{
+    pub fn delete_ban(&self, id: String, ip: String, port: u16) -> bool{
         match self.conn {
-            Some(ref mut conn) => {
-                match conn.execute("DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?", &[&id, &ip, &port]) {
+            Some(ref conn) => {
+                let conn_mut = conn.lock().unwrap();
+                match conn_mut.execute("DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?", &[&id, &ip, &port]) {
                     Ok(updated) => {
                         if updated > 0 {
                             true

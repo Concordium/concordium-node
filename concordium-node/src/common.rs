@@ -97,39 +97,39 @@ impl NetworkMessage {
                                 }
                                 let node_id = str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap();
 
-                                NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(node_id.to_string())),  Some(timestamp), Some(get_current_stamp()))
+                                NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(node_id.to_string()).unwrap()),  Some(timestamp), Some(get_current_stamp()))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
-                        
                     },
                     PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE => {
                         let sender = P2PPeer::deserialize(str::from_utf8(&bytes[inner_msg_size..]).unwrap());
                         match sender {
                             Some(sender) => {
                                 let sender_len = sender.serialize().len();
-                                if bytes.len() != inner_msg_size+sender_len+PROTOCOL_NODE_ID_LENGTH {
-                                    return NetworkMessage::InvalidMessage;
+                                let node_data = P2PPeer::deserialize(str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap());
+                                match node_data {
+                                    Some(node_info) => {
+                                        NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, node_info),  Some(timestamp), Some(get_current_stamp()))
+                                    },
+                                    _ => NetworkMessage::InvalidMessage,
                                 }
-                                let node_id = str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap();
-
-                                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, P2PNodeId::from_string(node_id.to_string())),  Some(timestamp), Some(get_current_stamp()))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
-                        
                     },
                     PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE => {
                         let sender = P2PPeer::deserialize(str::from_utf8(&bytes[inner_msg_size..]).unwrap());
                         match sender {
                             Some(sender) => {
                                 let sender_len = sender.serialize().len();
-                                if bytes.len() != inner_msg_size+sender_len+PROTOCOL_NODE_ID_LENGTH {
-                                    return NetworkMessage::InvalidMessage;
+                                let node_data = P2PPeer::deserialize(str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap());
+                                match node_data {
+                                    Some(node_info) => {
+                                        NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, node_info),  Some(timestamp), Some(get_current_stamp()))
+                                    },
+                                    _ => NetworkMessage::InvalidMessage,
                                 }
-                                let node_id = str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap();
-
-                                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, P2PNodeId::from_string(node_id.to_string())),  Some(timestamp), Some(get_current_stamp()))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
@@ -210,7 +210,7 @@ impl NetworkMessage {
                                     return NetworkMessage::InvalidMessage
                                 }
                                 let remainer = inner_msg_size+sender_len;
-                                let receiver_id = P2PNodeId::from_string((str::from_utf8(&bytes[remainer..(remainer+PROTOCOL_NODE_ID_LENGTH)]).unwrap()).to_string());
+                                let receiver_id = P2PNodeId::from_string((str::from_utf8(&bytes[remainer..(remainer+PROTOCOL_NODE_ID_LENGTH)]).unwrap()).to_string()).unwrap();
                                 match str::from_utf8(&bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+10+PROTOCOL_NODE_ID_LENGTH)]).unwrap().parse::<usize>() {
                                     Ok(csize) => {
                                          if bytes[(remainer+PROTOCOL_NODE_ID_LENGTH+10)..].len() != csize {
@@ -300,10 +300,10 @@ impl NetworkPacket {
 pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer,P2PNodeId),
-    BanNode(P2PPeer, P2PNodeId),
+    BanNode(P2PPeer, P2PPeer),
     Handshake(P2PPeer),
     GetPeers(P2PPeer),
-    UnbanNode(P2PPeer, P2PNodeId)
+    UnbanNode(P2PPeer, P2PPeer)
 }
 
 impl NetworkRequest {
@@ -311,8 +311,8 @@ impl NetworkRequest {
         match self {
             NetworkRequest::Ping(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_PING, me.serialize()).as_bytes().to_vec(),
             NetworkRequest::FindNode(me, id) => format!("{}{}{:016x}{}{}{:064x}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,me.serialize(), id.get_id()).as_bytes().to_vec(),
-            NetworkRequest::BanNode(me, id) => format!("{}{}{:016x}{}{}{:064x}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,me.serialize(), id.get_id() ).as_bytes().to_vec(),
-            NetworkRequest::UnbanNode(me, id) => format!("{}{}{:016x}{}{}{:064x}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(),PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE, me.serialize(), id.get_id()).as_bytes().to_vec(),
+            NetworkRequest::BanNode(me, node_data) => format!("{}{}{:016x}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,me.serialize(), node_data.serialize() ).as_bytes().to_vec(),
+            NetworkRequest::UnbanNode(me, node_data) => format!("{}{}{:016x}{}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(),PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE, me.serialize(), node_data.serialize()).as_bytes().to_vec(),
             NetworkRequest::Handshake(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,me.serialize()).as_bytes().to_vec(),
             NetworkRequest::GetPeers(me) => format!("{}{}{:016x}{}{}", PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(), PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS, me.serialize()).as_bytes().to_vec()
         }
@@ -389,7 +389,7 @@ impl P2PPeer {
 
     pub fn deserialize(buf: &str) -> Option<P2PPeer> {
         if&buf.len() > &(PROTOCOL_NODE_ID_LENGTH+3) {
-            let node_id = P2PNodeId::from_string(buf[..PROTOCOL_NODE_ID_LENGTH].to_string());
+            let node_id = P2PNodeId::from_string(buf[..PROTOCOL_NODE_ID_LENGTH].to_string()).unwrap();
             let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..(PROTOCOL_NODE_ID_LENGTH+3)];
             let ip_start = PROTOCOL_NODE_ID_LENGTH+3;
             match ip_type {
@@ -487,17 +487,17 @@ impl PartialEq for P2PNodeId {
     }
 }
 
+impl Eq for P2PNodeId {
+}
+
 impl P2PNodeId {
-    pub fn from_string(sid: String) -> P2PNodeId {
-        P2PNodeId {
-            id: match BigUint::from_str_radix(&sid, 16) {
-                Ok(x) => {
-                    x
-                },
-                Err(_) => {
-                    panic!("Couldn't convert ID {} from hex to biguint", &sid)
-                }
-            }
+    pub fn from_string(sid: String) -> Result<P2PNodeId,&'static str> {
+        match BigUint::from_str_radix(&sid, 16) {
+            Ok(x) => Ok(P2PNodeId{ id: x }),
+            Err(_) => {
+                error!("Can't parse {} as base16 number!", &sid);
+                Err("Invalid base16 number")
+            },
         }
     }
 
@@ -511,11 +511,11 @@ impl P2PNodeId {
 
     pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {
         let ip_port = format!("{}:{}", ip, port);
-        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
+        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port))).unwrap()
     }
 
     pub fn from_ipstring(ip_port: String) -> P2PNodeId {
-        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port)))
+        P2PNodeId::from_string(utils::to_hex_string(utils::sha256(&ip_port))).unwrap()
     }
 }
 
@@ -578,7 +578,7 @@ mod tests {
 
     #[test]
     pub fn req_handshake_000() {
-        let self_peer:P2PPeer = P2PPeer::from(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")), "10.10.10.10".parse().unwrap(), 8888);
+        let self_peer:P2PPeer = P2PPeer::from(P2PNodeId::from_string(String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")).unwrap(), "10.10.10.10".parse().unwrap(), 8888);
         let test_msg = NetworkRequest::Handshake(self_peer);
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
@@ -743,11 +743,12 @@ mod tests {
     pub fn req_bannode_test() {
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
-        let msg = NetworkRequest::BanNode(self_peer, node_id.clone());
+        let peer = P2PPeer::from(node_id, IpAddr::from_str("8.8.8.8").unwrap(), 9999);
+        let msg = NetworkRequest::BanNode(self_peer, peer.clone());
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, id),_,_) => id.get_id() == node_id.get_id(),
+            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, _peer),_,_) => _peer == peer,
             _ => false
         } )
     }
@@ -756,11 +757,12 @@ mod tests {
     pub fn req_unbannode_test() {
         let self_peer:P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
-        let msg = NetworkRequest::UnbanNode(self_peer, node_id.clone());
+        let peer = P2PPeer::from(node_id, IpAddr::from_str("8.8.8.8").unwrap(), 9999);
+        let msg = NetworkRequest::UnbanNode(self_peer, peer.clone());
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert! ( match deserialized {
-            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, id),_,_) => id.get_id() == node_id.get_id(),
+            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, _peer),_,_) => _peer == peer,
             _ => false
         } )
     }

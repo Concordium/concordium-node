@@ -19,13 +19,14 @@ message PeerConnectRequest {
   google.protobuf.Int32Value port = 2;
 }
 
+message PeerElement {
+  google.protobuf.StringValue node_id = 1; 
+  google.protobuf.Int32Value port = 2;
+  google.protobuf.StringValue ip = 3;
+}
+
 message PeerListResponse {
-  message Peer {
-    string node_id = 1; 
-    uint32 port = 2;
-    string ip = 3;
-  }
-  repeated Peer peer = 1;
+  repeated PeerElement peer = 1;
 }
 
 message PeerStatsResponse {
@@ -78,4 +79,6 @@ service P2P {
   rpc SubscriptionStart(Empty) returns (SuccessResponse) {}
   rpc SubscriptionStop(Empty) returns (SuccessResponse) {}
   rpc SubscriptionPoll(Empty) returns (P2PNetworkMessage) {}
+  rpc BanNode(PeerElement) returns (SuccessResponse) {}
+  rpc UnbanNode(PeerElement) returns (SuccessResponse) {}
 }
