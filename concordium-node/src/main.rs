@@ -5,6 +5,8 @@ extern crate bytes;
 extern crate env_logger;
 extern crate grpcio;
 extern crate mio;
+extern crate timer;
+extern crate chrono;
 
 use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest};
@@ -15,6 +17,8 @@ use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use std::sync::mpsc;
 use std::thread;
+use timer::Timer;
+
 
 fn main() {
     let conf = configuration::parse_config();
@@ -164,6 +168,15 @@ fn main() {
             _ => {}
         }
     }
+
+    let timer = Timer::new();
+
+    let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
+        match node.get_nodes() {
+            Ok(x) => println!("I currently have {} nodes!", x.len()),
+            Err(e) => error!("Couldn't get node list, {:?}", e),
+        };
+    });
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {

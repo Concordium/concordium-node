@@ -47,6 +47,8 @@ grpc            = "0.5.0"
 preferences = "^1.1.0"
 app_dirs = "^1.2.1"
 rusqlite = {version = "0.13.0", features = ["bundled"]}
+timer = "0.2.0"
+chrono = "0.4.5"
 
 [build-dependencies]
 walkdir         = "2"
