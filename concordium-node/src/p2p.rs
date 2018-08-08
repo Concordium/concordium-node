@@ -1,36 +1,38 @@
-use mio::*;
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use bytes::{BufMut, BytesMut};
+use common;
+use common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, P2PNodeId, P2PPeer};
+use get_if_addrs;
 use mio::net::TcpListener;
 use mio::net::TcpStream;
-use std::net::{SocketAddr, Shutdown};
-use std::io::Error;
-use std::io::Write;
-use std::io::Read;
-use std::io;
-use std::io::ErrorKind;
-use std::collections::{HashMap, VecDeque, HashSet};
-use std::sync::mpsc::Sender;
-use std::time::Duration;
-use get_if_addrs;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::IpAddr::{V4, V6};
-use std::thread;
-use utils;
-use common::{NetworkMessage,NetworkRequest, NetworkPacket, NetworkResponse, P2PPeer, P2PNodeId};
-use common;
+use mio::*;
 use num_bigint::BigUint;
 use num_bigint::ToBigUint;
 use num_traits::pow;
-use bytes::{BytesMut, BufMut};
+use rustls::{
+    Certificate, ClientConfig, ClientSession, NoClientAuth, PrivateKey, RootCertStore,
+    ServerCertVerified, ServerCertVerifier, ServerConfig, ServerSession, Session, TLSError,
+};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io;
+use std::io::Cursor;
+use std::io::Error;
+use std::io::ErrorKind;
+use std::io::Read;
+use std::io::Write;
+use std::net::IpAddr;
+use std::net::IpAddr::{V4, V6};
+use std::net::Ipv4Addr;
+use std::net::{Shutdown, SocketAddr};
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use time;
 use time::Timespec;
+use utils;
 use webpki::DNSNameRef;
-use std::sync::{Arc,Mutex};
-use rustls::{Session, ServerConfig, NoClientAuth, Certificate, PrivateKey, TLSError,
-ServerSession, ClientSession, ClientConfig, ServerCertVerifier, RootCertStore, ServerCertVerified};
-use std::sync::mpsc;
-use std::io::Cursor;
-use byteorder::{NetworkEndian,ReadBytesExt,WriteBytesExt};
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -41,7 +43,7 @@ pub enum P2PEvent {
     DisconnectEvent(String),
     ReceivedMessageEvent(P2PNodeId),
     SentMessageEvent(P2PNodeId),
-    InitiatingConnection(IpAddr,u16),
+    InitiatingConnection(IpAddr, u16),
 }
 
 struct Buckets {
@@ -55,9 +57,7 @@ impl Buckets {
             buckets.insert(i, Vec::new());
         }
 
-        Buckets {
-            buckets,
-        }
+        Buckets { buckets }
     }
 
     pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> BigUint {
@@ -67,7 +67,9 @@ impl Buckets {
     pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId) {
         let dist = self.distance(&own_id, &node.id());
         for i in 0..KEY_SIZE {
-            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
+            if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
+               && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
+            {
                 match self.buckets.get_mut(&i) {
                     Some(x) => {
                         if x.len() >= BUCKET_SIZE as usize {
@@ -76,7 +78,7 @@ impl Buckets {
 
                         x.push(node.clone());
                         break;
-                    },
+                    }
                     None => {
                         error!("Couldn't get bucket as mutable");
                     }
@@ -87,9 +89,11 @@ impl Buckets {
 
     fn _find_bucket_id(&mut self, own_id: P2PNodeId, id: P2PNodeId) -> Option<u16> {
         let dist = self.distance(&own_id, &id);
-        let mut ret : i32 = -1;
+        let mut ret: i32 = -1;
         for i in 0..KEY_SIZE {
-            if dist >= pow(2_i8.to_biguint().unwrap(),i as usize) && dist < pow(2_i8.to_biguint().unwrap(),(i as usize)+1) {
+            if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
+               && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
+            {
                 ret = i as i32;
             }
         }
@@ -102,7 +106,7 @@ impl Buckets {
     }
 
     fn closest_nodes(&self, _id: &P2PNodeId) -> Vec<P2PPeer> {
-        let mut ret : Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
+        let mut ret: Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
         let mut count = 0;
         for (_, bucket) in &self.buckets {
             //Fix later to do correctly
@@ -118,19 +122,18 @@ impl Buckets {
             } else {
                 break;
             }
-
         }
 
         ret
     }
 
     pub fn get_all_nodes(&self) -> Vec<P2PPeer> {
-        let mut ret : Vec<P2PPeer> = Vec::new();
+        let mut ret: Vec<P2PPeer> = Vec::new();
         for (_, bucket) in &self.buckets {
             for peer in bucket {
                 ret.push(peer.clone());
             }
-        } 
+        }
 
         ret
     }
@@ -144,11 +147,7 @@ pub struct PeerStatistic {
 
 impl PeerStatistic {
     pub fn new(id: String, sent: u64, received: u64) -> PeerStatistic {
-        PeerStatistic {
-            id,
-            sent,
-            received
-        }
+        PeerStatistic { id, sent, received }
     }
 
     pub fn id(&self) -> String {
@@ -177,29 +176,33 @@ struct TlsServer {
 }
 
 impl TlsServer {
-    fn new(server: TcpListener, server_cfg: Arc<ServerConfig>, client_cfg: Arc<ClientConfig>, own_id: P2PNodeId, event_log: Option<Sender<P2PEvent>>, self_peer: P2PPeer) -> TlsServer {
-        TlsServer {
-            server,
-            connections: HashMap::new(),
-            next_id: 2,
-            server_tls_config: server_cfg,
-            client_tls_config: client_cfg,
-            own_id,
-            event_log,
-            self_peer,
-            banned_peers: HashSet::new(),
-        }
+    fn new(server: TcpListener,
+           server_cfg: Arc<ServerConfig>,
+           client_cfg: Arc<ClientConfig>,
+           own_id: P2PNodeId,
+           event_log: Option<Sender<P2PEvent>>,
+           self_peer: P2PPeer)
+           -> TlsServer {
+        TlsServer { server,
+                    connections: HashMap::new(),
+                    next_id: 2,
+                    server_tls_config: server_cfg,
+                    client_tls_config: client_cfg,
+                    own_id,
+                    event_log,
+                    self_peer,
+                    banned_peers: HashSet::new(), }
     }
 
     fn log_event(&mut self, event: P2PEvent) {
         match self.event_log {
-            Some(ref mut x) => { 
+            Some(ref mut x) => {
                 match x.send(event) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(e) => error!("Couldn't send error {:?}", e),
                 };
-            },
-            _ => {}, 
+            }
+            _ => {}
         }
     }
 
@@ -207,17 +210,16 @@ impl TlsServer {
         self.self_peer.clone()
     }
 
-
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
         let mut ret = vec![];
-        for (_,ref conn) in &self.connections {
+        for (_, ref conn) in &self.connections {
             match conn.peer {
                 Some(ref x) => {
-                    ret.push(PeerStatistic::new(x.id().to_string(), conn.get_messages_sent(), conn.get_messages_received()));
-                },
-                None => {
-
+                    ret.push(PeerStatistic::new(x.id().to_string(),
+                                                conn.get_messages_sent(),
+                                                conn.get_messages_received()));
                 }
+                None => {}
             }
         }
 
@@ -242,11 +244,18 @@ impl TlsServer {
                 let token = Token(self.next_id);
                 self.next_id += 1;
 
-                self.connections.insert(token, Connection::new(socket, token, Some(tls_session), None, false, self.own_id.clone(), self_id.clone()));
+                self.connections.insert(token,
+                                        Connection::new(socket,
+                                                        token,
+                                                        Some(tls_session),
+                                                        None,
+                                                        false,
+                                                        self.own_id.clone(),
+                                                        self_id.clone()));
                 self.connections[&token].register(poll);
 
                 true
-            },
+            }
             Err(e) => {
                 error!("encountered error while accepting connection; err={:?}", e);
                 false
@@ -257,38 +266,44 @@ impl TlsServer {
     fn connect(&mut self, poll: &mut Poll, ip: IpAddr, port: u16, self_id: &P2PPeer) -> bool {
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
             Ok(x) => {
-                let tls_session = ClientSession::new(&self.client_tls_config, match DNSNameRef::try_from_ascii_str(&"node.concordium.com") {
-                    Ok(x) => {
-                        x
-                    },
-                    Err(e) => {
-                        panic!("The error is: {:?}", e)
-                    }
-                });
+                let tls_session =
+                    ClientSession::new(&self.client_tls_config,
+                                       match DNSNameRef::try_from_ascii_str(&"node.concordium.com")
+                                       {
+                                           Ok(x) => x,
+                                           Err(e) => panic!("The error is: {:?}", e),
+                                       });
 
                 let token = Token(self.next_id);
                 self.next_id += 1;
 
-                self.connections.insert(token, Connection::new(x, token, None, Some(tls_session), true, self.own_id.clone(), self_id.clone()));
+                self.connections.insert(token,
+                                        Connection::new(x,
+                                                        token,
+                                                        None,
+                                                        Some(tls_session),
+                                                        true,
+                                                        self.own_id.clone(),
+                                                        self_id.clone()));
                 self.connections[&token].register(poll);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
                 debug!("Requesting handshake from new peer!");
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
-                    serialize_bytes( conn, &NetworkRequest::Handshake(self_peer).serialize() )
+                    serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize())
                 }
                 true
-            },
+            }
             Err(e) => {
                 error!("encountered error while connecting; err={:?}", e);
                 false
             }
         }
-    } 
+    }
 
     fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
         let mut tok = Token(0);
-        for (token,mut connection) in &self.connections {
+        for (token, mut connection) in &self.connections {
             match connection.peer {
                 Some(ref x) => {
                     if x.id() == id {
@@ -296,7 +311,7 @@ impl TlsServer {
                     } else {
                         break;
                     }
-                },
+                }
                 _ => {
                     break;
                 }
@@ -316,14 +331,17 @@ impl TlsServer {
         }
     }
 
-    fn conn_event(&mut self, poll: &mut Poll, event: &Event, mut buckets: &mut Buckets, packet_queue: &mpsc::Sender<NetworkMessage>) {
+    fn conn_event(&mut self,
+                  poll: &mut Poll,
+                  event: &Event,
+                  mut buckets: &mut Buckets,
+                  packet_queue: &mpsc::Sender<NetworkMessage>) {
         let token = event.token();
         if self.connections.contains_key(&token) {
             match self.connections.get_mut(&token) {
                 Some(x) => x.ready(poll, event, &mut buckets, &packet_queue),
-                None => error!("Couldn't get connections mutably")
+                None => error!("Couldn't get connections mutably"),
             };
-                
 
             if self.connections[&token].is_closed() {
                 self.connections.remove(&token);
@@ -338,11 +356,11 @@ impl TlsServer {
             }
         }
 
-        let closed_ones :  Vec<_> = self.connections
-                                        .iter()
-                                        .filter(|&(_, &ref v)| v.closing)
-                                        .map(|(k, _)| k.clone())
-                                        .collect();
+        let closed_ones: Vec<_> = self.connections
+                                      .iter()
+                                      .filter(|&(_, &ref v)| v.closing)
+                                      .map(|(k, _)| k.clone())
+                                      .collect();
         for closed in closed_ones {
             self.connections.remove(&closed);
         }
@@ -355,8 +373,8 @@ impl TlsServer {
                         if p == peer {
                             conn.close(&mut poll);
                         }
-                    },
-                    None => {},
+                    }
+                    None => {}
                 }
             }
         }
@@ -370,7 +388,6 @@ impl TlsServer {
             }
         }
     }
-
 }
 
 struct Connection {
@@ -393,32 +410,37 @@ struct Connection {
 }
 
 impl Connection {
-    fn new(socket: TcpStream, token: Token, tls_server_session: Option<ServerSession>, tls_client_session: Option<ClientSession>, initiated_by_me: bool, own_id: P2PNodeId, self_peer: P2PPeer) -> Connection {
-        Connection {
-            socket,
-            token,
-            closing: false,
-            closed: false,
-            tls_server_session,
-            tls_client_session,
-            initiated_by_me,
-            own_id,
-            peer: None,
-            currently_read: 0,
-            expected_size: 0,
-            pkt_buffer: None,
-            last_seen: common::get_current_stamp(),
-            self_peer: self_peer,
-            messages_received: 0,
-            messages_sent: 0,
-        }
+    fn new(socket: TcpStream,
+           token: Token,
+           tls_server_session: Option<ServerSession>,
+           tls_client_session: Option<ClientSession>,
+           initiated_by_me: bool,
+           own_id: P2PNodeId,
+           self_peer: P2PPeer)
+           -> Connection {
+        Connection { socket,
+                     token,
+                     closing: false,
+                     closed: false,
+                     tls_server_session,
+                     tls_client_session,
+                     initiated_by_me,
+                     own_id,
+                     peer: None,
+                     currently_read: 0,
+                     expected_size: 0,
+                     pkt_buffer: None,
+                     last_seen: common::get_current_stamp(),
+                     self_peer: self_peer,
+                     messages_received: 0,
+                     messages_sent: 0, }
     }
 
     fn update_last_seen(&mut self) {
         self.last_seen = common::get_current_stamp();
     }
 
-    fn append_buffer(&mut self, new_data: &[u8] ) {
+    fn append_buffer(&mut self, new_data: &[u8]) {
         if let Some(ref mut buf) = self.pkt_buffer {
             buf.reserve(new_data.len());
             buf.put_slice(new_data);
@@ -451,21 +473,23 @@ impl Connection {
 
     fn register(&self, poll: &mut Poll) {
         match poll.register(&self.socket,
-                      self.token,
-                      self.event_set(),
-                      PollOpt::level()| PollOpt::oneshot()) {
-                            Ok(_) => {},
-                            Err(e) => error!("Error registering socket with poll, got error: {:?}", e),
-                      }
+                            self.token,
+                            self.event_set(),
+                            PollOpt::level() | PollOpt::oneshot())
+        {
+            Ok(_) => {}
+            Err(e) => error!("Error registering socket with poll, got error: {:?}", e),
+        }
     }
 
     fn reregister(&self, poll: &mut Poll) {
         match poll.reregister(&self.socket,
-                        self.token,
-                        self.event_set(),
-                        PollOpt::level() | PollOpt::oneshot()){
-                            Ok(_) => {},
-                            Err(e) => error!("Error reregistering socket with poll, got error: {:?}", e),
+                              self.token,
+                              self.event_set(),
+                              PollOpt::level() | PollOpt::oneshot())
+        {
+            Ok(_) => {}
+            Err(e) => error!("Error reregistering socket with poll, got error: {:?}", e),
         }
     }
 
@@ -475,29 +499,21 @@ impl Connection {
         match self.initiated_by_me {
             true => {
                 _rd = match self.tls_client_session {
-                    Some(ref x) => {
-                        x.wants_read()
-                    },
+                    Some(ref x) => x.wants_read(),
                     _ => false,
                 };
                 _wr = match self.tls_client_session {
-                    Some(ref x) => {
-                        x.wants_write()
-                    },
+                    Some(ref x) => x.wants_write(),
                     _ => false,
                 };
-            },
+            }
             false => {
                 _rd = match self.tls_server_session {
-                    Some(ref x) => {
-                        x.wants_read()
-                    },
+                    Some(ref x) => x.wants_read(),
                     _ => false,
                 };
                 _wr = match self.tls_server_session {
-                    Some(ref x) => {
-                        x.wants_write()
-                    },
+                    Some(ref x) => x.wants_write(),
                     _ => false,
                 };
             }
@@ -522,17 +538,21 @@ impl Connection {
     fn close(&mut self, poll: &mut Poll) {
         self.closing = true;
         match poll.deregister(&self.socket) {
-            Ok(_) => {},
-            Err(e) => error!("Error deregistering socket with poll, got error: {:?}", e)
+            Ok(_) => {}
+            Err(e) => error!("Error deregistering socket with poll, got error: {:?}", e),
         }
 
         match self.socket.shutdown(Shutdown::Both) {
-            Ok(_) => {},
-            Err(e) => error!("Error shutting down socket, got error: {:?}", e)
+            Ok(_) => {}
+            Err(e) => error!("Error shutting down socket, got error: {:?}", e),
         }
     }
 
-    fn ready(&mut self, poll: &mut Poll, ev: &Event, buckets: &mut Buckets, packets_queue: &mpsc::Sender<NetworkMessage>) {
+    fn ready(&mut self,
+             poll: &mut Poll,
+             ev: &Event,
+             buckets: &mut Buckets,
+             packets_queue: &mpsc::Sender<NetworkMessage>) {
         if ev.readiness().is_readable() {
             self.do_tls_read();
             self.try_plain_read(&packets_queue, buckets);
@@ -549,9 +569,7 @@ impl Connection {
         match self.initiated_by_me {
             true => {
                 if self.closing && !match self.tls_client_session {
-                    Some(ref x) => {
-                        x.wants_read()
-                    },
+                    Some(ref x) => x.wants_read(),
                     _ => false,
                 } {
                     let _ = self.socket.shutdown(Shutdown::Both);
@@ -559,12 +577,10 @@ impl Connection {
                 } else {
                     self.reregister(poll);
                 }
-            },
+            }
             false => {
                 if self.closing && !match self.tls_server_session {
-                    Some(ref x) => {
-                        x.wants_read()
-                    },
+                    Some(ref x) => x.wants_read(),
                     _ => false,
                 } {
                     let _ = self.socket.shutdown(Shutdown::Both);
@@ -574,29 +590,20 @@ impl Connection {
                 }
             }
         };
-
     }
 
     fn do_tls_read(&mut self) {
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
-                    Some(ref mut x) => {
-                        x.read_tls(&mut self.socket)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-                    }
+                    Some(ref mut x) => x.read_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-            },
+            }
             false => {
                 match self.tls_server_session {
-                    Some(ref mut x) => {
-                        x.read_tls(&mut self.socket)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-                    }
+                    Some(ref mut x) => x.read_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
         };
@@ -623,22 +630,14 @@ impl Connection {
         let processed = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
-                    Some(ref mut x) => {
-                        x.process_new_packets()
-                    },
-                    None => {
-                        Err(TLSError::General(String::from("Couldn't find session!")))
-                    }
+                    Some(ref mut x) => x.process_new_packets(),
+                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
                 }
-            },
+            }
             false => {
                 match self.tls_server_session {
-                    Some(ref mut x) => {
-                        x.process_new_packets()
-                    },
-                    None => {
-                        Err(TLSError::General(String::from("Couldn't find session!")))
-                    }
+                    Some(ref mut x) => x.process_new_packets(),
+                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
                 }
             }
         };
@@ -650,29 +649,23 @@ impl Connection {
         }
     }
 
-    fn try_plain_read(&mut self, packets_queue: &mpsc::Sender<NetworkMessage>, mut buckets: &mut Buckets) {
+    fn try_plain_read(&mut self,
+                      packets_queue: &mpsc::Sender<NetworkMessage>,
+                      mut buckets: &mut Buckets) {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
-                    Some(ref mut x) => {
-                        x.read_to_end(&mut buf)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-                    }
+                    Some(ref mut x) => x.read_to_end(&mut buf),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-            },
+            }
             false => {
                 match self.tls_server_session {
-                    Some(ref mut x) => {
-                        x.read_to_end(&mut buf)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-                    }
+                    Some(ref mut x) => x.read_to_end(&mut buf),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
         };
@@ -689,68 +682,69 @@ impl Connection {
         }
     }
 
-    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error>{
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
                     Some(ref mut x) => {
                         self.messages_sent += 1;
                         x.write_all(bytes)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
                     }
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-            },
+            }
             false => {
                 match self.tls_server_session {
                     Some(ref mut x) => {
                         self.messages_sent += 1;
                         x.write_all(bytes)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
                     }
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
         }
     }
 
-    fn process_complete_packet(&mut self, buckets: &mut Buckets, buf: &[u8], packet_queue: &mpsc::Sender<NetworkMessage>) {
-        let ref outer =  NetworkMessage::deserialize(&buf);
+    fn process_complete_packet(&mut self,
+                               buckets: &mut Buckets,
+                               buf: &[u8],
+                               packet_queue: &mpsc::Sender<NetworkMessage>) {
+        let ref outer = NetworkMessage::deserialize(&buf);
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
         match outer {
-            NetworkMessage::NetworkRequest(ref x,_,_) => {
+            NetworkMessage::NetworkRequest(ref x, _, _) => {
                 match x {
                     NetworkRequest::Ping(_) => {
                         //Respond with pong
                         debug!("Got request for ping");
                         self.update_last_seen();
                         serialize_bytes(self, &NetworkResponse::Pong(self_peer).serialize());
-                    },
+                    }
                     NetworkRequest::FindNode(_, x) => {
                         //Return list of nodes
                         debug!("Got request for FindNode");
                         self.update_last_seen();
                         let nodes = buckets.closest_nodes(x);
-                        serialize_bytes(self, &NetworkResponse::FindNode(self_peer, nodes).serialize());
-                    },
+                        serialize_bytes(self,
+                                        &NetworkResponse::FindNode(self_peer, nodes).serialize());
+                    }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
                         self.update_last_seen();
                         match packet_queue.send(outer.clone()) {
-                            Ok(_) => {},
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
-                    },
+                    }
                     NetworkRequest::UnbanNode(_, _) => {
                         debug!("Got request for UnbanNode");
                         self.update_last_seen();
                         match packet_queue.send(outer.clone()) {
-                            Ok(_) => {},
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
-                        };                    },
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
+                    }
                     NetworkRequest::Handshake(sender) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
@@ -758,18 +752,20 @@ impl Connection {
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
                         match packet_queue.send(outer.clone()) {
-                            Ok(_) => {},
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
-                        };                    },
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
+                    }
                     NetworkRequest::GetPeers(_) => {
                         debug!("Got request for GetPeers");
                         self.update_last_seen();
                         let nodes = buckets.get_all_nodes();
-                        serialize_bytes(self, &NetworkResponse::PeerList(self_peer, nodes).serialize());
+                        serialize_bytes(self,
+                                        &NetworkResponse::PeerList(self_peer, nodes).serialize());
                     }
                 }
-            },
-            NetworkMessage::NetworkResponse(ref x, _,_) => {
+            }
+            NetworkMessage::NetworkResponse(ref x, _, _) => {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         debug!("Got response to FindNode");
@@ -779,13 +775,13 @@ impl Connection {
                             buckets.insert_into_bucket(peer, &self.own_id);
                         }
                         buckets.insert_into_bucket(sender, &self.own_id);
-                    },
+                    }
                     NetworkResponse::Pong(sender) => {
                         debug!("Got response for ping");
                         self.update_last_seen();
                         //Note that node responded back
                         buckets.insert_into_bucket(sender, &self.own_id);
-                    },
+                    }
                     NetworkResponse::PeerList(sender, peers) => {
                         debug!("Got response to FindNode");
                         self.update_last_seen();
@@ -794,7 +790,7 @@ impl Connection {
                             buckets.insert_into_bucket(peer, &self.own_id);
                         }
                         buckets.insert_into_bucket(sender, &self.own_id);
-                    },
+                    }
                     NetworkResponse::Handshake(peer) => {
                         debug!("Got response to Handshake");
                         self.update_last_seen();
@@ -802,40 +798,46 @@ impl Connection {
                         buckets.insert_into_bucket(peer, &self.own_id);
                     }
                 }
-            },
-            NetworkMessage::NetworkPacket(ref x, _,_ ) => {
+            }
+            NetworkMessage::NetworkPacket(ref x, _, _) => {
                 match x {
-                    NetworkPacket::DirectMessage(_,_, ref msg) => {
+                    NetworkPacket::DirectMessage(_, _, ref msg) => {
                         self.update_last_seen();
                         debug!("Received direct message of size {}", msg.len());
                         match packet_queue.send(outer.clone()) {
-                            Ok(_) => {},
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
-                        };                    },
-                    NetworkPacket::BroadcastedMessage(_,ref msg) => {
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
+                    }
+                    NetworkPacket::BroadcastedMessage(_, ref msg) => {
                         self.update_last_seen();
-                        debug!("Received broadcast message of size {}",msg.len());
+                        debug!("Received broadcast message of size {}", msg.len());
                         match packet_queue.send(outer.clone()) {
-                            Ok(_) => {},
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e)
-                        };                    
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
                     }
                 }
-            },
+            }
             NetworkMessage::UnknownMessage => {
                 debug!("Unknown message received!");
                 self.update_last_seen();
-                debug!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
-            },
+                debug!("Contents were: {:?}",
+                       String::from_utf8(buf.to_vec()).unwrap());
+            }
             NetworkMessage::InvalidMessage => {
                 debug!("Invalid message received!");
                 self.update_last_seen();
-                debug!("Contents were: {:?}", String::from_utf8(buf.to_vec()).unwrap());
-            }                                        
+                debug!("Contents were: {:?}",
+                       String::from_utf8(buf.to_vec()).unwrap());
+            }
         }
     }
 
-    fn incoming_plaintext(&mut self, packets_queue: &mpsc::Sender<NetworkMessage>, buckets: &mut Buckets, buf: &[u8]) {
+    fn incoming_plaintext(&mut self,
+                          packets_queue: &mpsc::Sender<NetworkMessage>,
+                          buckets: &mut Buckets,
+                          buf: &[u8]) {
         debug!("Received plaintext");
         if self.expected_size > 0 && self.currently_read == self.expected_size {
             debug!("Completed packet with {} size", self.currently_read);
@@ -847,11 +849,13 @@ impl Connection {
             }
             self.process_complete_packet(buckets, &buffered, &packets_queue);
             self.clear_buffer();
-            self.incoming_plaintext(packets_queue,buckets,buf);
-        } else if self.expected_size > 0  && buf.len() <= (self.expected_size as usize-self.currently_read as usize) {
-             self.append_buffer(&buf);
-             if self.expected_size == self.currently_read {
-                 debug!("Completed packet with {} size", self.currently_read);
+            self.incoming_plaintext(packets_queue, buckets, buf);
+        } else if self.expected_size > 0
+                  && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
+        {
+            self.append_buffer(&buf);
+            if self.expected_size == self.currently_read {
+                debug!("Completed packet with {} size", self.currently_read);
                 self.expected_size = 0;
                 self.currently_read = 0;
                 let mut buffered = Vec::new();
@@ -860,10 +864,12 @@ impl Connection {
                 }
                 self.process_complete_packet(buckets, &buffered, &packets_queue);
                 self.clear_buffer();
-             }
-        } else if self.expected_size > 0 && buf.len() > (self.expected_size as usize-self.currently_read as usize) {
+            }
+        } else if self.expected_size > 0
+                  && buf.len() > (self.expected_size as usize - self.currently_read as usize)
+        {
             debug!("Got more buffer than needed");
-            let to_take = self.expected_size-self.currently_read;
+            let to_take = self.expected_size - self.currently_read;
             self.append_buffer(&buf[..to_take as usize]);
             let mut buffered = Vec::new();
             if let Some(ref mut buf) = self.pkt_buffer {
@@ -880,14 +886,14 @@ impl Connection {
             if self.expected_size > 268_435_456 {
                 error!("Packet can't be bigger than 256MB");
                 self.expected_size = 0;
-                self.incoming_plaintext(&packets_queue,buckets,&buf[4..]);
+                self.incoming_plaintext(&packets_queue, buckets, &buf[4..]);
             } else {
                 self.setup_buffer();
                 if buf.len() > 4 {
                     debug!("Got enough to read it...");
-                    self.incoming_plaintext(&packets_queue,buckets,&buf[4..]);
+                    self.incoming_plaintext(&packets_queue, buckets, &buf[4..]);
                 }
-            } 
+            }
         }
     }
 
@@ -895,22 +901,14 @@ impl Connection {
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
-                    Some(ref mut x) => {
-                        x.write_tls(&mut self.socket)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-                    }
+                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-            },
+            }
             false => {
                 match self.tls_server_session {
-                    Some(ref mut x) => {
-                        x.write_tls(&mut self.socket)
-                    },
-                    None => {
-                        Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-                    }
+                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
         };
@@ -923,7 +921,6 @@ impl Connection {
     }
 }
 
-
 //Disable certificate verification
 pub struct NoCertificateVerification {}
 
@@ -932,7 +929,8 @@ impl ServerCertVerifier for NoCertificateVerification {
                           _roots: &RootCertStore,
                           _presented_certs: &[Certificate],
                           _dns_name: DNSNameRef,
-                          _ocsp: &[u8]) -> Result<ServerCertVerified, TLSError> {
+                          _ocsp: &[u8])
+                          -> Result<ServerCertVerified, TLSError> {
         Ok(ServerCertVerified::assertion())
     }
 }
@@ -953,30 +951,36 @@ pub struct P2PNode {
     total_received: u64,
 }
 
-fn serialize_bytes(conn: &mut Connection, pkt: &[u8] ) {
-     debug!("Serializing data to connection {} bytes", pkt.len());
-     let mut size_vec = vec![];
-     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32).unwrap();
+fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) {
+    debug!("Serializing data to connection {} bytes", pkt.len());
+    let mut size_vec = vec![];
+    size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)
+            .unwrap();
     match conn.write_all(&size_vec[..]) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => error!("Couldn't write bytes to connection, {:?}", e),
     };
     match conn.write_all(pkt) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => error!("Couldn't write bytes to connection, {:?}", e),
     };
 }
 
 impl P2PNode {
-    pub fn new(supplied_id: Option<String>, port: u16, pkt_queue: mpsc::Sender<NetworkMessage>, event_log: Option<mpsc::Sender<P2PEvent>>) -> P2PNode {
+    pub fn new(supplied_id: Option<String>,
+               port: u16,
+               pkt_queue: mpsc::Sender<NetworkMessage>,
+               event_log: Option<mpsc::Sender<P2PEvent>>)
+               -> P2PNode {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();
-        
+
         debug!("Creating new P2PNode");
-        
+
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let ip = P2PNode::get_ip().unwrap();
         let octets = ip.octets();
-        let ip_port = format!("{}.{}.{}.{}:{}", octets[0], octets[1], octets[2], octets[3], port);
+        let ip_port = format!("{}.{}.{}.{}:{}",
+                              octets[0], octets[1], octets[2], octets[3], port);
         debug!("Listening on {:?}", ip_port);
 
         let id = match supplied_id {
@@ -985,7 +989,7 @@ impl P2PNode {
                     panic!("Incorrect ID specified.. Should be a sha256 value or 64 characters long!");
                 }
                 x
-            },
+            }
             _ => {
                 let instant = time::get_time();
                 utils::to_hex_string(utils::sha256(&format!("{}.{}", instant.sec, instant.nsec)))
@@ -996,17 +1000,17 @@ impl P2PNode {
 
         let poll = match Poll::new() {
             Ok(x) => x,
-            _ => panic!("Couldn't create poll")
+            _ => panic!("Couldn't create poll"),
         };
 
         let server = match TcpListener::bind(&addr) {
             Ok(x) => x,
-            _ => panic!("Couldn't listen on port!")
+            _ => panic!("Couldn't listen on port!"),
         };
 
         match poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()) {
             Ok(_x) => (),
-            _ => panic!("Couldn't register server with poll!")
+            _ => panic!("Couldn't register server with poll!"),
         };
 
         //Generate key pair and cert
@@ -1015,19 +1019,17 @@ impl P2PNode {
                 match x.x509.to_der() {
                     Ok(der) => {
                         match x.private_key.private_key_to_der() {
-                            Ok(private_part) => {
-                                (Certificate(der), PrivateKey(private_part))
-                            },
+                            Ok(private_part) => (Certificate(der), PrivateKey(private_part)),
                             Err(e) => {
                                 panic!("Couldn't convert certificate to DER! {:?}", e);
                             }
                         }
-                    },
+                    }
                     Err(e) => {
                         panic!("Couldn't convert certificate to DER! {:?}", e);
                     }
                 }
-            },
+            }
             Err(e) => {
                 panic!("Couldn't create certificate! {:?}", e);
             }
@@ -1039,34 +1041,38 @@ impl P2PNode {
         //server_conf.key_log = Arc::new(rustls::KeyLogFile::new());
 
         let mut client_conf = ClientConfig::new();
-        client_conf.dangerous().set_certificate_verifier(Arc::new(NoCertificateVerification {}));
+        client_conf.dangerous()
+                   .set_certificate_verifier(Arc::new(NoCertificateVerification {}));
 
-        let tlsserv = TlsServer::new(server, Arc::new(server_conf), Arc::new(client_conf), _id.clone(), event_log.clone(), P2PPeer::from(_id.clone(), IpAddr::V4(ip), port));
+        let tlsserv = TlsServer::new(server,
+                                     Arc::new(server_conf),
+                                     Arc::new(client_conf),
+                                     _id.clone(),
+                                     event_log.clone(),
+                                     P2PPeer::from(_id.clone(), IpAddr::V4(ip), port));
 
-        P2PNode {
-            tls_server: Arc::new(Mutex::new(tlsserv)),
-            poll: Arc::new(Mutex::new(poll)),
-            id: _id,
-            buckets: Arc::new(Mutex::new(Buckets::new())),
-            send_queue: Arc::new(Mutex::new(VecDeque::new())),
-            ip: IpAddr::V4(ip),
-            port: port,
-            incoming_pkts: pkt_queue,
-            event_log,
-            start_time: time::get_time(),
-            total_sent: 0,
-            total_received: 0,
-        }
+        P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
+                  poll: Arc::new(Mutex::new(poll)),
+                  id: _id,
+                  buckets: Arc::new(Mutex::new(Buckets::new())),
+                  send_queue: Arc::new(Mutex::new(VecDeque::new())),
+                  ip: IpAddr::V4(ip),
+                  port: port,
+                  incoming_pkts: pkt_queue,
+                  event_log,
+                  start_time: time::get_time(),
+                  total_sent: 0,
+                  total_received: 0, }
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
         let mut self_clone = self.clone();
         thread::spawn(move || {
-            let mut events = Events::with_capacity(1024);
-            loop {
-                self_clone.process(&mut events);
-            }
-        })
+                          let mut events = Events::with_capacity(1024);
+                          loop {
+                              self_clone.process(&mut events);
+                          }
+                      })
     }
 
     pub fn get_version(&self) -> String {
@@ -1074,21 +1080,18 @@ impl P2PNode {
     }
 
     pub fn connect(&mut self, ip: IpAddr, port: u16) {
-        self.log_event(P2PEvent::InitiatingConnection(ip.clone(),port));
+        self.log_event(P2PEvent::InitiatingConnection(ip.clone(), port));
         match self.tls_server.lock() {
             Ok(mut x) => {
                 match self.poll.lock() {
                     Ok(mut y) => {
                         x.connect(&mut y, ip, port, &self.get_self_peer());
-                    },
-                    Err(e) => {
-                        error!("Couldn't get lock on poll, {:?}", e)
-                    },
+                    }
+                    Err(e) => error!("Couldn't get lock on poll, {:?}", e),
                 };
-            }, 
+            }
             Err(e) => error!("Couldn't get lock on tls_server, {:?}", e),
         };
-
     }
 
     pub fn get_own_id(&self) -> P2PNodeId {
@@ -1114,11 +1117,11 @@ impl P2PNode {
         match self.event_log {
             Some(ref mut x) => {
                 match x.send(event) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(e) => error!("Couldn't send event {:?}", e),
                 };
-            } ,
-            _ => {}, 
+            }
+            _ => {}
         }
     }
 
@@ -1138,50 +1141,71 @@ impl P2PNode {
                     Some(x) => {
                         debug!("Got message to process!");
                         match x.clone() {
-                            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(me, receiver, msg), _, _) => {
+                            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(me,
+                                                                                       receiver,
+                                                                                       msg),
+                                                          _,
+                                                          _) => {
                                 //Look up connection associated with ID
-                                match self.tls_server.lock().unwrap().find_connection(receiver.clone()) {
+                                match self.tls_server
+                                          .lock()
+                                          .unwrap()
+                                          .find_connection(receiver.clone())
+                                {
                                     Some(ref mut conn) => {
                                         self.total_sent += 1;
                                         serialize_bytes(conn, &NetworkPacket::DirectMessage(me, receiver,msg).serialize());
                                         debug!("Sent message");
-                                    },
+                                    }
                                     _ => {
                                         resend_queue.push_back(x);
                                         debug!("Couldn't find connection, requeuing message!");
-                                    },
-                                };                          
-                            },
-                            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(me, msg),_,_) => {
-                                let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me,msg));
-                                for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
+                                    }
+                                };
+                            }
+                            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(me,
+                                                                                            msg),
+                                                          _,
+                                                          _) => {
+                                let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me, msg));
+                                for (_, mut conn) in
+                                    &mut self.tls_server.lock().unwrap().connections
+                                {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
                                         serialize_bytes(conn, &pkt.clone().serialize());
                                     }
                                 }
-                            },
-                            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(me,id),_,_) => {
+                            }
+                            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(me, id),
+                                                           _,
+                                                           _) => {
                                 let pkt = Arc::new(NetworkRequest::BanNode(me, id));
-                                for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
+                                for (_, mut conn) in
+                                    &mut self.tls_server.lock().unwrap().connections
+                                {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
                                         serialize_bytes(conn, &pkt.clone().serialize());
                                     }
                                 }
-                            },
-                            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(me, id),_,_) => {
+                            }
+                            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(me, id),
+                                                           _,
+                                                           _) => {
                                 let pkt = Arc::new(NetworkRequest::UnbanNode(me, id));
-                                for (_,mut conn) in &mut self.tls_server.lock().unwrap().connections {
+                                for (_, mut conn) in
+                                    &mut self.tls_server.lock().unwrap().connections
+                                {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
                                         serialize_bytes(conn, &pkt.clone().serialize());
                                     }
                                 }
-                            },
+                            }
                             _ => {}
                         }
-                    },
+                    }
                     None => {
                         send_q.append(&mut resend_queue);
                         break;
@@ -1189,7 +1213,6 @@ impl P2PNode {
                 }
             }
         }
-        
     }
 
     pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: &[u8], broadcast: bool) {
@@ -1197,12 +1220,12 @@ impl P2PNode {
         match broadcast {
             true => {
                 self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()), None, None));
-            },
+            }
             false => {
                 match id {
                     Some(x) => {
                         self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
-                    },
+                    }
                     None => {
                         debug!("Invalid receiver ID for message!");
                     }
@@ -1212,7 +1235,13 @@ impl P2PNode {
     }
 
     pub fn send_ban(&mut self, id: P2PPeer) {
-        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id), None, None));
+        self.send_queue
+            .lock()
+            .unwrap()
+            .push_back(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(),
+                                                                          id),
+                                                  None,
+                                                  None));
     }
 
     pub fn send_unban(&mut self, id: P2PPeer) {
@@ -1221,9 +1250,7 @@ impl P2PNode {
 
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
         match self.tls_server.lock() {
-            Ok(x) => {
-                x.get_peer_stats()
-            },
+            Ok(x) => x.get_peer_stats(),
             Err(e) => {
                 info!("Couldn't lock for tls_server: {:?}", e);
                 vec![]
@@ -1231,25 +1258,27 @@ impl P2PNode {
         }
     }
 
-    pub fn get_ip() -> Option<Ipv4Addr>{
-        let mut ip : Ipv4Addr = Ipv4Addr::new(127,0,0,1);
+    pub fn get_ip() -> Option<Ipv4Addr> {
+        let mut ip: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
 
         for adapter in get_if_addrs::get_if_addrs().unwrap() {
             match adapter.addr.ip() {
                 V4(x) => {
-                    if !x.is_loopback() && !x.is_link_local() && !x.is_multicast() && !x.is_broadcast() {
+                    if !x.is_loopback()
+                       && !x.is_link_local()
+                       && !x.is_multicast()
+                       && !x.is_broadcast()
+                    {
                         ip = x;
                     }
-                    
-                },
+                }
                 V6(_) => {
                     //Ignore for now
                 }
             };
-            
         }
 
-        if ip == Ipv4Addr::new(127,0,0,1) {
+        if ip == Ipv4Addr::new(127, 0, 0, 1) {
             None
         } else {
             Some(ip)
@@ -1257,10 +1286,9 @@ impl P2PNode {
     }
 
     fn get_self_peer(&self) -> P2PPeer {
-        P2PPeer::from(
-            self.get_own_id().clone(),
-            self.get_listening_ip().clone(),
-            self.get_listening_port())
+        P2PPeer::from(self.get_own_id().clone(),
+                      self.get_listening_ip().clone(),
+                      self.get_listening_port())
     }
 
     pub fn get_total_sent(&self) -> u64 {
@@ -1271,55 +1299,62 @@ impl P2PNode {
         self.total_received
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> bool{
+    pub fn ban_node(&mut self, peer: P2PPeer) -> bool {
         match self.tls_server.lock() {
-            Ok(mut x) => {
-                x.ban_node(peer)
-            },
+            Ok(mut x) => x.ban_node(peer),
             Err(_) => false,
         }
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) -> bool{
+    pub fn unban_node(&mut self, peer: P2PPeer) -> bool {
         match self.tls_server.lock() {
-            Ok(mut x) => {
-                x.unban_node(peer)
-            },
+            Ok(mut x) => x.unban_node(peer),
             Err(_) => false,
         }
     }
 
     pub fn process(&mut self, events: &mut Events) {
-        self.poll.lock().unwrap().poll(events, Some(Duration::from_millis(500))).unwrap();
+        self.poll
+            .lock()
+            .unwrap()
+            .poll(events, Some(Duration::from_millis(500)))
+            .unwrap();
 
         match self.tls_server.lock() {
-            Ok(mut x) => {
-                x.liveness_check()
-            },
-            Err(e) => {
-                error!("Couldn't get lock on tls_server, {:?}", e)
-            }
+            Ok(mut x) => x.liveness_check(),
+            Err(e) => error!("Couldn't get lock on tls_server, {:?}", e),
         };
-
 
         for event in events.iter() {
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
-                    if !self.tls_server.lock().unwrap().accept(&mut self.poll.lock().unwrap(),self.get_self_peer().clone()) {
+                    if !self.tls_server
+                            .lock()
+                            .unwrap()
+                            .accept(&mut self.poll.lock().unwrap(), self.get_self_peer().clone())
+                    {
                         break;
                     }
-                },
+                }
                 _ => {
                     debug!("Got data!");
                     self.total_received += 1;
-                    self.tls_server.lock().unwrap().conn_event(&mut self.poll.lock().unwrap(), &event, &mut self.buckets.lock().unwrap(), &self.incoming_pkts);
+                    self.tls_server
+                        .lock()
+                        .unwrap()
+                        .conn_event(&mut self.poll.lock().unwrap(),
+                                    &event,
+                                    &mut self.buckets.lock().unwrap(),
+                                    &self.incoming_pkts);
                 }
             }
-
         }
 
-        self.tls_server.lock().unwrap().cleanup_connections(&mut self.poll.lock().unwrap());
+        self.tls_server
+            .lock()
+            .unwrap()
+            .cleanup_connections(&mut self.poll.lock().unwrap());
 
         self.process_messages();
     }
