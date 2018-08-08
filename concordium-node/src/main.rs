@@ -2,14 +2,14 @@ extern crate p2p_client;
 #[macro_use]
 extern crate log;
 extern crate bytes;
+extern crate chrono;
 extern crate env_logger;
 extern crate grpcio;
 extern crate mio;
 extern crate timer;
-extern crate chrono;
 
 use env_logger::Env;
-use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest};
+use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
@@ -18,7 +18,6 @@ use p2p_client::utils;
 use std::sync::mpsc;
 use std::thread;
 use timer::Timer;
-
 
 fn main() {
     let conf = configuration::parse_config();
@@ -110,6 +109,7 @@ fn main() {
     let _no_trust_bans = conf.no_trust_bans;
     let _no_trust_broadcasts = conf.no_trust_broadcasts;
     let mut _rpc_clone = rpc_serv.clone();
+    let _desired_nodes_clone = conf.desired_nodes;
     let _guard_pkt = thread::spawn(move || loop {
         if let Ok(ref mut full_msg) = pkt_out.recv() {
             match full_msg {
@@ -148,6 +148,24 @@ fn main() {
                         _node_self_clone.send_unban(x.clone());
                     }
                 }
+                NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, peers), _, _) => {
+                    let mut new_peers = 0;
+                    match _node_self_clone.get_nodes() {
+                        Ok(x) => {
+                            for peer_node in peers {
+                                if _node_self_clone.connect(peer_node.ip(), peer_node.port()) {
+                                    new_peers += 1;
+                                }
+                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {
+                            error!("Can't get nodes - so not trying to connect to new peers!");
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -171,12 +189,19 @@ fn main() {
 
     let timer = Timer::new();
 
-    let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-        match node.get_nodes() {
-            Ok(x) => println!("I currently have {} nodes!", x.len()),
-            Err(e) => error!("Couldn't get node list, {:?}", e),
-        };
-    });
+    let _desired_nodes_count = conf.desired_nodes;
+    let _guard_timer =
+        timer.schedule_repeating(chrono::Duration::seconds(30), move || {
+            match node.get_nodes() {
+                Ok(x) => {
+                    println!("I currently have {} nodes!", x.len());
+                    if _desired_nodes_count > x.len() as u8 {
+                        // TODO send out GetPeers to peers, and parse in callback in packet listener
+                    }
+                }
+                Err(e) => error!("Couldn't get node list, {:?}", e),
+            };
+        });
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {

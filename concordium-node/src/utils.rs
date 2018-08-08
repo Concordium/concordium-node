@@ -8,7 +8,7 @@ use openssl::nid::Nid;
 use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
 use openssl::x509::extension::SubjectAlternativeName;
-use openssl::x509::{X509, X509Builder, X509NameBuilder};
+use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use std::io::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
