@@ -191,13 +191,14 @@ fn main() {
     let timer = Timer::new();
 
     let _desired_nodes_count = conf.desired_nodes;
+    let _no_net_clone = conf.no_network;
     let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                                 match node.get_nodes() {
                                     Ok(x) => {
                                         info!("I currently have {}/{} nodes!",
                                               x.len(),
                                               _desired_nodes_count);
-                                        if _desired_nodes_count > x.len() as u8 {
+                                        if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
                                             info!("Not enough nodes, sending GetPeers requests");
                                             node.send_get_peers();
                                         }
