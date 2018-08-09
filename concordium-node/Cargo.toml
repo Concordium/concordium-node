@@ -49,6 +49,7 @@ app_dirs = "^1.2.1"
 rusqlite = {version = "0.13.0", features = ["bundled"]}
 timer = "0.2.0"
 chrono = "0.4.5"
+trust-dns = {version = "0.15.0-alpha.1", features = ["dnssec-ring"]}
 
 [build-dependencies]
 walkdir         = "2"

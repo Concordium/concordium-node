@@ -26,6 +26,7 @@ extern crate grpcio;
 extern crate preferences;
 extern crate protobuf;
 extern crate rusqlite;
+extern crate trust_dns;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

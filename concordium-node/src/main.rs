@@ -23,6 +23,8 @@ fn main() {
     let conf = configuration::parse_config();
     let app_prefs = configuration::AppPreferences::new();
 
+    let bootstrap_node = utils::get_bootstrap_node();
+
     let listen_port = match conf.listen_port {
         Some(x) => x,
         _ => 8888,
@@ -132,6 +134,7 @@ fn main() {
                         _node_self_clone.send_message(None, &msg, true);
                     }
                 }
+                
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x), _, _) => {
                     info!("Ban node request for {:?}", x);
                     _node_self_clone.ban_node(x.clone());

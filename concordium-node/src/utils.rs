@@ -12,6 +12,11 @@ use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use std::io::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
+use trust_dns::client::{Client, ClientConnection, ClientStreamHandle, SecureSyncClient, SecureClientHandle};
+use trust_dns::udp::UdpClientConnection;
+use trust_dns::op::DnsResponse;
+use trust_dns::rr::{DNSClass, Name, RData, Record, RecordType};
+use common::P2PPeer;
 
 pub fn sha256(input: &str) -> [u8; 32] {
     let mut output = [0; 32];
@@ -97,4 +102,33 @@ pub fn parse_ip_port(input: &str) -> Option<(IpAddr, u16)> {
         Ok((_, (ip, port))) => Some((ip, port)),
         _ => None,
     }
+}
+
+pub fn get_bootstrap_node() {
+    let resolver_address = "8.8.8.8:53".parse().unwrap();
+
+    match UdpClientConnection::new(resolver_address) {
+        Ok(conn) => {
+            let client = SecureSyncClient::new(conn).build();
+
+            //Remember trailing dot to make it a FQDN.
+            match Name::from_str("concordium.com.") {
+                Ok(name) => {
+                    match client.query(&name, DNSClass::IN, RecordType::A) {
+                        Ok(response) => {
+                            let answers: &[Record] = response.answers();
+
+                            if let &RData::A(ref ip) = answers[0].rdata() {
+                                println!("I got response {:?}", ip);
+                            }
+                        },
+                        Err(e) => panic!("Couldn't query DNS server for specified name {:?}", e),
+                    }
+                },
+                Err(e) => panic!("Couldn't create FQDN from specified name! {:?}", e),
+            }
+        },
+        Err(e) => panic!("Couldn't create connection to resolver! {:?}", e),
+    }
+
 }
