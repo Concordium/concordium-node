@@ -21,3 +21,6 @@
 
 ## Running all tests
 `cargo test --all`
+
+## Creating the default node docker image
+`scripts/docker.node.basic.sh`

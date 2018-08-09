@@ -16,4 +16,6 @@ FROM debian:stretch-slim
 COPY --from=build build-project/target/release/p2p_client-cli .
 RUN apt-get update -yqq
 RUN apt-get install libssl1.1
+EXPOSE 10000
+EXPOSE 8888
 CMD ["./p2p_client-cli"]
