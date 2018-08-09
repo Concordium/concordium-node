@@ -23,7 +23,7 @@ fn main() {
     let conf = configuration::parse_config();
     let app_prefs = configuration::AppPreferences::new();
 
-    let bootstrap_node = utils::get_bootstrap_node();
+    //let bootstrap_node = utils::get_bootstrap_node();
 
     let listen_port = match conf.listen_port {
         Some(x) => x,

@@ -1,3 +1,5 @@
+cargo-features = ["default-run"]
+
 [package]
 name = "p2p_client"
 version = "0.0.2"
@@ -10,6 +12,7 @@ exclude = [
 ]
 publish = false
 build = "build.rs"
+default-run = "p2p_client-cli"
 
 [features]
 default = []
@@ -60,5 +63,9 @@ path = "src/lib.rs"
 name = "p2p_client"
 
 [[bin]]
-path = "src/main.rs"
+path = "src/bin/cli.rs"
 name = "p2p_client-cli"
+
+[[bin]]
+path = "src/bin/dnsrecordgen.rs"
+name = "dns_record_generator"

@@ -12,11 +12,9 @@ use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use std::io::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
-use trust_dns::client::{Client, ClientConnection, ClientStreamHandle, SecureSyncClient, SecureClientHandle};
+use trust_dns::client::{Client, SecureSyncClient};
 use trust_dns::udp::UdpClientConnection;
-use trust_dns::op::DnsResponse;
 use trust_dns::rr::{DNSClass, Name, RData, Record, RecordType};
-use common::P2PPeer;
 
 pub fn sha256(input: &str) -> [u8; 32] {
     let mut output = [0; 32];
