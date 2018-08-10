@@ -25,6 +25,7 @@ extern crate time;
 extern crate trust_dns;
 extern crate untrusted;
 extern crate webpki;
+extern crate hex;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
