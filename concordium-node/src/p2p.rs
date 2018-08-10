@@ -625,18 +625,14 @@ impl Connection {
 
     fn do_tls_read(&mut self) {
         let rc = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.read_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.read_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
+            true => match self.tls_client_session {
+                Some(ref mut x) => x.read_tls(&mut self.socket),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
+            false => match self.tls_server_session {
+                Some(ref mut x) => x.read_tls(&mut self.socket),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
         };
 
         if rc.is_err() {
@@ -659,18 +655,14 @@ impl Connection {
 
         // Process newly-received TLS messages.
         let processed = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.process_new_packets(),
-                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
-                }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.process_new_packets(),
-                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
-                }
-            }
+            true => match self.tls_client_session {
+                Some(ref mut x) => x.process_new_packets(),
+                None => Err(TLSError::General(String::from("Couldn't find session!"))),
+            },
+            false => match self.tls_server_session {
+                Some(ref mut x) => x.process_new_packets(),
+                None => Err(TLSError::General(String::from("Couldn't find session!"))),
+            },
         };
 
         if processed.is_err() {
@@ -687,18 +679,14 @@ impl Connection {
         let mut buf = Vec::new();
 
         let rc = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.read_to_end(&mut buf),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.read_to_end(&mut buf),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
+            true => match self.tls_client_session {
+                Some(ref mut x) => x.read_to_end(&mut buf),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
+            false => match self.tls_server_session {
+                Some(ref mut x) => x.read_to_end(&mut buf),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
         };
 
         if rc.is_err() {
@@ -715,24 +703,20 @@ impl Connection {
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => {
-                        self.messages_sent += 1;
-                        x.write_all(bytes)
-                    }
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            true => match self.tls_client_session {
+                Some(ref mut x) => {
+                    self.messages_sent += 1;
+                    x.write_all(bytes)
                 }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => {
-                        self.messages_sent += 1;
-                        x.write_all(bytes)
-                    }
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
+            false => match self.tls_server_session {
+                Some(ref mut x) => {
+                    self.messages_sent += 1;
+                    x.write_all(bytes)
                 }
-            }
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
         }
     }
 
@@ -834,26 +818,24 @@ impl Connection {
                     }
                 }
             }
-            NetworkMessage::NetworkPacket(ref x, _, _) => {
-                match x {
-                    NetworkPacket::DirectMessage(_, _, ref msg) => {
-                        self.update_last_seen();
-                        debug!("Received direct message of size {}", msg.len());
-                        match packet_queue.send(outer.clone()) {
-                            Ok(_) => {}
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                        };
-                    }
-                    NetworkPacket::BroadcastedMessage(_, ref msg) => {
-                        self.update_last_seen();
-                        debug!("Received broadcast message of size {}", msg.len());
-                        match packet_queue.send(outer.clone()) {
-                            Ok(_) => {}
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                        };
-                    }
+            NetworkMessage::NetworkPacket(ref x, _, _) => match x {
+                NetworkPacket::DirectMessage(_, _, ref msg) => {
+                    self.update_last_seen();
+                    debug!("Received direct message of size {}", msg.len());
+                    match packet_queue.send(outer.clone()) {
+                        Ok(_) => {}
+                        Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                    };
                 }
-            }
+                NetworkPacket::BroadcastedMessage(_, ref msg) => {
+                    self.update_last_seen();
+                    debug!("Received broadcast message of size {}", msg.len());
+                    match packet_queue.send(outer.clone()) {
+                        Ok(_) => {}
+                        Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                    };
+                }
+            },
             NetworkMessage::UnknownMessage => {
                 debug!("Unknown message received!");
                 self.update_last_seen();
@@ -934,18 +916,14 @@ impl Connection {
 
     fn do_tls_write(&mut self) {
         let rc = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.write_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.write_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
+            true => match self.tls_client_session {
+                Some(ref mut x) => x.write_tls(&mut self.socket),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
+            false => match self.tls_server_session {
+                Some(ref mut x) => x.write_tls(&mut self.socket),
+                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+            },
         };
 
         if rc.is_err() {
@@ -1027,7 +1005,7 @@ impl P2PNode {
             }
             _ => {
                 let instant = time::get_time();
-                utils::to_hex_string(utils::sha256(&format!("{}.{}", instant.sec, instant.nsec)))
+                utils::to_hex_string(&utils::sha256(&format!("{}.{}", instant.sec, instant.nsec)))
             }
         };
 
@@ -1050,21 +1028,17 @@ impl P2PNode {
 
         //Generate key pair and cert
         let (cert, private_key) = match utils::generate_certificate(id) {
-            Ok(x) => {
-                match x.x509.to_der() {
-                    Ok(der) => {
-                        match x.private_key.private_key_to_der() {
-                            Ok(private_part) => (Certificate(der), PrivateKey(private_part)),
-                            Err(e) => {
-                                panic!("Couldn't convert certificate to DER! {:?}", e);
-                            }
-                        }
-                    }
+            Ok(x) => match x.x509.to_der() {
+                Ok(der) => match x.private_key.private_key_to_der() {
+                    Ok(private_part) => (Certificate(der), PrivateKey(private_part)),
                     Err(e) => {
                         panic!("Couldn't convert certificate to DER! {:?}", e);
                     }
+                },
+                Err(e) => {
+                    panic!("Couldn't convert certificate to DER! {:?}", e);
                 }
-            }
+            },
             Err(e) => {
                 panic!("Couldn't create certificate! {:?}", e);
             }
@@ -1273,16 +1247,14 @@ impl P2PNode {
             true => {
                 self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()), None, None));
             }
-            false => {
-                match id {
-                    Some(x) => {
-                        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
-                    }
-                    None => {
-                        debug!("Invalid receiver ID for message!");
-                    }
+            false => match id {
+                Some(x) => {
+                    self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
                 }
-            }
+                None => {
+                    debug!("Invalid receiver ID for message!");
+                }
+            },
         }
     }
 

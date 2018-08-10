@@ -1,5 +1,5 @@
+use hacl_star::ed25519::{keypair, PublicKey, SecretKey};
 use hacl_star::sha2;
-use nom::rest;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
 use openssl::ec::{EcGroup, EcKey};
@@ -9,12 +9,15 @@ use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
+use rand::OsRng;
 use std::io::Error;
 use std::net::IpAddr;
+use std::str;
 use std::str::FromStr;
 use trust_dns::client::{Client, SecureSyncClient};
-use trust_dns::udp::UdpClientConnection;
 use trust_dns::rr::{DNSClass, Name, RData, Record, RecordType};
+use trust_dns::udp::UdpClientConnection;
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 pub fn sha256(input: &str) -> [u8; 32] {
     let mut output = [0; 32];
@@ -22,7 +25,7 @@ pub fn sha256(input: &str) -> [u8; 32] {
     output
 }
 
-pub fn to_hex_string(bytes: [u8; 32]) -> String {
+pub fn to_hex_string(bytes: &[u8]) -> String {
     let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
     strs.join("")
 }
@@ -87,17 +90,22 @@ pub fn generate_certificate(id: String) -> Result<Cert, Error> {
     }
 }
 
-named!(nom_ip_port_parse<&str,(IpAddr,u16)>,
-    do_parse!(
-      ip: take_until_and_consume1!(":") >>
-      port: rest >>
-      (( IpAddr::from_str(ip).unwrap(), port.parse::<u16>().unwrap()))
-    )
-);
-
-pub fn parse_ip_port(input: &str) -> Option<(IpAddr, u16)> {
-    match nom_ip_port_parse(input) {
-        Ok((_, (ip, port))) => Some((ip, port)),
+pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
+    match input.rfind(":") {
+        Some(n) => {
+            let ip = input.chars().take(n).collect::<String>();;
+            let port = input.chars()
+                            .skip(n + 1)
+                            .take(input.len())
+                            .collect::<String>();;
+            match IpAddr::from_str(&ip) {
+                Ok(ip) => match port.parse::<usize>() {
+                    Ok(port) => Some((ip, port as u16)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -111,22 +119,144 @@ pub fn get_bootstrap_node() {
 
             //Remember trailing dot to make it a FQDN.
             match Name::from_str("concordium.com.") {
-                Ok(name) => {
-                    match client.query(&name, DNSClass::IN, RecordType::A) {
-                        Ok(response) => {
-                            let answers: &[Record] = response.answers();
+                Ok(name) => match client.query(&name, DNSClass::IN, RecordType::A) {
+                    Ok(response) => {
+                        let answers: &[Record] = response.answers();
 
-                            if let &RData::A(ref ip) = answers[0].rdata() {
-                                println!("I got response {:?}", ip);
-                            }
-                        },
-                        Err(e) => panic!("Couldn't query DNS server for specified name {:?}", e),
+                        if let &RData::A(ref ip) = answers[0].rdata() {
+                            println!("I got response {:?}", ip);
+                        }
                     }
+                    Err(e) => panic!("Couldn't query DNS server for specified name {:?}", e),
                 },
                 Err(e) => panic!("Couldn't create FQDN from specified name! {:?}", e),
             }
-        },
+        }
         Err(e) => panic!("Couldn't create connection to resolver! {:?}", e),
+    }
+}
+
+pub fn serialize_bootstrap_peers(peers: &Vec<String>) -> Result<String, &'static str> {
+    let mut buffer = String::new();
+    buffer.push_str(&format!("{:05}", peers.len()));
+    for peer in peers {
+        match parse_ip_port(peer) {
+            Some((ref ip, ref port)) => match ip {
+                IpAddr::V4(ip4) => {
+                    buffer.push_str(&format!("IP4{:03}{:03}{:03}{:03}{:05}",
+                                             ip4.octets()[0],
+                                             ip4.octets()[1],
+                                             ip4.octets()[2],
+                                             ip4.octets()[3],
+                                             port));
+                }
+                IpAddr::V6(ip6) => {
+                    buffer.push_str(&format!("IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:05}", ip6.octets()[0], ip6.octets()[1], ip6.octets()[2], ip6.octets()[3], ip6.octets()[4], ip6.octets()[5], ip6.octets()[6], ip6.octets()[7],ip6.octets()[8], ip6.octets()[9], ip6.octets()[10], ip6.octets()[11], ip6.octets()[12], ip6.octets()[13], ip6.octets()[14], ip6.octets()[15], port));
+                }
+            },
+            _ => return Err("Invalid IP:port"),
+        }
+    }
+    Ok(buffer)
+}
+
+pub fn generate_bootstrap_dns(input_key: [u8; 32],
+                              record_length: usize,
+                              peers: &Vec<String>)
+                              -> Result<Vec<String>, &'static str> {
+    let secret_key = SecretKey { 0: input_key };
+    let public_key = secret_key.get_public();
+
+    let mut return_buffer = String::new();
+
+    return_buffer.push_str(&to_hex_string(&public_key.0));
+
+    match serialize_bootstrap_peers(peers) {
+        Ok(ref content) => {
+            return_buffer.push_str(content);
+            let signature = secret_key.signature(return_buffer.as_bytes());
+            return_buffer.push_str(&to_hex_string(&signature.0));
+        }
+        Err(_) => {
+            return Err("Couldn't parse peers given");
+        }
+    }
+
+    let mut ret = String::new();
+
+    let mut return_size = vec![];
+    return_size.write_u16::<NetworkEndian>(return_buffer.len() as u16).unwrap();
+    ret.push_str(&to_hex_string(&return_size));
+    ret.push_str(&return_buffer);
+
+    let mut element = 0;
+    Ok(ret.as_bytes()
+                    .chunks(record_length)
+                    .map(|buf| {
+                             let ret = format!("{:02} {}", element, str::from_utf8(&buf).unwrap());
+                             element += 1;
+                             ret
+                         })
+                    .collect::<Vec<String>>())
+}
+
+pub fn read_peers_from_dns_entries(entries: Vec<String>) -> Result<Vec<(IpAddr,u16)>,&'static str> {
+    let mut ret: Vec<(IpAddr,u16)> = vec![];
+    // TODO parse
+    // for now return predetermined
+    ret.push((IpAddr::from_str("10.10.10.10").unwrap(), 8888));
+    ret.push((IpAddr::from_str("dead:beaf::").unwrap(), 9999));
+    Ok(ret)
+}
+
+pub fn generate_ed25519_key() -> [u8; 32] {
+    let mut private_key = SecretKey { 0: [0; 32] };
+    let mut public_key = PublicKey { 0: [0; 32] };
+    keypair(OsRng::new().unwrap(), &mut private_key, &mut public_key);
+    private_key.0
+}
+
+#[cfg(test)]
+mod tests {
+    use hacl_star::ed25519::SecretKey;
+    use utils::*;
+
+    const PRIVATE_TEST_KEY: [u8; 32] = [0xbe, 0xd2, 0x3a, 0xdd, 0x4d, 0x34, 0xab, 0x7a, 0x12,
+                                        0xa9, 0xa6, 0xab, 0x2b, 0xaf, 0x97, 0x06, 0xb0, 0xf7,
+                                        0x22, 0x57, 0xa9, 0x82, 0xd4, 0x19, 0x9f, 0x58, 0x44,
+                                        0xa7, 0x8f, 0x3b, 0xe4, 0x70];
+
+    #[test]
+    pub fn test_generate_key_test() {
+        let _key: [u8; 32] = generate_ed25519_key();
+    }
+
+    #[test]
+    pub fn test_generate_public_key() {
+        const EXPECTED: &str = "FC5D9F06051570D9DA9DFD1B3D9B7353E22D764244DCF6B9C665CC21F63DF8F2";
+        let secret_key = SecretKey { 0: PRIVATE_TEST_KEY, };
+        assert_eq!(EXPECTED, to_hex_string(&secret_key.get_public().0));
+    }
+
+    #[test]
+    pub fn test_dns_generated() {
+        let peers: Vec<String> = vec!["10.10.10.10:8888".to_string(),
+                                      "dead:beaf:::9999".to_string()];
+        match generate_bootstrap_dns(PRIVATE_TEST_KEY, 240, &peers) {
+            Ok(res) => {
+                match read_peers_from_dns_entries(res) {
+                    Ok(peers) => {
+                        assert_eq!(peers.len(), 2);
+                        assert!( peers.iter()
+                            .find(|&x| x.0 == IpAddr::from_str("10.10.10.10").unwrap() && x.1 == 8888).is_some() );
+                        assert!( peers.iter()
+                            .find(|&x| x.0 == IpAddr::from_str("dead:beaf::").unwrap() && x.1 == 9999).is_some() );
+                    },
+                    Err(e) => panic!("Can't read peers from generated records {}", e)
+                }
+            }
+            Err(e) => panic!("Can't generate DNS records {}", e),
+        }
     }
 
 }

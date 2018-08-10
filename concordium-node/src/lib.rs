@@ -13,20 +13,18 @@ extern crate ring;
 extern crate rustls;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
-extern crate openssl;
-extern crate time;
-extern crate untrusted;
-extern crate webpki;
-#[macro_use]
-extern crate nom;
 extern crate app_dirs;
+extern crate env_logger;
 extern crate futures;
 extern crate grpcio;
+extern crate openssl;
 extern crate preferences;
 extern crate protobuf;
 extern crate rusqlite;
+extern crate time;
 extern crate trust_dns;
+extern crate untrusted;
+extern crate webpki;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

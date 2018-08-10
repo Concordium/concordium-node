@@ -134,7 +134,7 @@ fn main() {
                         _node_self_clone.send_message(None, &msg, true);
                     }
                 }
-                
+
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x), _, _) => {
                     info!("Ban node request for {:?}", x);
                     _node_self_clone.ban_node(x.clone());

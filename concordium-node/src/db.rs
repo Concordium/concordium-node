@@ -48,31 +48,29 @@ impl P2PDB {
                 let mut conn_mut = conn.lock().unwrap();
                 let res = conn_mut.prepare("SELECT id, ip, port FROM bans");
                 match res {
-                    Ok(mut x) => {
-                        match x.query_map(&[], |row| P2PPeer { id: row.get(0),
-                                                               ip: row.get(1),
-                                                               port: row.get(2), })
-                        {
-                            Ok(rows) => {
-                                for row in rows {
-                                    match row {
-                                        Ok(x) => {
-                                            list.push(x);
-                                        }
-                                        Err(e) => {
-                                            error!("Couldn't get item, {:?}", e);
-                                        }
+                    Ok(mut x) => match x.query_map(&[], |row| P2PPeer { id: row.get(0),
+                                                                        ip: row.get(1),
+                                                                        port: row.get(2), })
+                    {
+                        Ok(rows) => {
+                            for row in rows {
+                                match row {
+                                    Ok(x) => {
+                                        list.push(x);
+                                    }
+                                    Err(e) => {
+                                        error!("Couldn't get item, {:?}", e);
                                     }
                                 }
+                            }
 
-                                Some(list)
-                            }
-                            Err(e) => {
-                                error!("Couldn't map rows, {:?}", e);
-                                None
-                            }
+                            Some(list)
                         }
-                    }
+                        Err(e) => {
+                            error!("Couldn't map rows, {:?}", e);
+                            None
+                        }
+                    },
                     Err(e) => {
                         error!("Couldn't execute query! {:?}", e);
                         None
