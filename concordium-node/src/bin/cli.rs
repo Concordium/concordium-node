@@ -23,8 +23,6 @@ fn main() {
     let conf = configuration::parse_config();
     let app_prefs = configuration::AppPreferences::new();
 
-
-
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec);
 
     let listen_port = match conf.listen_port {
