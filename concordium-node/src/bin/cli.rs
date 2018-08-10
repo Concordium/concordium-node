@@ -23,7 +23,9 @@ fn main() {
     let conf = configuration::parse_config();
     let app_prefs = configuration::AppPreferences::new();
 
-    //let bootstrap_node = utils::get_bootstrap_node();
+
+
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec);
 
     let listen_port = match conf.listen_port {
         Some(x) => x,
@@ -190,6 +192,16 @@ fn main() {
             _ => {}
         }
     }
+
+    match bootstrap_nodes {
+        Ok(nodes) => {
+            for (ip, port) in nodes {
+                info!("Found IP: {} and port: {}", ip, port);
+                node.connect(ip, port);
+            }
+        },
+        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
+    };
 
     let timer = Timer::new();
 

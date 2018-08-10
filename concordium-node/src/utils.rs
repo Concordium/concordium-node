@@ -14,10 +14,12 @@ use std::io::Error;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
-use trust_dns::client::{Client, SecureSyncClient};
+use trust_dns::client::{Client, SecureSyncClient, SyncClient};
 use trust_dns::rr::{DNSClass, Name, RData, Record, RecordType};
 use trust_dns::udp::UdpClientConnection;
+use trust_dns::op::{DnsResponse, ResponseCode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use std::boxed::Box;
 
 pub fn sha256(input: &str) -> [u8; 32] {
     let mut output = [0; 32];
@@ -110,30 +112,85 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
     }
 }
 
-pub fn get_bootstrap_node() {
+pub fn get_bootstrap_nodes(dnssec_enabled: bool) -> Result<Vec<(IpAddr,u16)>,&'static str> {
     let resolver_address = "8.8.8.8:53".parse().unwrap();
 
     match UdpClientConnection::new(resolver_address) {
         Ok(conn) => {
-            let client = SecureSyncClient::new(conn).build();
+            if dnssec_enabled {
+                let client = SecureSyncClient::new(conn).build();
+                //Remember trailing dot to make it a FQDN.
+                match Name::from_str("bootstrap.concordium.com.") {
+                    Ok(name) => match client.query(&name, DNSClass::IN, RecordType::TXT) {
+                        Ok(response) => {
+                            //Check if query was successful
+                            let response_code = response.response_code();
+                            if response_code != ResponseCode::NoError {
+                                error!("Got response code {:?} for query", response_code);
+                                return Err("Couldn't get DNS record!")
+                            }
 
-            //Remember trailing dot to make it a FQDN.
-            match Name::from_str("concordium.com.") {
-                Ok(name) => match client.query(&name, DNSClass::IN, RecordType::A) {
-                    Ok(response) => {
-                        let answers: &[Record] = response.answers();
+                            read_peers_from_dns_entries(parse_dns_response(response))
+                        },
+                        Err(e) => {
+                            error!("{:?}", e);
+                            Err("Couldn't query DNS server for specified name")
+                        },
+                    },
+                    Err(e) => {
+                        error!("{:?}", e);
+                        Err("Couldn't create FQDN from specified name!")
+                    },
+                }
+            } else {
+                let client = SyncClient::new(conn);
+                //Remember trailing dot to make it a FQDN.
+                match Name::from_str("bootstrap.concordium.com.") {
+                    Ok(name) => match client.query(&name, DNSClass::IN, RecordType::TXT) {
+                        Ok(response) => {
+                            //Check if query was successful
+                            let response_code = response.response_code();
+                            if response_code != ResponseCode::NoError {
+                                error!("Got response code {:?} for query", response_code);
+                                return Err("Couldn't get DNS record!")
+                            }
 
-                        if let &RData::A(ref ip) = answers[0].rdata() {
-                            println!("I got response {:?}", ip);
-                        }
-                    }
-                    Err(e) => panic!("Couldn't query DNS server for specified name {:?}", e),
-                },
-                Err(e) => panic!("Couldn't create FQDN from specified name! {:?}", e),
+                            read_peers_from_dns_entries(parse_dns_response(response))
+                        },
+                        Err(e) => {
+                            error!("{:?}", e);
+                            Err("Couldn't query DNS server for specified name")
+                        },
+                    },
+                    Err(e) => {
+                        error!("{:?}", e);
+                        Err("Couldn't create FQDN from specified name!")
+                    },
+                }
             }
         }
-        Err(e) => panic!("Couldn't create connection to resolver! {:?}", e),
+        Err(e) => {
+            error!("{:?}", e);
+            Err("Couldn't create connection to resolver!")
+        },
     }
+}
+
+fn parse_dns_response(response: DnsResponse) -> Vec<String> {
+    let answers: &[Record] = response.answers();
+
+    let mut txts = vec![];
+
+    for answer in answers {
+        if let &RData::TXT(ref txt) = answer.rdata() {
+            for txt_ptr in txt.txt_data().iter() {
+                let data_ptr = txt_ptr.clone();
+                txts.push(String::from_utf8(data_ptr.to_vec()).unwrap());
+            }
+        }
+    }
+
+    txts
 }
 
 pub fn serialize_bootstrap_peers(peers: &Vec<String>) -> Result<String, &'static str> {
