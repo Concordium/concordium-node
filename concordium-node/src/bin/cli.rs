@@ -193,10 +193,11 @@ fn main() {
         }
     }
 
+    info!("Attempting to bootstrap via DNS");
     match bootstrap_nodes {
         Ok(nodes) => {
             for (ip, port) in nodes {
-                info!("Found IP: {} and port: {}", ip, port);
+                info!("Found bootstrap node IP: {} and port: {}", ip, port);
                 node.connect(ip, port);
             }
         },
