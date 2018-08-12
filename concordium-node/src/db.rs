@@ -16,7 +16,7 @@ impl P2PPeer {
     }
 
     pub fn to_peer(self) -> common::P2PPeer {
-        common::P2PPeer::from(P2PNodeId::from_string(self.id).unwrap(),
+        common::P2PPeer::from(P2PNodeId::from_string(&self.id).unwrap(),
                               self.ip.parse().unwrap(),
                               self.port)
     }

@@ -1009,7 +1009,7 @@ impl P2PNode {
             }
         };
 
-        let _id = P2PNodeId::from_string(id.clone()).unwrap();
+        let _id = P2PNodeId::from_string(&id).unwrap();
 
         let poll = match Poll::new() {
             Ok(x) => x,

@@ -184,7 +184,7 @@ impl P2P for RpcServerImpl {
                && req.has_broadcast()
                && !req.get_broadcast().get_value()
             {
-                let id = P2PNodeId::from_string(req.get_node_id().get_value().to_string()).unwrap();
+                let id = P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
                 info!("Sending direct message to: {:064x}", id.get_id());
                 self.node
                     .borrow_mut()
@@ -340,7 +340,8 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
             if req.has_node_id() && req.has_ip() && req.has_port() {
-                let node_id = P2PNodeId::from_string(req.get_node_id().get_value().to_string());
+                let req_id = req.get_node_id().get_value().to_string();
+                let node_id = P2PNodeId::from_string(&req_id);
                 let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {
@@ -381,7 +382,8 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
             if req.has_node_id() && req.has_ip() && req.has_port() {
-                let node_id = P2PNodeId::from_string(req.get_node_id().get_value().to_string());
+                let req_id = req.get_node_id().get_value().to_string();
+                let node_id = P2PNodeId::from_string(&req_id);
                 let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {

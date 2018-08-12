@@ -99,7 +99,7 @@ impl NetworkMessage {
                                 }
                                 let node_id = str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap();
 
-                                NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(node_id.to_string()).unwrap()),  Some(timestamp), Some(get_current_stamp()))
+                                NetworkMessage::NetworkRequest(NetworkRequest::FindNode(sender, P2PNodeId::from_string(&node_id.to_string()).unwrap()),  Some(timestamp), Some(get_current_stamp()))
                             },
                             _ => NetworkMessage::InvalidMessage
                         }
@@ -211,7 +211,7 @@ impl NetworkMessage {
                                     return NetworkMessage::InvalidMessage
                                 }
                                 let remainer = inner_msg_size+sender_len;
-                                let receiver_id = P2PNodeId::from_string((str::from_utf8(&bytes[remainer..(remainer+PROTOCOL_NODE_ID_LENGTH)]).unwrap()).to_string()).unwrap();
+                                let receiver_id = P2PNodeId::from_string(&(str::from_utf8(&bytes[remainer..(remainer+PROTOCOL_NODE_ID_LENGTH)]).unwrap()).to_string()).unwrap();
                                 match str::from_utf8(&bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+10+PROTOCOL_NODE_ID_LENGTH)]).unwrap().parse::<usize>() {
                                     Ok(csize) => {
                                          if bytes[(remainer+PROTOCOL_NODE_ID_LENGTH+10)..].len() != csize {
@@ -479,7 +479,7 @@ impl P2PPeer {
     pub fn deserialize(buf: &str) -> Option<P2PPeer> {
         if &buf.len() > &(PROTOCOL_NODE_ID_LENGTH + 3) {
             let node_id =
-                P2PNodeId::from_string(buf[..PROTOCOL_NODE_ID_LENGTH].to_string()).unwrap();
+                P2PNodeId::from_string(&buf[..PROTOCOL_NODE_ID_LENGTH].to_string()).unwrap();
             let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..(PROTOCOL_NODE_ID_LENGTH + 3)];
             let ip_start = PROTOCOL_NODE_ID_LENGTH + 3;
             match ip_type {
@@ -594,12 +594,11 @@ impl PartialEq for P2PNodeId {
 impl Eq for P2PNodeId {}
 
 impl P2PNodeId {
-    pub fn from_string(sid: String) -> Result<P2PNodeId, &'static str> {
+    pub fn from_string(sid: &String) -> Result<P2PNodeId, String> {
         match BigUint::from_str_radix(&sid, 16) {
             Ok(x) => Ok(P2PNodeId { id: x }),
             Err(_) => {
-                error!("Can't parse {} as base16 number!", &sid);
-                Err("Invalid base16 number")
+                Err( format!("Can't parse {} as base16 number", &sid))
             }
         }
     }
@@ -614,11 +613,11 @@ impl P2PNodeId {
 
     pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {
         let ip_port = format!("{}:{}", ip, port);
-        P2PNodeId::from_string(utils::to_hex_string(&utils::sha256(&ip_port))).unwrap()
+        P2PNodeId::from_string(&utils::to_hex_string(&utils::sha256(&ip_port))).unwrap()
     }
 
     pub fn from_ipstring(ip_port: String) -> P2PNodeId {
-        P2PNodeId::from_string(utils::to_hex_string(&utils::sha256(&ip_port))).unwrap()
+        P2PNodeId::from_string(&utils::to_hex_string(&utils::sha256(&ip_port))).unwrap()
     }
 }
 
