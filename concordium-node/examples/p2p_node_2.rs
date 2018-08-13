@@ -1,4 +1,7 @@
 #![feature(box_syntax, box_patterns)]
+#![recursion_limit = "1024"]
+#[macro_use]
+extern crate error_chain;
 extern crate bytes;
 extern crate mio;
 extern crate p2p_client;
@@ -12,8 +15,11 @@ use p2p_client::p2p::*;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::{thread, time};
+use p2p_client::errors::*;
 
-fn main() {
+quick_main!(run);
+
+fn run() -> Result<()> {
     let conf = configuration::parse_config();
 
     let env = if conf.debug {
@@ -101,4 +107,5 @@ fn main() {
                              });
 
     _app.join().unwrap();
+    Ok(())
 }

@@ -83,7 +83,7 @@ mod tests {
                                               "127.0.0.1".to_string(),
                                               10002,
                                               "rpcadmin".to_string());
-        rpc_serv.start_server();
+        rpc_serv.start_server().expect("rpc");
 
         let env = Arc::new(EnvBuilder::new().build());
         let ch = ChannelBuilder::new(env).connect("127.0.0.1:10002");
@@ -101,7 +101,7 @@ mod tests {
 
         assert_eq!(reply.get_value(), env!("CARGO_PKG_VERSION").to_string());
 
-        rpc_serv.stop_server();
+        rpc_serv.stop_server().expect("rpc");
     }
 
     #[test]
@@ -169,7 +169,7 @@ mod tests {
                                               "127.0.0.1".to_string(),
                                               10001,
                                               "rpcadmin".to_string());
-        rpc_serv.start_server();
+        rpc_serv.start_server().expect("rpc");
 
         let env = Arc::new(EnvBuilder::new().build());
         let ch = ChannelBuilder::new(env).connect("127.0.0.1:10001");
@@ -183,6 +183,6 @@ mod tests {
             _ => panic!("Wrong rejection"),
         }
 
-        rpc_serv.stop_server();
+        rpc_serv.stop_server().expect("rpc");
     }
 }

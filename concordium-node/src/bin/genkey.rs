@@ -1,3 +1,6 @@
+#![recursion_limit = "1024"]
+#[macro_use]
+extern crate error_chain;
 #[macro_use]
 extern crate structopt;
 extern crate p2p_client;
@@ -7,6 +10,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::process::exit;
 use structopt::StructOpt;
+use p2p_client::errors::*;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Key Generator")]
@@ -19,7 +23,9 @@ struct ConfigCli {
     print_key: bool,
 }
 
-pub fn main() {
+quick_main!(run);
+
+pub fn run() -> Result<()> {
     let conf = ConfigCli::from_args();
     match OpenOptions::new().read(true)
                             .write(true)
@@ -46,5 +52,5 @@ pub fn main() {
             exit(1);
         }
     }
-    exit(0);
+    Ok(())
 }

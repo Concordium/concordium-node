@@ -54,6 +54,7 @@ chrono = "0.4.5"
 trust-dns = {version = "0.15.0-alpha.1", features = ["dnssec-ring"]}
 arrayref = "0.3.4"
 hex = "0.3.2"
+error-chain = "0.12.0"
 
 [build-dependencies]
 walkdir         = "2"

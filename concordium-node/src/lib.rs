@@ -1,4 +1,7 @@
 #![feature(box_syntax, box_patterns)]
+#![recursion_limit = "1024"]
+#[macro_use]
+extern crate error_chain;
 #[macro_use]
 extern crate structopt;
 extern crate byteorder;
@@ -38,3 +41,4 @@ pub mod p2p;
 pub mod proto;
 pub mod rpc;
 pub mod utils;
+pub mod errors;

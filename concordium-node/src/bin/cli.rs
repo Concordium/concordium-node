@@ -1,4 +1,5 @@
 #![feature(box_syntax, box_patterns)]
+#![recursion_limit = "1024"]
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
@@ -8,6 +9,8 @@ extern crate env_logger;
 extern crate grpcio;
 extern crate mio;
 extern crate timer;
+#[macro_use]
+extern crate error_chain;
 
 use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
@@ -20,8 +23,11 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use timer::Timer;
+use p2p_client::errors::*;
 
-fn main() {
+quick_main!( run );
+
+fn run() -> Result<()>{
     let conf = configuration::parse_config();
     let app_prefs = configuration::AppPreferences::new();
 
@@ -104,7 +110,7 @@ fn main() {
                                           conf.rpc_server_addr,
                                           conf.rpc_server_port,
                                           conf.rpc_server_token);
-        serv.start_server();
+        serv.start_server()?;
         rpc_serv = Some(serv);
     }
 
@@ -121,7 +127,7 @@ fn main() {
                                                   _,
                                                   _) => {
                     if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(&full_msg);
+                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                     }
                     info!("DirectMessage with size {} received", msg.len());
                 }
@@ -130,7 +136,7 @@ fn main() {
                                                   _,
                                                   _) => {
                     if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(&full_msg);
+                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                     }
                     if !_no_trust_broadcasts {
                         info!("BroadcastedMessage with size {} received", msg.len());
@@ -232,6 +238,8 @@ fn main() {
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server();
+        serv.stop_server()?;
     }
+
+    Ok(())
 }

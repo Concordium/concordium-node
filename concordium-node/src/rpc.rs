@@ -11,6 +11,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use errors::*;
+use errors::ErrorKind::{ QueueingError, ProcessControlError };
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -41,10 +43,11 @@ impl RpcServerImpl {
                         db: db, }
     }
 
-    pub fn queue_message(&self, msg: &NetworkMessage) {
+    pub fn queue_message(&self, msg: &NetworkMessage) -> Result<()> {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
-            sender.send(box msg.clone()).unwrap();
+            sender.send(box msg.clone()).chain_err(|| QueueingError("Can't queue message for Rpc retrieval queue".to_string()))?;
         }
+        Ok(())
     }
 
     fn start_subscription(&self) {
@@ -58,7 +61,7 @@ impl RpcServerImpl {
         *self.subscription_queue_out.borrow_mut() = None;
     }
 
-    pub fn start_server(&mut self) {
+    pub fn start_server(&mut self) -> Result<()> {
         let self_clone = self.clone();
         let env = Arc::new(Environment::new(1));
         let service = create_p2_p(self_clone.clone());
@@ -68,15 +71,17 @@ impl RpcServerImpl {
             ServerBuilder::new(env).register_service(service)
                                    .bind(self_clone.listen_addr, self_clone.listen_port)
                                    .build()
-                                   .unwrap();
+                                   .chain_err(|| ProcessControlError("can't start server".to_string()))?;
         server.start();
         self.server = Some(Arc::new(Mutex::new(server)));
+        Ok(())
     }
 
-    pub fn stop_server(&mut self) {
+    pub fn stop_server(&mut self) -> Result<()>{
         if let Some(ref mut server) = self.server {
-            &server.lock().unwrap().shutdown().wait().unwrap();
+            &server.lock().unwrap().shutdown().wait().chain_err(|| ProcessControlError("can't stop process".to_string()))?;
         }
+        Ok(())
     }
 }
 
