@@ -1,3 +1,4 @@
+#![feature(box_syntax, box_patterns)]
 extern crate bytes;
 extern crate mio;
 extern crate p2p_client;
@@ -57,7 +58,10 @@ mod tests {
         thread::sleep(time::Duration::from_secs(5));
 
         match pkt_out_1.try_recv() {
-            Ok(NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_), _, _)) => {}
+            Ok(ref x) => match *x.clone() {
+                box NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_), _, _) => {}
+                _ => panic!("Didn't get handshake"),
+            },
             _ => {
                 panic!("Didn't get handshake");
             }
@@ -66,11 +70,18 @@ mod tests {
         thread::sleep(time::Duration::from_secs(5));
 
         match pkt_out_1.try_recv() {
-            Ok(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, recv_msg),
-                                             _,
-                                             _)) => {
-                assert_eq!(msg.as_bytes().to_vec(), recv_msg);
-            }
+            Ok(ref outer) => match *outer.clone() {
+                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
+                                                                               _,
+                                                                               ref recv_msg),
+                                                  _,
+                                                  _) => {
+                    assert_eq!(msg.as_bytes().to_vec(), *recv_msg);
+                }
+                ref x => {
+                    panic!("Didn't get message from node_2, but got {:?}", x);
+                }
+            },
             x => {
                 panic!("Didn't get message from node_2, but got {:?}", x);
             }
@@ -117,11 +128,12 @@ mod tests {
         let mut _2_node = node_2.clone();
 
         let _guard_2 = thread::spawn(move || loop {
-            if let Ok(msg) = pkt_out_2.recv() {
-                match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg),
-                                                  _,
-                                                  _) => {
+            if let Ok(ref outer_msg) = pkt_out_2.recv() {
+                match *outer_msg.clone() {
+                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        ref msg),
+                                                      _,
+                                                      _) => {
                         _2_node.send_message(None, &msg, true);
                     }
                     _ => {}
@@ -146,11 +158,17 @@ mod tests {
         thread::sleep(time::Duration::from_secs(5));
 
         match pkt_out_3.try_recv() {
-            Ok(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, recv_msg),
-                                             _,
-                                             _)) => {
-                assert_eq!(msg.as_bytes().to_vec(), recv_msg);
-            }
+            Ok(ref mut outer_msg) => match *outer_msg.clone() {
+                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                    ref recv_msg),
+                                                  _,
+                                                  _) => {
+                    assert_eq!(&msg.as_bytes().to_vec(), recv_msg);
+                }
+                ref x => {
+                    panic!("Didn't get message from node_1 on node_3, but got {:?}", x);
+                }
+            },
             x => {
                 panic!("Didn't get message from node_1 on node_3, but got {:?}", x);
             }

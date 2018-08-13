@@ -1,3 +1,4 @@
+#![feature(box_syntax, box_patterns)]
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
@@ -16,6 +17,7 @@ use p2p_client::p2p::*;
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use timer::Timer;
 
@@ -52,7 +54,7 @@ fn main() {
 
     info!("Debugging enabled {}", conf.debug);
 
-    let (pkt_in, pkt_out) = mpsc::channel();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
@@ -113,21 +115,22 @@ fn main() {
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.desired_nodes;
     let _guard_pkt = thread::spawn(move || loop {
-        if let Ok(ref mut full_msg) = pkt_out.recv() {
-            match full_msg {
-                NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg),
-                                              _,
-                                              _) => {
+        if let Ok(full_msg) = pkt_out.recv() {
+            match *full_msg.clone() {
+                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg),
+                                                  _,
+                                                  _) => {
                     if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(full_msg);
+                        rpc.queue_message(&full_msg);
                     }
                     info!("DirectMessage with size {} received", msg.len());
                 }
-                NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg),
-                                              _,
-                                              _) => {
+                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                    ref msg),
+                                                  _,
+                                                  _) => {
                     if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(full_msg);
+                        rpc.queue_message(&full_msg);
                     }
                     if !_no_trust_broadcasts {
                         info!("BroadcastedMessage with size {} received", msg.len());
@@ -135,7 +138,9 @@ fn main() {
                     }
                 }
 
-                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(peer, x), _, _) => {
+                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x),
+                                                   _,
+                                                   _) => {
                     info!("Ban node request for {:?}", x);
                     _node_self_clone.ban_node(x.clone());
                     db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
@@ -143,7 +148,9 @@ fn main() {
                         _node_self_clone.send_ban(x.clone());
                     }
                 }
-                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(peer, x), _, _) => {
+                box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x),
+                                                   _,
+                                                   _) => {
                     info!("Unban node requets for {:?}", x);
                     _node_self_clone.unban_node(x.clone());
                     db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
@@ -151,7 +158,9 @@ fn main() {
                         _node_self_clone.send_unban(x.clone());
                     }
                 }
-                NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, peers), _, _) => {
+                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers),
+                                                    _,
+                                                    _) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
                     match _node_self_clone.get_nodes() {
@@ -198,7 +207,7 @@ fn main() {
                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
                 node.connect(ip, port);
             }
-        },
+        }
         Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
     };
 

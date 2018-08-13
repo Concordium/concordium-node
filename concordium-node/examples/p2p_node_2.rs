@@ -1,3 +1,4 @@
+#![feature(box_syntax, box_patterns)]
 extern crate bytes;
 extern crate mio;
 extern crate p2p_client;
@@ -9,6 +10,7 @@ use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeI
 use p2p_client::configuration;
 use p2p_client::p2p::*;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::{thread, time};
 
 fn main() {
@@ -32,21 +34,26 @@ fn main() {
 
     info!("Debuging enabled {}", conf.debug);
 
-    let (pkt_in, pkt_out) = mpsc::channel();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
     let _guard_pkt = thread::spawn(move || loop {
-        if let Ok(msg) = pkt_out.recv() {
-            match msg {
-                NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, msg), _, _) => {
+        if let Ok(ref msg) = pkt_out.recv() {
+            match *msg.clone() {
+                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg),
+                                                  _,
+                                                  _) => {
                     info!("DirectMessage with {:?} received", msg)
                 }
-                NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg), _, _) => {
+                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                    ref msg),
+                                                  _,
+                                                  _) => {
                     info!("BroadcastedMessage with {:?} received", msg)
                 }
-                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x), _, _) => {
+                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
                     info!("Ban node request for {:?}", x)
                 }
-                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => {
+                box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => {
                     info!("Unban node requets for {:?}", x)
                 }
                 _ => {}
@@ -88,7 +95,7 @@ fn main() {
 
     let _app = thread::spawn(move || loop {
                                  info!("Sending one packet");
-                                 node.send_message(Some(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap()), &String::from("Hello world!").as_bytes().to_vec(), false);
+                                 node.send_message(Some(P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap()), &String::from("Hello world!").as_bytes().to_vec(), false);
                                  info!("Sleeping for 1 second");
                                  thread::sleep(time::Duration::from_secs(1));
                              });

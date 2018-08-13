@@ -53,7 +53,7 @@ pub struct Config {
     #[structopt(long = "no-trust-bans",
                 help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,
-    #[structopt(long="require-dnssec",
+    #[structopt(long = "require-dnssec",
                 help = "Require DNSSEC for bootstrapping. Doesn't support NSEC3")]
     pub require_dnssec: bool,
 }

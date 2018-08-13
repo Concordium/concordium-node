@@ -38,13 +38,15 @@ pub fn main() {
 
     let mut private_key_bytes: Vec<u8> = vec![];
     match File::open(&conf.keyfile) {
-        Ok(ref mut file) => match file.read_to_end(&mut private_key_bytes) {
-            Ok(_) => {}
-            Err(e) => {
-                println!("Error while reading {} {}", &conf.keyfile, e);
-                exit(1);
+        Ok(ref mut file) => {
+            match file.read_to_end(&mut private_key_bytes) {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("Error while reading {} {}", &conf.keyfile, e);
+                    exit(1);
+                }
             }
-        },
+        }
         Err(e) => {
             println!("Error while opening {} {}", &conf.keyfile, e);
             exit(1);

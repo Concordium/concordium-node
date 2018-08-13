@@ -1,3 +1,4 @@
+#![feature(box_syntax, box_patterns)]
 extern crate bytes;
 extern crate mio;
 extern crate p2p_client;
@@ -19,7 +20,7 @@ mod tests {
 
     #[test]
     pub fn test_grpc_version() {
-        let (pkt_in, pkt_out) = mpsc::channel();
+        let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -48,23 +49,28 @@ mod tests {
         let mut _node_self_clone = node.clone();
 
         let _guard_pkt = thread::spawn(move || loop {
-            if let Ok(msg) = pkt_out.recv() {
-                match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, msg),
-                                                  _,
-                                                  _) => {
+            if let Ok(ref outer_msg) = pkt_out.recv() {
+                match *outer_msg.clone() {
+                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
+                                                                                   _,
+                                                                                   ref msg),
+                                                      _,
+                                                      _) => {
                         info!("DirectMessage with {:?} received", msg)
                     }
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg),
-                                                  _,
-                                                  _) => {
+                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        ref msg),
+                                                      _,
+                                                      _) => {
                         info!("BroadcastedMessage with {:?} received", msg);
                         _node_self_clone.send_message(None, &msg, true);
                     }
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x), _, _) => {
+                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
                         info!("Ban node request for {:?}", x)
                     }
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => {
+                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x),
+                                                       _,
+                                                       _) => {
                         info!("Unban node requets for {:?}", x)
                     }
                     _ => {}
@@ -100,7 +106,7 @@ mod tests {
 
     #[test]
     pub fn test_grpc_noauth() {
-        let (pkt_in, pkt_out) = mpsc::channel();
+        let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -129,23 +135,28 @@ mod tests {
         let mut _node_self_clone = node.clone();
 
         let _guard_pkt = thread::spawn(move || loop {
-            if let Ok(msg) = pkt_out.recv() {
-                match msg {
-                    NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, msg),
-                                                  _,
-                                                  _) => {
+            if let Ok(ref outer_msg) = pkt_out.recv() {
+                match *outer_msg.clone() {
+                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
+                                                                                   _,
+                                                                                   ref msg),
+                                                      _,
+                                                      _) => {
                         info!("DirectMessage with {:?} received", msg)
                     }
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, msg),
-                                                  _,
-                                                  _) => {
+                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        ref msg),
+                                                      _,
+                                                      _) => {
                         info!("BroadcastedMessage with {:?} received", msg);
                         _node_self_clone.send_message(None, &msg, true);
                     }
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, x), _, _) => {
+                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
                         info!("Ban node request for {:?}", x)
                     }
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, x), _, _) => {
+                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x),
+                                                       _,
+                                                       _) => {
                         info!("Unban node requets for {:?}", x)
                     }
                     _ => {}

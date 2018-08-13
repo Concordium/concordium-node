@@ -5,6 +5,7 @@ use grpcio;
 use grpcio::{Environment, ServerBuilder};
 use p2p::P2PNode;
 use proto::*;
+use std::boxed::Box;
 use std::cell::RefCell;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -18,8 +19,8 @@ pub struct RpcServerImpl {
     listen_addr: String,
     access_token: String,
     server: Option<Arc<Mutex<grpcio::Server>>>,
-    subscription_queue_out: RefCell<Option<Arc<Mutex<mpsc::Receiver<NetworkMessage>>>>>,
-    subscription_queue_in: RefCell<Option<mpsc::Sender<NetworkMessage>>>,
+    subscription_queue_out: RefCell<Option<Arc<Mutex<mpsc::Receiver<Box<NetworkMessage>>>>>>,
+    subscription_queue_in: RefCell<Option<mpsc::Sender<Box<NetworkMessage>>>>,
     db: Option<P2PDB>,
 }
 
@@ -42,12 +43,12 @@ impl RpcServerImpl {
 
     pub fn queue_message(&self, msg: &NetworkMessage) {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
-            sender.send(msg.clone()).unwrap();
+            sender.send(box msg.clone()).unwrap();
         }
     }
 
     fn start_subscription(&self) {
-        let (sender, receiver) = mpsc::channel::<NetworkMessage>();
+        let (sender, receiver) = mpsc::channel::<Box<NetworkMessage>>();
         *self.subscription_queue_in.borrow_mut() = Some(sender);
         *self.subscription_queue_out.borrow_mut() = Some(Arc::new(Mutex::new(receiver)));
     }
@@ -184,7 +185,8 @@ impl P2P for RpcServerImpl {
                && req.has_broadcast()
                && !req.get_broadcast().get_value()
             {
-                let id = P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
+                let id =
+                    P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
                 info!("Sending direct message to: {:064x}", id.get_id());
                 self.node
                     .borrow_mut()
@@ -299,11 +301,11 @@ impl P2P for RpcServerImpl {
             let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
             if let Some(ref mut receiver) = *self.subscription_queue_out.borrow_mut() {
                 match receiver.lock().unwrap().try_recv() {
-                    Ok(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
-                                                                                  _,
-                                                                                  msg),
-                                                     sent,
-                                                     received)) => {
+                    Ok(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
+                                                                                      _,
+                                                                                      msg),
+                                                         sent,
+                                                         received)) => {
                         let mut i_msg = MessageDirect::new();
                         i_msg.set_data(msg);
                         r.set_message_direct(i_msg);
@@ -311,10 +313,10 @@ impl P2P for RpcServerImpl {
                         r.set_received_at(received.unwrap());
                         r.set_sender(format!("{:064x}", sender.id().get_id()));
                     }
-                    Ok(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
-                                                                                       msg),
-                                                     sent,
-                                                     received)) => {
+                    Ok(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
+                                                                                           msg),
+                                                         sent,
+                                                         received)) => {
                         let mut i_msg = MessageBroadcast::new();
                         i_msg.set_data(msg);
                         r.set_message_broadcast(i_msg);

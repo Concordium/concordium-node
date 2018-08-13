@@ -352,7 +352,7 @@ impl TlsServer {
                   poll: &mut Poll,
                   event: &Event,
                   mut buckets: &mut Buckets,
-                  packet_queue: &mpsc::Sender<NetworkMessage>) {
+                  packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
         let token = event.token();
         if self.connections.contains_key(&token) {
             match self.connections.get_mut(&token) {
@@ -583,7 +583,7 @@ impl Connection {
              poll: &mut Poll,
              ev: &Event,
              buckets: &mut Buckets,
-             packets_queue: &mpsc::Sender<NetworkMessage>) {
+             packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
         if ev.readiness().is_readable() {
             self.do_tls_read();
             self.try_plain_read(&packets_queue, buckets);
@@ -625,14 +625,18 @@ impl Connection {
 
     fn do_tls_read(&mut self) {
         let rc = match self.initiated_by_me {
-            true => match self.tls_client_session {
-                Some(ref mut x) => x.read_tls(&mut self.socket),
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
-            false => match self.tls_server_session {
-                Some(ref mut x) => x.read_tls(&mut self.socket),
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => x.read_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => x.read_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
         };
 
         if rc.is_err() {
@@ -655,14 +659,18 @@ impl Connection {
 
         // Process newly-received TLS messages.
         let processed = match self.initiated_by_me {
-            true => match self.tls_client_session {
-                Some(ref mut x) => x.process_new_packets(),
-                None => Err(TLSError::General(String::from("Couldn't find session!"))),
-            },
-            false => match self.tls_server_session {
-                Some(ref mut x) => x.process_new_packets(),
-                None => Err(TLSError::General(String::from("Couldn't find session!"))),
-            },
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => x.process_new_packets(),
+                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
+                }
+            }
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => x.process_new_packets(),
+                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
+                }
+            }
         };
 
         if processed.is_err() {
@@ -673,20 +681,24 @@ impl Connection {
     }
 
     fn try_plain_read(&mut self,
-                      packets_queue: &mpsc::Sender<NetworkMessage>,
+                      packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                       mut buckets: &mut Buckets) {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
         let rc = match self.initiated_by_me {
-            true => match self.tls_client_session {
-                Some(ref mut x) => x.read_to_end(&mut buf),
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
-            false => match self.tls_server_session {
-                Some(ref mut x) => x.read_to_end(&mut buf),
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => x.read_to_end(&mut buf),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => x.read_to_end(&mut buf),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
         };
 
         if rc.is_err() {
@@ -703,32 +715,36 @@ impl Connection {
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self.initiated_by_me {
-            true => match self.tls_client_session {
-                Some(ref mut x) => {
-                    self.messages_sent += 1;
-                    x.write_all(bytes)
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => {
+                        self.messages_sent += 1;
+                        x.write_all(bytes)
+                    }
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
-            false => match self.tls_server_session {
-                Some(ref mut x) => {
-                    self.messages_sent += 1;
-                    x.write_all(bytes)
+            }
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => {
+                        self.messages_sent += 1;
+                        x.write_all(bytes)
+                    }
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
+            }
         }
     }
 
     fn process_complete_packet(&mut self,
                                buckets: &mut Buckets,
                                buf: &[u8],
-                               packet_queue: &mpsc::Sender<NetworkMessage>) {
-        let ref outer = NetworkMessage::deserialize(&buf);
+                               packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
+        let outer = Arc::new(box NetworkMessage::deserialize(&buf));
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
-        match outer {
-            NetworkMessage::NetworkRequest(ref x, _, _) => {
+        match *outer.clone() {
+            box NetworkMessage::NetworkRequest(ref x, _, _) => {
                 match x {
                     NetworkRequest::Ping(_) => {
                         //Respond with pong
@@ -780,7 +796,7 @@ impl Connection {
                     }
                 }
             }
-            NetworkMessage::NetworkResponse(ref x, _, _) => {
+            box NetworkMessage::NetworkResponse(ref x, _, _) => {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         debug!("Got response to FindNode");
@@ -818,31 +834,33 @@ impl Connection {
                     }
                 }
             }
-            NetworkMessage::NetworkPacket(ref x, _, _) => match x {
-                NetworkPacket::DirectMessage(_, _, ref msg) => {
-                    self.update_last_seen();
-                    debug!("Received direct message of size {}", msg.len());
-                    match packet_queue.send(outer.clone()) {
-                        Ok(_) => {}
-                        Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                    };
+            box NetworkMessage::NetworkPacket(ref x, _, _) => {
+                match x {
+                    NetworkPacket::DirectMessage(_, _, ref msg) => {
+                        self.update_last_seen();
+                        debug!("Received direct message of size {}", msg.len());
+                        match packet_queue.send(outer.clone()) {
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
+                    }
+                    NetworkPacket::BroadcastedMessage(_, ref msg) => {
+                        self.update_last_seen();
+                        debug!("Received broadcast message of size {}", msg.len());
+                        match packet_queue.send(outer.clone()) {
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
+                    }
                 }
-                NetworkPacket::BroadcastedMessage(_, ref msg) => {
-                    self.update_last_seen();
-                    debug!("Received broadcast message of size {}", msg.len());
-                    match packet_queue.send(outer.clone()) {
-                        Ok(_) => {}
-                        Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                    };
-                }
-            },
-            NetworkMessage::UnknownMessage => {
+            }
+            box NetworkMessage::UnknownMessage => {
                 debug!("Unknown message received!");
                 self.update_last_seen();
                 debug!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
             }
-            NetworkMessage::InvalidMessage => {
+            box NetworkMessage::InvalidMessage => {
                 debug!("Invalid message received!");
                 self.update_last_seen();
                 debug!("Contents were: {:?}",
@@ -852,7 +870,7 @@ impl Connection {
     }
 
     fn incoming_plaintext(&mut self,
-                          packets_queue: &mpsc::Sender<NetworkMessage>,
+                          packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                           buckets: &mut Buckets,
                           buf: &[u8]) {
         debug!("Received plaintext");
@@ -916,14 +934,18 @@ impl Connection {
 
     fn do_tls_write(&mut self) {
         let rc = match self.initiated_by_me {
-            true => match self.tls_client_session {
-                Some(ref mut x) => x.write_tls(&mut self.socket),
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
-            false => match self.tls_server_session {
-                Some(ref mut x) => x.write_tls(&mut self.socket),
-                None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-            },
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
         };
 
         if rc.is_err() {
@@ -957,7 +979,7 @@ pub struct P2PNode {
     send_queue: Arc<Mutex<VecDeque<NetworkMessage>>>,
     ip: IpAddr,
     port: u16,
-    incoming_pkts: mpsc::Sender<NetworkMessage>,
+    incoming_pkts: mpsc::Sender<Arc<Box<NetworkMessage>>>,
     event_log: Option<mpsc::Sender<P2PEvent>>,
     start_time: Timespec,
     total_sent: u64,
@@ -982,7 +1004,7 @@ fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) {
 impl P2PNode {
     pub fn new(supplied_id: Option<String>,
                port: u16,
-               pkt_queue: mpsc::Sender<NetworkMessage>,
+               pkt_queue: mpsc::Sender<Arc<Box<NetworkMessage>>>,
                event_log: Option<mpsc::Sender<P2PEvent>>)
                -> P2PNode {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();
@@ -1028,17 +1050,21 @@ impl P2PNode {
 
         //Generate key pair and cert
         let (cert, private_key) = match utils::generate_certificate(id) {
-            Ok(x) => match x.x509.to_der() {
-                Ok(der) => match x.private_key.private_key_to_der() {
-                    Ok(private_part) => (Certificate(der), PrivateKey(private_part)),
+            Ok(x) => {
+                match x.x509.to_der() {
+                    Ok(der) => {
+                        match x.private_key.private_key_to_der() {
+                            Ok(private_part) => (Certificate(der), PrivateKey(private_part)),
+                            Err(e) => {
+                                panic!("Couldn't convert certificate to DER! {:?}", e);
+                            }
+                        }
+                    }
                     Err(e) => {
                         panic!("Couldn't convert certificate to DER! {:?}", e);
                     }
-                },
-                Err(e) => {
-                    panic!("Couldn't convert certificate to DER! {:?}", e);
                 }
-            },
+            }
             Err(e) => {
                 panic!("Couldn't create certificate! {:?}", e);
             }
@@ -1247,14 +1273,16 @@ impl P2PNode {
             true => {
                 self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()), None, None));
             }
-            false => match id {
-                Some(x) => {
-                    self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
+            false => {
+                match id {
+                    Some(x) => {
+                        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
+                    }
+                    None => {
+                        debug!("Invalid receiver ID for message!");
+                    }
                 }
-                None => {
-                    debug!("Invalid receiver ID for message!");
-                }
-            },
+            }
         }
     }
 

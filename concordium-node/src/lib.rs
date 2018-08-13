@@ -1,3 +1,4 @@
+#![feature(box_syntax, box_patterns)]
 #[macro_use]
 extern crate structopt;
 extern crate byteorder;
@@ -17,6 +18,7 @@ extern crate app_dirs;
 extern crate env_logger;
 extern crate futures;
 extern crate grpcio;
+extern crate hex;
 extern crate openssl;
 extern crate preferences;
 extern crate protobuf;
@@ -25,7 +27,6 @@ extern crate time;
 extern crate trust_dns;
 extern crate untrusted;
 extern crate webpki;
-extern crate hex;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
