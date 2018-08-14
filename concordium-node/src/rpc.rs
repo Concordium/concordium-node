@@ -43,7 +43,7 @@ impl RpcServerImpl {
                         db: db, }
     }
 
-    pub fn queue_message(&self, msg: &NetworkMessage) -> Result<()> {
+    pub fn queue_message(&self, msg: &NetworkMessage) -> ResultExtWrapper<()> {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
             sender.send(box msg.clone()).chain_err(|| QueueingError("Can't queue message for Rpc retrieval queue".to_string()))?;
         }
@@ -61,7 +61,7 @@ impl RpcServerImpl {
         *self.subscription_queue_out.borrow_mut() = None;
     }
 
-    pub fn start_server(&mut self) -> Result<()> {
+    pub fn start_server(&mut self) -> ResultExtWrapper<()> {
         let self_clone = self.clone();
         let env = Arc::new(Environment::new(1));
         let service = create_p2_p(self_clone.clone());
@@ -77,7 +77,7 @@ impl RpcServerImpl {
         Ok(())
     }
 
-    pub fn stop_server(&mut self) -> Result<()>{
+    pub fn stop_server(&mut self) -> ResultExtWrapper<()>{
         if let Some(ref mut server) = self.server {
             &server.lock().unwrap().shutdown().wait().chain_err(|| ProcessControlError("can't stop process".to_string()))?;
         }
