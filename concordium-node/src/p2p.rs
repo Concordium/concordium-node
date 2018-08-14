@@ -1353,18 +1353,19 @@ impl P2PNode {
         self.total_received
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> bool {
+    pub fn ban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
         match self.tls_server.lock() {
-            Ok(mut x) => x.ban_node(peer),
-            Err(_) => false,
+            Ok(mut x) => { x.ban_node(peer); Ok(())},
+            Err(e) => Err(ErrorWrapper::from(e))
         }
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) -> bool {
+    pub fn unban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
         match self.tls_server.lock() {
-            Ok(mut x) => x.unban_node(peer),
-            Err(_) => false,
+            Ok(mut x) => { x.unban_node(peer); Ok(()) },
+            Err(e) => Err(ErrorWrapper::from(e))
         }
+        
     }
 
     pub fn process(&mut self, events: &mut Events)  -> ResultExtWrapper<()> {

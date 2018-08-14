@@ -3,7 +3,7 @@ use std;
 
 error_chain! {
     types {
-        Error, ErrorKind, ResultExt, ResultExtWrapper;
+        ErrorWrapper, ErrorKindWrapper, ResultExt, ResultExtWrapper;
     }
     errors {
         QueueingError(t: String) {
@@ -41,10 +41,10 @@ error_chain! {
     }
 }
 
-impl<T> From<std::sync::PoisonError<T>> for Error {
+impl<T> From<std::sync::PoisonError<T>> for ErrorWrapper {
     fn from(err: std::sync::PoisonError<T>) -> Self {
         use std::error::Error;
 
-        Self::from_kind(ErrorKind::LockingError(err.description().to_string()))
+        Self::from_kind(ErrorKindWrapper::LockingError(err.description().to_string()))
     }
 }

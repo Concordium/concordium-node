@@ -94,7 +94,7 @@ fn run() -> ResultExtWrapper<()>{
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n.to_peer());
+                node.ban_node(n.to_peer())?;
             }
         }
         None => {
@@ -148,20 +148,24 @@ fn run() -> ResultExtWrapper<()>{
                                                    _,
                                                    _) => {
                     info!("Ban node request for {:?}", x);
-                    _node_self_clone.ban_node(x.clone());
-                    db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                    if !_no_trust_bans {
-                        _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
+                    if ban.is_ok() {
+                        db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                        if !_no_trust_bans {
+                            _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                        }
                     }
                 }
                 box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x),
                                                    _,
                                                    _) => {
                     info!("Unban node requets for {:?}", x);
-                    _node_self_clone.unban_node(x.clone());
-                    db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                    if !_no_trust_bans {
-                        _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                    let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
+                    if req.is_ok() {
+                        db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                        if !_no_trust_bans {
+                            _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                        }
                     }
                 }
                 box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers),
@@ -195,14 +199,13 @@ fn run() -> ResultExtWrapper<()>{
 
     let _node_th = node.spawn();
 
-    if conf.connect_to.is_some() {
-        let connect_to = conf.connect_to.unwrap();
-        match utils::parse_ip_port(&connect_to) {
+    if let Some(ref connect_to) = conf.connect_to {
+        match utils::parse_ip_port(connect_to) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
                 node.connect(ip, port);
             }
-            _ => {}
+            None=> error!("Can't parse IP to connect to '{}'", connect_to)
         }
     }
 

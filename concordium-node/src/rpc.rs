@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use errors::*;
-use errors::ErrorKind::{ QueueingError, ProcessControlError };
+use errors::ErrorKindWrapper::{ QueueingError, ProcessControlError };
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -354,7 +354,7 @@ impl P2P for RpcServerImpl {
                 if node_id.is_ok() && ip.is_ok() {
                     let mut node = self.node.borrow_mut();
                     let peer = P2PPeer::from(node_id.unwrap(), ip.unwrap(), port);
-                    if node.ban_node(peer.clone()) {
+                    if node.ban_node(peer.clone()).is_ok() {
                         let db_done = if let Some(ref db) = self.db {
                             db.insert_ban(peer.id().to_string(),
                                           format!("{}", peer.ip()),
@@ -365,7 +365,7 @@ impl P2P for RpcServerImpl {
                         if db_done {
                             r.set_value(node.send_ban(peer.clone()).is_ok());
                         } else {
-                            node.unban_node(peer.clone());
+                            node.unban_node(peer.clone()).map_err(|e| error!("{}", e)).ok();
                             r.set_value(false);
                         }
                     }
@@ -395,7 +395,7 @@ impl P2P for RpcServerImpl {
                 if node_id.is_ok() && ip.is_ok() {
                     let mut node = self.node.borrow_mut();
                     let peer = P2PPeer::from(node_id.unwrap(), ip.unwrap(), port);
-                    if node.unban_node(peer.clone()) {
+                    if node.unban_node(peer.clone()).is_ok() {
                         let db_done = if let Some(ref db) = self.db {
                             db.delete_ban(peer.id().to_string(),
                                           format!("{}", peer.ip()),
@@ -406,7 +406,7 @@ impl P2P for RpcServerImpl {
                         if db_done {
                             r.set_value(node.send_unban(peer.clone()).is_ok());
                         } else {
-                            node.ban_node(peer.clone());
+                            node.ban_node(peer.clone()).map_err(|e| error!("{}", e)).ok();
                             r.set_value(false);
                         }
                     }
