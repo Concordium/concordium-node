@@ -978,7 +978,7 @@ pub struct P2PNode {
     poll: Arc<Mutex<Poll>>,
     id: P2PNodeId,
     buckets: Arc<Mutex<Buckets>>,
-    send_queue: Arc<Mutex<VecDeque<NetworkMessage>>>,
+    send_queue: Arc<Mutex<VecDeque<Arc<Box<NetworkMessage>>>>>,
     ip: IpAddr,
     port: u16,
     incoming_pkts: mpsc::Sender<Arc<Box<NetworkMessage>>>,
@@ -1169,55 +1169,53 @@ impl P2PNode {
     pub fn process_messages(&mut self) -> ResultExtWrapper<()> {
         //Try to send queued messages first
         //Resend queue
-        let mut resend_queue = VecDeque::new();
+        let mut resend_queue:VecDeque<Arc<Box<NetworkMessage>>> = VecDeque::new();
         {
             let mut send_q = self.send_queue.lock()?;
             loop {
                 debug!("Processing messages!");
-                match send_q.pop_front() {
-                    Some(x) => { 
+                let outer_pkt = send_q.pop_front();
+                match outer_pkt.clone() {
+                    Some(ref x) => { 
                         debug!("Got message to process!");
-                        match x.clone() {
-                            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(me,
-                                                                                    receiver,
-                                                                                    msg),
+                        match *x.clone() {
+                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::DirectMessage(_,_,_),
                                                         _,
                                                         _) => {
-                                match self.tls_server
-                                        .lock()?
-                                        .find_connection(receiver.clone())
-                                {
-                                    Some(ref mut conn) => {
-                                        if let Some( ref peer ) = conn.peer.clone() {
-                                            match serialize_bytes(conn, &NetworkPacket::DirectMessage(me,receiver,msg).serialize()) {
-                                                Ok(_) => {
-                                                    self.total_sent += 1;
-                                                    debug!("Sent message");
-                                                }
-                                                Err(e) => {
-                                                    error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
-                                                    resend_queue.push_back(x);
+                                if let NetworkPacket::DirectMessage(_,receiver,_) = inner_pkt {
+                                    match self.tls_server
+                                            .lock()?
+                                            .find_connection(receiver.clone())
+                                    {
+                                        Some(ref mut conn) => {
+                                            if let Some( ref peer ) = conn.peer.clone() {
+                                                match serialize_bytes(conn, &inner_pkt.serialize()) {
+                                                    Ok(_) => {
+                                                        self.total_sent += 1;
+                                                        debug!("Sent message");
+                                                    }
+                                                    Err(e) => {
+                                                        error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
+                                                        resend_queue.push_back(outer_pkt.unwrap().clone());
+                                                    }
                                                 }
                                             }
                                         }
-                                        
-                                    }
-                                    _ => {
-                                        resend_queue.push_back(x);
-                                        debug!("Couldn't find connection, requeuing message!");
+                                        _ => {
+                                            resend_queue.push_back(outer_pkt.unwrap().clone());
+                                            debug!("Couldn't find connection, requeuing message!");
+                                        }
                                     }
                                 }
                             }
-                            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(me,
-                                                                                            msg),
+                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_,_),
                                                         _,
                                                         _) => {
-                                let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me, msg));
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
                                     if let Some(ref peer) = conn.peer.clone() {
-                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                        match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.total_sent += 1;
                                             }
@@ -1228,15 +1226,14 @@ impl P2PNode {
                                     }
                                 }
                             }
-                            NetworkMessage::NetworkRequest(NetworkRequest::BanNode(me, id),
+                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_,_),
                                                         _,
                                                         _) => {
-                                let pkt = Arc::new(NetworkRequest::BanNode(me, id));
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
                                     if let Some(ref peer) = conn.peer.clone() {
-                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                        match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.total_sent += 1;
                                             }
@@ -1247,15 +1244,14 @@ impl P2PNode {
                                     }
                                 }
                             }
-                            NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(me, id),
+                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(_,_),
                                                         _,
                                                         _) => {
-                                let pkt = Arc::new(NetworkRequest::UnbanNode(me, id));
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
                                     if let Some(ref peer ) = conn.peer.clone() {
-                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                        match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.total_sent += 1;
                                             }
@@ -1266,13 +1262,12 @@ impl P2PNode {
                                     }
                                 }
                             }
-                            NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(me), _, _) => {
-                                let pkt = Arc::new(NetworkRequest::GetPeers(me));
+                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_), _, _) => {
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
                                     if let Some(ref peer) = conn.peer.clone() { 
-                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                        match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.total_sent += 1;
                                             }
@@ -1286,7 +1281,7 @@ impl P2PNode {
                             _ => {}
                         }
                     }
-                    None => {
+                    _ => {
                         send_q.append(&mut resend_queue);
                         break;
                     }
@@ -1296,19 +1291,21 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: &[u8], broadcast: bool) {
+    pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: &[u8], broadcast: bool) -> ResultExtWrapper<()>{
         debug!("Queueing message!");
         match broadcast {
             true => {
-                self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()), None, None));
+                self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg.to_vec()), None, None)));
+                return Ok(());
             }
             false => {
                 match id {
                     Some(x) => {
-                        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None));
+                        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), x, msg.to_vec()), None, None)));
+                        return Ok(());
                     }
                     None => {
-                        debug!("Invalid receiver ID for message!");
+                        return Err(ErrorKindWrapper::ParseError("Invalid receiver ID for message".to_string()).into());
                     }
                 }
             }
@@ -1318,20 +1315,20 @@ impl P2PNode {
     pub fn send_ban(&mut self, id: P2PPeer) -> ResultExtWrapper<()> {
         self.send_queue
             .lock()?
-            .push_back(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(),
+            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(),
                                                                           id),
                                                   None,
-                                                  None));
+                                                  None)));
         Ok(())
     }
 
     pub fn send_unban(&mut self, id: P2PPeer) -> ResultExtWrapper<()> {
-        self.send_queue.lock()?.push_back(NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None));
+        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None)));
         Ok(())
     }
 
     pub fn send_get_peers(&mut self) -> ResultExtWrapper<()> {
-        self.send_queue.lock()?.push_back(NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()), None, None));
+        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()), None, None)));
         Ok(())
     }
 

@@ -53,7 +53,7 @@ mod tests {
 
         node_2.connect("127.0.0.1".parse().unwrap(), 8888);
 
-        node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false);
+        node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false).map_err(|e| panic!(e)).ok();
 
         thread::sleep(time::Duration::from_secs(5));
 
@@ -134,7 +134,7 @@ mod tests {
                                                                                         ref msg),
                                                       _,
                                                       _) => {
-                        _2_node.send_message(None, &msg, true);
+                        _2_node.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
                     }
                     _ => {}
                 }
@@ -153,7 +153,7 @@ mod tests {
 
         thread::sleep(time::Duration::from_secs(5));
 
-        node_1.send_message(None, &msg.as_bytes().to_vec(), true);
+        node_1.send_message(None, &msg.as_bytes().to_vec(), true).map_err(|e| panic!(e)).ok();
 
         thread::sleep(time::Duration::from_secs(5));
 

@@ -63,7 +63,7 @@ mod tests {
                                                       _,
                                                       _) => {
                         info!("BroadcastedMessage with {:?} received", msg);
-                        _node_self_clone.send_message(None, &msg, true);
+                        _node_self_clone.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
                     }
                     box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
                         info!("Ban node request for {:?}", x)
@@ -149,7 +149,7 @@ mod tests {
                                                       _,
                                                       _) => {
                         info!("BroadcastedMessage with {:?} received", msg);
-                        _node_self_clone.send_message(None, &msg, true);
+                        _node_self_clone.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
                     }
                     box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
                         info!("Ban node request for {:?}", x)

@@ -193,16 +193,14 @@ impl P2P for RpcServerImpl {
                 let id =
                     P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
                 info!("Sending direct message to: {:064x}", id.get_id());
-                self.node
+                r.set_value(self.node
                     .borrow_mut()
-                    .send_message(Some(id), req.get_message().get_value(), false);
-                r.set_value(true);
+                    .send_message(Some(id), req.get_message().get_value(), false).map_err(|e| error!("{}", e)).is_ok());
             } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
                 info!("Sending broadcast message");
-                self.node
+                r.set_value( self.node
                     .borrow_mut()
-                    .send_message(None, req.get_message().get_value(), true);
-                r.set_value(true);
+                    .send_message(None, req.get_message().get_value(), true).map_err(|e| error!("{}", e)).is_ok());
             } else {
                 r.set_value(false);
             }

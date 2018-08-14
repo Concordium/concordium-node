@@ -140,7 +140,7 @@ fn run() -> ResultExtWrapper<()>{
                     }
                     if !_no_trust_broadcasts {
                         info!("BroadcastedMessage with size {} received", msg.len());
-                        _node_self_clone.send_message(None, &msg, true);
+                        _node_self_clone.send_message(None, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                     }
                 }
 
