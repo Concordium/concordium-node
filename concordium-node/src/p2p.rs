@@ -33,6 +33,7 @@ use time;
 use time::Timespec;
 use utils;
 use webpki::DNSNameRef;
+use errors::*;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -307,7 +308,7 @@ impl TlsServer {
                 debug!("Requesting handshake from new peer!");
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
-                    serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize())
+                    serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize()).unwrap()
                 }
                 true
             }
@@ -366,7 +367,7 @@ impl TlsServer {
         }
     }
 
-    fn cleanup_connections(&mut self, mut poll: &mut Poll) {
+    fn cleanup_connections(&mut self, mut poll: &mut Poll) -> ResultExtWrapper<()> {
         for conn in self.connections.values_mut() {
             if conn.last_seen + 1200000 < common::get_current_stamp() {
                 conn.close(&mut poll);
@@ -395,13 +396,14 @@ impl TlsServer {
                 }
             }
         }
+        Ok(())
     }
 
     fn liveness_check(&mut self) {
         for conn in self.connections.values_mut() {
             if conn.last_seen + 300000 < common::get_current_stamp() {
                 let self_peer = conn.get_self_peer().clone();
-                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize());
+                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize()).unwrap();
             }
         }
     }
@@ -739,7 +741,7 @@ impl Connection {
     fn process_complete_packet(&mut self,
                                buckets: &mut Buckets,
                                buf: &[u8],
-                               packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
+                               packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>)  {
         let outer = Arc::new(box NetworkMessage::deserialize(&buf));
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
@@ -750,7 +752,7 @@ impl Connection {
                         //Respond with pong
                         debug!("Got request for ping");
                         self.update_last_seen();
-                        serialize_bytes(self, &NetworkResponse::Pong(self_peer).serialize());
+                        serialize_bytes(self, &NetworkResponse::Pong(self_peer).serialize()).unwrap();
                     }
                     NetworkRequest::FindNode(_, x) => {
                         //Return list of nodes
@@ -758,7 +760,7 @@ impl Connection {
                         self.update_last_seen();
                         let nodes = buckets.closest_nodes(x);
                         serialize_bytes(self,
-                                        &NetworkResponse::FindNode(self_peer, nodes).serialize());
+                                        &NetworkResponse::FindNode(self_peer, nodes).serialize()).unwrap();
                     }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
@@ -779,7 +781,7 @@ impl Connection {
                     NetworkRequest::Handshake(sender) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
-                        serialize_bytes(self, &NetworkResponse::Handshake(self_peer).serialize());
+                        serialize_bytes(self, &NetworkResponse::Handshake(self_peer).serialize()).unwrap();
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
                         match packet_queue.send(outer.clone()) {
@@ -792,7 +794,7 @@ impl Connection {
                         self.update_last_seen();
                         let nodes = buckets.get_all_nodes();
                         serialize_bytes(self,
-                                        &NetworkResponse::PeerList(self_peer, nodes).serialize());
+                                        &NetworkResponse::PeerList(self_peer, nodes).serialize()).unwrap();
                     }
                 }
             }
@@ -986,19 +988,13 @@ pub struct P2PNode {
     total_received: u64,
 }
 
-fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) {
+fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
     debug!("Serializing data to connection {} bytes", pkt.len());
     let mut size_vec = vec![];
-    size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)
-            .unwrap();
-    match conn.write_all(&size_vec[..]) {
-        Ok(_) => {}
-        Err(e) => error!("Couldn't write bytes to connection, {:?}", e),
-    };
-    match conn.write_all(pkt) {
-        Ok(_) => {}
-        Err(e) => error!("Couldn't write bytes to connection, {:?}", e),
-    };
+    size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
+    conn.write_all(&size_vec[..])?;
+    conn.write_all(pkt)?;
+    Ok(())
 }
 
 impl P2PNode {
@@ -1105,7 +1101,7 @@ impl P2PNode {
         thread::spawn(move || {
                           let mut events = Events::with_capacity(1024);
                           loop {
-                              self_clone.process(&mut events);
+                              self_clone.process(&mut events).map_err(|e| error!("{}", e)).ok();
                           }
                       })
     }
@@ -1170,12 +1166,12 @@ impl P2PNode {
         (time::get_time() - self.start_time).num_milliseconds()
     }
 
-    pub fn process_messages(&mut self) {
+    pub fn process_messages(&mut self) -> ResultExtWrapper<()> {
         //Try to send queued messages first
         //Resend queue
         let mut resend_queue = VecDeque::new();
         {
-            let mut send_q = self.send_queue.lock().unwrap();
+            let mut send_q = self.send_queue.lock()?;
             loop {
                 debug!("Processing messages!");
                 match send_q.pop_front() {
@@ -1189,13 +1185,12 @@ impl P2PNode {
                                                           _) => {
                                 //Look up connection associated with ID
                                 match self.tls_server
-                                          .lock()
-                                          .unwrap()
+                                          .lock()?
                                           .find_connection(receiver.clone())
                                 {
                                     Some(ref mut conn) => {
                                         self.total_sent += 1;
-                                        serialize_bytes(conn, &NetworkPacket::DirectMessage(me, receiver,msg).serialize());
+                                        serialize_bytes(conn, &NetworkPacket::DirectMessage(me, receiver,msg).serialize()).unwrap();
                                         debug!("Sent message");
                                     }
                                     _ => {
@@ -1210,11 +1205,11 @@ impl P2PNode {
                                                           _) => {
                                 let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me, msg));
                                 for (_, mut conn) in
-                                    &mut self.tls_server.lock().unwrap().connections
+                                    &mut self.tls_server.lock()?.connections
                                 {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                        serialize_bytes(conn, &pkt.clone().serialize()).unwrap();
                                     }
                                 }
                             }
@@ -1223,11 +1218,11 @@ impl P2PNode {
                                                            _) => {
                                 let pkt = Arc::new(NetworkRequest::BanNode(me, id));
                                 for (_, mut conn) in
-                                    &mut self.tls_server.lock().unwrap().connections
+                                    &mut self.tls_server.lock()?.connections
                                 {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                        serialize_bytes(conn, &pkt.clone().serialize())?;
                                     }
                                 }
                             }
@@ -1236,22 +1231,22 @@ impl P2PNode {
                                                            _) => {
                                 let pkt = Arc::new(NetworkRequest::UnbanNode(me, id));
                                 for (_, mut conn) in
-                                    &mut self.tls_server.lock().unwrap().connections
+                                    &mut self.tls_server.lock()?.connections
                                 {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                        serialize_bytes(conn, &pkt.clone().serialize()).unwrap();
                                     }
                                 }
                             }
                             NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(me), _, _) => {
                                 let pkt = Arc::new(NetworkRequest::GetPeers(me));
                                 for (_, mut conn) in
-                                    &mut self.tls_server.lock().unwrap().connections
+                                    &mut self.tls_server.lock()?.connections
                                 {
                                     if conn.peer.is_some() {
                                         self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize());
+                                        serialize_bytes(conn, &pkt.clone().serialize()).unwrap();
                                     }
                                 }
                             }
@@ -1265,6 +1260,7 @@ impl P2PNode {
                 }
             }
         }
+        Ok(())
     }
 
     pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: &[u8], broadcast: bool) {
@@ -1286,22 +1282,24 @@ impl P2PNode {
         }
     }
 
-    pub fn send_ban(&mut self, id: P2PPeer) {
+    pub fn send_ban(&mut self, id: P2PPeer) -> ResultExtWrapper<()> {
         self.send_queue
-            .lock()
-            .unwrap()
+            .lock()?
             .push_back(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(),
                                                                           id),
                                                   None,
                                                   None));
+        Ok(())
     }
 
-    pub fn send_unban(&mut self, id: P2PPeer) {
-        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None));
+    pub fn send_unban(&mut self, id: P2PPeer) -> ResultExtWrapper<()> {
+        self.send_queue.lock()?.push_back(NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None));
+        Ok(())
     }
 
-    pub fn send_get_peers(&mut self) {
-        self.send_queue.lock().unwrap().push_back(NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()), None, None));
+    pub fn send_get_peers(&mut self) -> ResultExtWrapper<()> {
+        self.send_queue.lock()?.push_back(NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()), None, None));
+        Ok(())
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
@@ -1369,26 +1367,22 @@ impl P2PNode {
         }
     }
 
-    pub fn process(&mut self, events: &mut Events) {
+    pub fn process(&mut self, events: &mut Events)  -> ResultExtWrapper<()> {
         self.poll
-            .lock()
-            .unwrap()
-            .poll(events, Some(Duration::from_millis(500)))
-            .unwrap();
+            .lock()?
+            .poll(events, Some(Duration::from_millis(500)))?;
 
-        match self.tls_server.lock() {
-            Ok(mut x) => x.liveness_check(),
-            Err(e) => error!("Couldn't get lock on tls_server, {:?}", e),
-        };
+        self.tls_server.lock()?.liveness_check();
 
         for event in events.iter() {
+            let mut tls_ref = self.tls_server.lock()?;
+            let mut poll_ref = self.poll.lock()?;
+            let mut buckets_ref = self.buckets.lock()?;
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
-                    if !self.tls_server
-                            .lock()
-                            .unwrap()
-                            .accept(&mut self.poll.lock().unwrap(), self.get_self_peer().clone())
+                    if !tls_ref
+                            .accept(&mut poll_ref, self.get_self_peer().clone())
                     {
                         break;
                     }
@@ -1396,22 +1390,23 @@ impl P2PNode {
                 _ => {
                     debug!("Got data!");
                     self.total_received += 1;
-                    self.tls_server
-                        .lock()
-                        .unwrap()
-                        .conn_event(&mut self.poll.lock().unwrap(),
+                    tls_ref
+                        .conn_event(&mut poll_ref,
                                     &event,
-                                    &mut self.buckets.lock().unwrap(),
+                                    &mut buckets_ref,
                                     &self.incoming_pkts);
                 }
             }
         }
 
-        self.tls_server
-            .lock()
-            .unwrap()
-            .cleanup_connections(&mut self.poll.lock().unwrap());
+        {
+            let mut tls_ref = self.tls_server.lock()?;
+            let mut poll_ref = self.poll.lock()?;
+            tls_ref
+                .cleanup_connections(&mut poll_ref)?;
+        }
 
-        self.process_messages();
+        self.process_messages()?;
+        Ok(())
     }
 }

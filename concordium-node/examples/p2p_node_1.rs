@@ -19,7 +19,7 @@ use p2p_client::errors::*;
 
 quick_main!(run);
 
-fn run() -> Result<()> {
+fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_config();
 
     let env = if conf.debug {

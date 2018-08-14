@@ -363,8 +363,7 @@ impl P2P for RpcServerImpl {
                             true
                         };
                         if db_done {
-                            node.send_ban(peer.clone());
-                            r.set_value(true);
+                            r.set_value(node.send_ban(peer.clone()).is_ok());
                         } else {
                             node.unban_node(peer.clone());
                             r.set_value(false);
@@ -405,8 +404,7 @@ impl P2P for RpcServerImpl {
                             true
                         };
                         if db_done {
-                            node.send_unban(peer.clone());
-                            r.set_value(true);
+                            r.set_value(node.send_unban(peer.clone()).is_ok());
                         } else {
                             node.ban_node(peer.clone());
                             r.set_value(false);

@@ -27,7 +27,7 @@ use p2p_client::errors::*;
 
 quick_main!( run );
 
-fn run() -> Result<()>{
+fn run() -> ResultExtWrapper<()>{
     let conf = configuration::parse_config();
     let app_prefs = configuration::AppPreferences::new();
 
@@ -151,7 +151,7 @@ fn run() -> Result<()>{
                     _node_self_clone.ban_node(x.clone());
                     db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                     if !_no_trust_bans {
-                        _node_self_clone.send_ban(x.clone());
+                        _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
                     }
                 }
                 box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x),
@@ -161,7 +161,7 @@ fn run() -> Result<()>{
                     _node_self_clone.unban_node(x.clone());
                     db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                     if !_no_trust_bans {
-                        _node_self_clone.send_unban(x.clone());
+                        _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
                     }
                 }
                 box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers),
@@ -229,7 +229,7 @@ fn run() -> Result<()>{
                                               _desired_nodes_count);
                                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
                                             info!("Not enough nodes, sending GetPeers requests");
-                                            node.send_get_peers();
+                                            node.send_get_peers().map_err(|e| error!("{}", e)).ok();
                                         }
                                     }
                                     Err(e) => error!("Couldn't get node list, {:?}", e),

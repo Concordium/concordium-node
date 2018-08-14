@@ -34,7 +34,7 @@ struct ConfigCli {
 
 quick_main!( run );
 
-pub fn run() -> Result<()> {
+pub fn run() -> ResultExtWrapper<()> {
     let conf = ConfigCli::from_args();
     if !std::path::Path::new(&conf.keyfile).exists() {
         println!("Key {} doesn't exist, please specify valid file",
