@@ -514,14 +514,14 @@ impl Connection {
         }
     }
 
-    fn reregister(&self, poll: &mut Poll) {
+    fn reregister(&self, poll: &mut Poll) -> ResultExtWrapper<()>{
         match poll.reregister(&self.socket,
                               self.token,
                               self.event_set(),
                               PollOpt::level() | PollOpt::oneshot())
         {
-            Ok(_) => {}
-            Err(e) => error!("Error reregistering socket with poll, got error: {:?}", e),
+            Ok(_) => Ok(()),
+            Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
         }
     }
 
@@ -601,7 +601,7 @@ impl Connection {
                     let _ = self.socket.shutdown(Shutdown::Both);
                     self.closed = true;
                 } else {
-                    self.reregister(poll);
+                    self.reregister(poll).map_err(|e| error!("{}", e)).ok();
                 }
             }
             false => {
@@ -612,7 +612,7 @@ impl Connection {
                     let _ = self.socket.shutdown(Shutdown::Both);
                     self.closed = true;
                 } else {
-                    self.reregister(poll);
+                    self.reregister(poll).map_err(|e| error!("{}", e)).ok();
                 }
             }
         };
