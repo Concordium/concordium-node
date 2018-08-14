@@ -1175,67 +1175,94 @@ impl P2PNode {
             loop {
                 debug!("Processing messages!");
                 match send_q.pop_front() {
-                    Some(x) => {
+                    Some(x) => { 
                         debug!("Got message to process!");
                         match x.clone() {
                             NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(me,
-                                                                                       receiver,
-                                                                                       msg),
-                                                          _,
-                                                          _) => {
-                                //Look up connection associated with ID
+                                                                                    receiver,
+                                                                                    msg),
+                                                        _,
+                                                        _) => {
                                 match self.tls_server
-                                          .lock()?
-                                          .find_connection(receiver.clone())
+                                        .lock()?
+                                        .find_connection(receiver.clone())
                                 {
                                     Some(ref mut conn) => {
-                                        self.total_sent += 1;
-                                        serialize_bytes(conn, &NetworkPacket::DirectMessage(me, receiver,msg).serialize()).unwrap();
-                                        debug!("Sent message");
+                                        if let Some( ref peer ) = conn.peer.clone() {
+                                            match serialize_bytes(conn, &NetworkPacket::DirectMessage(me,receiver,msg).serialize()) {
+                                                Ok(_) => {
+                                                    self.total_sent += 1;
+                                                    debug!("Sent message");
+                                                }
+                                                Err(e) => {
+                                                    error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
+                                                    resend_queue.push_back(x);
+                                                }
+                                            }
+                                        }
+                                        
                                     }
                                     _ => {
                                         resend_queue.push_back(x);
                                         debug!("Couldn't find connection, requeuing message!");
                                     }
-                                };
+                                }
                             }
                             NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(me,
                                                                                             msg),
-                                                          _,
-                                                          _) => {
+                                                        _,
+                                                        _) => {
                                 let pkt = Arc::new(NetworkPacket::BroadcastedMessage(me, msg));
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
-                                    if conn.peer.is_some() {
-                                        self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize()).unwrap();
+                                    if let Some(ref peer) = conn.peer.clone() {
+                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                            Ok(_) => {
+                                                self.total_sent += 1;
+                                            }
+                                            Err(e) => {
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                            }
+                                        }
                                     }
                                 }
                             }
                             NetworkMessage::NetworkRequest(NetworkRequest::BanNode(me, id),
-                                                           _,
-                                                           _) => {
+                                                        _,
+                                                        _) => {
                                 let pkt = Arc::new(NetworkRequest::BanNode(me, id));
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
-                                    if conn.peer.is_some() {
-                                        self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize())?;
+                                    if let Some(ref peer) = conn.peer.clone() {
+                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                            Ok(_) => {
+                                                self.total_sent += 1;
+                                            }
+                                            Err(e) => {
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                            }
+                                        }
                                     }
                                 }
                             }
                             NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(me, id),
-                                                           _,
-                                                           _) => {
+                                                        _,
+                                                        _) => {
                                 let pkt = Arc::new(NetworkRequest::UnbanNode(me, id));
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
-                                    if conn.peer.is_some() {
-                                        self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize()).unwrap();
+                                    if let Some(ref peer ) = conn.peer.clone() {
+                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                            Ok(_) => {
+                                                self.total_sent += 1;
+                                            }
+                                            Err(e) => {
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1244,9 +1271,15 @@ impl P2PNode {
                                 for (_, mut conn) in
                                     &mut self.tls_server.lock()?.connections
                                 {
-                                    if conn.peer.is_some() {
-                                        self.total_sent += 1;
-                                        serialize_bytes(conn, &pkt.clone().serialize()).unwrap();
+                                    if let Some(ref peer) = conn.peer.clone() { 
+                                        match serialize_bytes(conn, &pkt.clone().serialize()) {
+                                            Ok(_) => {
+                                                self.total_sent += 1;
+                                            }
+                                            Err(e) => {
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                            }
+                                        }
                                     }
                                 }
                             }
