@@ -95,7 +95,7 @@ fn run() -> ResultExtWrapper<()> {
         P2PNode::new(conf.id, listen_port, pkt_in, None)
     };
 
-    node.connect("127.0.0.1".parse().unwrap(), 8888);
+    node.connect("127.0.0.1".parse().unwrap(), 8888)?;;
 
     let _th = node.spawn();
 

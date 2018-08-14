@@ -235,7 +235,7 @@ impl TlsServer {
         self.banned_peers.remove(&peer)
     }
 
-    fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> bool {
+    fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> ResultExtWrapper<()> {
         match self.server.accept() {
             Ok((socket, addr)) => {
                 debug!("Accepting new connection from {:?}", addr);
@@ -255,29 +255,26 @@ impl TlsServer {
                                                         self_id.clone(),
                                                         addr.ip().clone(),
                                                         addr.port().clone()));
-                self.connections[&token].register(poll);
-
-                true
+                self.connections[&token].register(poll)
             }
             Err(e) => {
-                error!("encountered error while accepting connection; err={:?}", e);
-                false
+                Err(ErrorKindWrapper::InternalIOError(e).into())
             }
         }
     }
 
-    fn connect(&mut self, poll: &mut Poll, ip: IpAddr, port: u16, self_id: &P2PPeer) -> bool {
+    fn connect(&mut self, poll: &mut Poll, ip: IpAddr, port: u16, self_id: &P2PPeer) -> ResultExtWrapper<()> {
         let self_peer = self.get_self_peer();
         if self_peer.ip() == ip && self_peer.port() == port {
-            return false;
+            return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
         }
         for (_, ref conn) in &self.connections {
             if let Some(ref peer) = conn.peer {
                 if peer.ip() == ip && peer.port() == port {
-                    return false;
+                    return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
                 }
             } else if conn.ip() == ip && conn.port() == port {
-                return false;
+                return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
             }
         }
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
@@ -291,10 +288,8 @@ impl TlsServer {
                                        });
 
                 let token = Token(self.next_id);
-                self.next_id += 1;
 
-                self.connections.insert(token,
-                                        Connection::new(x,
+                let conn = Connection::new(x,
                                                         token,
                                                         None,
                                                         Some(tls_session),
@@ -302,19 +297,21 @@ impl TlsServer {
                                                         self.own_id.clone(),
                                                         self_id.clone(),
                                                         ip,
-                                                        port));
-                self.connections[&token].register(poll);
+                                                        port);
+
+                conn.register(poll)?;
+                self.next_id += 1;
+                self.connections.insert(token, conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
                 debug!("Requesting handshake from new peer!");
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
-                    serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize()).unwrap()
+                    serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize())?;
                 }
-                true
+                Ok(())
             }
             Err(e) => {
-                error!("encountered error while connecting; err={:?}", e);
-                false
+                Err(ErrorKindWrapper::InternalIOError(e).into())
             }
         }
     }
@@ -353,24 +350,25 @@ impl TlsServer {
                   poll: &mut Poll,
                   event: &Event,
                   mut buckets: &mut Buckets,
-                  packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
+                  packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) -> ResultExtWrapper<()>{
         let token = event.token();
         if self.connections.contains_key(&token) {
             match self.connections.get_mut(&token) {
-                Some(x) => x.ready(poll, event, &mut buckets, &packet_queue),
-                None => error!("Couldn't get connections mutably"),
+                Some(x) =>  x.ready(poll, event, &mut buckets, &packet_queue).map_err(|e| error!("Error while performing ready() check on connection '{}'", e)).ok(),
+                None => return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into()),
             };
 
             if self.connections[&token].is_closed() {
                 self.connections.remove(&token);
             }
         }
+        Ok(())
     }
 
     fn cleanup_connections(&mut self, mut poll: &mut Poll) -> ResultExtWrapper<()> {
         for conn in self.connections.values_mut() {
             if conn.last_seen + 1200000 < common::get_current_stamp() {
-                conn.close(&mut poll);
+                conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
             }
         }
 
@@ -389,7 +387,7 @@ impl TlsServer {
                 match conn.peer.clone() {
                     Some(ref p) => {
                         if p == peer {
-                            conn.close(&mut poll);
+                            conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
                         }
                     }
                     None => {}
@@ -399,13 +397,14 @@ impl TlsServer {
         Ok(())
     }
 
-    fn liveness_check(&mut self) {
+    fn liveness_check(&mut self) -> ResultExtWrapper<()>{
         for conn in self.connections.values_mut() {
             if conn.last_seen + 300000 < common::get_current_stamp() {
                 let self_peer = conn.get_self_peer().clone();
-                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize()).unwrap();
+                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize()).map_err(|e| error!("{}", e)).ok();
             }
         }
+        Ok(())
     }
 }
 
@@ -504,14 +503,14 @@ impl Connection {
         self.pkt_buffer = Some(BytesMut::with_capacity(1024));
     }
 
-    fn register(&self, poll: &mut Poll) {
+    fn register(&self, poll: &mut Poll) -> ResultExtWrapper<()>{
         match poll.register(&self.socket,
                             self.token,
                             self.event_set(),
                             PollOpt::level() | PollOpt::oneshot())
         {
-            Ok(_) => {}
-            Err(e) => error!("Error registering socket with poll, got error: {:?}", e),
+            Ok(_) => Ok(()),
+            Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
         }
     }
 
@@ -568,35 +567,29 @@ impl Connection {
         self.closed
     }
 
-    fn close(&mut self, poll: &mut Poll) {
+    fn close(&mut self, poll: &mut Poll) -> ResultExtWrapper<()> {
         self.closing = true;
-        match poll.deregister(&self.socket) {
-            Ok(_) => {}
-            Err(e) => error!("Error deregistering socket with poll, got error: {:?}", e),
-        }
-
-        match self.socket.shutdown(Shutdown::Both) {
-            Ok(_) => {}
-            Err(e) => error!("Error shutting down socket, got error: {:?}", e),
-        }
+        poll.deregister(&self.socket)?;
+        self.socket.shutdown(Shutdown::Both)?;
+        Ok(())
     }
 
     fn ready(&mut self,
              poll: &mut Poll,
              ev: &Event,
              buckets: &mut Buckets,
-             packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
+             packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) -> ResultExtWrapper<()>{
         if ev.readiness().is_readable() {
-            self.do_tls_read();
+            self.do_tls_read().map_err(|e| error!("{}", e)).ok();
             self.try_plain_read(&packets_queue, buckets);
         }
 
         if ev.readiness().is_writable() {
-            self.do_tls_write();
+            self.do_tls_write().map_err(|e| error!("{}", e)).ok();
         }
 
         if self.closing {
-            self.close(poll);
+            self.close(poll).map_err(|e| error!("{}", e)).ok();
         }
 
         match self.initiated_by_me {
@@ -623,9 +616,10 @@ impl Connection {
                 }
             }
         };
+        Ok(())
     }
 
-    fn do_tls_read(&mut self) {
+    fn do_tls_read(&mut self) -> ResultExtWrapper<(usize)>{
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
@@ -642,21 +636,24 @@ impl Connection {
         };
 
         if rc.is_err() {
-            let err = rc.unwrap_err();
+            let err = &rc.unwrap_err();
 
             if let io::ErrorKind::WouldBlock = err.kind() {
-                return;
+                return Err(ErrorKindWrapper::NetworkError(format!("{:?}", err)).into());
             }
 
             error!("read error {:?}", err);
             self.closing = true;
-            return;
+            return Err(ErrorKindWrapper::NetworkError(format!("read error {:?}", err)).into());
         }
 
-        if rc.unwrap() == 0 {
-            debug!("eof");
-            self.closing = true;
-            return;
+
+        if let Ok(size) = rc {
+            if size == 0 {
+                debug!("eof");
+                self.closing = true;
+                return Err(ErrorKindWrapper::NetworkError("eof".to_string()).into());
+            }
         }
 
         // Process newly-received TLS messages.
@@ -678,8 +675,10 @@ impl Connection {
         if processed.is_err() {
             error!("cannot process packet: {:?}", processed);
             self.closing = true;
-            return;
+            return Err(ErrorKindWrapper::NetworkError(format!("Can't process packet {:?}", processed)).into());
         }
+
+        rc.chain_err(|| ErrorKindWrapper::NetworkError("couldn't read from TLS socket".to_string()))
     }
 
     fn try_plain_read(&mut self,
@@ -934,7 +933,7 @@ impl Connection {
         }
     }
 
-    fn do_tls_write(&mut self) {
+    fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)>{
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
@@ -953,8 +952,8 @@ impl Connection {
         if rc.is_err() {
             error!("write failed {:?}", rc);
             self.closing = true;
-            return;
         }
+        rc.chain_err(|| ErrorKindWrapper::NetworkError("couldn't write TLS to socket".to_string()))
     }
 }
 
@@ -1110,25 +1109,23 @@ impl P2PNode {
         ::VERSION.to_string()
     }
 
-    pub fn connect(&mut self, ip: IpAddr, port: u16) -> bool {
+    pub fn connect(&mut self, ip: IpAddr, port: u16) -> ResultExtWrapper<()> {
         self.log_event(P2PEvent::InitiatingConnection(ip.clone(), port));
         match self.tls_server.lock() {
             Ok(mut x) => {
                 match self.poll.lock() {
                     Ok(mut y) => {
-                        return x.connect(&mut y, ip, port, &self.get_self_peer());
+                        x.connect(&mut y, ip, port, &self.get_self_peer())
                     }
                     Err(e) => {
-                        error!("Couldn't get lock on poll, {:?}", e);
-                        return false;
+                        Err(ErrorWrapper::from(e).into())
                     }
-                };
+                }
             }
             Err(e) => {
-                error!("Couldn't get lock on tls_server, {:?}", e);
-                return false;
+                Err(ErrorWrapper::from(e).into())
             }
-        };
+        }
     }
 
     pub fn get_own_id(&self) -> P2PNodeId {
@@ -1403,7 +1400,7 @@ impl P2PNode {
             .lock()?
             .poll(events, Some(Duration::from_millis(500)))?;
 
-        self.tls_server.lock()?.liveness_check();
+        self.tls_server.lock()?.liveness_check()?;
 
         for event in events.iter() {
             let mut tls_ref = self.tls_server.lock()?;
@@ -1412,11 +1409,9 @@ impl P2PNode {
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
-                    if !tls_ref
+                    tls_ref
                             .accept(&mut poll_ref, self.get_self_peer().clone())
-                    {
-                        break;
-                    }
+                            .map_err(|e| error!("{}", e)).ok();
                 }
                 _ => {
                     debug!("Got data!");
@@ -1425,7 +1420,7 @@ impl P2PNode {
                         .conn_event(&mut poll_ref,
                                     &event,
                                     &mut buckets_ref,
-                                    &self.incoming_pkts);
+                                    &self.incoming_pkts).map_err(|e| error!("Error occured while parsing event '{}'", e)).ok();
                 }
             }
         }

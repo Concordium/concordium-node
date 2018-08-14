@@ -116,8 +116,7 @@ impl P2P for RpcServerImpl {
             if req.has_ip() && req.has_port() {
                 let ip = IpAddr::from_str(req.get_ip().get_value()).unwrap();
                 let port = req.get_port().get_value() as u16;
-                self.node.borrow_mut().connect(ip, port);
-                r.set_value(true);
+                r.set_value(self.node.borrow_mut().connect(ip, port).map_err(|e| error!("{}", e)).is_ok());
             } else {
                 r.set_value(false);
             }

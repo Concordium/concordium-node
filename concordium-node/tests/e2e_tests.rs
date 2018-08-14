@@ -51,7 +51,7 @@ mod tests {
 
         let msg = String::from("Hello other brother!");
 
-        node_2.connect("127.0.0.1".parse().unwrap(), 8888);
+        node_2.connect("127.0.0.1".parse().unwrap(), 8888).unwrap();
 
         node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false).map_err(|e| panic!(e)).ok();
 
@@ -147,9 +147,9 @@ mod tests {
 
         let msg = String::from("Hello other brother!");
 
-        node_2.connect("127.0.0.1".parse().unwrap(), 8898);
+        node_2.connect("127.0.0.1".parse().unwrap(), 8898).unwrap();
 
-        node_3.connect("127.0.0.1".parse().unwrap(), 8899);
+        node_3.connect("127.0.0.1".parse().unwrap(), 8899).unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
 

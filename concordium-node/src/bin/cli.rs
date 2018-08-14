@@ -176,7 +176,7 @@ fn run() -> ResultExtWrapper<()>{
                     match _node_self_clone.get_nodes() {
                         Ok(x) => {
                             for peer_node in peers {
-                                if _node_self_clone.connect(peer_node.ip(), peer_node.port()) {
+                                if _node_self_clone.connect(peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e )).is_ok() {
                                     new_peers += 1;
                                 }
                                 if new_peers + x.len() as u8 >= _desired_nodes_clone {
@@ -203,7 +203,7 @@ fn run() -> ResultExtWrapper<()>{
         match utils::parse_ip_port(connect_to) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(ip, port);
+                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
             }
             None=> error!("Can't parse IP to connect to '{}'", connect_to)
         }
@@ -214,7 +214,7 @@ fn run() -> ResultExtWrapper<()>{
         Ok(nodes) => {
             for (ip, port) in nodes {
                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                node.connect(ip, port);
+                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
             }
         }
         Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
