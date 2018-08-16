@@ -44,7 +44,7 @@ mod tests {
                                            }
                                        }
                                    });
-        let node = P2PNode::new(None, 8888, pkt_in, Some(sender));
+        let node = P2PNode::new(None, 8888, pkt_in, Some(sender),P2PNodeMode::NormalMode);
 
         let mut _node_self_clone = node.clone();
 
@@ -130,7 +130,7 @@ mod tests {
                                            }
                                        }
                                    });
-        let node = P2PNode::new(None, 8889, pkt_in, Some(sender));
+        let node = P2PNode::new(None, 8889, pkt_in, Some(sender),P2PNodeMode::NormalMode);
 
         let mut _node_self_clone = node.clone();
 

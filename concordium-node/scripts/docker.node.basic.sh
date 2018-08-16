@@ -1,2 +1,2 @@
 #!/bin/sh
-docker build -f scripts/Dockerfile -t node-basic:latest .
+docker build -f scripts/basic.Dockerfile -t node-basic:latest .

@@ -13,12 +13,10 @@ extern crate timer;
 extern crate error_chain;
 
 use env_logger::Env;
-use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
+use p2p_client::common::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
-use p2p_client::rpc::RpcServerImpl;
-use p2p_client::utils;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
@@ -28,16 +26,8 @@ use p2p_client::errors::*;
 quick_main!( run );
 
 fn run() -> ResultExtWrapper<()>{
-    let conf = configuration::parse_cli_config();
+    let conf = configuration::parse_bootstrapper_config();
     let app_prefs = configuration::AppPreferences::new();
-
-    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec);
-
-    let listen_port = match conf.listen_port {
-        Some(x) => x,
-        _ => 8888,
-    };
-
     let env = if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
@@ -85,9 +75,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode)
+        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode)
     } else {
-        P2PNode::new(conf.id, listen_port, pkt_in, None, P2PNodeMode::NormalMode)
+        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, None, P2PNodeMode::BootstrapperMode)
     };
 
     match db.get_banlist() {
@@ -103,47 +93,12 @@ fn run() -> ResultExtWrapper<()>{
         }
     };
 
-    let mut rpc_serv: Option<RpcServerImpl> = None;
-    if !conf.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(),
-                                          Some(db.clone()),
-                                          conf.rpc_server_addr,
-                                          conf.rpc_server_port,
-                                          conf.rpc_server_token);
-        serv.start_server()?;
-        rpc_serv = Some(serv);
-    }
-
     let mut _node_self_clone = node.clone();
-
     let _no_trust_bans = conf.no_trust_bans;
-    let _no_trust_broadcasts = conf.no_trust_broadcasts;
-    let mut _rpc_clone = rpc_serv.clone();
-    let _desired_nodes_clone = conf.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
+
+     let _guard_pkt = thread::spawn(move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg.clone() {
-                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg),
-                                                  _,
-                                                  _) => {
-                    if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                    }
-                    info!("DirectMessage with size {} received", msg.len());
-                }
-                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
-                                                                                    ref msg),
-                                                  _,
-                                                  _) => {
-                    if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                    }
-                    if !_no_trust_broadcasts {
-                        info!("BroadcastedMessage with size {} received", msg.len());
-                        _node_self_clone.send_message(None, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
-                    }
-                }
-
                 box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x),
                                                    _,
                                                    _) => {
@@ -168,81 +123,29 @@ fn run() -> ResultExtWrapper<()>{
                         }
                     }
                 }
-                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers),
-                                                    _,
-                                                    _) => {
-                    info!("Received PeerList response, attempting to satisfy desired peers");
-                    let mut new_peers = 0;
-                    match _node_self_clone.get_nodes() {
-                        Ok(x) => {
-                            for peer_node in peers {
-                                if _node_self_clone.connect(peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e )).is_ok() {
-                                    new_peers += 1;
-                                }
-                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                    break;
-                                }
-                            }
-                        }
-                        _ => {
-                            error!("Can't get nodes - so not trying to connect to new peers!");
-                        }
-                    }
-                }
                 _ => {}
             }
         }
     });
 
-    info!("Concordium P2P layer. Network disabled: {}",
-          conf.no_network);
-
     let _node_th = node.spawn();
-
-    if let Some(ref connect_to) = conf.connect_to {
-        match utils::parse_ip_port(connect_to) {
-            Some((ip, port)) => {
-                info!("Connecting to peer {}", &connect_to);
-                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
-            }
-            None=> error!("Can't parse IP to connect to '{}'", connect_to)
-        }
-    }
-
-    info!("Attempting to bootstrap via DNS");
-    match bootstrap_nodes {
-        Ok(nodes) => {
-            for (ip, port) in nodes {
-                info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
-            }
-        }
-        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
-    };
 
     let timer = Timer::new();
 
-    let _desired_nodes_count = conf.desired_nodes;
-    let _no_net_clone = conf.no_network;
+    let _max_nodes = conf.max_nodes;
+
     let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                                 match node.get_nodes() {
                                     Ok(x) => {
                                         info!("I currently have {}/{} nodes!",
                                               x.len(),
-                                              _desired_nodes_count);
-                                        if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
-                                            info!("Not enough nodes, sending GetPeers requests");
-                                            node.send_get_peers().map_err(|e| error!("{}", e)).ok();
-                                        }
+                                              _max_nodes);
                                     }
                                     Err(e) => error!("Couldn't get node list, {:?}", e),
                                 };
                             });
 
     _node_th.join().unwrap();
-    if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server()?;
-    }
 
     Ok(())
 }

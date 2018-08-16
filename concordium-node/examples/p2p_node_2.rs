@@ -20,7 +20,7 @@ use p2p_client::errors::*;
 quick_main!(run);
 
 fn run() -> ResultExtWrapper<()> {
-    let conf = configuration::parse_config();
+    let conf = configuration::parse_cli_config();
 
     let env = if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
@@ -90,9 +90,9 @@ fn run() -> ResultExtWrapper<()> {
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender))
+        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode)
     } else {
-        P2PNode::new(conf.id, listen_port, pkt_in, None)
+        P2PNode::new(conf.id, listen_port, pkt_in, None,P2PNodeMode::NormalMode)
     };
 
     node.connect("127.0.0.1".parse().unwrap(), 8888)?;;

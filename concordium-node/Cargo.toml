@@ -69,6 +69,10 @@ path = "src/bin/cli.rs"
 name = "p2p_client-cli"
 
 [[bin]]
+path = "src/bin/bootstrapper.rs"
+name = "p2p_bootstrapper-cli"
+
+[[bin]]
 path = "src/bin/dnsrecordgen.rs"
 name = "dns_record_generator"
 

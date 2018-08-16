@@ -39,6 +39,12 @@ const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
 
+#[derive(Clone,Copy)]
+pub enum P2PNodeMode {
+    NormalMode,
+    BootstrapperMode,
+}
+
 pub enum P2PEvent {
     ConnectEvent(String, u16),
     DisconnectEvent(String),
@@ -174,6 +180,7 @@ struct TlsServer {
     event_log: Option<Sender<P2PEvent>>,
     self_peer: P2PPeer,
     banned_peers: HashSet<P2PPeer>,
+    mode: P2PNodeMode,
 }
 
 impl TlsServer {
@@ -182,7 +189,8 @@ impl TlsServer {
            client_cfg: Arc<ClientConfig>,
            own_id: P2PNodeId,
            event_log: Option<Sender<P2PEvent>>,
-           self_peer: P2PPeer)
+           self_peer: P2PPeer,
+           mode: P2PNodeMode)
            -> TlsServer {
         TlsServer { server,
                     connections: HashMap::new(),
@@ -192,7 +200,8 @@ impl TlsServer {
                     own_id,
                     event_log,
                     self_peer,
-                    banned_peers: HashSet::new(), }
+                    banned_peers: HashSet::new(), 
+                    mode : mode,}
     }
 
     fn log_event(&mut self, event: P2PEvent) {
@@ -254,7 +263,8 @@ impl TlsServer {
                                                         self.own_id.clone(),
                                                         self_id.clone(),
                                                         addr.ip().clone(),
-                                                        addr.port().clone()));
+                                                        addr.port().clone(), 
+                                                        self.mode));
                 self.connections[&token].register(poll)
             }
             Err(e) => {
@@ -297,7 +307,8 @@ impl TlsServer {
                                                         self.own_id.clone(),
                                                         self_id.clone(),
                                                         ip,
-                                                        port);
+                                                        port,
+                                                        self.mode);
 
                 conn.register(poll)?;
                 self.next_id += 1;
@@ -427,6 +438,7 @@ struct Connection {
     self_peer: P2PPeer,
     messages_sent: u64,
     messages_received: u64,
+    mode: P2PNodeMode,
 }
 
 impl Connection {
@@ -438,7 +450,8 @@ impl Connection {
            own_id: P2PNodeId,
            self_peer: P2PPeer,
            peer_ip: IpAddr,
-           peer_port: u16)
+           peer_port: u16,
+           mode: P2PNodeMode,)
            -> Connection {
         Connection { socket,
                      token,
@@ -457,7 +470,8 @@ impl Connection {
                      messages_received: 0,
                      messages_sent: 0,
                      peer_ip: peer_ip,
-                     peer_port: peer_port, }
+                     peer_port: peer_port, 
+                     mode: mode,}
     }
 
     pub fn ip(&self) -> IpAddr {
@@ -1000,7 +1014,8 @@ impl P2PNode {
     pub fn new(supplied_id: Option<String>,
                port: u16,
                pkt_queue: mpsc::Sender<Arc<Box<NetworkMessage>>>,
-               event_log: Option<mpsc::Sender<P2PEvent>>)
+               event_log: Option<mpsc::Sender<P2PEvent>>,
+               mode: P2PNodeMode)
                -> P2PNode {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();
 
@@ -1079,7 +1094,7 @@ impl P2PNode {
                                      Arc::new(client_conf),
                                      _id.clone(),
                                      event_log.clone(),
-                                     P2PPeer::from(_id.clone(), IpAddr::V4(ip), port));
+                                     P2PPeer::from(_id.clone(), IpAddr::V4(ip), port), mode);
 
         P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),

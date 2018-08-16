@@ -11,7 +11,7 @@ const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 
 #[derive(StructOpt, Debug)]
 #[structopt()]
-pub struct Config {
+pub struct CliConfig {
     #[structopt(long = "no-network",
                 short = "nonet",
                 help = "Disable network")]
@@ -58,8 +58,34 @@ pub struct Config {
     pub require_dnssec: bool,
 }
 
-pub fn parse_config() -> Config {
-    return Config::from_args();
+pub fn parse_cli_config() -> CliConfig {
+    CliConfig::from_args()
+}
+
+#[derive(StructOpt, Debug)]
+#[structopt()]
+pub struct BootstrapperConfig {
+    #[structopt(long="max-nodes", help = "Max nodes allowed to connect", default_value="10000")]
+    pub max_nodes: u16,
+    #[structopt(long="external-ip", help = "Own external IP")]
+    pub external_ip: String,
+    #[structopt(long = "external-port", help = "Own external port")]
+    pub external_port: u16,
+    #[structopt(long = "debug", short = "d", help = "Debug mode")]
+    pub debug: bool,
+    #[structopt(long = "id", short = "i", help = "Own node id")]
+    pub id: String,
+    #[structopt(long = "listen-port",
+                short = "l",
+                help = "Port to listen on")]
+    pub listen_port: u16,
+    #[structopt(long = "no-trust-bans",
+                help = "Don't blindly trust ban/unban requests")]
+    pub no_trust_bans: bool,    
+}
+
+pub fn parse_bootstrapper_config() -> BootstrapperConfig {
+    BootstrapperConfig::from_args()
 }
 
 pub struct AppPreferences {
