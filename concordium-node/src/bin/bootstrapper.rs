@@ -18,10 +18,11 @@ use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc,Mutex};
 use std::thread;
 use timer::Timer;
 use p2p_client::errors::*;
+use p2p_client::prometheus_exporter::PrometheusServer;
 
 quick_main!( run );
 
@@ -47,6 +48,14 @@ fn run() -> ResultExtWrapper<()>{
     db_path.push("p2p.db");
 
     let db = P2PDB::new(db_path.as_path());
+
+    let prometheus = if conf.prometheus {
+        let mut srv = PrometheusServer::new();
+        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
+        Some(Arc::new(Mutex::new(srv)))
+    } else {
+        None
+    };
 
     info!("Debugging enabled {}", conf.debug);
 
@@ -75,9 +84,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode)
+        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode, prometheus)
     } else {
-        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, None, P2PNodeMode::BootstrapperMode)
+        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, None, P2PNodeMode::BootstrapperMode, prometheus)
     };
 
     match db.get_banlist() {

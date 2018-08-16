@@ -13,9 +13,10 @@ use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeI
 use p2p_client::configuration;
 use p2p_client::p2p::*;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc,Mutex};
 use std::{thread, time};
 use p2p_client::errors::*;
+use p2p_client::prometheus_exporter::PrometheusServer;
 
 quick_main!(run);
 
@@ -36,6 +37,14 @@ fn run() -> ResultExtWrapper<()> {
     let listen_port = match conf.listen_port {
         Some(x) => x,
         _ => 8889,
+    };
+
+    let prometheus = if conf.prometheus {
+        let mut srv = PrometheusServer::new();
+        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
+        Some(Arc::new(Mutex::new(srv)))
+    } else {
+        None
     };
 
     info!("Debuging enabled {}", conf.debug);
@@ -90,12 +99,12 @@ fn run() -> ResultExtWrapper<()> {
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode)
+        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus)
     } else {
-        P2PNode::new(conf.id, listen_port, pkt_in, None,P2PNodeMode::NormalMode)
+        P2PNode::new(conf.id, listen_port, pkt_in, None,P2PNodeMode::NormalMode, prometheus)
     };
 
-    node.connect("127.0.0.1".parse().unwrap(), 8888)?;;
+    node.connect("127.0.0.1".parse().unwrap(), 8888)?;
 
     let _th = node.spawn();
 

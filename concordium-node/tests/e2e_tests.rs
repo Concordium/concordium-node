@@ -41,11 +41,11 @@ mod tests {
                                        }
                                    });
 
-        let mut node_1 = P2PNode::new(None, 8888, pkt_in_1, Some(sender),P2PNodeMode::NormalMode);
+        let mut node_1 = P2PNode::new(None, 8888, pkt_in_1, Some(sender),P2PNodeMode::NormalMode, None);
 
         let mut _th_1 = node_1.spawn();
 
-        let mut node_2 = P2PNode::new(None, 8889, pkt_in_2, None,P2PNodeMode::NormalMode);
+        let mut node_2 = P2PNode::new(None, 8889, pkt_in_2, None,P2PNodeMode::NormalMode, None);
 
         let _th_2 = node_2.spawn();
 
@@ -117,11 +117,11 @@ mod tests {
                                        }
                                    });
 
-        let mut node_1 = P2PNode::new(None, 8898, pkt_in_1, Some(sender),P2PNodeMode::NormalMode);
+        let mut node_1 = P2PNode::new(None, 8898, pkt_in_1, Some(sender),P2PNodeMode::NormalMode, None);
 
         let mut _th_1 = node_1.spawn();
 
-        let mut node_2 = P2PNode::new(None, 8899, pkt_in_2, None,P2PNodeMode::NormalMode);
+        let mut node_2 = P2PNode::new(None, 8899, pkt_in_2, None,P2PNodeMode::NormalMode, None);
 
         let _th_2 = node_2.spawn();
 
@@ -141,7 +141,7 @@ mod tests {
             }
         });
 
-        let mut node_3 = P2PNode::new(None, 8900, pkt_in_3, None,P2PNodeMode::NormalMode);
+        let mut node_3 = P2PNode::new(None, 8900, pkt_in_3, None,P2PNodeMode::NormalMode, None);
 
         let _th_3 = node_3.spawn();
 

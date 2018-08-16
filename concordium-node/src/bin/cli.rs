@@ -20,10 +20,11 @@ use p2p_client::p2p::*;
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc,Mutex};
 use std::thread;
 use timer::Timer;
 use p2p_client::errors::*;
+use p2p_client::prometheus_exporter::PrometheusServer;
 
 quick_main!( run );
 
@@ -58,6 +59,14 @@ fn run() -> ResultExtWrapper<()>{
 
     let db = P2PDB::new(db_path.as_path());
 
+    let prometheus = if conf.prometheus {
+        let mut srv = PrometheusServer::new();
+        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
+        Some(Arc::new(Mutex::new(srv)))
+    } else {
+        None
+    };
+
     info!("Debugging enabled {}", conf.debug);
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
@@ -85,9 +94,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode)
+        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus)
     } else {
-        P2PNode::new(conf.id, listen_port, pkt_in, None, P2PNodeMode::NormalMode)
+        P2PNode::new(conf.id, listen_port, pkt_in, None, P2PNodeMode::NormalMode, prometheus)
     };
 
     match db.get_banlist() {

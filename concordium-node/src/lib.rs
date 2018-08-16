@@ -30,6 +30,9 @@ extern crate time;
 extern crate trust_dns;
 extern crate untrusted;
 extern crate webpki;
+extern crate iron;
+extern crate router;
+extern crate prometheus;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
@@ -42,3 +45,4 @@ pub mod proto;
 pub mod rpc;
 pub mod utils;
 pub mod errors;
+pub mod prometheus_exporter;

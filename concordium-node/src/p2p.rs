@@ -34,6 +34,7 @@ use time::Timespec;
 use utils;
 use webpki::DNSNameRef;
 use errors::*;
+use prometheus_exporter::PrometheusServer;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -181,6 +182,7 @@ struct TlsServer {
     self_peer: P2PPeer,
     banned_peers: HashSet<P2PPeer>,
     mode: P2PNodeMode,
+    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
 }
 
 impl TlsServer {
@@ -190,7 +192,8 @@ impl TlsServer {
            own_id: P2PNodeId,
            event_log: Option<Sender<P2PEvent>>,
            self_peer: P2PPeer,
-           mode: P2PNodeMode)
+           mode: P2PNodeMode,
+           prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,)
            -> TlsServer {
         TlsServer { server,
                     connections: HashMap::new(),
@@ -201,7 +204,8 @@ impl TlsServer {
                     event_log,
                     self_peer,
                     banned_peers: HashSet::new(), 
-                    mode : mode,}
+                    mode : mode,
+                    prometheus_exporter: prometheus_exporter,}
     }
 
     fn log_event(&mut self, event: P2PEvent) {
@@ -264,7 +268,8 @@ impl TlsServer {
                                                         self_id.clone(),
                                                         addr.ip().clone(),
                                                         addr.port().clone(), 
-                                                        self.mode));
+                                                        self.mode,
+                                                        self.prometheus_exporter.clone()));
                 self.connections[&token].register(poll)
             }
             Err(e) => {
@@ -289,6 +294,9 @@ impl TlsServer {
         }
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
             Ok(x) => {
+                if let Some(ref prom) = &self.prometheus_exporter {
+                    prom.lock()?.conn_received_inc().map_err(|e| error!("{}", e)).ok();
+                };
                 let tls_session =
                     ClientSession::new(&self.client_tls_config,
                                        match DNSNameRef::try_from_ascii_str(&"node.concordium.com")
@@ -308,7 +316,8 @@ impl TlsServer {
                                                         self_id.clone(),
                                                         ip,
                                                         port,
-                                                        self.mode);
+                                                        self.mode,
+                                                        self.prometheus_exporter.clone());
 
                 conn.register(poll)?;
                 self.next_id += 1;
@@ -439,6 +448,7 @@ struct Connection {
     messages_sent: u64,
     messages_received: u64,
     mode: P2PNodeMode,
+    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
 }
 
 impl Connection {
@@ -451,7 +461,8 @@ impl Connection {
            self_peer: P2PPeer,
            peer_ip: IpAddr,
            peer_port: u16,
-           mode: P2PNodeMode,)
+           mode: P2PNodeMode,
+           prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>)
            -> Connection {
         Connection { socket,
                      token,
@@ -471,7 +482,8 @@ impl Connection {
                      messages_sent: 0,
                      peer_ip: peer_ip,
                      peer_port: peer_port, 
-                     mode: mode,}
+                     mode: mode,
+                     prometheus_exporter: prometheus_exporter}
     }
 
     pub fn ip(&self) -> IpAddr {
@@ -585,6 +597,11 @@ impl Connection {
         self.closing = true;
         poll.deregister(&self.socket)?;
         self.socket.shutdown(Shutdown::Both)?;
+        if let Some(ref prom) = &self.prometheus_exporter {
+            if let Some(_) = &self.peer {
+                prom.lock()?.peers_dec().map_err(|e| error!("{}", e)).ok();
+            };
+        };
         Ok(())
     }
 
@@ -758,6 +775,9 @@ impl Connection {
         let outer = Arc::new(box NetworkMessage::deserialize(&buf));
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
+        if let Some(ref prom) = &self.prometheus_exporter {
+            prom.lock().unwrap().pkt_received_inc().map_err(|e| error!("{}", e)).ok();
+        };
         match *outer.clone() {
             box NetworkMessage::NetworkRequest(ref x, _, _) => {
                 match x {
@@ -765,6 +785,10 @@ impl Connection {
                         //Respond with pong
                         debug!("Got request for ping");
                         self.update_last_seen();
+                        // TODO flow upstream as total_sent
+                        if let Some(ref prom) = &self.prometheus_exporter {
+                            prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                        };
                         serialize_bytes(self, &NetworkResponse::Pong(self_peer).serialize()).unwrap();
                     }
                     NetworkRequest::FindNode(_, x) => {
@@ -797,6 +821,9 @@ impl Connection {
                         serialize_bytes(self, &NetworkResponse::Handshake(self_peer).serialize()).unwrap();
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
+                        if let Some(ref prom) = &self.prometheus_exporter {
+                            prom.lock().unwrap().peers_inc().map_err(|e| error!("{}", e)).ok();
+                        };
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
@@ -806,6 +833,10 @@ impl Connection {
                         debug!("Got request for GetPeers");
                         self.update_last_seen();
                         let nodes = buckets.get_all_nodes();
+                        // TODO flow upstream as total_sent
+                        if let Some(ref prom) = &self.prometheus_exporter {
+                            prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                        };
                         serialize_bytes(self,
                                         &NetworkResponse::PeerList(self_peer, nodes).serialize()).unwrap();
                     }
@@ -846,6 +877,9 @@ impl Connection {
                         self.update_last_seen();
                         self.peer = Some(peer.clone());
                         buckets.insert_into_bucket(peer, &self.own_id);
+                        if let Some(ref prom) = &self.prometheus_exporter {
+                            prom.lock().unwrap().peers_inc().map_err(|e| error!("{}", e)).ok();
+                        };
                     }
                 }
             }
@@ -999,6 +1033,7 @@ pub struct P2PNode {
     start_time: Timespec,
     total_sent: u64,
     total_received: u64,
+    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
 }
 
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
@@ -1015,7 +1050,8 @@ impl P2PNode {
                port: u16,
                pkt_queue: mpsc::Sender<Arc<Box<NetworkMessage>>>,
                event_log: Option<mpsc::Sender<P2PEvent>>,
-               mode: P2PNodeMode)
+               mode: P2PNodeMode,
+               prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>)
                -> P2PNode {
         let addr = format!("0.0.0.0:{}", port).parse().unwrap();
 
@@ -1094,7 +1130,7 @@ impl P2PNode {
                                      Arc::new(client_conf),
                                      _id.clone(),
                                      event_log.clone(),
-                                     P2PPeer::from(_id.clone(), IpAddr::V4(ip), port), mode);
+                                     P2PPeer::from(_id.clone(), IpAddr::V4(ip), port), mode, prometheus_exporter.clone());
 
         P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),
@@ -1107,7 +1143,8 @@ impl P2PNode {
                   event_log,
                   start_time: time::get_time(),
                   total_sent: 0,
-                  total_received: 0, }
+                  total_received: 0,
+                  prometheus_exporter: prometheus_exporter, }
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -1204,6 +1241,9 @@ impl P2PNode {
                                                 match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                     Ok(_) => {
                                                         self.total_sent += 1;
+                                                        if let Some(ref prom) = &self.prometheus_exporter {
+                                                            prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                        };
                                                         debug!("Sent message");
                                                     }
                                                     Err(e) => {
@@ -1229,6 +1269,9 @@ impl P2PNode {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
+                                                if let Some(ref prom) = &self.prometheus_exporter {
+                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                };
                                                 self.total_sent += 1;
                                             }
                                             Err(e) => {
@@ -1247,6 +1290,9 @@ impl P2PNode {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
+                                                if let Some(ref prom) = &self.prometheus_exporter {
+                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                };
                                                 self.total_sent += 1;
                                             }
                                             Err(e) => {
@@ -1265,6 +1311,9 @@ impl P2PNode {
                                     if let Some(ref peer ) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
+                                                if let Some(ref prom) = &self.prometheus_exporter {
+                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                };
                                                 self.total_sent += 1;
                                             }
                                             Err(e) => {
@@ -1281,6 +1330,9 @@ impl P2PNode {
                                     if let Some(ref peer) = conn.peer.clone() { 
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
+                                                if let Some(ref prom) = &self.prometheus_exporter {
+                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                };
                                                 self.total_sent += 1;
                                             }
                                             Err(e) => {
@@ -1427,6 +1479,9 @@ impl P2PNode {
                     tls_ref
                             .accept(&mut poll_ref, self.get_self_peer().clone())
                             .map_err(|e| error!("{}", e)).ok();
+                    if let Some(ref prom) = &self.prometheus_exporter {
+                        prom.lock()?.conn_received_inc().map_err(|e| error!("{}", e)).ok();
+                    };
                 }
                 _ => {
                     debug!("Got data!");
