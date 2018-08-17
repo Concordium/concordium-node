@@ -34,11 +34,6 @@ fn run() -> ResultExtWrapper<()> {
           p2p_client::APPNAME,
           p2p_client::VERSION);
 
-    let listen_port = match conf.listen_port {
-        Some(x) => x,
-        _ => 8888,
-    };
-
     let prometheus = if conf.prometheus {
         let mut srv = PrometheusServer::new();
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
@@ -99,9 +94,9 @@ fn run() -> ResultExtWrapper<()> {
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus)
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus)
     } else {
-        P2PNode::new(conf.id, listen_port, pkt_in, None,P2PNodeMode::NormalMode, prometheus)
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None,P2PNodeMode::NormalMode, prometheus)
     };
 
     let _th = node.spawn();

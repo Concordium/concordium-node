@@ -13,6 +13,7 @@ use rustls::{
     Certificate, ClientConfig, ClientSession, NoClientAuth, PrivateKey, RootCertStore,
     ServerCertVerified, ServerCertVerifier, ServerConfig, ServerSession, Session, TLSError,
 };
+use std::str::FromStr;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::io::Cursor;
@@ -22,7 +23,6 @@ use std::io::Read;
 use std::io::Write;
 use std::net::IpAddr;
 use std::net::IpAddr::{V4, V6};
-use std::net::Ipv4Addr;
 use std::net::{Shutdown, SocketAddr};
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -1045,6 +1045,8 @@ pub struct P2PNode {
     event_log: Option<mpsc::Sender<P2PEvent>>,
     start_time: Timespec,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+    external_ip: IpAddr,
+    external_port: u16,
 }
 
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
@@ -1058,21 +1060,34 @@ fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
 
 impl P2PNode {
     pub fn new(supplied_id: Option<String>,
-               port: u16,
+               listen_address: Option<String>,
+               listen_port: u16,
+               external_ip: Option<String>,
+               external_port: Option<u16>,
                pkt_queue: mpsc::Sender<Arc<Box<NetworkMessage>>>,
                event_log: Option<mpsc::Sender<P2PEvent>>,
                mode: P2PNodeMode,
                prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>)
                -> P2PNode {
-        let addr = format!("0.0.0.0:{}", port).parse().unwrap();
+        let addr = if let Some(ref addy) = listen_address {
+            format!("{}:{}", addy, listen_port).parse().unwrap()
+        } else {
+            format!("0.0.0.0:{}", listen_port).parse().unwrap()
+        };
 
         debug!("Creating new P2PNode");
 
         //Retrieve IP address octets, format to IP and SHA256 hash it
-        let ip = P2PNode::get_ip().unwrap();
-        let octets = ip.octets();
-        let ip_port = format!("{}.{}.{}.{}:{}",
-                              octets[0], octets[1], octets[2], octets[3], port);
+        let ip = if let Some(ref addy) = listen_address {
+            match IpAddr::from_str(addy) {
+                Ok(x) => x,
+                _ => P2PNode::get_ip().unwrap()
+            }
+        } else {
+            P2PNode::get_ip().unwrap()
+        };
+        let ip_port = format!("{}:{}",
+                              ip.to_string(), listen_port);
         debug!("Listening on {:?}", ip_port);
 
         let id = match supplied_id {
@@ -1136,24 +1151,43 @@ impl P2PNode {
         client_conf.dangerous()
                    .set_certificate_verifier(Arc::new(NoCertificateVerification {}));
 
+        let own_peer_ip = if let Some(ref own_ip) = external_ip {
+            match IpAddr::from_str(own_ip) {
+                Ok(ip) => ip,
+                _ => ip
+            } 
+        } else {
+            ip
+        };
+
+        let own_peer_port = if let Some( own_port) = external_port {
+            own_port
+        } else {
+            listen_port
+        };
+
+        let self_peer = P2PPeer::from(_id.clone(), own_peer_ip, own_peer_port);
+
         let tlsserv = TlsServer::new(server,
                                      Arc::new(server_conf),
                                      Arc::new(client_conf),
                                      _id.clone(),
                                      event_log.clone(),
-                                     P2PPeer::from(_id.clone(), IpAddr::V4(ip), port), mode, prometheus_exporter.clone());
+                                     self_peer, mode, prometheus_exporter.clone());
 
         P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),
                   id: _id,
                   buckets: Arc::new(Mutex::new(Buckets::new())),
                   send_queue: Arc::new(Mutex::new(VecDeque::new())),
-                  ip: IpAddr::V4(ip),
-                  port: port,
+                  ip: ip,
+                  port: listen_port,
                   incoming_pkts: pkt_queue,
                   event_log,
                   start_time: time::get_time(),
-                  prometheus_exporter: prometheus_exporter, }
+                  prometheus_exporter: prometheus_exporter, 
+                  external_ip: own_peer_ip,
+                  external_port: own_peer_port,}
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -1415,8 +1449,9 @@ impl P2PNode {
         }
     }
 
-    pub fn get_ip() -> Option<Ipv4Addr> {
-        let mut ip: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
+    pub fn get_ip() -> Option<IpAddr> {
+        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
+        let mut ip: IpAddr = localhost.clone();
 
         for adapter in get_if_addrs::get_if_addrs().unwrap() {
             match adapter.addr.ip() {
@@ -1426,7 +1461,7 @@ impl P2PNode {
                        && !x.is_multicast()
                        && !x.is_broadcast()
                     {
-                        ip = x;
+                        ip = IpAddr::V4(x);
                     }
                 }
                 V6(_) => {
@@ -1435,7 +1470,7 @@ impl P2PNode {
             };
         }
 
-        if ip == Ipv4Addr::new(127, 0, 0, 1) {
+        if ip == localhost {
             None
         } else {
             Some(ip)

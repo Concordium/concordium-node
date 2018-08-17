@@ -34,11 +34,6 @@ fn run() -> ResultExtWrapper<()>{
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec);
 
-    let listen_port = match conf.listen_port {
-        Some(x) => x,
-        _ => 8888,
-    };
-
     let env = if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
@@ -94,9 +89,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, listen_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus)
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus)
     } else {
-        P2PNode::new(conf.id, listen_port, pkt_in, None, P2PNodeMode::NormalMode, prometheus)
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, P2PNodeMode::NormalMode, prometheus)
     };
 
     match db.get_banlist() {

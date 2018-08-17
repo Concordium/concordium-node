@@ -18,4 +18,6 @@ RUN apt-get update -yqq
 RUN apt-get install libssl1.1
 EXPOSE 10000
 EXPOSE 8888
-CMD ["./p2p_client-cli"]
+ENV EXTRA_ARGS="--debug"
+ENV DESIRED_PEERS="50"
+CMD ["./p2p_client-cli", "--desired-nodes", "${DESIRED_PEERS}", "${EXTRA_ARGS}"]

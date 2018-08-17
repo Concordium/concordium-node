@@ -12,6 +12,10 @@ const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 #[derive(StructOpt, Debug)]
 #[structopt()]
 pub struct CliConfig {
+    #[structopt(long="external-ip", help = "Own external IP")]
+    pub external_ip: Option<String>,
+    #[structopt(long = "external-port", help = "Own external port")]
+    pub external_port: Option<u16>,
     #[structopt(long = "no-network",
                 short = "nonet",
                 help = "Disable network")]
@@ -21,9 +25,13 @@ pub struct CliConfig {
                 help = "Peer to connect to upon startup")]
     pub connect_to: Option<String>,
     #[structopt(long = "listen-port",
+                short = "p",
+                help = "Port to listen on", default_value = "8888")]
+    pub listen_port: u16,
+    #[structopt(long = "listen-address",
                 short = "l",
-                help = "Port to listen on")]
-    pub listen_port: Option<u16>,
+                help = "Address to listen on")]
+    pub listen_address: Option<String>,
     #[structopt(long = "id", short = "i", help = "Set forced node id")]
     pub id: Option<String>,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
@@ -74,17 +82,21 @@ pub struct BootstrapperConfig {
     #[structopt(long="max-nodes", help = "Max nodes allowed to connect", default_value="10000")]
     pub max_nodes: u16,
     #[structopt(long="external-ip", help = "Own external IP")]
-    pub external_ip: String,
+    pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
-    pub external_port: u16,
+    pub external_port: Option<u16>,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
     pub debug: bool,
     #[structopt(long = "id", short = "i", help = "Own node id")]
     pub id: String,
     #[structopt(long = "listen-port",
-                short = "l",
-                help = "Port to listen on")]
+                short = "p",
+                help = "Port to listen on", default_value = "8888")]
     pub listen_port: u16,
+    #[structopt(long = "listen-address",
+                short = "l",
+                help = "Address to listen on")]
+    pub listen_address: Option<String>,
     #[structopt(long = "no-trust-bans",
                 help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,    

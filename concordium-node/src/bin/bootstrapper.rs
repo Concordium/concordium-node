@@ -84,9 +84,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode, prometheus)
+        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode, prometheus)
     } else {
-        P2PNode::new(Some(conf.id), conf.listen_port, pkt_in, None, P2PNodeMode::BootstrapperMode, prometheus)
+        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, P2PNodeMode::BootstrapperMode, prometheus)
     };
 
     match db.get_banlist() {
