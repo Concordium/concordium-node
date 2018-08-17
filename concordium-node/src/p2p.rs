@@ -43,6 +43,7 @@ const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
 const BOOTSTRAP_PEER_COUNT: usize = 100;
+const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 
 lazy_static! {
     static ref TOTAL_MESSAGES_RECEIVED_COUNTER: RelaxedCounter = {
@@ -435,6 +436,9 @@ impl TlsServer {
                 if conn.last_seen + 1200000 < common::get_current_stamp() {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
                 }
+                if conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED {
+                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
+                }
             }
         }
 
@@ -485,6 +489,9 @@ struct Connection {
     own_id: P2PNodeId,
     peer: Option<P2PPeer>,
     currently_read: u32,
+    pkt_validated: bool,
+    pkt_valid: bool,
+    failed_pkts: u32,
     peer_ip: IpAddr,
     peer_port: u16,
     expected_size: u32,
@@ -529,6 +536,9 @@ impl Connection {
                      peer_ip: peer_ip,
                      peer_port: peer_port, 
                      mode: mode,
+                     pkt_validated: false,
+                     pkt_valid: false,
+                     failed_pkts: 0,
                      prometheus_exporter: prometheus_exporter}
     }
 
@@ -552,6 +562,10 @@ impl Connection {
         }
     }
 
+    fn update_buffer_read_stats(&mut self, buf_len: u32) {
+        self.currently_read += buf_len;
+    }
+
     fn get_self_peer(&self) -> P2PPeer {
         self.self_peer.clone()
     }
@@ -571,8 +585,34 @@ impl Connection {
         self.pkt_buffer = None;
     }
 
+    fn pkt_validated(&self) -> bool{
+        self.pkt_validated
+    }
+
+    fn pkt_valid(&self) -> bool {
+        self.pkt_valid
+    }
+
+    fn set_validated(&mut self) {
+        self.pkt_validated = true;
+    }
+
+    fn set_valid(&mut self) {
+        self.pkt_valid = true
+    }
+
+    fn failed_pkts_inc(&mut self) {
+        self.failed_pkts += 1;
+    }
+
+    fn failed_pkts(&self) -> u32 {
+        self.failed_pkts
+    }
+
     fn setup_buffer(&mut self) {
         self.pkt_buffer = Some(BytesMut::with_capacity(1024));
+        self.pkt_valid = false;
+        self.pkt_validated = false;
     }
 
     fn register(&self, poll: &mut Poll) -> ResultExtWrapper<()>{
@@ -980,6 +1020,7 @@ impl Connection {
                 }
             }
             box NetworkMessage::UnknownMessage => {
+                self.failed_pkts_inc();
                 debug!("Unknown message received!");
                 if self.mode != P2PNodeMode::BootstrapperMode {
                     self.update_last_seen();
@@ -988,6 +1029,7 @@ impl Connection {
                        String::from_utf8(buf.to_vec()).unwrap());
             }
             box NetworkMessage::InvalidMessage => {
+                self.failed_pkts_inc();
                 debug!("Invalid message received!");
                 if self.mode != P2PNodeMode::BootstrapperMode {
                     self.update_last_seen();
@@ -998,12 +1040,8 @@ impl Connection {
         }
     }
 
-    fn incoming_plaintext(&mut self, poll: &mut Poll,
-                          packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
-                          buckets: &mut Buckets,
-                          buf: &[u8]) {
-        debug!("Received plaintext");
-        if self.mode == P2PNodeMode::BootstrapperMode {
+    fn validate_packet(&mut self, poll: &mut Poll) {
+        if !self.pkt_validated() {
             let buff = if let Some(ref bytebuf) = self.pkt_buffer {
                 if bytebuf.len() >= 132 {
                     Some(bytebuf[24..].to_vec())
@@ -1018,57 +1056,83 @@ impl Connection {
                     match P2PPeer::deserialize(&String::from_utf8(bufdata.clone().to_vec()).unwrap()) {
                         Some(ref sender) => {
                             let sender_len = sender.serialize().len();
-                            let msg_num = String::from_utf8(bufdata[(24+sender_len)..(24+sender_len+4)].to_vec()).unwrap();
-                            if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE || 
-                                msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE {
-                                info!("Received network packet message, not wanted - disconnecting peer");
-                                &self.clear_buffer();
-                                &self.close(poll);
+                            if self.mode == P2PNodeMode::BootstrapperMode {
+                                let msg_num = String::from_utf8(bufdata[(24+sender_len)..(24+sender_len+4)].to_vec()).unwrap();
+                                if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE || 
+                                    msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE {
+                                    info!("Received network packet message, not wanted - disconnecting peer");
+                                    &self.clear_buffer();
+                                    &self.close(poll);
+                                }
+                            } else {
+                                self.set_valid();
+                                self.set_validated();
                             }
                         }
-                        _ => {}
+                        _ => {
+                            self.failed_pkts_inc();
+                            self.set_validated();
+                        }
                     }
                 }
                 _ => {}
             }
         }
+    }
+
+    fn incoming_plaintext(&mut self, poll: &mut Poll,
+                          packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
+                          buckets: &mut Buckets,
+                          buf: &[u8]) {
+        debug!("Received plaintext");
+        self.validate_packet(poll);
         if self.expected_size > 0 && self.currently_read == self.expected_size {
             debug!("Completed packet with {} size", self.currently_read);
             self.expected_size = 0;
             self.currently_read = 0;
-            let mut buffered = Vec::new();
-            if let Some(ref mut buf) = self.pkt_buffer {
-                buffered = buf[..].to_vec();
-            }
-            self.process_complete_packet(buckets, &buffered, &packets_queue);
-            self.clear_buffer();
-            self.incoming_plaintext(poll, packets_queue, buckets, buf);
-        } else if self.expected_size > 0
-                  && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
-        {
-            self.append_buffer(&buf);
-            if self.expected_size == self.currently_read {
-                debug!("Completed packet with {} size", self.currently_read);
-                self.expected_size = 0;
-                self.currently_read = 0;
+            if self.pkt_valid() || !self.pkt_validated() {
                 let mut buffered = Vec::new();
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
                 self.process_complete_packet(buckets, &buffered, &packets_queue);
+            }
+            self.clear_buffer();
+            self.incoming_plaintext(poll, packets_queue, buckets, buf);
+        } else if self.expected_size > 0
+                  && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
+        {   
+            if self.pkt_valid() || !self.pkt_validated(){
+                self.append_buffer(&buf);
+            } else {
+                self.update_buffer_read_stats(buf.len() as u32);
+            }
+            if self.expected_size == self.currently_read {
+                debug!("Completed packet with {} size", self.currently_read);
+                self.expected_size = 0;
+                self.currently_read = 0;
+                if self.pkt_valid() || !self.pkt_validated(){
+                    let mut buffered = Vec::new();
+                    if let Some(ref mut buf) = self.pkt_buffer {
+                        buffered = buf[..].to_vec();
+                    }
+                    self.process_complete_packet(buckets, &buffered, &packets_queue);
+                }
                 self.clear_buffer();
             }
         } else if self.expected_size > 0
                   && buf.len() > (self.expected_size as usize - self.currently_read as usize)
         {
-            debug!("Got more buffer than needed");
+            println!("Got more buffer than needed");
             let to_take = self.expected_size - self.currently_read;
-            self.append_buffer(&buf[..to_take as usize]);
-            let mut buffered = Vec::new();
-            if let Some(ref mut buf) = self.pkt_buffer {
-                buffered = buf[..].to_vec();
+            if self.pkt_valid() || !self.pkt_validated(){
+                self.append_buffer(&buf[..to_take as usize]);
+                let mut buffered = Vec::new();
+                if let Some(ref mut buf) = self.pkt_buffer {
+                    buffered = buf[..].to_vec();
+                }
+                self.process_complete_packet(buckets, &buffered, &packets_queue);
             }
-            self.process_complete_packet(buckets, &buffered, &packets_queue);
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, buckets, &buf[to_take as usize..]);
         } else if buf.len() >= 4 {
