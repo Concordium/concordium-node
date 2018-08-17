@@ -57,6 +57,8 @@ hex = "0.3.2"
 error-chain = "0.12.0"
 iron = "*"
 router = "*"
+atomic-counter = "0.1.0"
+lazy_static = "1.1.0"
 
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"

@@ -35,10 +35,22 @@ use utils;
 use webpki::DNSNameRef;
 use errors::*;
 use prometheus_exporter::PrometheusServer;
+use atomic_counter::RelaxedCounter;
+use atomic_counter::AtomicCounter;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
+
+lazy_static! {
+    static ref TOTAL_MESSAGES_RECEIVED_COUNTER: RelaxedCounter = {
+        RelaxedCounter::new(0)
+    };
+
+    static ref TOTAL_MESSAGES_SENT_COUNTER: RelaxedCounter = {
+        RelaxedCounter::new(0)
+    };
+}
 
 #[derive(Clone,Copy)]
 pub enum P2PNodeMode {
@@ -775,6 +787,7 @@ impl Connection {
         let outer = Arc::new(box NetworkMessage::deserialize(&buf));
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
+        TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter {
             prom.lock().unwrap().pkt_received_inc().map_err(|e| error!("{}", e)).ok();
         };
@@ -785,7 +798,7 @@ impl Connection {
                         //Respond with pong
                         debug!("Got request for ping");
                         self.update_last_seen();
-                        // TODO flow upstream as total_sent
+                        TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                         };
@@ -833,7 +846,7 @@ impl Connection {
                         debug!("Got request for GetPeers");
                         self.update_last_seen();
                         let nodes = buckets.get_all_nodes();
-                        // TODO flow upstream as total_sent
+                        TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                         };
@@ -1031,8 +1044,6 @@ pub struct P2PNode {
     incoming_pkts: mpsc::Sender<Arc<Box<NetworkMessage>>>,
     event_log: Option<mpsc::Sender<P2PEvent>>,
     start_time: Timespec,
-    total_sent: u64,
-    total_received: u64,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
 }
 
@@ -1142,8 +1153,6 @@ impl P2PNode {
                   incoming_pkts: pkt_queue,
                   event_log,
                   start_time: time::get_time(),
-                  total_sent: 0,
-                  total_received: 0,
                   prometheus_exporter: prometheus_exporter, }
     }
 
@@ -1240,7 +1249,7 @@ impl P2PNode {
                                             if let Some( ref peer ) = conn.peer.clone() {
                                                 match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                     Ok(_) => {
-                                                        self.total_sent += 1;
+                                                        TOTAL_MESSAGES_SENT_COUNTER.inc();
                                                         if let Some(ref prom) = &self.prometheus_exporter {
                                                             prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                                                         };
@@ -1272,7 +1281,7 @@ impl P2PNode {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
                                                     prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                                                 };
-                                                self.total_sent += 1;
+                                                TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
                                                 error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
@@ -1293,7 +1302,7 @@ impl P2PNode {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
                                                     prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                                                 };
-                                                self.total_sent += 1;
+                                                TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
                                                 error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
@@ -1314,7 +1323,7 @@ impl P2PNode {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
                                                     prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                                                 };
-                                                self.total_sent += 1;
+                                                TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
                                                 error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
@@ -1333,7 +1342,7 @@ impl P2PNode {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
                                                     prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                                                 };
-                                                self.total_sent += 1;
+                                                TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
                                                 error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
@@ -1440,11 +1449,11 @@ impl P2PNode {
     }
 
     pub fn get_total_sent(&self) -> u64 {
-        self.total_sent
+        TOTAL_MESSAGES_SENT_COUNTER.get() as u64
     }
 
     pub fn get_total_received(&self) -> u64 {
-        self.total_received
+        TOTAL_MESSAGES_SENT_COUNTER.get() as u64
     }
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
@@ -1485,7 +1494,6 @@ impl P2PNode {
                 }
                 _ => {
                     debug!("Got data!");
-                    self.total_received += 1;
                     tls_ref
                         .conn_event(&mut poll_ref,
                                     &event,

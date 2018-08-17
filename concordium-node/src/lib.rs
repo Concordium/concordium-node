@@ -33,6 +33,9 @@ extern crate webpki;
 extern crate iron;
 extern crate router;
 extern crate prometheus;
+#[macro_use]
+extern crate lazy_static;
+extern crate atomic_counter;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
