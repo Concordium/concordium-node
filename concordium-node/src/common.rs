@@ -7,23 +7,23 @@ use std::str::FromStr;
 use time;
 use utils;
 
-const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
-const PROTOCOL_VERSION: &'static str = "001";
-const PROTOCOL_NODE_ID_LENGTH: usize = 64;
-const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 16;
+pub const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
+pub const PROTOCOL_VERSION: &'static str = "001";
+pub const PROTOCOL_NODE_ID_LENGTH: usize = 64;
+pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 16;
 
-const PROTOCOL_MESSAGE_TYPE_REQUEST_PING: &'static str = "0001";
-const PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE: &'static str = "0002";
-const PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE: &'static str = "0003";
-const PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS: &'static str = "0004";
-const PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE: &'static str = "0005";
-const PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE: &'static str = "0006";
-const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
-const PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE: &'static str = "1002";
-const PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST: &'static str = "1003";
-const PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE: &'static str = "1004";
-const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &'static str = "2001";
-const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &'static str = "2002";
+pub const PROTOCOL_MESSAGE_TYPE_REQUEST_PING: &'static str = "0001";
+pub const PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE: &'static str = "0002";
+pub const PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE: &'static str = "0003";
+pub const PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS: &'static str = "0004";
+pub const PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE: &'static str = "0005";
+pub const PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE: &'static str = "0006";
+pub const PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG: &'static str = "1001";
+pub const PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE: &'static str = "1002";
+pub const PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST: &'static str = "1003";
+pub const PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE: &'static str = "1004";
+pub const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &'static str = "2001";
+pub const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &'static str = "2002";
 
 #[derive(Debug, Clone)]
 pub enum NetworkMessage {
@@ -440,17 +440,18 @@ pub struct P2PPeer {
     ip: IpAddr,
     port: u16,
     id: P2PNodeId,
+    last_seen: u64,
 }
 
 impl P2PPeer {
     pub fn new(ip: IpAddr, port: u16) -> Self {
         P2PPeer { ip,
                   port,
-                  id: P2PNodeId::from_ip_port(ip, port), }
+                  id: P2PNodeId::from_ip_port(ip, port), last_seen: get_current_stamp(), }
     }
 
     pub fn from(id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
-        P2PPeer { id, ip, port }
+        P2PPeer { id, ip, port,last_seen:  get_current_stamp(), }
     }
 
     pub fn serialize(&self) -> String {
@@ -484,7 +485,8 @@ impl P2PPeer {
                                     Ok(port) => {
                                         return Some(P2PPeer { id: node_id,
                                                               ip: ip_addr,
-                                                              port: port, })
+                                                              port: port,
+                                                              last_seen: get_current_stamp(), })
                                     }
                                     Err(_) => return None,
                                 }
@@ -514,7 +516,7 @@ impl P2PPeer {
                                         if _node_id.get_id() == node_id.get_id() {
                                             return Some(P2PPeer { id: node_id,
                                                                   ip: ip_addr,
-                                                                  port: port, });
+                                                                  port: port, last_seen: get_current_stamp(), });
                                         } else {
                                             return None;
                                         }
@@ -546,8 +548,12 @@ impl P2PPeer {
     pub fn port(&self) -> u16 {
         self.port
     }
-}
 
+    pub fn last_seen(&self) -> u64 {
+        self.last_seen
+    }
+}
+ 
 impl PartialEq for P2PPeer {
     fn eq(&self, other: &P2PPeer) -> bool {
         self.id.id == other.id().id

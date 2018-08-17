@@ -13,6 +13,7 @@ use rustls::{
     Certificate, ClientConfig, ClientSession, NoClientAuth, PrivateKey, RootCertStore,
     ServerCertVerified, ServerCertVerifier, ServerConfig, ServerSession, Session, TLSError,
 };
+use rand::{thread_rng, Rng};
 use std::str::FromStr;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -41,6 +42,7 @@ use atomic_counter::AtomicCounter;
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
+const BOOTSTRAP_PEER_COUNT: usize = 100;
 
 lazy_static! {
     static ref TOTAL_MESSAGES_RECEIVED_COUNTER: RelaxedCounter = {
@@ -52,7 +54,7 @@ lazy_static! {
     };
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,PartialEq)]
 pub enum P2PNodeMode {
     NormalMode,
     BootstrapperMode,
@@ -96,6 +98,7 @@ impl Buckets {
                             x.remove(0);
                         }
 
+                        x.retain(| ref ele| ele != &node);
                         x.push(node.clone());
                         break;
                     }
@@ -143,9 +146,21 @@ impl Buckets {
                 break;
             }
         }
-
         ret
     }
+
+    fn clean_peers_older_than(&mut self, older_than: u64) {
+        for i in 0..KEY_SIZE {
+            match self.buckets.get_mut(&i) {
+                Some(x) => {
+                    x.retain(| ref ele| ele.last_seen() >= older_than);
+                }
+                None => {
+                    error!("Couldn't get bucket as mutable");
+                }
+            }
+        }       
+    } 
 
     pub fn get_all_nodes(&self) -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
@@ -154,7 +169,18 @@ impl Buckets {
                 ret.push(peer.clone());
             }
         }
+        ret
+    }
 
+    pub fn get_random_nodes(&self, amount: usize) -> Vec<P2PPeer> {
+        let mut ret: Vec<P2PPeer> = Vec::new();
+        for (_, bucket) in &self.buckets {
+            for peer in bucket {
+                ret.push(peer.clone());
+            }
+        }
+        thread_rng().shuffle(&mut ret);
+        ret.truncate(amount);
         ret
     }
 }
@@ -398,9 +424,17 @@ impl TlsServer {
     }
 
     fn cleanup_connections(&mut self, mut poll: &mut Poll) -> ResultExtWrapper<()> {
-        for conn in self.connections.values_mut() {
-            if conn.last_seen + 1200000 < common::get_current_stamp() {
-                conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
+        if self.mode == P2PNodeMode::BootstrapperMode {
+            for conn in self.connections.values_mut() {
+                if conn.last_seen + 300000 < common::get_current_stamp() {
+                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
+                }
+            }
+        } else {
+            for conn in self.connections.values_mut() {
+                if conn.last_seen + 1200000 < common::get_current_stamp() {
+                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
+                }
             }
         }
 
@@ -624,7 +658,7 @@ impl Connection {
              packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) -> ResultExtWrapper<()>{
         if ev.readiness().is_readable() {
             self.do_tls_read().map_err(|e| error!("{}", e)).ok();
-            self.try_plain_read(&packets_queue, buckets);
+            self.try_plain_read(poll, &packets_queue, buckets);
         }
 
         if ev.readiness().is_writable() {
@@ -724,7 +758,7 @@ impl Connection {
         rc.chain_err(|| ErrorKindWrapper::NetworkError("couldn't read from TLS socket".to_string()))
     }
 
-    fn try_plain_read(&mut self,
+    fn try_plain_read(&mut self, poll: &mut Poll,
                       packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                       mut buckets: &mut Buckets) {
         // Read and process all available plaintext.
@@ -753,7 +787,7 @@ impl Connection {
 
         if !buf.is_empty() {
             debug!("plaintext read {:?}", buf.len());
-            self.incoming_plaintext(&packets_queue, &mut buckets, &buf);
+            self.incoming_plaintext(poll, &packets_queue, &mut buckets, &buf);
         }
     }
 
@@ -797,7 +831,9 @@ impl Connection {
                     NetworkRequest::Ping(_) => {
                         //Respond with pong
                         debug!("Got request for ping");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
@@ -807,14 +843,18 @@ impl Connection {
                     NetworkRequest::FindNode(_, x) => {
                         //Return list of nodes
                         debug!("Got request for FindNode");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         let nodes = buckets.closest_nodes(x);
                         serialize_bytes(self,
                                         &NetworkResponse::FindNode(self_peer, nodes).serialize()).unwrap();
                     }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
@@ -822,7 +862,9 @@ impl Connection {
                     }
                     NetworkRequest::UnbanNode(_, _) => {
                         debug!("Got request for UnbanNode");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
@@ -831,12 +873,21 @@ impl Connection {
                     NetworkRequest::Handshake(sender) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
-                        serialize_bytes(self, &NetworkResponse::Handshake(self_peer).serialize()).unwrap();
+                        serialize_bytes(self, &NetworkResponse::Handshake(self_peer.clone()).serialize()).unwrap();
                         self.peer = Some(sender.clone());
                         buckets.insert_into_bucket(sender, &self.own_id);
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock().unwrap().peers_inc().map_err(|e| error!("{}", e)).ok();
                         };
+                        if self.mode == P2PNodeMode::BootstrapperMode {
+                            debug!("Running in bootstrapper mode, so instantly sending peers {} random peers", BOOTSTRAP_PEER_COUNT);
+                            serialize_bytes(self,
+                                &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
+                            if let Some(ref prom) = &self.prometheus_exporter {
+                                prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                            };    
+                            TOTAL_MESSAGES_SENT_COUNTER.inc();
+                        }
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
@@ -844,7 +895,9 @@ impl Connection {
                     }
                     NetworkRequest::GetPeers(_) => {
                         debug!("Got request for GetPeers");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         let nodes = buckets.get_all_nodes();
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
@@ -859,7 +912,9 @@ impl Connection {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         debug!("Got response to FindNode");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         //Process the received node list
                         for peer in peers.iter() {
                             buckets.insert_into_bucket(peer, &self.own_id);
@@ -868,13 +923,17 @@ impl Connection {
                     }
                     NetworkResponse::Pong(sender) => {
                         debug!("Got response for ping");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         //Note that node responded back
                         buckets.insert_into_bucket(sender, &self.own_id);
                     }
                     NetworkResponse::PeerList(sender, peers) => {
                         debug!("Got response to FindNode");
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         //Process the received node list
                         for peer in peers.iter() {
                             buckets.insert_into_bucket(peer, &self.own_id);
@@ -899,7 +958,9 @@ impl Connection {
             box NetworkMessage::NetworkPacket(ref x, _, _) => {
                 match x {
                     NetworkPacket::DirectMessage(_, _, ref msg) => {
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         debug!("Received direct message of size {}", msg.len());
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
@@ -907,7 +968,9 @@ impl Connection {
                         };
                     }
                     NetworkPacket::BroadcastedMessage(_, ref msg) => {
-                        self.update_last_seen();
+                        if self.mode != P2PNodeMode::BootstrapperMode {
+                            self.update_last_seen();
+                        }
                         debug!("Received broadcast message of size {}", msg.len());
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
@@ -918,24 +981,57 @@ impl Connection {
             }
             box NetworkMessage::UnknownMessage => {
                 debug!("Unknown message received!");
-                self.update_last_seen();
+                if self.mode != P2PNodeMode::BootstrapperMode {
+                    self.update_last_seen();
+                }
                 debug!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
             }
             box NetworkMessage::InvalidMessage => {
                 debug!("Invalid message received!");
-                self.update_last_seen();
+                if self.mode != P2PNodeMode::BootstrapperMode {
+                    self.update_last_seen();
+                }
                 debug!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
             }
         }
     }
 
-    fn incoming_plaintext(&mut self,
+    fn incoming_plaintext(&mut self, poll: &mut Poll,
                           packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                           buckets: &mut Buckets,
                           buf: &[u8]) {
         debug!("Received plaintext");
+        if self.mode == P2PNodeMode::BootstrapperMode {
+            let buff = if let Some(ref bytebuf) = self.pkt_buffer {
+                if bytebuf.len() >= 132 {
+                    Some(bytebuf[24..].to_vec())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            match buff {
+                Some(ref bufdata) => {
+                    match P2PPeer::deserialize(&String::from_utf8(bufdata.clone().to_vec()).unwrap()) {
+                        Some(ref sender) => {
+                            let sender_len = sender.serialize().len();
+                            let msg_num = String::from_utf8(bufdata[(24+sender_len)..(24+sender_len+4)].to_vec()).unwrap();
+                            if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE || 
+                                msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE {
+                                info!("Received network packet message, not wanted - disconnecting peer");
+                                &self.clear_buffer();
+                                &self.close(poll);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
         if self.expected_size > 0 && self.currently_read == self.expected_size {
             debug!("Completed packet with {} size", self.currently_read);
             self.expected_size = 0;
@@ -946,7 +1042,7 @@ impl Connection {
             }
             self.process_complete_packet(buckets, &buffered, &packets_queue);
             self.clear_buffer();
-            self.incoming_plaintext(packets_queue, buckets, buf);
+            self.incoming_plaintext(poll, packets_queue, buckets, buf);
         } else if self.expected_size > 0
                   && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
         {
@@ -974,7 +1070,7 @@ impl Connection {
             }
             self.process_complete_packet(buckets, &buffered, &packets_queue);
             self.clear_buffer();
-            self.incoming_plaintext(&packets_queue, buckets, &buf[to_take as usize..]);
+            self.incoming_plaintext(poll, &packets_queue, buckets, &buf[to_take as usize..]);
         } else if buf.len() >= 4 {
             debug!("Trying to read size");
             let _buf = &buf[..4].to_vec();
@@ -983,12 +1079,12 @@ impl Connection {
             if self.expected_size > 268_435_456 {
                 error!("Packet can't be bigger than 256MB");
                 self.expected_size = 0;
-                self.incoming_plaintext(&packets_queue, buckets, &buf[4..]);
+                self.incoming_plaintext(poll, &packets_queue, buckets, &buf[4..]);
             } else {
                 self.setup_buffer();
                 if buf.len() > 4 {
                     debug!("Got enough to read it...");
-                    self.incoming_plaintext(&packets_queue, buckets, &buf[4..]);
+                    self.incoming_plaintext(poll, &packets_queue, buckets, &buf[4..]);
                 }
             }
         }
@@ -1045,6 +1141,7 @@ pub struct P2PNode {
     event_log: Option<mpsc::Sender<P2PEvent>>,
     start_time: Timespec,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+    mode: P2PNodeMode,
     external_ip: IpAddr,
     external_port: u16,
 }
@@ -1187,7 +1284,8 @@ impl P2PNode {
                   start_time: time::get_time(),
                   prometheus_exporter: prometheus_exporter, 
                   external_ip: own_peer_ip,
-                  external_port: own_peer_port,}
+                  external_port: own_peer_port,
+                  mode: mode,}
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -1511,7 +1609,9 @@ impl P2PNode {
             .lock()?
             .poll(events, Some(Duration::from_millis(500)))?;
 
-        self.tls_server.lock()?.liveness_check()?;
+        if self.mode != P2PNodeMode::BootstrapperMode {
+            self.tls_server.lock()?.liveness_check()?;
+        }
 
         for event in events.iter() {
             let mut tls_ref = self.tls_server.lock()?;
@@ -1541,8 +1641,12 @@ impl P2PNode {
         {
             let mut tls_ref = self.tls_server.lock()?;
             let mut poll_ref = self.poll.lock()?;
+            let mut buckets_ref = self.buckets.lock()?;
             tls_ref
                 .cleanup_connections(&mut poll_ref)?;
+            if self.mode == P2PNodeMode::BootstrapperMode {
+                buckets_ref.clean_peers_older_than(common::get_current_stamp()-3600000);
+            }
         }
 
         self.process_messages()?;
