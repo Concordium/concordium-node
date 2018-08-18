@@ -40,6 +40,8 @@ fn run() -> ResultExtWrapper<()>{
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
 
+    p2p_client::setup_panics();
+
     env_logger::init_from_env(env);
     info!("Starting up {} version {}!",
           p2p_client::APPNAME,

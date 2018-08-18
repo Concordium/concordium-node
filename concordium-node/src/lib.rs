@@ -37,6 +37,9 @@ extern crate prometheus;
 #[macro_use]
 extern crate lazy_static;
 extern crate atomic_counter;
+#[cfg(not(debug_assertions))]
+#[macro_use] extern crate human_panic;
+#[macro_use] extern crate cfg_if;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
@@ -50,3 +53,11 @@ pub mod rpc;
 pub mod utils;
 pub mod errors;
 pub mod prometheus_exporter;
+
+cfg_if! {
+    if #[cfg(not(debug_assertions))] {
+        pub fn setup_panics() { setup_panic!(); }
+    } else  {
+        pub fn setup_panics() {}
+    }
+}

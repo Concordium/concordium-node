@@ -8,6 +8,7 @@ extern crate p2p_client;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+
 use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeId};
 use p2p_client::configuration;
@@ -31,6 +32,8 @@ fn run() -> ResultExtWrapper<()> {
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
+
+    p2p_client::setup_panics();
 
     env_logger::init_from_env(env);
     info!("Starting up {} version {}!",

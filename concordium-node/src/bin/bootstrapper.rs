@@ -11,7 +11,6 @@ extern crate mio;
 extern crate timer;
 #[macro_use]
 extern crate error_chain;
-
 use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
@@ -34,6 +33,8 @@ fn run() -> ResultExtWrapper<()>{
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
+
+    p2p_client::setup_panics();
 
     env_logger::init_from_env(env);
     info!("Starting up {} version {}!",

@@ -42,6 +42,8 @@ pub fn run() -> ResultExtWrapper<()> {
         exit(1);
     }
 
+    p2p_client::setup_panics();
+
     let mut private_key_bytes: Vec<u8> = vec![];
     match File::open(&conf.keyfile) {
         Ok(ref mut file) => {
