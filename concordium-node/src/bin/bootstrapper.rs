@@ -49,9 +49,14 @@ fn run() -> ResultExtWrapper<()>{
 
     let db = P2PDB::new(db_path.as_path());
 
-    let prometheus = if conf.prometheus {
+    let prometheus = if conf.prometheus_server {
+        info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new();
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
+        Some(Arc::new(Mutex::new(srv)))
+    } else if conf.prometheus_push_gateway.is_some() {
+        info!("Enabling prometheus push gateway at {}", &conf.prometheus_push_gateway.clone().unwrap());
+        let mut srv = PrometheusServer::new();
         Some(Arc::new(Mutex::new(srv)))
     } else {
         None
@@ -84,9 +89,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode, prometheus)
+        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode, prometheus.clone())
     } else {
-        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, P2PNodeMode::BootstrapperMode, prometheus)
+        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, P2PNodeMode::BootstrapperMode, prometheus.clone())
     };
 
     match db.get_banlist() {
@@ -136,6 +141,18 @@ fn run() -> ResultExtWrapper<()>{
             }
         }
     });
+
+    if let Some(ref prom ) = prometheus {
+        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
+            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
+                instance_id.clone()
+            } else {
+                node.get_own_id().to_string()
+            };
+            prom.lock()?.start_push_to_gateway( prom_push_addy.clone(), conf.prometheus_job_name, instance_name, 
+                conf.prometheus_push_username, conf.prometheus_push_password).map_err(|e| error!("{}", e)).ok();
+        }
+    }
 
     let _node_th = node.spawn();
 

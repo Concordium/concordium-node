@@ -32,6 +32,7 @@ extern crate untrusted;
 extern crate webpki;
 extern crate iron;
 extern crate router;
+#[macro_use]
 extern crate prometheus;
 #[macro_use]
 extern crate lazy_static;

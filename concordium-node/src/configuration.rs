@@ -68,8 +68,18 @@ pub struct CliConfig {
     pub prometheus_listen_addr: String,
     #[structopt(long = "prometheus-listen-port", help  ="Port for prometheus to listen on", default_value = "9090")]
     pub prometheus_listen_port: u16,
-    #[structopt(long = "prometheus", help = "Enable prometheus for metrics")]
-    pub prometheus: bool,
+    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
+    pub prometheus_server: bool,
+   #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
+    pub prometheus_push_gateway: Option<String>,
+   #[structopt(long = "prometheus-job-name", help = "Job name to send to push gateway", default_value = "p2p_node_push")]
+    pub prometheus_job_name: String,
+    #[structopt(long = "prometheus-instance-name", help = "If not present node_id will be used")]
+    pub prometheus_instance_name: Option<String>,
+    #[structopt(long = "prometheus-push-gateway-username", help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
+    pub prometheus_push_username: Option<String>,
+    #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
+    pub prometheus_push_password: Option<String>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -104,8 +114,18 @@ pub struct BootstrapperConfig {
     pub prometheus_listen_addr: String,
     #[structopt(long = "prometheus-listen-port", help  ="Port for prometheus to listen on", default_value = "9090")]
     pub prometheus_listen_port: u16,
-    #[structopt(long = "prometheus", help = "Enable prometheus for metrics")]
-    pub prometheus: bool,
+    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
+    pub prometheus_server: bool,
+   #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
+    pub prometheus_push_gateway: Option<String>,
+   #[structopt(long = "prometheus-job-name", help = "Job name to send to push gateway", default_value = "p2p_node_push")]
+    pub prometheus_job_name: String,
+    #[structopt(long = "prometheus-instance-name", help = "If not present node_id will be used")]
+    pub prometheus_instance_name: Option<String>,
+    #[structopt(long = "prometheus-push-gateway-username", help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
+    pub prometheus_push_username: Option<String>,
+    #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
+    pub prometheus_push_password: Option<String>,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {

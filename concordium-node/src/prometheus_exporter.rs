@@ -5,6 +5,8 @@ use std::sync::Arc;
 use router::Router;
 use errors::*;
 use std::thread;
+use std::time;
+use prometheus;
 
 #[derive(Clone)]
 pub struct PrometheusServer {
@@ -111,6 +113,30 @@ impl PrometheusServer {
         let _listen = listen_ip.clone();
         let _th = thread::spawn(move || {
             Iron::new(router).http(format!("{}:{}", _listen, port)).unwrap();
+        });
+        Ok(())
+    }
+
+    pub fn start_push_to_gateway( &self, prometheus_push_gateway: String, prometheus_job_name: String, 
+    prometheus_instance_name: String, prometheus_push_username: Option<String>, 
+    prometheus_push_password: Option<String> ) -> ResultExtWrapper<()> {
+        let username_pass = if prometheus_push_username.is_some() && prometheus_push_password.is_some() {
+            Some(prometheus::BasicAuthentication {
+                username: prometheus_push_username.unwrap().to_owned(),
+                password: prometheus_push_password.unwrap().to_owned(),
+            })
+        } else {
+            None
+        };
+        let _th = thread::spawn(move || {
+            thread::sleep(time::Duration::from_secs(2));
+            let metrics_families = prometheus::gather();
+            prometheus::push_metrics(
+            &prometheus_job_name,
+            labels!{"instance".to_owned() => prometheus_instance_name.to_owned(),},
+            &prometheus_push_gateway,
+            metrics_families,
+            username_pass).map_err(|e| error!("{}", e)).ok()
         });
         Ok(())
     }

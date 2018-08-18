@@ -63,7 +63,7 @@ lazy_static = "1.1.0"
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"
 default-features = false
-features = ["nightly", "gen"]
+features = ["nightly", "gen", "push"]
 
 [build-dependencies]
 walkdir         = "2"
