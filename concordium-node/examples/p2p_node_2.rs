@@ -12,16 +12,19 @@ use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeId};
 use p2p_client::configuration;
 use p2p_client::p2p::*;
+use p2p_client::db::P2PDB;
 use std::sync::mpsc;
 use std::sync::{Arc,Mutex};
 use std::{thread, time};
 use p2p_client::errors::*;
+use p2p_client::utils;
 use p2p_client::prometheus_exporter::PrometheusServer;
 
 quick_main!(run);
 
 fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_cli_config();
+    let app_prefs = configuration::AppPreferences::new();
 
     let env = if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
@@ -33,6 +36,10 @@ fn run() -> ResultExtWrapper<()> {
     info!("Starting up {} version {}!",
           p2p_client::APPNAME,
           p2p_client::VERSION);
+    info!("Application data directory: {:?}",
+          app_prefs.get_user_app_dir());
+    info!("Application config directory: {:?}",
+          app_prefs.get_user_config_dir());
 
     let prometheus = if conf.prometheus_server {
         info!("Enabling prometheus server");
@@ -48,6 +55,11 @@ fn run() -> ResultExtWrapper<()> {
     };
 
     info!("Debuging enabled {}", conf.debug);
+
+    let mut db_path = app_prefs.get_user_app_dir().clone();
+    db_path.push("p2p.db");
+
+    let db = P2PDB::new(db_path.as_path());
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec, conf.bootstrap_server.clone());
 
