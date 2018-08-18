@@ -80,6 +80,8 @@ pub struct CliConfig {
     pub prometheus_push_username: Option<String>,
     #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
+    #[structopt(long = "bootstrap-server", help = "DNS name to resolve bootstrap nodes from", default_value = "bootstrap.concordium.com")]
+    pub bootstrap_server: String,
 }
 
 pub fn parse_cli_config() -> CliConfig {

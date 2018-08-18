@@ -24,4 +24,5 @@ ENV PROMETHEUS_PUSH_GW="push-gw.test.concordium.com"
 ENV PROMETHEUS_PUSH_GW_USER="testuser"
 ENV PROMETHEUS_PUSH_GW_PASS="testpass"
 ENV PROMETHEUS_PUSH_JOBNAME="firstgen_node_test_push"
-CMD ["./p2p_client-cli", "--desired-nodes", "${DESIRED_PEERS}", "--prometheus-push-gateway", "${PROMETHEUS_PUSH_GW}", "--prometheus-push-gateway-username", "${PROMETHEUS_PUSH_GW_USER}", "--prometheus-push-gateway-password","${PROMETHEUS_PUSH_GW_PASS}","--prometheus-job-name","${PROMETHEUS_PUSH_JOBNAME}","${EXTRA_ARGS}"]
+ENV DNS_BOOSTRAP_NODE="bootstrap.concordium.com"
+CMD ["./p2p_client-cli", "--desired-nodes", "${DESIRED_PEERS}", "--prometheus-push-gateway", "${PROMETHEUS_PUSH_GW}", "--prometheus-push-gateway-username", "${PROMETHEUS_PUSH_GW_USER}", "--prometheus-push-gateway-password","${PROMETHEUS_PUSH_GW_PASS}","--prometheus-job-name","${PROMETHEUS_PUSH_JOBNAME}","--bootstrap-server","${DNS_BOOSTRAP_NODE}","${EXTRA_ARGS}"]

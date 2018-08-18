@@ -116,7 +116,7 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
     }
 }
 
-pub fn get_bootstrap_nodes(dnssec_enabled: bool) -> Result<Vec<(IpAddr, u16)>, &'static str> {
+pub fn get_bootstrap_nodes(dnssec_enabled: bool, bootstrap_name: String) -> Result<Vec<(IpAddr, u16)>, &'static str> {
     let resolver_address = "8.8.8.8:53".parse().unwrap();
 
     match UdpClientConnection::new(resolver_address) {
@@ -124,7 +124,7 @@ pub fn get_bootstrap_nodes(dnssec_enabled: bool) -> Result<Vec<(IpAddr, u16)>, &
             if dnssec_enabled {
                 let client = SecureSyncClient::new(conn).build();
                 //Remember trailing dot to make it a FQDN.
-                match Name::from_str("bootstrap.concordium.com.") {
+                match Name::from_str(&format!("{}.", bootstrap_name)) {
                     Ok(name) => {
                         match client.query(&name, DNSClass::IN, RecordType::TXT) {
                             Ok(response) => {

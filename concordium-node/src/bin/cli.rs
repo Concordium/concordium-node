@@ -32,7 +32,7 @@ fn run() -> ResultExtWrapper<()>{
     let conf = configuration::parse_cli_config();
     let app_prefs = configuration::AppPreferences::new();
 
-    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec);
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec, conf.bootstrap_server.clone());
 
     let env = if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")

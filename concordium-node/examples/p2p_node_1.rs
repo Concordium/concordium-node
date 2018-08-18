@@ -49,6 +49,8 @@ fn run() -> ResultExtWrapper<()> {
 
     info!("Debuging enabled {}", conf.debug);
 
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec, conf.bootstrap_server.clone());
+
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
     let _guard_pkt = thread::spawn(move || loop {
@@ -117,6 +119,30 @@ fn run() -> ResultExtWrapper<()> {
     }
 
     let _th = node.spawn();
+
+    info!("Attempting to bootstrap via DNS");
+    match bootstrap_nodes {
+        Ok(nodes) => {
+            for (ip, port) in nodes {
+                info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+            }
+        }
+        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
+    };
+
+    match db.get_banlist() {
+        Some(nodes) => {
+            info!("Found existing banlist, loading up!");
+            for n in nodes {
+                node.ban_node(n.to_peer())?;
+            }
+        }
+        None => {
+            info!("Couldn't find existing banlist. Creating new!");
+            db.create_banlist();
+        }
+    };
 
     _th.join().unwrap();
 
