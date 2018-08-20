@@ -7,6 +7,7 @@
 * go >=1.10
 * protobuf >= 3.5.1
 * [LDNS] (https://git.nlnetlabs.nl/ldns)
+* libclang >= 6.0
 * [HACL*](https://github.com/mitls/hacl-c)
 
 ## Running the library as a binary (usable via RPC)
