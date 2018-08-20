@@ -2,7 +2,7 @@
 echo "deb http://ftp.debian.org/debian stretch-backports main" >> /etc/apt/sources.list
 apt-get update -yqq
 apt-get -t stretch-backports install -yqq --no-install-recommends build-essential
-apt-get -t stretch-backports install -y cmake golang-go libclang-dev
+apt-get -t stretch-backports install -y cmake golang-go libclang-dev clang libc6-dev
 git clone https://github.com/mitls/hacl-c
 ( cd hacl-c && make && cp libhacl.so /usr/lib );
 rm -rf hacl-c
