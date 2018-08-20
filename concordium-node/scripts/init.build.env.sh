@@ -10,5 +10,8 @@ wget https://github.com/google/protobuf/archive/v3.5.1.tar.gz
 tar xzf v3.5.1.tar.gz
 ( cd protobuf-3.5.1 && autoreconf -i &&  ./configure --prefix=/usr && make && make install )
 rm -rf protobuf-3.5.1
+git clone https://git.nlnetlabs.nl/ldns
+( cd ldns; autoreconf -i && ./configure --prefix=/usr && make && make install )
+rm -rf ldns
 ldconfig
 rustup default nightly

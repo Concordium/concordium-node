@@ -1,7 +1,6 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-#[macro_use]
 extern crate structopt;
 extern crate p2p_client;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};

@@ -53,6 +53,8 @@ mod tests {
 
         node_2.connect("127.0.0.1".parse().unwrap(), 8888).unwrap();
 
+        thread::sleep(time::Duration::from_secs(5));
+
         node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false).map_err(|e| panic!(e)).ok();
 
         thread::sleep(time::Duration::from_secs(5));

@@ -61,6 +61,7 @@ atomic-counter = "0.1.0"
 lazy_static = "1.1.0"
 human-panic = "1.0.0"
 cfg-if = "0.1"
+ldns-sys = { path = "ldns-sys" } 
 
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"
