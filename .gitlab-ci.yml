@@ -1,7 +1,4 @@
-image: "rust:latest"
-
-before_script:
-  - scripts/init.build.env.sh
+image: "concordium/base:latest"
 
 test:cargo:
   script:
