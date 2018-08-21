@@ -13,6 +13,7 @@ exclude = [
 publish = false
 build = "build.rs"
 default-run = "p2p_client-cli"
+autobins = false
 
 [features]
 default = []
