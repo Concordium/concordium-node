@@ -1,5 +1,4 @@
 FROM concordium/base:latest
-RUN ls .
 EXPOSE 8888
 ENV MAX_NODES="10000"
 ENV EXTERNAL_PORT="8888"
