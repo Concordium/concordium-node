@@ -27,7 +27,6 @@ extern crate preferences;
 extern crate protobuf;
 extern crate rusqlite;
 extern crate time;
-extern crate trust_dns;
 extern crate untrusted;
 extern crate webpki;
 extern crate iron;

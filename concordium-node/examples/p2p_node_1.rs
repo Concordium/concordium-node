@@ -65,7 +65,7 @@ fn run() -> ResultExtWrapper<()> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.require_dnssec, conf.bootstrap_server.clone());
+    let bootstrap_nodes = utils::get_bootstrap_nodes( conf.bootstrap_server.clone());
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 

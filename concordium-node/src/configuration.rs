@@ -61,9 +61,6 @@ pub struct CliConfig {
     #[structopt(long = "no-trust-bans",
                 help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,
-    #[structopt(long = "require-dnssec",
-                help = "Require DNSSEC for bootstrapping. Doesn't support NSEC3")]
-    pub require_dnssec: bool,
     #[structopt(long = "prometheus-listen-addr", help = "IP to listen for prometheus requests on", default_value = "127.0.0.1")]
     pub prometheus_listen_addr: String,
     #[structopt(long = "prometheus-listen-port", help  ="Port for prometheus to listen on", default_value = "9090")]
