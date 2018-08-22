@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name:  node0000
+      labels:
+        name:  node0000
+    spec:
+      selector:
+        matchLabels:
+          app: node0000
+      strategy:
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 1
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            name:  node0000
+            app: node0000
+        spec:
+          containers:
+          - image:  192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/basic
+            name:  node0000
+            resources:
+              requests:
+                cpu: "20m"
+                memory: "55M"       
+            ports:
+            - containerPort:  8888
+              name:  node0000
+          restartPolicy: Always
+          imagePullPolicy: Always
+  - kind: Service
+    apiVersion: v1
+    metadata:
+      name:  node-0000-service
+    spec:
+      selector:
+        app:  node0000
+      type:  NodePort
+      ports:
+      - name:  node0000
+        port:  8888
+        protocol: TCP
+        targetPort:  8888
