@@ -83,7 +83,7 @@ pub struct CliConfig {
     pub bootstrap_server: String,
     #[structopt(long = "no-bootstrap", help  = "Do not bootstrap via DNS")]
     pub no_boostrap_dns: bool,
-    #[structopt(long = "private-node", help  =" Allow RFC1918 peers")]
+    #[structopt(long = "private-node", help  ="Allow RFC1918 peers")]
     pub private_node: bool,
 }
 
@@ -133,7 +133,7 @@ pub struct BootstrapperConfig {
     pub prometheus_push_username: Option<String>,
     #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
-    #[structopt(long = "private-node", help  =" Allow RFC1918 peers")]
+    #[structopt(long = "private-node", help  ="Allow RFC1918 peers")]
     pub private_node: bool,
 }
 
