@@ -41,11 +41,11 @@ mod tests {
                                        }
                                    });
 
-        let mut node_1 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8888, None, None, pkt_in_1, Some(sender),P2PNodeMode::NormalMode, None);
+        let mut node_1 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8888, None, None, pkt_in_1, Some(sender),P2PNodeMode::NormalPrivateMode, None);
 
         let mut _th_1 = node_1.spawn();
 
-        let mut node_2 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8889, None, None, pkt_in_2, None,P2PNodeMode::NormalMode, None);
+        let mut node_2 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8889, None, None, pkt_in_2, None,P2PNodeMode::NormalPrivateMode, None);
 
         let _th_2 = node_2.spawn();
 
@@ -119,11 +119,11 @@ mod tests {
                                        }
                                    });
 
-        let mut node_1 = P2PNode::new(None,Some("127.0.0.1".to_string()),  8898, None, None, pkt_in_1, Some(sender),P2PNodeMode::NormalMode, None);
+        let mut node_1 = P2PNode::new(None,Some("127.0.0.1".to_string()),  8898, None, None, pkt_in_1, Some(sender),P2PNodeMode::NormalPrivateMode, None);
 
         let mut _th_1 = node_1.spawn();
 
-        let mut node_2 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8899, None, None, pkt_in_2, None,P2PNodeMode::NormalMode, None);
+        let mut node_2 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8899, None, None, pkt_in_2, None,P2PNodeMode::NormalPrivateMode, None);
 
         let _th_2 = node_2.spawn();
 
@@ -143,7 +143,7 @@ mod tests {
             }
         });
 
-        let mut node_3 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8900, None, None, pkt_in_3, None,P2PNodeMode::NormalMode, None);
+        let mut node_3 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8900, None, None, pkt_in_3, None,P2PNodeMode::NormalPrivateMode, None);
 
         let _th_3 = node_3.spawn();
 

@@ -27,7 +27,9 @@ fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_cli_config();
     let app_prefs = configuration::AppPreferences::new();
 
-    let env = if conf.debug {
+    let env = if conf.trace {
+        Env::default().filter_or("MY_LOG_LEVEL", "trace")
+    } else if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")

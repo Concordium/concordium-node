@@ -36,6 +36,8 @@ pub struct CliConfig {
     pub id: Option<String>,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
     pub debug: bool,
+    #[structopt(long = "trace", help = "Trace mode")]
+    pub trace: bool,
     #[structopt(long = "no-rpc-server",
                 help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
@@ -79,6 +81,8 @@ pub struct CliConfig {
     pub prometheus_push_password: Option<String>,
     #[structopt(long = "bootstrap-server", help = "DNS name to resolve bootstrap nodes from", default_value = "bootstrap.concordium.com")]
     pub bootstrap_server: String,
+    #[structopt(long = "private-node", help  =" Allow RFC1918 peers")]
+    pub private_node: bool,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -96,6 +100,8 @@ pub struct BootstrapperConfig {
     pub external_port: Option<u16>,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
     pub debug: bool,
+    #[structopt(long = "trace", help = "Trace mode")]
+    pub trace: bool,
     #[structopt(long = "id", short = "i", help = "Own node id")]
     pub id: String,
     #[structopt(long = "listen-port",
@@ -125,6 +131,8 @@ pub struct BootstrapperConfig {
     pub prometheus_push_username: Option<String>,
     #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
+    #[structopt(long = "private-node", help  =" Allow RFC1918 peers")]
+    pub private_node: bool,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {

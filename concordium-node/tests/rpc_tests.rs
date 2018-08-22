@@ -44,7 +44,7 @@ mod tests {
                                            }
                                        }
                                    });
-        let node = P2PNode::new(None, Some("127.0.0.1".to_string()), 8888, None, None, pkt_in, Some(sender),P2PNodeMode::NormalMode, None);
+        let node = P2PNode::new(None, Some("127.0.0.1".to_string()), 8888, None, None, pkt_in, Some(sender),P2PNodeMode::NormalPrivateMode, None);
 
         let mut _node_self_clone = node.clone();
 
@@ -130,7 +130,7 @@ mod tests {
                                            }
                                        }
                                    });
-        let node = P2PNode::new(None, Some("127.0.0.1".to_string()), 8889, None, None, pkt_in, Some(sender),P2PNodeMode::NormalMode, None);
+        let node = P2PNode::new(None, Some("127.0.0.1".to_string()), 8889, None, None, pkt_in, Some(sender),P2PNodeMode::NormalPrivateMode, None);
 
         let mut _node_self_clone = node.clone();
 
