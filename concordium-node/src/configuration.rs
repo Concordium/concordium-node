@@ -81,6 +81,8 @@ pub struct CliConfig {
     pub prometheus_push_password: Option<String>,
     #[structopt(long = "bootstrap-server", help = "DNS name to resolve bootstrap nodes from", default_value = "bootstrap.concordium.com")]
     pub bootstrap_server: String,
+    #[structopt(long = "no-bootstrap", help  = "Do not bootstrap via DNS")]
+    pub no_boostrap_dns: bool,
     #[structopt(long = "private-node", help  =" Allow RFC1918 peers")]
     pub private_node: bool,
 }

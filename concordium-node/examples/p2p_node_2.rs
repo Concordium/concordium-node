@@ -137,26 +137,30 @@ fn run() -> ResultExtWrapper<()> {
 
     let _th = node.spawn();
 
-    for connect_to in conf.connect_to {
-        match utils::parse_ip_port(&connect_to) {
-            Some((ip, port)) => {
-                info!("Connecting to peer {}", &connect_to);
-                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+    if !conf.no_network {
+        for connect_to in conf.connect_to {
+            match utils::parse_ip_port(&connect_to) {
+                Some((ip, port)) => {
+                    info!("Connecting to peer {}", &connect_to);
+                    node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+                }
+                None=> error!("Can't parse IP to connect to '{}'", &connect_to)
             }
-            None=> error!("Can't parse IP to connect to '{}'", &connect_to)
         }
     }
 
-    info!("Attempting to bootstrap via DNS");
-    match bootstrap_nodes {
-        Ok(nodes) => {
-            for (ip, port) in nodes {
-                info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+    if !conf.no_network && !conf.no_boostrap_dns {
+        info!("Attempting to bootstrap via DNS");
+        match bootstrap_nodes {
+            Ok(nodes) => {
+                for (ip, port) in nodes {
+                    info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                    node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+                }
             }
-        }
-        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
-    };
+            Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
+        };
+    }
 
     match db.get_banlist() {
         Some(nodes) => {
