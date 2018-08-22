@@ -1,4 +1,4 @@
-#![feature(box_syntax, box_patterns)]
+#![feature(box_syntax, box_patterns,ip)]
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;

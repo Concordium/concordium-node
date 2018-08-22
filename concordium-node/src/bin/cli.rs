@@ -34,7 +34,9 @@ fn run() -> ResultExtWrapper<()>{
 
     let bootstrap_nodes = utils::get_bootstrap_nodes( conf.bootstrap_server.clone());
 
-    let env = if conf.debug {
+    let env = if conf.trace {
+        Env::default().filter_or("MY_LOG_LEVEL", "trace")
+    } else if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
@@ -71,6 +73,12 @@ fn run() -> ResultExtWrapper<()>{
 
     info!("Debugging enabled {}", conf.debug);
 
+    let mode_type = if conf.private_node { 
+        P2PNodeMode::NormalPrivateMode
+    } else {
+        P2PNodeMode::NormalMode
+    };
+
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
     let mut node = if conf.debug {
@@ -96,9 +104,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus.clone())
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),mode_type, prometheus.clone())
     } else {
-        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, P2PNodeMode::NormalMode, prometheus.clone())
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, mode_type, prometheus.clone())
     };
 
     match db.get_banlist() {
@@ -249,10 +257,15 @@ fn run() -> ResultExtWrapper<()>{
     let _no_net_clone = conf.no_network;
     let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                                 match node.get_nodes() {
-                                    Ok(x) => {
+                                    Ok(ref x) => {
                                         info!("I currently have {}/{} nodes!",
                                               x.len(),
                                               _desired_nodes_count);
+                                        let mut count = 0;
+                                        for i in x {
+                                            info!("Peer {}: {}/{}:{}", count, i.id().to_string(), i.ip().to_string(), i.port() );
+                                            count += 1;
+                                        }
                                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
                                             info!("Not enough nodes, sending GetPeers requests");
                                             node.send_get_peers().map_err(|e| error!("{}", e)).ok();

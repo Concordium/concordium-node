@@ -58,7 +58,9 @@ lazy_static! {
 #[derive(Clone,Copy,PartialEq)]
 pub enum P2PNodeMode {
     NormalMode,
+    NormalPrivateMode,
     BootstrapperMode,
+    BootstrapperPrivateMode,
 }
 
 pub enum P2PEvent {
@@ -362,7 +364,7 @@ impl TlsServer {
                 self.next_id += 1;
                 self.connections.insert(token, conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
-                debug!("Requesting handshake from new peer!");
+                debug!("Requesting handshake from new peer {}:{}", ip.to_string(), port);
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
                     serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize())?;
@@ -425,7 +427,7 @@ impl TlsServer {
     }
 
     fn cleanup_connections(&mut self, mut poll: &mut Poll) -> ResultExtWrapper<()> {
-        if self.mode == P2PNodeMode::BootstrapperMode {
+        if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode {
             for conn in self.connections.values_mut() {
                 if conn.last_seen + 300000 < common::get_current_stamp() {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
@@ -826,7 +828,7 @@ impl Connection {
         }
 
         if !buf.is_empty() {
-            debug!("plaintext read {:?}", buf.len());
+            trace!("plaintext read {:?}", buf.len());
             self.incoming_plaintext(poll, &packets_queue, &mut buckets, &buf);
         }
     }
@@ -871,7 +873,7 @@ impl Connection {
                     NetworkRequest::Ping(_) => {
                         //Respond with pong
                         debug!("Got request for ping");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
@@ -883,7 +885,7 @@ impl Connection {
                     NetworkRequest::FindNode(_, x) => {
                         //Return list of nodes
                         debug!("Got request for FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         let nodes = buckets.closest_nodes(x);
@@ -892,7 +894,7 @@ impl Connection {
                     }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         match packet_queue.send(outer.clone()) {
@@ -902,7 +904,7 @@ impl Connection {
                     }
                     NetworkRequest::UnbanNode(_, _) => {
                         debug!("Got request for UnbanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         match packet_queue.send(outer.clone()) {
@@ -915,11 +917,15 @@ impl Connection {
                         self.update_last_seen();
                         serialize_bytes(self, &NetworkResponse::Handshake(self_peer.clone()).serialize()).unwrap();
                         self.peer = Some(sender.clone());
-                        buckets.insert_into_bucket(sender, &self.own_id);
+                        if self.mode == P2PNodeMode::BootstrapperPrivateMode || self.mode == P2PNodeMode::NormalPrivateMode {
+                            buckets.insert_into_bucket(sender, &self.own_id);
+                        } else if sender.ip().is_global() && !sender.ip().is_multicast() && !sender.ip().is_documentation() {
+                            buckets.insert_into_bucket(sender, &self.own_id);
+                        }
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock().unwrap().peers_inc().map_err(|e| error!("{}", e)).ok();
                         };
-                        if self.mode == P2PNodeMode::BootstrapperMode {
+                        if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode{
                             debug!("Running in bootstrapper mode, so instantly sending peers {} random peers", BOOTSTRAP_PEER_COUNT);
                             serialize_bytes(self,
                                 &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
@@ -935,7 +941,7 @@ impl Connection {
                     }
                     NetworkRequest::GetPeers(_) => {
                         debug!("Got request for GetPeers");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         let nodes = buckets.get_all_nodes();
@@ -952,7 +958,7 @@ impl Connection {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         debug!("Got response to FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         //Process the received node list
@@ -963,7 +969,7 @@ impl Connection {
                     }
                     NetworkResponse::Pong(sender) => {
                         debug!("Got response for ping");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         //Note that node responded back
@@ -971,7 +977,7 @@ impl Connection {
                     }
                     NetworkResponse::PeerList(sender, peers) => {
                         debug!("Got response to FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         //Process the received node list
@@ -998,7 +1004,7 @@ impl Connection {
             box NetworkMessage::NetworkPacket(ref x, _, _) => {
                 match x {
                     NetworkPacket::DirectMessage(_, _, ref msg) => {
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         debug!("Received direct message of size {}", msg.len());
@@ -1008,7 +1014,7 @@ impl Connection {
                         };
                     }
                     NetworkPacket::BroadcastedMessage(_, ref msg) => {
-                        if self.mode != P2PNodeMode::BootstrapperMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
                         debug!("Received broadcast message of size {}", msg.len());
@@ -1022,19 +1028,19 @@ impl Connection {
             box NetworkMessage::UnknownMessage => {
                 self.failed_pkts_inc();
                 debug!("Unknown message received!");
-                if self.mode != P2PNodeMode::BootstrapperMode {
+                if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                     self.update_last_seen();
                 }
-                debug!("Contents were: {:?}",
+                trace!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
             }
             box NetworkMessage::InvalidMessage => {
                 self.failed_pkts_inc();
                 debug!("Invalid message received!");
-                if self.mode != P2PNodeMode::BootstrapperMode {
+                if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                     self.update_last_seen();
                 }
-                debug!("Contents were: {:?}",
+                trace!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
             }
         }
@@ -1056,7 +1062,7 @@ impl Connection {
                     match P2PPeer::deserialize(&String::from_utf8(bufdata.clone().to_vec()).unwrap()) {
                         Some(ref sender) => {
                             let sender_len = sender.serialize().len();
-                            if self.mode == P2PNodeMode::BootstrapperMode {
+                            if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode {
                                 let msg_num = String::from_utf8(bufdata[(24+sender_len)..(24+sender_len+4)].to_vec()).unwrap();
                                 if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE || 
                                     msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE {
@@ -1084,10 +1090,10 @@ impl Connection {
                           packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                           buckets: &mut Buckets,
                           buf: &[u8]) {
-        debug!("Received plaintext");
+        trace!("Received plaintext");
         self.validate_packet(poll);
         if self.expected_size > 0 && self.currently_read == self.expected_size {
-            debug!("Completed packet with {} size", self.currently_read);
+            trace!("Completed packet with {} size", self.currently_read);
             self.expected_size = 0;
             self.currently_read = 0;
             if self.pkt_valid() || !self.pkt_validated() {
@@ -1108,7 +1114,7 @@ impl Connection {
                 self.update_buffer_read_stats(buf.len() as u32);
             }
             if self.expected_size == self.currently_read {
-                debug!("Completed packet with {} size", self.currently_read);
+                trace!("Completed packet with {} size", self.currently_read);
                 self.expected_size = 0;
                 self.currently_read = 0;
                 if self.pkt_valid() || !self.pkt_validated(){
@@ -1123,7 +1129,7 @@ impl Connection {
         } else if self.expected_size > 0
                   && buf.len() > (self.expected_size as usize - self.currently_read as usize)
         {
-            println!("Got more buffer than needed");
+            trace!("Got more buffer than needed");
             let to_take = self.expected_size - self.currently_read;
             if self.pkt_valid() || !self.pkt_validated(){
                 self.append_buffer(&buf[..to_take as usize]);
@@ -1136,7 +1142,7 @@ impl Connection {
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, buckets, &buf[to_take as usize..]);
         } else if buf.len() >= 4 {
-            debug!("Trying to read size");
+            trace!("Trying to read size");
             let _buf = &buf[..4].to_vec();
             let mut size_bytes = Cursor::new(_buf);
             self.expected_size = size_bytes.read_u32::<NetworkEndian>().unwrap();
@@ -1147,7 +1153,7 @@ impl Connection {
             } else {
                 self.setup_buffer();
                 if buf.len() > 4 {
-                    debug!("Got enough to read it...");
+                    trace!("Got enough to read it...");
                     self.incoming_plaintext(poll, &packets_queue, buckets, &buf[4..]);
                 }
             }
@@ -1211,7 +1217,7 @@ pub struct P2PNode {
 }
 
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
-    debug!("Serializing data to connection {} bytes", pkt.len());
+    trace!("Serializing data to connection {} bytes", pkt.len());
     let mut size_vec = vec![];
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
     conn.write_all(&size_vec[..])?;
@@ -1236,7 +1242,7 @@ impl P2PNode {
             format!("0.0.0.0:{}", listen_port).parse().unwrap()
         };
 
-        debug!("Creating new P2PNode");
+        trace!("Creating new P2PNode");
 
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let ip = if let Some(ref addy) = listen_address {
@@ -1427,11 +1433,11 @@ impl P2PNode {
         {
             let mut send_q = self.send_queue.lock()?;
             loop {
-                debug!("Processing messages!");
+                trace!("Processing messages!");
                 let outer_pkt = send_q.pop_front();
                 match outer_pkt.clone() {
                     Some(ref x) => { 
-                        debug!("Got message to process!");
+                        trace!("Got message to process!");
                         match *x.clone() {
                             box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::DirectMessage(_,_,_),
                                                         _,
@@ -1460,7 +1466,7 @@ impl P2PNode {
                                         }
                                         _ => {
                                             resend_queue.push_back(outer_pkt.unwrap().clone());
-                                            debug!("Couldn't find connection, requeuing message!");
+                                            trace!("Couldn't find connection, requeuing message!");
                                         }
                                     }
                                 }
@@ -1605,7 +1611,7 @@ impl P2PNode {
         match self.tls_server.lock() {
             Ok(x) => x.get_peer_stats(),
             Err(e) => {
-                info!("Couldn't lock for tls_server: {:?}", e);
+                error!("Couldn't lock for tls_server: {:?}", e);
                 vec![]
             }
         }
@@ -1673,7 +1679,7 @@ impl P2PNode {
             .lock()?
             .poll(events, Some(Duration::from_millis(500)))?;
 
-        if self.mode != P2PNodeMode::BootstrapperMode {
+        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
             self.tls_server.lock()?.liveness_check()?;
         }
 
@@ -1692,7 +1698,7 @@ impl P2PNode {
                     };
                 }
                 _ => {
-                    debug!("Got data!");
+                    trace!("Got data!");
                     tls_ref
                         .conn_event(&mut poll_ref,
                                     &event,
@@ -1708,7 +1714,7 @@ impl P2PNode {
             let mut buckets_ref = self.buckets.lock()?;
             tls_ref
                 .cleanup_connections(&mut poll_ref)?;
-            if self.mode == P2PNodeMode::BootstrapperMode {
+            if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode {
                 buckets_ref.clean_peers_older_than(common::get_current_stamp()-3600000);
             }
         }

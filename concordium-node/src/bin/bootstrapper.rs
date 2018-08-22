@@ -28,7 +28,10 @@ quick_main!( run );
 fn run() -> ResultExtWrapper<()>{
     let conf = configuration::parse_bootstrapper_config();
     let app_prefs = configuration::AppPreferences::new();
-    let env = if conf.debug {
+
+    let env = if conf.trace {
+        Env::default().filter_or("MY_LOG_LEVEL", "trace")
+    } else if conf.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
@@ -67,6 +70,12 @@ fn run() -> ResultExtWrapper<()>{
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
+    let mode_type = if conf.private_node { 
+        P2PNodeMode::BootstrapperPrivateMode
+    } else {
+        P2PNodeMode::BootstrapperMode
+    };
+
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -90,9 +99,9 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::BootstrapperMode, prometheus.clone())
+        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),mode_type, prometheus.clone())
     } else {
-        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, P2PNodeMode::BootstrapperMode, prometheus.clone())
+        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, mode_type, prometheus.clone())
     };
 
     match db.get_banlist() {
