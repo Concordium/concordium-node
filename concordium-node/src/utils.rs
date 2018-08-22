@@ -116,7 +116,7 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
 pub fn get_bootstrap_nodes(bootstrap_name: String) -> Result<Vec<(IpAddr, u16)>, &'static str> {
     let resolver_addresses = vec![ IpAddr::from_str("8.8.8.8").unwrap()];
     match dns::resolve_dns_txt_record(&bootstrap_name, &resolver_addresses) {
-        Ok(res) => read_peers_from_dns_entries(res),
+        Ok(res) => read_peers_from_dns_entries(res, super::get_dns_public_key()),
         Err(_) => Err(&"Error looking up bootstrap nodes"),
     }
 }
@@ -188,7 +188,7 @@ pub fn generate_bootstrap_dns(input_key: [u8; 32],
           .collect::<Vec<String>>())
 }
 
-pub fn read_peers_from_dns_entries(entries: Vec<String>)
+pub fn read_peers_from_dns_entries(entries: Vec<String>, public_key_str: &str)
                                    -> Result<Vec<(IpAddr, u16)>, &'static str> {
     let mut internal_entries = entries.clone();
     let mut ret: Vec<(IpAddr, u16)> = vec![];
@@ -203,6 +203,9 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>)
                 match bytes_buf.read_u16::<NetworkEndian>() {
                     Ok(size) => {
                         if size as usize == buffer.len() - 4 {
+                            if buffer[4..68].to_string().to_lowercase() != public_key_str.to_string().to_lowercase() {
+                                return Err("Invalid public key");
+                            }
                             match hex::decode(&buffer[4..68].to_string()) {
                                 Ok(input_pub_key_bytes) => {
                                     let mut pub_key_bytes: [u8;
@@ -373,8 +376,10 @@ mod tests {
     pub fn test_dns_generated() {
         let peers: Vec<String> = vec!["10.10.10.10:8888".to_string(),
                                       "dead:beaf:::9999".to_string()];
+        let secret_key = SecretKey{0: PRIVATE_TEST_KEY};
+        let public_hex_key = to_hex_string(&secret_key.get_public().0);
         match generate_bootstrap_dns(PRIVATE_TEST_KEY, 240, &peers) {
-            Ok(res) => match read_peers_from_dns_entries(res) {
+            Ok(res) => match read_peers_from_dns_entries(res, &public_hex_key) {
                 Ok(peers) => {
                     assert_eq!(peers.len(), 2);
                     assert!(peers.iter()

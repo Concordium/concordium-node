@@ -23,7 +23,7 @@ pub struct CliConfig {
     #[structopt(long = "connect-to",
                 short = "c",
                 help = "Peer to connect to upon startup")]
-    pub connect_to: Option<String>,
+    pub connect_to: Vec<String>,
     #[structopt(long = "listen-port",
                 short = "p",
                 help = "Port to listen on", default_value = "8888")]

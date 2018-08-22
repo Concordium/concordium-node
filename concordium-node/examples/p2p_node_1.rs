@@ -144,6 +144,16 @@ fn run() -> ResultExtWrapper<()> {
 
     let _th = node.spawn();
 
+    for connect_to in conf.connect_to {
+        match utils::parse_ip_port(&connect_to) {
+            Some((ip, port)) => {
+                info!("Connecting to peer {}", &connect_to);
+                node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+            }
+            None=> error!("Can't parse IP to connect to '{}'", &connect_to)
+        }
+    }
+
     info!("Attempting to bootstrap via DNS");
     match bootstrap_nodes {
         Ok(nodes) => {

@@ -3,12 +3,14 @@
 extern crate error_chain;
 extern crate structopt;
 extern crate p2p_client;
+extern crate hacl_star;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process::exit;
 use structopt::StructOpt;
 use p2p_client::errors::*;
+use hacl_star::ed25519::SecretKey;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Key Generator")]
@@ -36,9 +38,12 @@ pub fn run() -> ResultExtWrapper<()> {
         {
             Ok(mut file) => {
                 let key: [u8; 32] = generate_ed25519_key();
+                let secret_key = SecretKey { 0: key };
+                let public_key = secret_key.get_public();
                 match file.write_all(&key) {
                     Ok(_) => {
                         println!("Key written to {}", &conf.keyfile);
+                        println!("Public key is {}", to_hex_string(&public_key.0));
                         if conf.print_key {
                             println!("Key written to file is {}", to_hex_string(&key));
                         }
