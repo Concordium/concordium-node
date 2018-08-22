@@ -165,23 +165,32 @@ impl Buckets {
         }       
     } 
 
-    pub fn get_all_nodes(&self) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender_id: Option<&P2PNodeId>) -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
-        for (_, bucket) in &self.buckets {
-            for peer in bucket {
-                ret.push(peer.clone());
+        match sender_id {
+            Some(sender_peer_id) => {
+                for (_, bucket) in &self.buckets {
+                    for peer in bucket {
+                        if sender_peer_id != &peer.id() {
+                            ret.push(peer.clone());
+                        }
+                    }
+                }
+            }
+            None => {
+                for (_, bucket) in &self.buckets {
+                    for peer in bucket {
+                        ret.push(peer.clone());
+                    }
+                }
             }
         }
+        
         ret
     }
 
-    pub fn get_random_nodes(&self, amount: usize) -> Vec<P2PPeer> {
-        let mut ret: Vec<P2PPeer> = Vec::new();
-        for (_, bucket) in &self.buckets {
-            for peer in bucket {
-                ret.push(peer.clone());
-            }
-        }
+    pub fn get_random_nodes(&self, sender_id: &P2PNodeId, amount: usize) -> Vec<P2PPeer> {
+        let mut ret: Vec<P2PPeer> = self.get_all_nodes(Some(sender_id));
         thread_rng().shuffle(&mut ret);
         ret.truncate(amount);
         ret
@@ -928,7 +937,7 @@ impl Connection {
                         if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode{
                             debug!("Running in bootstrapper mode, so instantly sending peers {} random peers", BOOTSTRAP_PEER_COUNT);
                             serialize_bytes(self,
-                                &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
+                                &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender.id(), BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
                             if let Some(ref prom) = &self.prometheus_exporter {
                                 prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
                             };    
@@ -939,12 +948,12 @@ impl Connection {
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
                     }
-                    NetworkRequest::GetPeers(_) => {
+                    NetworkRequest::GetPeers(ref sender) => {
                         debug!("Got request for GetPeers");
                         if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
                             self.update_last_seen();
                         }
-                        let nodes = buckets.get_all_nodes();
+                        let nodes = buckets.get_all_nodes(Some(&sender.id()));
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
@@ -1405,7 +1414,7 @@ impl P2PNode {
 
     pub fn get_nodes(&self) -> Result<Vec<P2PPeer>, Error> {
         match self.buckets.lock() {
-            Ok(x) => Ok(x.get_all_nodes()),
+            Ok(x) => Ok(x.get_all_nodes(None)),
             Err(_e) => Err(Error::new(ErrorKind::Other, "Couldn't get lock on buckets!")),
         }
     }
