@@ -8,6 +8,10 @@ items:
       labels:
         name:  bootstrapper
     spec:
+      replicas: 2
+      selector:
+        matchLabels:
+          app: bootstrapper
       strategy:
         rollingUpdate:
           maxSurge: 1
@@ -17,6 +21,7 @@ items:
         metadata:
           labels:
             name:  bootstrapper
+            app: bootstrapper
         spec:
           containers:
           - image:  192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/bootstrapper
@@ -28,21 +33,27 @@ items:
             ports:
             - containerPort:  8888
               name:  bootstrapper
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app
+                        operator: In
+                        values: 
+                          - bootstrapper
+                  topologyKey: "kubernetes.io/hostname"
           restartPolicy: Always
           imagePullPolicy: Always
   - kind: Service
     apiVersion: v1
     metadata:
       name:  bootstrapper-service
-      annotations:
-        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
     spec:
-      externalTrafficPolicy: Local
       selector:
         app:  bootstrapper
-      type:  LoadBalancer
+      type:  NodePort
       ports:
       - name:  bootstrapper
-        port:  8888
         protocol: TCP
-        targetPort:  8888
+        port:  8888
