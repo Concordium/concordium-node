@@ -144,11 +144,11 @@ pub fn resolve_dns_txt_record(entry: &str,
                     }
                     ldns_pkt_free(pkt);
                     ldns_resolver_deep_free(resolver);
-                } else {
-
-                }
+                } 
             }
-            Err(_) => {}
+            Err(_) => {
+                err = Some("Invalid DNS entry given".to_string());
+            }
         }
     }
     if err.is_some() {
