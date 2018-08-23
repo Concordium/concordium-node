@@ -9,3 +9,4 @@ _rust_rocksdb*
 tags
 path
 .vscode
+concordium.test.key
