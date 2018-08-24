@@ -10,7 +10,6 @@ const APP_PREFERENCES_MAIN: &str = "main/config";
 const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 
 #[derive(StructOpt, Debug)]
-#[structopt()]
 pub struct CliConfig {
     #[structopt(long="external-ip", help = "Own external IP")]
     pub external_ip: Option<String>,
@@ -92,7 +91,7 @@ pub fn parse_cli_config() -> CliConfig {
 }
 
 #[derive(StructOpt, Debug)]
-#[structopt()]
+#[structopt(name = "BootstrapperNode")]
 pub struct BootstrapperConfig {
     #[structopt(long="max-nodes", help = "Max nodes allowed to connect", default_value="10000")]
     pub max_nodes: u16,
@@ -142,7 +141,7 @@ pub fn parse_bootstrapper_config() -> BootstrapperConfig {
 }
 
 #[derive(StructOpt, Debug)]
-#[structopt()]
+#[structopt(name = "IP Discovery Service")]
 pub struct IpDiscoveryConfig {
     #[structopt(long = "listen-port",
                 short = "p",

@@ -40,7 +40,7 @@ fn run() -> ResultExtWrapper<()>{
     p2p_client::setup_panics();
 
     env_logger::init_from_env(env);
-    info!("Starting up {} version {}!",
+    info!("Starting up {}-bootstrapper version {}!",
           p2p_client::APPNAME,
           p2p_client::VERSION);
     info!("Application data directory: {:?}",

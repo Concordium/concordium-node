@@ -109,7 +109,6 @@ impl IpDiscoveryServer {
 }
 
 fn run() -> ResultExtWrapper<()>{
-    info!("Starting up IP discovery server {}", p2p_client::VERSION);
     let conf = configuration::parse_ipdiscovery_config();
     let app_prefs = configuration::AppPreferences::new();
 
@@ -124,7 +123,7 @@ fn run() -> ResultExtWrapper<()>{
      p2p_client::setup_panics();
 
     env_logger::init_from_env(env);
-    info!("Starting up {} version {}!",
+    info!("Starting up {}-IPDiscovery version {}!",
           p2p_client::APPNAME,
           p2p_client::VERSION);
     info!("Application data directory: {:?}",
