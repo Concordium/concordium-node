@@ -15,6 +15,10 @@ pub struct CliConfig {
     pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
+    #[structopt(long = "ip-discovery-service", help = "Use external IP discovery service")]
+    pub ip_discovery_service: bool,
+    #[structopt(long = "ip-discovery-service-host", help = "IP discovery service host", default_value = "ipdiscovery.concordium.com")]
+    pub ip_discovery_service_host: String,
     #[structopt(long = "no-network",
                 short = "nonet",
                 help = "Disable network")]

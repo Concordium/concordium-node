@@ -31,6 +31,8 @@ extern crate untrusted;
 extern crate webpki;
 extern crate iron;
 extern crate router;
+extern crate reqwest;
+extern crate serde_json;
 #[macro_use]
 extern crate prometheus;
 #[macro_use]

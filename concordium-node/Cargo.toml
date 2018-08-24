@@ -64,6 +64,7 @@ cfg-if = "0.1"
 ldns-sys = { path = "ldns-sys" } 
 hostname = "^0.1"
 serde_json = "1.0"
+reqwest = "^0.8"
 
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"

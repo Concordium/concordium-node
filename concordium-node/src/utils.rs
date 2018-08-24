@@ -18,6 +18,9 @@ use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
 use ldns_sys::dns;
+use reqwest;
+use serde_json;
+use serde_json::Value;
 
 pub fn sha256(input: &str) -> [u8; 32] {
     let mut output = [0; 32];
@@ -333,6 +336,33 @@ pub fn generate_ed25519_key() -> [u8; 32] {
     let mut public_key = PublicKey { 0: [0; 32] };
     keypair(OsRng::new().unwrap(), &mut private_key, &mut public_key);
     private_key.0
+}
+
+pub fn discover_external_ip( discovery_url: &str ) -> Result<IpAddr,&'static str> {
+    match reqwest::get(discovery_url) {
+        Ok(ref mut res) if res.status().is_success()=> {
+            match res.text() {
+                Ok(text) => {
+                    match serde_json::from_str::<Value>(&text) {
+                        Ok(jv) => {
+                            if let Some(ref ip) = jv.get("ip") {
+                                match IpAddr::from_str(ip.as_str().unwrap()) {
+                                    Ok(ip) => Ok(ip),
+                                    Err(_) => Err("Invalid IP given")
+                                }
+                            } else {
+                                Err("Missing data field in response")
+                            }
+                        }
+                        Err(_) => Err("Can't parse discovery data")
+                    }
+                }
+                Err(_) => Err("Can't read text from response")
+            }
+        }
+        Ok(_) => Err("Can't fetch discovery data"),
+        Err(_) => Err("Can't fetch discovery data")
+    }
 }
 
 #[cfg(test)]

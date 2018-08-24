@@ -95,6 +95,17 @@ fn run() -> ResultExtWrapper<()> {
         }
     });
 
+    let external_ip =if conf.external_ip.is_some() {
+        conf.external_ip
+    } else if conf.ip_discovery_service {
+        match utils::discover_external_ip(&conf.ip_discovery_service_host) {
+            Ok(ip) => Some(ip.to_string()),
+            Err(_) => None
+        }
+    } else {
+        None
+    };
+
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -118,9 +129,9 @@ fn run() -> ResultExtWrapper<()> {
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus.clone())
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, external_ip, conf.external_port, pkt_in, Some(sender),P2PNodeMode::NormalMode, prometheus.clone())
     } else {
-        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None,P2PNodeMode::NormalMode, prometheus.clone())
+        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, external_ip, conf.external_port, pkt_in, None,P2PNodeMode::NormalMode, prometheus.clone())
     };
 
     if let Some(ref prom ) = prometheus {
