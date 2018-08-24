@@ -17,7 +17,7 @@ pub struct CliConfig {
     pub external_port: Option<u16>,
     #[structopt(long = "ip-discovery-service", help = "Use external IP discovery service")]
     pub ip_discovery_service: bool,
-    #[structopt(long = "ip-discovery-service-host", help = "IP discovery service host", default_value = "ipdiscovery.concordium.com")]
+    #[structopt(long = "ip-discovery-service-host", help = "IP discovery service host", default_value = "ipdiscovery.p2p.concordium.com")]
     pub ip_discovery_service_host: String,
     #[structopt(long = "no-network",
                 short = "nonet",
@@ -82,7 +82,7 @@ pub struct CliConfig {
     pub prometheus_push_username: Option<String>,
     #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
-    #[structopt(long = "bootstrap-server", help = "DNS name to resolve bootstrap nodes from", default_value = "bootstrap.concordium.com")]
+    #[structopt(long = "bootstrap-server", help = "DNS name to resolve bootstrap nodes from", default_value = "bootstrap.p2p.concordium.com")]
     pub bootstrap_server: String,
     #[structopt(long = "no-bootstrap", help  = "Do not bootstrap via DNS")]
     pub no_boostrap_dns: bool,

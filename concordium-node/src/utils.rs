@@ -339,7 +339,7 @@ pub fn generate_ed25519_key() -> [u8; 32] {
 }
 
 pub fn discover_external_ip( discovery_url: &str ) -> Result<IpAddr,&'static str> {
-    match reqwest::get(discovery_url) {
+    match reqwest::get(&format!("http://{}/discovery", discovery_url)) {
         Ok(ref mut res) if res.status().is_success()=> {
             match res.text() {
                 Ok(text) => {
