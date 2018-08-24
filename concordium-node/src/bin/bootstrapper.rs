@@ -81,27 +81,30 @@ fn run() -> ResultExtWrapper<()> {
 
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
-                                       if let Ok(msg) = receiver.recv() {
-                                           match msg {
-                                               P2PEvent::ConnectEvent(ip, port) => {
-                                                   info!("Received connection from {}:{}", ip, port)
-                                               }
-                                               P2PEvent::DisconnectEvent(msg) => {
-                                                   info!("Received disconnect for {}", msg)
-                                               }
-                                               P2PEvent::ReceivedMessageEvent(node_id) => {
-                                                   info!("Received message from {:?}", node_id)
-                                               }
-                                               P2PEvent::SentMessageEvent(node_id) => {
-                                                   info!("Sent message to {:?}", node_id)
-                                               }
-                                               P2PEvent::InitiatingConnection(ip, port) => {
-                                                   info!("Initiating connection to {}:{}", ip, port)
-                                               }
-                                           }
-                                       }
-                                   });
+        let _guard =
+            thread::spawn(move || {
+                              loop {
+                                  if let Ok(msg) = receiver.recv() {
+                                      match msg {
+                                          P2PEvent::ConnectEvent(ip, port) => {
+                                              info!("Received connection from {}:{}", ip, port)
+                                          }
+                                          P2PEvent::DisconnectEvent(msg) => {
+                                              info!("Received disconnect for {}", msg)
+                                          }
+                                          P2PEvent::ReceivedMessageEvent(node_id) => {
+                                              info!("Received message from {:?}", node_id)
+                                          }
+                                          P2PEvent::SentMessageEvent(node_id) => {
+                                              info!("Sent message to {:?}", node_id)
+                                          }
+                                          P2PEvent::InitiatingConnection(ip, port) => {
+                                              info!("Initiating connection to {}:{}", ip, port)
+                                          }
+                                      }
+                                  }
+                              }
+                          });
         P2PNode::new(Some(conf.id),
                      conf.listen_address,
                      conf.listen_port,
@@ -139,40 +142,48 @@ fn run() -> ResultExtWrapper<()> {
     let mut _node_self_clone = node.clone();
     let _no_trust_bans = conf.no_trust_bans;
 
-    let _guard_pkt = thread::spawn(move || loop {
-        if let Ok(full_msg) = pkt_out.recv() {
-            match *full_msg.clone() {
-                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x),
-                                                   _,
-                                                   _) => {
-                    info!("Ban node request for {:?}", x);
-                    let ban = _node_self_clone.ban_node(x.clone())
-                                              .map_err(|e| error!("{}", e));
-                    if ban.is_ok() {
-                        db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                        if !_no_trust_bans {
-                            _node_self_clone.send_ban(x.clone())
-                                            .map_err(|e| error!("{}", e))
-                                            .ok();
+    let _guard_pkt = thread::spawn(move || {
+        loop {
+            if let Ok(full_msg) = pkt_out.recv() {
+                match *full_msg.clone() {
+                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer,
+                                                                               ref x),
+                                                       _,
+                                                       _) => {
+                        info!("Ban node request for {:?}", x);
+                        let ban = _node_self_clone.ban_node(x.clone())
+                                                  .map_err(|e| error!("{}", e));
+                        if ban.is_ok() {
+                            db.insert_ban(peer.id().to_string(),
+                                          format!("{}", peer.ip()),
+                                          peer.port());
+                            if !_no_trust_bans {
+                                _node_self_clone.send_ban(x.clone())
+                                                .map_err(|e| error!("{}", e))
+                                                .ok();
+                            }
                         }
                     }
-                }
-                box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x),
-                                                   _,
-                                                   _) => {
-                    info!("Unban node requets for {:?}", x);
-                    let req = _node_self_clone.unban_node(x.clone())
-                                              .map_err(|e| error!("{}", e));
-                    if req.is_ok() {
-                        db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                        if !_no_trust_bans {
-                            _node_self_clone.send_unban(x.clone())
-                                            .map_err(|e| error!("{}", e))
-                                            .ok();
+                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer,
+                                                                                 ref x),
+                                                       _,
+                                                       _) => {
+                        info!("Unban node requets for {:?}", x);
+                        let req = _node_self_clone.unban_node(x.clone())
+                                                  .map_err(|e| error!("{}", e));
+                        if req.is_ok() {
+                            db.delete_ban(peer.id().to_string(),
+                                          format!("{}", peer.ip()),
+                                          peer.port());
+                            if !_no_trust_bans {
+                                _node_self_clone.send_unban(x.clone())
+                                                .map_err(|e| error!("{}", e))
+                                                .ok();
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     });

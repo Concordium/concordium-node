@@ -97,27 +97,30 @@ fn run() -> ResultExtWrapper<()> {
 
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
-                                       if let Ok(msg) = receiver.recv() {
-                                           match msg {
-                                               P2PEvent::ConnectEvent(ip, port) => {
-                                                   info!("Received connection from {}:{}", ip, port)
-                                               }
-                                               P2PEvent::DisconnectEvent(msg) => {
-                                                   info!("Received disconnect for {}", msg)
-                                               }
-                                               P2PEvent::ReceivedMessageEvent(node_id) => {
-                                                   info!("Received message from {:?}", node_id)
-                                               }
-                                               P2PEvent::SentMessageEvent(node_id) => {
-                                                   info!("Sent message to {:?}", node_id)
-                                               }
-                                               P2PEvent::InitiatingConnection(ip, port) => {
-                                                   info!("Initiating connection to {}:{}", ip, port)
-                                               }
-                                           }
-                                       }
-                                   });
+        let _guard =
+            thread::spawn(move || {
+                              loop {
+                                  if let Ok(msg) = receiver.recv() {
+                                      match msg {
+                                          P2PEvent::ConnectEvent(ip, port) => {
+                                              info!("Received connection from {}:{}", ip, port)
+                                          }
+                                          P2PEvent::DisconnectEvent(msg) => {
+                                              info!("Received disconnect for {}", msg)
+                                          }
+                                          P2PEvent::ReceivedMessageEvent(node_id) => {
+                                              info!("Received message from {:?}", node_id)
+                                          }
+                                          P2PEvent::SentMessageEvent(node_id) => {
+                                              info!("Sent message to {:?}", node_id)
+                                          }
+                                          P2PEvent::InitiatingConnection(ip, port) => {
+                                              info!("Initiating connection to {}:{}", ip, port)
+                                          }
+                                      }
+                                  }
+                              }
+                          });
         P2PNode::new(conf.id,
                      conf.listen_address,
                      conf.listen_port,
@@ -169,9 +172,10 @@ fn run() -> ResultExtWrapper<()> {
     let _no_trust_broadcasts = conf.no_trust_broadcasts;
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
-                                       if let Ok(full_msg) = pkt_out.recv() {
-                                           match *full_msg.clone() {
+    let _guard_pkt = thread::spawn(move || {
+                                       loop {
+                                           if let Ok(full_msg) = pkt_out.recv() {
+                                               match *full_msg.clone() {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
@@ -228,6 +232,7 @@ fn run() -> ResultExtWrapper<()> {
                                                    }
                                                }
                                                _ => {}
+                                           }
                                            }
                                        }
                                    });

@@ -427,20 +427,26 @@ mod tests {
         let secret_key = SecretKey { 0: PRIVATE_TEST_KEY, };
         let public_hex_key = to_hex_string(&secret_key.get_public().0);
         match generate_bootstrap_dns(PRIVATE_TEST_KEY, 240, &peers) {
-            Ok(res) => match read_peers_from_dns_entries(res, &public_hex_key) {
-                Ok(peers) => {
-                    assert_eq!(peers.len(), 2);
-                    assert!(peers.iter()
-                                 .find(|&x| x.0 == IpAddr::from_str("10.10.10.10").unwrap()
-                                            && x.1 == 8888)
-                                 .is_some());
-                    assert!(peers.iter()
-                                 .find(|&x| x.0 == IpAddr::from_str("dead:beaf::").unwrap()
-                                            && x.1 == 9999)
-                                 .is_some());
+            Ok(res) => {
+                match read_peers_from_dns_entries(res, &public_hex_key) {
+                    Ok(peers) => {
+                        assert_eq!(peers.len(), 2);
+                        assert!(peers.iter()
+                                     .find(|&x| {
+                                               x.0 == IpAddr::from_str("10.10.10.10").unwrap()
+                                               && x.1 == 8888
+                                           })
+                                     .is_some());
+                        assert!(peers.iter()
+                                     .find(|&x| {
+                                               x.0 == IpAddr::from_str("dead:beaf::").unwrap()
+                                               && x.1 == 9999
+                                           })
+                                     .is_some());
+                    }
+                    Err(e) => panic!("Can't read peers from generated records {}", e),
                 }
-                Err(e) => panic!("Can't read peers from generated records {}", e),
-            },
+            }
             Err(e) => panic!("Can't generate DNS records {}", e),
         }
     }

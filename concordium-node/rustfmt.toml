@@ -4,3 +4,5 @@ comment_width = 100
 max_width = 100
 error_on_unformatted = true
 edition = "Edition2018"
+force_multiline_blocks = true
+format_strings = false

@@ -49,10 +49,11 @@ impl P2PDB {
                 let res = conn_mut.prepare("SELECT id, ip, port FROM bans");
                 match res {
                     Ok(mut x) => {
-                        match x.query_map(&[], |row| P2PPeer { id: row.get(0),
-                                                               ip: row.get(1),
-                                                               port: row.get(2), })
-                        {
+                        match x.query_map(&[], |row| {
+                                   P2PPeer { id: row.get(0),
+                                             ip: row.get(1),
+                                             port: row.get(2), }
+                               }) {
                             Ok(rows) => {
                                 for row in rows {
                                     match row {

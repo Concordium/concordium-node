@@ -23,27 +23,30 @@ mod tests {
         let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
-                                       if let Ok(msg) = receiver.recv() {
-                                           match msg {
-                                               P2PEvent::ConnectEvent(ip, port) => {
-                                                   info!("Received connection from {}:{}", ip, port)
-                                               }
-                                               P2PEvent::DisconnectEvent(msg) => {
-                                                   info!("Received disconnect for {}", msg)
-                                               }
-                                               P2PEvent::ReceivedMessageEvent(node_id) => {
-                                                   info!("Received message from {:?}", node_id)
-                                               }
-                                               P2PEvent::SentMessageEvent(node_id) => {
-                                                   info!("Sent message to {:?}", node_id)
-                                               }
-                                               P2PEvent::InitiatingConnection(ip, port) => {
-                                                   info!("Initiating connection to {}:{}", ip, port)
-                                               }
-                                           }
-                                       }
-                                   });
+        let _guard =
+            thread::spawn(move || {
+                              loop {
+                                  if let Ok(msg) = receiver.recv() {
+                                      match msg {
+                                          P2PEvent::ConnectEvent(ip, port) => {
+                                              info!("Received connection from {}:{}", ip, port)
+                                          }
+                                          P2PEvent::DisconnectEvent(msg) => {
+                                              info!("Received disconnect for {}", msg)
+                                          }
+                                          P2PEvent::ReceivedMessageEvent(node_id) => {
+                                              info!("Received message from {:?}", node_id)
+                                          }
+                                          P2PEvent::SentMessageEvent(node_id) => {
+                                              info!("Sent message to {:?}", node_id)
+                                          }
+                                          P2PEvent::InitiatingConnection(ip, port) => {
+                                              info!("Initiating connection to {}:{}", ip, port)
+                                          }
+                                      }
+                                  }
+                              }
+                          });
         let node = P2PNode::new(None,
                                 Some("127.0.0.1".to_string()),
                                 8888,
@@ -56,9 +59,10 @@ mod tests {
 
         let mut _node_self_clone = node.clone();
 
-        let _guard_pkt = thread::spawn(move || loop {
-                                           if let Ok(ref outer_msg) = pkt_out.recv() {
-                                               match *outer_msg.clone() {
+        let _guard_pkt = thread::spawn(move || {
+                                           loop {
+                                               if let Ok(ref outer_msg) = pkt_out.recv() {
+                                                   match *outer_msg.clone() {
                                                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => info!("DirectMessage with {:?} received", msg),
                                                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
                                                        info!("BroadcastedMessage with {:?} received", msg);
@@ -67,6 +71,7 @@ mod tests {
                                                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
                                                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
                                                    _ => {}
+                                               }
                                                }
                                            }
                                        });
@@ -102,27 +107,30 @@ mod tests {
         let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
-                                       if let Ok(msg) = receiver.recv() {
-                                           match msg {
-                                               P2PEvent::ConnectEvent(ip, port) => {
-                                                   info!("Received connection from {}:{}", ip, port)
-                                               }
-                                               P2PEvent::DisconnectEvent(msg) => {
-                                                   info!("Received disconnect for {}", msg)
-                                               }
-                                               P2PEvent::ReceivedMessageEvent(node_id) => {
-                                                   info!("Received message from {:?}", node_id)
-                                               }
-                                               P2PEvent::SentMessageEvent(node_id) => {
-                                                   info!("Sent message to {:?}", node_id)
-                                               }
-                                               P2PEvent::InitiatingConnection(ip, port) => {
-                                                   info!("Initiating connection to {}:{}", ip, port)
-                                               }
-                                           }
-                                       }
-                                   });
+        let _guard =
+            thread::spawn(move || {
+                              loop {
+                                  if let Ok(msg) = receiver.recv() {
+                                      match msg {
+                                          P2PEvent::ConnectEvent(ip, port) => {
+                                              info!("Received connection from {}:{}", ip, port)
+                                          }
+                                          P2PEvent::DisconnectEvent(msg) => {
+                                              info!("Received disconnect for {}", msg)
+                                          }
+                                          P2PEvent::ReceivedMessageEvent(node_id) => {
+                                              info!("Received message from {:?}", node_id)
+                                          }
+                                          P2PEvent::SentMessageEvent(node_id) => {
+                                              info!("Sent message to {:?}", node_id)
+                                          }
+                                          P2PEvent::InitiatingConnection(ip, port) => {
+                                              info!("Initiating connection to {}:{}", ip, port)
+                                          }
+                                      }
+                                  }
+                              }
+                          });
         let node = P2PNode::new(None,
                                 Some("127.0.0.1".to_string()),
                                 8889,
@@ -135,9 +143,10 @@ mod tests {
 
         let mut _node_self_clone = node.clone();
 
-        let _guard_pkt = thread::spawn(move || loop {
-                                           if let Ok(ref outer_msg) = pkt_out.recv() {
-                                               match *outer_msg.clone() {
+        let _guard_pkt = thread::spawn(move || {
+                                           loop {
+                                               if let Ok(ref outer_msg) = pkt_out.recv() {
+                                                   match *outer_msg.clone() {
                                                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => info!("DirectMessage with {:?} received", msg),
                                                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
                                                        info!("BroadcastedMessage with {:?} received", msg);
@@ -146,6 +155,7 @@ mod tests {
                                                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
                                                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
                                                    _ => {}
+                                               }
                                                }
                                            }
                                        });
