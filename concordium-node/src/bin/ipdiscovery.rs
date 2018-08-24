@@ -59,7 +59,9 @@ impl IpDiscoveryServer {
                 .map_err(|e| error!("{}", e))
                 .ok();
         };
-        Ok(Response::with((status::Ok, format!("<html><body><h1>IP Discovery service for {} v{}</h1>Operational!</p></body></html>", p2p_client::APPNAME, p2p_client::VERSION))))
+        let mut resp = Response::with((status::Ok, format!("<html><body><h1>IP Discovery service for {} v{}</h1>Operational!</p></body></html>", p2p_client::APPNAME, p2p_client::VERSION)));
+        resp.headers.set(ContentType::html());
+        Ok(resp)
     }
 
     fn get_ip_discovery(&self, req: &mut Request) -> IronResult<Response> {

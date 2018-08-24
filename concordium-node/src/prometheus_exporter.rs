@@ -1,4 +1,5 @@
 use errors::*;
+use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
 use prometheus;
@@ -102,10 +103,12 @@ impl PrometheusServer {
     }
 
     fn index(&self) -> IronResult<Response> {
-        Ok(Response::with((status::Ok,
+        let mut resp = Response::with((status::Ok,
                           format!("<html><body><h1>Prometheus for {} v{}</h1>Operational!</p></body></html>",
                                    super::APPNAME,
-                                   super::VERSION))))
+                                   super::VERSION)));
+        resp.headers.set(ContentType::html());
+        Ok(resp)
     }
 
     fn metrics(&self) -> IronResult<Response> {
@@ -113,7 +116,9 @@ impl PrometheusServer {
         let metric_familys = self.registry.gather();
         let mut buffer = vec![];
         encoder.encode(&metric_familys, &mut buffer).unwrap();
-        Ok(Response::with((status::Ok, String::from_utf8(buffer).unwrap())))
+        let mut resp = Response::with((status::Ok, String::from_utf8(buffer).unwrap()));
+        resp.headers.set(ContentType::plaintext());
+        Ok(resp)
     }
 
     pub fn start_server(&mut self, listen_ip: &String, port: u16) -> ResultExtWrapper<()> {
