@@ -19,7 +19,7 @@ use std::sync::{Arc,Mutex};
 use std::{thread, time};
 use p2p_client::errors::*;
 use p2p_client::utils;
-use p2p_client::prometheus_exporter::PrometheusServer;
+use p2p_client::prometheus_exporter::{PrometheusServer,PrometheusMode};
 
 quick_main!(run);
 
@@ -48,12 +48,12 @@ fn run() -> ResultExtWrapper<()> {
 
     let prometheus = if conf.prometheus_server {
         info!("Enabling prometheus server");
-        let mut srv = PrometheusServer::new();
+        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
         Some(Arc::new(Mutex::new(srv)))
     } else if conf.prometheus_push_gateway.is_some() {
         info!("Enabling prometheus push gateway at {}", &conf.prometheus_push_gateway.clone().unwrap());
-        let mut srv = PrometheusServer::new();
+        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(Mutex::new(srv)))
     } else {
         None

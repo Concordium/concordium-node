@@ -62,6 +62,8 @@ lazy_static = "1.1.0"
 human-panic = "1.0.0"
 cfg-if = "0.1"
 ldns-sys = { path = "ldns-sys" } 
+hostname = "^0.1"
+serde_json = "1.0"
 
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"
@@ -91,3 +93,7 @@ name = "dns_record_generator"
 [[bin]]
 path = "src/bin/genkey.rs"
 name = "dns_key_generator"
+
+[[bin]]
+path = "src/bin/ipdiscovery.rs"
+name = "ip_discovery"

@@ -1,3 +1,3 @@
 #!/bin/sh
-docker build -f scripts/Dockerfile.bootstrapper -t node-bootstrapper:latest .
+docker build -f scripts/bootstrapper.Dockerfile -t node-bootstrapper:latest .
 echo "BUILD_DONE"

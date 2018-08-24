@@ -8,29 +8,47 @@ use std::thread;
 use std::time;
 use prometheus;
 
+#[derive(Clone,Debug,PartialEq,Copy)]
+pub enum PrometheusMode {
+    NodeMode,
+    IpDiscoveryMode,
+}
+
 #[derive(Clone)]
 pub struct PrometheusServer {
+    mode: PrometheusMode,
     registry: Registry,
     pkts_received_counter: IntCounter,
     pkts_sent_counter: IntCounter,
     peers_gauge: IntGauge,
     connections_received: IntCounter,
+    unique_ips_seen: IntCounter,
 }
 
 impl PrometheusServer {
-    pub fn new() -> Self {
+    pub fn new(mode: PrometheusMode) -> Self {
         let registry = Registry::new();
         let pg_opts = Opts::new("peer_number", "current peers connected");
         let pg = IntGauge::with_opts(pg_opts).unwrap();
-        registry
+        if mode == PrometheusMode::NodeMode {
+            registry
             .register(Box::new(pg.clone()))
             .unwrap();
+        }
 
         let cr_opts = Opts::new("conn_received", "connections received");
         let cr = IntCounter::with_opts(cr_opts).unwrap();
         registry
             .register(Box::new(cr.clone()))
             .unwrap();
+
+        let uis_opts = Opts::new("unique_ips_seen", "unique IPs seen");
+        let uis = IntCounter::with_opts(uis_opts).unwrap();
+        if mode == PrometheusMode::IpDiscoveryMode {
+            registry
+               .register(Box::new(uis.clone()))
+              .unwrap();
+        }
 
         let prc_opts = Opts::new("pkts_received", "packets received");
         let prc = IntCounter::with_opts(prc_opts).unwrap();
@@ -45,16 +63,23 @@ impl PrometheusServer {
             .unwrap();
 
         PrometheusServer {
+            mode: mode,
             registry: registry.clone(),
             pkts_received_counter: prc.clone(),
             pkts_sent_counter: psc.clone(),
             peers_gauge: pg.clone(),
             connections_received: cr.clone(),
+            unique_ips_seen: uis.clone(),
         }
     }
 
     pub fn peers_inc(&mut self) -> ResultExtWrapper<()> {
         &self.peers_gauge.inc();
+        Ok(())
+    }
+
+    pub fn unique_ips_inc(&mut self) -> ResultExtWrapper<()> {
+        &self.unique_ips_seen.inc();
         Ok(())
     }
 

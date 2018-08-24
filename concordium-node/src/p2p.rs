@@ -55,7 +55,7 @@ lazy_static! {
     };
 }
 
-#[derive(Clone,Copy,PartialEq)]
+#[derive(Clone,Copy,Debug,PartialEq)]
 pub enum P2PNodeMode {
     NormalMode,
     NormalPrivateMode,
