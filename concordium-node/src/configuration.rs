@@ -11,13 +11,16 @@ const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
-    #[structopt(long="external-ip", help = "Own external IP")]
+    #[structopt(long = "external-ip", help = "Own external IP")]
     pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
-    #[structopt(long = "ip-discovery-service", help = "Use external IP discovery service")]
+    #[structopt(long = "ip-discovery-service",
+                help = "Use external IP discovery service")]
     pub ip_discovery_service: bool,
-    #[structopt(long = "ip-discovery-service-host", help = "IP discovery service host", default_value = "ipdiscovery.p2p.concordium.com")]
+    #[structopt(long = "ip-discovery-service-host",
+                help = "IP discovery service host",
+                default_value = "ipdiscovery.p2p.concordium.com")]
     pub ip_discovery_service_host: String,
     #[structopt(long = "no-network",
                 short = "nonet",
@@ -29,7 +32,8 @@ pub struct CliConfig {
     pub connect_to: Vec<String>,
     #[structopt(long = "listen-port",
                 short = "p",
-                help = "Port to listen on", default_value = "8888")]
+                help = "Port to listen on",
+                default_value = "8888")]
     pub listen_port: u16,
     #[structopt(long = "listen-address",
                 short = "l",
@@ -66,27 +70,40 @@ pub struct CliConfig {
     #[structopt(long = "no-trust-bans",
                 help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,
-    #[structopt(long = "prometheus-listen-addr", help = "IP to listen for prometheus requests on", default_value = "127.0.0.1")]
+    #[structopt(long = "prometheus-listen-addr",
+                help = "IP to listen for prometheus requests on",
+                default_value = "127.0.0.1")]
     pub prometheus_listen_addr: String,
-    #[structopt(long = "prometheus-listen-port", help  ="Port for prometheus to listen on", default_value = "9090")]
+    #[structopt(long = "prometheus-listen-port",
+                help = "Port for prometheus to listen on",
+                default_value = "9090")]
     pub prometheus_listen_port: u16,
-    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
+    #[structopt(long = "prometheus-server",
+                help = "Enable prometheus server for metrics")]
     pub prometheus_server: bool,
-   #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
+    #[structopt(long = "prometheus-push-gateway",
+                help = "Enable prometheus via push gateway")]
     pub prometheus_push_gateway: Option<String>,
-   #[structopt(long = "prometheus-job-name", help = "Job name to send to push gateway", default_value = "p2p_node_push")]
+    #[structopt(long = "prometheus-job-name",
+                help = "Job name to send to push gateway",
+                default_value = "p2p_node_push")]
     pub prometheus_job_name: String,
-    #[structopt(long = "prometheus-instance-name", help = "If not present node_id will be used")]
+    #[structopt(long = "prometheus-instance-name",
+                help = "If not present node_id will be used")]
     pub prometheus_instance_name: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-username", help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
+    #[structopt(long = "prometheus-push-gateway-username",
+                help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_username: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
+    #[structopt(long = "prometheus-push-gateway-password",
+                help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
-    #[structopt(long = "bootstrap-server", help = "DNS name to resolve bootstrap nodes from", default_value = "bootstrap.p2p.concordium.com")]
+    #[structopt(long = "bootstrap-server",
+                help = "DNS name to resolve bootstrap nodes from",
+                default_value = "bootstrap.p2p.concordium.com")]
     pub bootstrap_server: String,
-    #[structopt(long = "no-bootstrap", help  = "Do not bootstrap via DNS")]
+    #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_boostrap_dns: bool,
-    #[structopt(long = "private-node", help  ="Allow RFC1918 peers")]
+    #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
 }
 
@@ -97,9 +114,11 @@ pub fn parse_cli_config() -> CliConfig {
 #[derive(StructOpt, Debug)]
 #[structopt(name = "BootstrapperNode")]
 pub struct BootstrapperConfig {
-    #[structopt(long="max-nodes", help = "Max nodes allowed to connect", default_value="10000")]
+    #[structopt(long = "max-nodes",
+                help = "Max nodes allowed to connect",
+                default_value = "10000")]
     pub max_nodes: u16,
-    #[structopt(long="external-ip", help = "Own external IP")]
+    #[structopt(long = "external-ip", help = "Own external IP")]
     pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
@@ -111,7 +130,8 @@ pub struct BootstrapperConfig {
     pub id: String,
     #[structopt(long = "listen-port",
                 short = "p",
-                help = "Port to listen on", default_value = "8888")]
+                help = "Port to listen on",
+                default_value = "8888")]
     pub listen_port: u16,
     #[structopt(long = "listen-address",
                 short = "l",
@@ -119,24 +139,35 @@ pub struct BootstrapperConfig {
     pub listen_address: Option<String>,
     #[structopt(long = "no-trust-bans",
                 help = "Don't blindly trust ban/unban requests")]
-    pub no_trust_bans: bool,    
-    #[structopt(long = "prometheus-listen-addr", help = "IP to listen for prometheus requests on", default_value = "127.0.0.1")]
+    pub no_trust_bans: bool,
+    #[structopt(long = "prometheus-listen-addr",
+                help = "IP to listen for prometheus requests on",
+                default_value = "127.0.0.1")]
     pub prometheus_listen_addr: String,
-    #[structopt(long = "prometheus-listen-port", help  ="Port for prometheus to listen on", default_value = "9090")]
+    #[structopt(long = "prometheus-listen-port",
+                help = "Port for prometheus to listen on",
+                default_value = "9090")]
     pub prometheus_listen_port: u16,
-    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
+    #[structopt(long = "prometheus-server",
+                help = "Enable prometheus server for metrics")]
     pub prometheus_server: bool,
-   #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
+    #[structopt(long = "prometheus-push-gateway",
+                help = "Enable prometheus via push gateway")]
     pub prometheus_push_gateway: Option<String>,
-   #[structopt(long = "prometheus-job-name", help = "Job name to send to push gateway", default_value = "p2p_node_push")]
+    #[structopt(long = "prometheus-job-name",
+                help = "Job name to send to push gateway",
+                default_value = "p2p_node_push")]
     pub prometheus_job_name: String,
-    #[structopt(long = "prometheus-instance-name", help = "If not present node_id will be used")]
+    #[structopt(long = "prometheus-instance-name",
+                help = "If not present node_id will be used")]
     pub prometheus_instance_name: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-username", help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
+    #[structopt(long = "prometheus-push-gateway-username",
+                help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_username: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
+    #[structopt(long = "prometheus-push-gateway-password",
+                help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
-    #[structopt(long = "private-node", help  ="Allow RFC1918 peers")]
+    #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
 }
 
@@ -149,33 +180,48 @@ pub fn parse_bootstrapper_config() -> BootstrapperConfig {
 pub struct IpDiscoveryConfig {
     #[structopt(long = "listen-port",
                 short = "p",
-                help = "Port to listen on", default_value = "8900")]
+                help = "Port to listen on",
+                default_value = "8900")]
     pub listen_port: u16,
     #[structopt(long = "listen-address",
                 short = "l",
-                help = "Address to listen on", default_value  ="0.0.0.0")]
+                help = "Address to listen on",
+                default_value = "0.0.0.0")]
     pub listen_address: String,
-    #[structopt(long = "prometheus-listen-addr", help = "IP to listen for prometheus requests on", default_value = "127.0.0.1")]
+    #[structopt(long = "prometheus-listen-addr",
+                help = "IP to listen for prometheus requests on",
+                default_value = "127.0.0.1")]
     pub prometheus_listen_addr: String,
-    #[structopt(long = "prometheus-listen-port", help  ="Port for prometheus to listen on", default_value = "9090")]
+    #[structopt(long = "prometheus-listen-port",
+                help = "Port for prometheus to listen on",
+                default_value = "9090")]
     pub prometheus_listen_port: u16,
-    #[structopt(long = "prometheus-server", help = "Enable prometheus server for metrics")]
+    #[structopt(long = "prometheus-server",
+                help = "Enable prometheus server for metrics")]
     pub prometheus_server: bool,
-   #[structopt(long = "prometheus-push-gateway", help = "Enable prometheus via push gateway")]
+    #[structopt(long = "prometheus-push-gateway",
+                help = "Enable prometheus via push gateway")]
     pub prometheus_push_gateway: Option<String>,
-   #[structopt(long = "prometheus-job-name", help = "Job name to send to push gateway", default_value = "p2p_ipdiscovery_push")]
+    #[structopt(long = "prometheus-job-name",
+                help = "Job name to send to push gateway",
+                default_value = "p2p_ipdiscovery_push")]
     pub prometheus_job_name: String,
-    #[structopt(long = "prometheus-instance-name", help = "Instance id to present to prometheus")]
+    #[structopt(long = "prometheus-instance-name",
+                help = "Instance id to present to prometheus")]
     pub prometheus_instance_name: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-username", help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
+    #[structopt(long = "prometheus-push-gateway-username",
+                help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_username: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-password", help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
+    #[structopt(long = "prometheus-push-gateway-password",
+                help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
-    #[structopt(long = "header-name", help = "Name of header to fetch remote address from if behind load balancer", default_value = "X-Forwarded-For")]
+    #[structopt(long = "header-name",
+                help = "Name of header to fetch remote address from if behind load balancer",
+                default_value = "X-Forwarded-For")]
     pub header_name: String,
 }
 

@@ -1,5 +1,7 @@
 use common::{NetworkMessage, NetworkPacket, P2PNodeId, P2PPeer};
 use db::P2PDB;
+use errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
+use errors::*;
 use futures::future::Future;
 use grpcio;
 use grpcio::{Environment, ServerBuilder};
@@ -11,8 +13,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use errors::*;
-use errors::ErrorKindWrapper::{ QueueingError, ProcessControlError };
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -45,7 +45,8 @@ impl RpcServerImpl {
 
     pub fn queue_message(&self, msg: &NetworkMessage) -> ResultExtWrapper<()> {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
-            sender.send(box msg.clone()).chain_err(|| QueueingError("Can't queue message for Rpc retrieval queue".to_string()))?;
+            sender.send(box msg.clone())
+                  .chain_err(|| QueueingError("Can't queue message for Rpc retrieval queue".to_string()))?;
         }
         Ok(())
     }
@@ -67,42 +68,43 @@ impl RpcServerImpl {
         let service = create_p2_p(self_clone.clone());
         info!("RPC started on {}:{}",
               self_clone.listen_addr, self_clone.listen_port);
-        let mut server =
-            ServerBuilder::new(env).register_service(service)
-                                   .bind(self_clone.listen_addr, self_clone.listen_port)
-                                   .build()
-                                   .chain_err(|| ProcessControlError("can't start server".to_string()))?;
+        let mut server = ServerBuilder::new(env).register_service(service)
+                                                .bind(self_clone.listen_addr, self_clone.listen_port)
+                                                .build()
+                                                .chain_err(|| ProcessControlError("can't start server".to_string()))?;
         server.start();
         self.server = Some(Arc::new(Mutex::new(server)));
         Ok(())
     }
 
-    pub fn stop_server(&mut self) -> ResultExtWrapper<()>{
+    pub fn stop_server(&mut self) -> ResultExtWrapper<()> {
         if let Some(ref mut server) = self.server {
-            &server.lock().unwrap().shutdown().wait().chain_err(|| ProcessControlError("can't stop process".to_string()))?;
+            &server.lock()
+                   .unwrap()
+                   .shutdown()
+                   .wait()
+                   .chain_err(|| ProcessControlError("can't stop process".to_string()))?;
         }
         Ok(())
     }
 }
 
-macro_rules! authenticate{
+macro_rules! authenticate {
     ($ctx:expr,$req:expr,$sink:expr,$access_token: expr, $inner:block) => {
-         match $ctx.request_headers().iter().find(|&val| val.0 == "authentication" ) {
-             Some(val) => {
-                 if String::from_utf8(val.1.to_vec()).unwrap() == *$access_token {
+        match $ctx.request_headers().iter().find(|&val| val.0 == "authentication") {
+            Some(val) => {
+                if String::from_utf8(val.1.to_vec()).unwrap() == *$access_token {
                     $inner
-                 } else {
-                     let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string())))
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+                } else {
+                    let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string()))).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
                     $ctx.spawn(f);
-                 }
-             },
-             _ => {
-                let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string())))
-                    .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+                }
+            }
+            _ => {
+                let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string()))).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
                 $ctx.spawn(f);
-             },
-         }
+            }
+        }
     };
 }
 
@@ -116,7 +118,11 @@ impl P2P for RpcServerImpl {
             if req.has_ip() && req.has_port() {
                 let ip = IpAddr::from_str(req.get_ip().get_value()).unwrap();
                 let port = req.get_port().get_value() as u16;
-                r.set_value(self.node.borrow_mut().connect(ip, port).map_err(|e| error!("{}", e)).is_ok());
+                r.set_value(self.node
+                                .borrow_mut()
+                                .connect(ip, port)
+                                .map_err(|e| error!("{}", e))
+                                .is_ok());
             } else {
                 r.set_value(false);
             }
@@ -193,13 +199,17 @@ impl P2P for RpcServerImpl {
                     P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
                 info!("Sending direct message to: {:064x}", id.get_id());
                 r.set_value(self.node
-                    .borrow_mut()
-                    .send_message(Some(id), req.get_message().get_value(), false).map_err(|e| error!("{}", e)).is_ok());
+                                .borrow_mut()
+                                .send_message(Some(id), req.get_message().get_value(), false)
+                                .map_err(|e| error!("{}", e))
+                                .is_ok());
             } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
                 info!("Sending broadcast message");
-                r.set_value( self.node
-                    .borrow_mut()
-                    .send_message(None, req.get_message().get_value(), true).map_err(|e| error!("{}", e)).is_ok());
+                r.set_value(self.node
+                                .borrow_mut()
+                                .send_message(None, req.get_message().get_value(), true)
+                                .map_err(|e| error!("{}", e))
+                                .is_ok());
             } else {
                 r.set_value(false);
             }
@@ -362,7 +372,9 @@ impl P2P for RpcServerImpl {
                         if db_done {
                             r.set_value(node.send_ban(peer.clone()).is_ok());
                         } else {
-                            node.unban_node(peer.clone()).map_err(|e| error!("{}", e)).ok();
+                            node.unban_node(peer.clone())
+                                .map_err(|e| error!("{}", e))
+                                .ok();
                             r.set_value(false);
                         }
                     }
@@ -403,7 +415,9 @@ impl P2P for RpcServerImpl {
                         if db_done {
                             r.set_value(node.send_unban(peer.clone()).is_ok());
                         } else {
-                            node.ban_node(peer.clone()).map_err(|e| error!("{}", e)).ok();
+                            node.ban_node(peer.clone())
+                                .map_err(|e| error!("{}", e))
+                                .ok();
                             r.set_value(false);
                         }
                     }

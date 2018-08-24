@@ -1,7 +1,10 @@
+use atomic_counter::AtomicCounter;
+use atomic_counter::RelaxedCounter;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, BytesMut};
 use common;
 use common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, P2PNodeId, P2PPeer};
+use errors::*;
 use get_if_addrs;
 use mio::net::TcpListener;
 use mio::net::TcpStream;
@@ -9,12 +12,12 @@ use mio::*;
 use num_bigint::BigUint;
 use num_bigint::ToBigUint;
 use num_traits::pow;
+use prometheus_exporter::PrometheusServer;
+use rand::{thread_rng, Rng};
 use rustls::{
     Certificate, ClientConfig, ClientSession, NoClientAuth, PrivateKey, RootCertStore,
     ServerCertVerified, ServerCertVerifier, ServerConfig, ServerSession, Session, TLSError,
 };
-use rand::{thread_rng, Rng};
-use std::str::FromStr;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::io::Cursor;
@@ -25,6 +28,7 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::net::IpAddr::{V4, V6};
 use std::net::{Shutdown, SocketAddr};
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -34,10 +38,6 @@ use time;
 use time::Timespec;
 use utils;
 use webpki::DNSNameRef;
-use errors::*;
-use prometheus_exporter::PrometheusServer;
-use atomic_counter::RelaxedCounter;
-use atomic_counter::AtomicCounter;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -46,16 +46,11 @@ const BOOTSTRAP_PEER_COUNT: usize = 100;
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 
 lazy_static! {
-    static ref TOTAL_MESSAGES_RECEIVED_COUNTER: RelaxedCounter = {
-        RelaxedCounter::new(0)
-    };
-
-    static ref TOTAL_MESSAGES_SENT_COUNTER: RelaxedCounter = {
-        RelaxedCounter::new(0)
-    };
+    static ref TOTAL_MESSAGES_RECEIVED_COUNTER: RelaxedCounter = { RelaxedCounter::new(0) };
+    static ref TOTAL_MESSAGES_SENT_COUNTER: RelaxedCounter = { RelaxedCounter::new(0) };
 }
 
-#[derive(Clone,Copy,Debug,PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum P2PNodeMode {
     NormalMode,
     NormalPrivateMode,
@@ -101,7 +96,7 @@ impl Buckets {
                             x.remove(0);
                         }
 
-                        x.retain(| ref ele| ele != &node);
+                        x.retain(|ref ele| ele != &node);
                         x.push(node.clone());
                         break;
                     }
@@ -156,14 +151,14 @@ impl Buckets {
         for i in 0..KEY_SIZE {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
-                    x.retain(| ref ele| ele.last_seen() >= older_than);
+                    x.retain(|ref ele| ele.last_seen() >= older_than);
                 }
                 None => {
                     error!("Couldn't get bucket as mutable");
                 }
             }
-        }       
-    } 
+        }
+    }
 
     pub fn get_all_nodes(&self, sender_id: Option<&P2PNodeId>) -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
@@ -185,7 +180,7 @@ impl Buckets {
                 }
             }
         }
-        
+
         ret
     }
 
@@ -243,7 +238,7 @@ impl TlsServer {
            event_log: Option<Sender<P2PEvent>>,
            self_peer: P2PPeer,
            mode: P2PNodeMode,
-           prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,)
+           prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>)
            -> TlsServer {
         TlsServer { server,
                     connections: HashMap::new(),
@@ -253,9 +248,9 @@ impl TlsServer {
                     own_id,
                     event_log,
                     self_peer,
-                    banned_peers: HashSet::new(), 
-                    mode : mode,
-                    prometheus_exporter: prometheus_exporter,}
+                    banned_peers: HashSet::new(),
+                    mode: mode,
+                    prometheus_exporter: prometheus_exporter, }
     }
 
     fn log_event(&mut self, event: P2PEvent) {
@@ -317,18 +312,21 @@ impl TlsServer {
                                                         self.own_id.clone(),
                                                         self_id.clone(),
                                                         addr.ip().clone(),
-                                                        addr.port().clone(), 
+                                                        addr.port().clone(),
                                                         self.mode,
                                                         self.prometheus_exporter.clone()));
                 self.connections[&token].register(poll)
             }
-            Err(e) => {
-                Err(ErrorKindWrapper::InternalIOError(e).into())
-            }
+            Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
         }
     }
 
-    fn connect(&mut self, poll: &mut Poll, ip: IpAddr, port: u16, self_id: &P2PPeer) -> ResultExtWrapper<()> {
+    fn connect(&mut self,
+               poll: &mut Poll,
+               ip: IpAddr,
+               port: u16,
+               self_id: &P2PPeer)
+               -> ResultExtWrapper<()> {
         let self_peer = self.get_self_peer();
         if self_peer.ip() == ip && self_peer.port() == port {
             return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
@@ -345,7 +343,10 @@ impl TlsServer {
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
             Ok(x) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
-                    prom.lock()?.conn_received_inc().map_err(|e| error!("{}", e)).ok();
+                    prom.lock()?
+                        .conn_received_inc()
+                        .map_err(|e| error!("{}", e))
+                        .ok();
                 };
                 let tls_session =
                     ClientSession::new(&self.client_tls_config,
@@ -358,31 +359,31 @@ impl TlsServer {
                 let token = Token(self.next_id);
 
                 let conn = Connection::new(x,
-                                                        token,
-                                                        None,
-                                                        Some(tls_session),
-                                                        true,
-                                                        self.own_id.clone(),
-                                                        self_id.clone(),
-                                                        ip,
-                                                        port,
-                                                        self.mode,
-                                                        self.prometheus_exporter.clone());
+                                           token,
+                                           None,
+                                           Some(tls_session),
+                                           true,
+                                           self.own_id.clone(),
+                                           self_id.clone(),
+                                           ip,
+                                           port,
+                                           self.mode,
+                                           self.prometheus_exporter.clone());
 
                 conn.register(poll)?;
                 self.next_id += 1;
                 self.connections.insert(token, conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
-                debug!("Requesting handshake from new peer {}:{}", ip.to_string(), port);
+                debug!("Requesting handshake from new peer {}:{}",
+                       ip.to_string(),
+                       port);
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
                     serialize_bytes(conn, &NetworkRequest::Handshake(self_peer).serialize())?;
                 }
                 Ok(())
             }
-            Err(e) => {
-                Err(ErrorKindWrapper::InternalIOError(e).into())
-            }
+            Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
         }
     }
 
@@ -420,12 +421,17 @@ impl TlsServer {
                   poll: &mut Poll,
                   event: &Event,
                   mut buckets: &mut Buckets,
-                  packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) -> ResultExtWrapper<()>{
+                  packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>)
+                  -> ResultExtWrapper<()> {
         let token = event.token();
         if self.connections.contains_key(&token) {
             match self.connections.get_mut(&token) {
-                Some(x) =>  x.ready(poll, event, &mut buckets, &packet_queue).map_err(|e| error!("Error while performing ready() check on connection '{}'", e)).ok(),
-                None => return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into()),
+                Some(x) => x.ready(poll, event, &mut buckets, &packet_queue)
+                            .map_err(|e| error!("Error while performing ready() check on connection '{}'", e))
+                            .ok(),
+                None => {
+                    return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into())
+                }
             };
 
             if self.connections[&token].is_closed() {
@@ -436,7 +442,9 @@ impl TlsServer {
     }
 
     fn cleanup_connections(&mut self, mut poll: &mut Poll) -> ResultExtWrapper<()> {
-        if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode {
+        if self.mode == P2PNodeMode::BootstrapperMode
+           || self.mode == P2PNodeMode::BootstrapperPrivateMode
+        {
             for conn in self.connections.values_mut() {
                 if conn.last_seen + 300000 < common::get_current_stamp() {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
@@ -478,11 +486,12 @@ impl TlsServer {
         Ok(())
     }
 
-    fn liveness_check(&mut self) -> ResultExtWrapper<()>{
+    fn liveness_check(&mut self) -> ResultExtWrapper<()> {
         for conn in self.connections.values_mut() {
             if conn.last_seen + 300000 < common::get_current_stamp() {
                 let self_peer = conn.get_self_peer().clone();
-                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize()).map_err(|e| error!("{}", e)).ok();
+                serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize()).map_err(|e| error!("{}", e))
+                                                                                   .ok();
             }
         }
         Ok(())
@@ -545,12 +554,12 @@ impl Connection {
                      messages_received: 0,
                      messages_sent: 0,
                      peer_ip: peer_ip,
-                     peer_port: peer_port, 
+                     peer_port: peer_port,
                      mode: mode,
                      pkt_validated: false,
                      pkt_valid: false,
                      failed_pkts: 0,
-                     prometheus_exporter: prometheus_exporter}
+                     prometheus_exporter: prometheus_exporter, }
     }
 
     pub fn ip(&self) -> IpAddr {
@@ -596,7 +605,7 @@ impl Connection {
         self.pkt_buffer = None;
     }
 
-    fn pkt_validated(&self) -> bool{
+    fn pkt_validated(&self) -> bool {
         self.pkt_validated
     }
 
@@ -626,7 +635,7 @@ impl Connection {
         self.pkt_validated = false;
     }
 
-    fn register(&self, poll: &mut Poll) -> ResultExtWrapper<()>{
+    fn register(&self, poll: &mut Poll) -> ResultExtWrapper<()> {
         match poll.register(&self.socket,
                             self.token,
                             self.event_set(),
@@ -637,7 +646,7 @@ impl Connection {
         }
     }
 
-    fn reregister(&self, poll: &mut Poll) -> ResultExtWrapper<()>{
+    fn reregister(&self, poll: &mut Poll) -> ResultExtWrapper<()> {
         match poll.reregister(&self.socket,
                               self.token,
                               self.event_set(),
@@ -706,7 +715,8 @@ impl Connection {
              poll: &mut Poll,
              ev: &Event,
              buckets: &mut Buckets,
-             packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) -> ResultExtWrapper<()>{
+             packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>)
+             -> ResultExtWrapper<()> {
         if ev.readiness().is_readable() {
             self.do_tls_read().map_err(|e| error!("{}", e)).ok();
             self.try_plain_read(poll, &packets_queue, buckets);
@@ -747,7 +757,7 @@ impl Connection {
         Ok(())
     }
 
-    fn do_tls_read(&mut self) -> ResultExtWrapper<(usize)>{
+    fn do_tls_read(&mut self) -> ResultExtWrapper<(usize)> {
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
@@ -774,7 +784,6 @@ impl Connection {
             self.closing = true;
             return Err(ErrorKindWrapper::NetworkError(format!("read error {:?}", err)).into());
         }
-
 
         if let Ok(size) = rc {
             if size == 0 {
@@ -803,13 +812,15 @@ impl Connection {
         if processed.is_err() {
             error!("cannot process packet: {:?}", processed);
             self.closing = true;
-            return Err(ErrorKindWrapper::NetworkError(format!("Can't process packet {:?}", processed)).into());
+            return Err(ErrorKindWrapper::NetworkError(format!("Can't process packet {:?}",
+                                                              processed)).into());
         }
 
         rc.chain_err(|| ErrorKindWrapper::NetworkError("couldn't read from TLS socket".to_string()))
     }
 
-    fn try_plain_read(&mut self, poll: &mut Poll,
+    fn try_plain_read(&mut self,
+                      poll: &mut Poll,
                       packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                       mut buckets: &mut Buckets) {
         // Read and process all available plaintext.
@@ -868,13 +879,17 @@ impl Connection {
     fn process_complete_packet(&mut self,
                                buckets: &mut Buckets,
                                buf: &[u8],
-                               packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>)  {
+                               packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
         let outer = Arc::new(box NetworkMessage::deserialize(&buf));
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter {
-            prom.lock().unwrap().pkt_received_inc().map_err(|e| error!("{}", e)).ok();
+            prom.lock()
+                .unwrap()
+                .pkt_received_inc()
+                .map_err(|e| error!("{}", e))
+                .ok();
         };
         match *outer.clone() {
             box NetworkMessage::NetworkRequest(ref x, _, _) => {
@@ -882,28 +897,37 @@ impl Connection {
                     NetworkRequest::Ping(_) => {
                         //Respond with pong
                         debug!("Got request for ping");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                            prom.lock()
+                                .unwrap()
+                                .pkt_sent_inc()
+                                .map_err(|e| error!("{}", e))
+                                .ok();
                         };
                         serialize_bytes(self, &NetworkResponse::Pong(self_peer).serialize()).unwrap();
                     }
                     NetworkRequest::FindNode(_, x) => {
                         //Return list of nodes
                         debug!("Got request for FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         let nodes = buckets.closest_nodes(x);
-                        serialize_bytes(self,
-                                        &NetworkResponse::FindNode(self_peer, nodes).serialize()).unwrap();
+                        serialize_bytes(self, &NetworkResponse::FindNode(self_peer, nodes).serialize()).unwrap();
                     }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         match packet_queue.send(outer.clone()) {
@@ -913,7 +937,9 @@ impl Connection {
                     }
                     NetworkRequest::UnbanNode(_, _) => {
                         debug!("Got request for UnbanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         match packet_queue.send(outer.clone()) {
@@ -926,21 +952,36 @@ impl Connection {
                         self.update_last_seen();
                         serialize_bytes(self, &NetworkResponse::Handshake(self_peer.clone()).serialize()).unwrap();
                         self.peer = Some(sender.clone());
-                        if self.mode == P2PNodeMode::BootstrapperPrivateMode || self.mode == P2PNodeMode::NormalPrivateMode {
+                        if self.mode == P2PNodeMode::BootstrapperPrivateMode
+                           || self.mode == P2PNodeMode::NormalPrivateMode
+                        {
                             buckets.insert_into_bucket(sender, &self.own_id);
-                        } else if sender.ip().is_global() && !sender.ip().is_multicast() && !sender.ip().is_documentation() {
+                        } else if sender.ip().is_global()
+                                  && !sender.ip().is_multicast()
+                                  && !sender.ip().is_documentation()
+                        {
                             buckets.insert_into_bucket(sender, &self.own_id);
                         }
                         if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock().unwrap().peers_inc().map_err(|e| error!("{}", e)).ok();
+                            prom.lock()
+                                .unwrap()
+                                .peers_inc()
+                                .map_err(|e| error!("{}", e))
+                                .ok();
                         };
-                        if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode{
-                            debug!("Running in bootstrapper mode, so instantly sending peers {} random peers", BOOTSTRAP_PEER_COUNT);
-                            serialize_bytes(self,
-                                &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender.id(), BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
+                        if self.mode == P2PNodeMode::BootstrapperMode
+                           || self.mode == P2PNodeMode::BootstrapperPrivateMode
+                        {
+                            debug!("Running in bootstrapper mode, so instantly sending peers {} random peers",
+                                   BOOTSTRAP_PEER_COUNT);
+                            serialize_bytes(self, &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender.id(), BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
                             if let Some(ref prom) = &self.prometheus_exporter {
-                                prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
-                            };    
+                                prom.lock()
+                                    .unwrap()
+                                    .pkt_sent_inc()
+                                    .map_err(|e| error!("{}", e))
+                                    .ok();
+                            };
                             TOTAL_MESSAGES_SENT_COUNTER.inc();
                         }
                         match packet_queue.send(outer.clone()) {
@@ -950,16 +991,21 @@ impl Connection {
                     }
                     NetworkRequest::GetPeers(ref sender) => {
                         debug!("Got request for GetPeers");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         let nodes = buckets.get_all_nodes(Some(&sender.id()));
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                            prom.lock()
+                                .unwrap()
+                                .pkt_sent_inc()
+                                .map_err(|e| error!("{}", e))
+                                .ok();
                         };
-                        serialize_bytes(self,
-                                        &NetworkResponse::PeerList(self_peer, nodes).serialize()).unwrap();
+                        serialize_bytes(self, &NetworkResponse::PeerList(self_peer, nodes).serialize()).unwrap();
                     }
                 }
             }
@@ -967,7 +1013,9 @@ impl Connection {
                 match x {
                     NetworkResponse::FindNode(sender, peers) => {
                         debug!("Got response to FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         //Process the received node list
@@ -978,7 +1026,9 @@ impl Connection {
                     }
                     NetworkResponse::Pong(sender) => {
                         debug!("Got response for ping");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         //Note that node responded back
@@ -986,7 +1036,9 @@ impl Connection {
                     }
                     NetworkResponse::PeerList(sender, peers) => {
                         debug!("Got response to FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         //Process the received node list
@@ -1005,7 +1057,11 @@ impl Connection {
                         self.peer = Some(peer.clone());
                         buckets.insert_into_bucket(peer, &self.own_id);
                         if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock().unwrap().peers_inc().map_err(|e| error!("{}", e)).ok();
+                            prom.lock()
+                                .unwrap()
+                                .peers_inc()
+                                .map_err(|e| error!("{}", e))
+                                .ok();
                         };
                     }
                 }
@@ -1013,7 +1069,9 @@ impl Connection {
             box NetworkMessage::NetworkPacket(ref x, _, _) => {
                 match x {
                     NetworkPacket::DirectMessage(_, _, ref msg) => {
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         debug!("Received direct message of size {}", msg.len());
@@ -1023,7 +1081,9 @@ impl Connection {
                         };
                     }
                     NetworkPacket::BroadcastedMessage(_, ref msg) => {
-                        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
                             self.update_last_seen();
                         }
                         debug!("Received broadcast message of size {}", msg.len());
@@ -1037,7 +1097,9 @@ impl Connection {
             box NetworkMessage::UnknownMessage => {
                 self.failed_pkts_inc();
                 debug!("Unknown message received!");
-                if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                if self.mode != P2PNodeMode::BootstrapperMode
+                   && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                {
                     self.update_last_seen();
                 }
                 trace!("Contents were: {:?}",
@@ -1046,7 +1108,9 @@ impl Connection {
             box NetworkMessage::InvalidMessage => {
                 self.failed_pkts_inc();
                 debug!("Invalid message received!");
-                if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+                if self.mode != P2PNodeMode::BootstrapperMode
+                   && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                {
                     self.update_last_seen();
                 }
                 trace!("Contents were: {:?}",
@@ -1071,10 +1135,13 @@ impl Connection {
                     match P2PPeer::deserialize(&String::from_utf8(bufdata.clone().to_vec()).unwrap()) {
                         Some(ref sender) => {
                             let sender_len = sender.serialize().len();
-                            if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode {
-                                let msg_num = String::from_utf8(bufdata[(24+sender_len)..(24+sender_len+4)].to_vec()).unwrap();
-                                if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE || 
-                                    msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE {
+                            if self.mode == P2PNodeMode::BootstrapperMode
+                               || self.mode == P2PNodeMode::BootstrapperPrivateMode
+                            {
+                                let msg_num = String::from_utf8(bufdata[(24 + sender_len)..(24 + sender_len + 4)].to_vec()).unwrap();
+                                if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
+                                   || msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
+                                {
                                     info!("Received network packet message, not wanted - disconnecting peer");
                                     &self.clear_buffer();
                                     &self.close(poll);
@@ -1095,7 +1162,8 @@ impl Connection {
         }
     }
 
-    fn incoming_plaintext(&mut self, poll: &mut Poll,
+    fn incoming_plaintext(&mut self,
+                          poll: &mut Poll,
                           packets_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>,
                           buckets: &mut Buckets,
                           buf: &[u8]) {
@@ -1116,8 +1184,8 @@ impl Connection {
             self.incoming_plaintext(poll, packets_queue, buckets, buf);
         } else if self.expected_size > 0
                   && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
-        {   
-            if self.pkt_valid() || !self.pkt_validated(){
+        {
+            if self.pkt_valid() || !self.pkt_validated() {
                 self.append_buffer(&buf);
             } else {
                 self.update_buffer_read_stats(buf.len() as u32);
@@ -1126,7 +1194,7 @@ impl Connection {
                 trace!("Completed packet with {} size", self.currently_read);
                 self.expected_size = 0;
                 self.currently_read = 0;
-                if self.pkt_valid() || !self.pkt_validated(){
+                if self.pkt_valid() || !self.pkt_validated() {
                     let mut buffered = Vec::new();
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
@@ -1140,7 +1208,7 @@ impl Connection {
         {
             trace!("Got more buffer than needed");
             let to_take = self.expected_size - self.currently_read;
-            if self.pkt_valid() || !self.pkt_validated(){
+            if self.pkt_valid() || !self.pkt_validated() {
                 self.append_buffer(&buf[..to_take as usize]);
                 let mut buffered = Vec::new();
                 if let Some(ref mut buf) = self.pkt_buffer {
@@ -1169,7 +1237,7 @@ impl Connection {
         }
     }
 
-    fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)>{
+    fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
@@ -1257,13 +1325,12 @@ impl P2PNode {
         let ip = if let Some(ref addy) = listen_address {
             match IpAddr::from_str(addy) {
                 Ok(x) => x,
-                _ => P2PNode::get_ip().unwrap()
+                _ => P2PNode::get_ip().unwrap(),
             }
         } else {
             P2PNode::get_ip().unwrap()
         };
-        let ip_port = format!("{}:{}",
-                              ip.to_string(), listen_port);
+        let ip_port = format!("{}:{}", ip.to_string(), listen_port);
         debug!("Listening on {:?}", ip_port);
 
         let id = match supplied_id {
@@ -1330,13 +1397,13 @@ impl P2PNode {
         let own_peer_ip = if let Some(ref own_ip) = external_ip {
             match IpAddr::from_str(own_ip) {
                 Ok(ip) => ip,
-                _ => ip
-            } 
+                _ => ip,
+            }
         } else {
             ip
         };
 
-        let own_peer_port = if let Some( own_port) = external_port {
+        let own_peer_port = if let Some(own_port) = external_port {
             own_port
         } else {
             listen_port
@@ -1349,7 +1416,9 @@ impl P2PNode {
                                      Arc::new(client_conf),
                                      _id.clone(),
                                      event_log.clone(),
-                                     self_peer, mode, prometheus_exporter.clone());
+                                     self_peer,
+                                     mode,
+                                     prometheus_exporter.clone());
 
         P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),
@@ -1361,10 +1430,10 @@ impl P2PNode {
                   incoming_pkts: pkt_queue,
                   event_log,
                   start_time: time::get_time(),
-                  prometheus_exporter: prometheus_exporter, 
+                  prometheus_exporter: prometheus_exporter,
                   external_ip: own_peer_ip,
                   external_port: own_peer_port,
-                  mode: mode,}
+                  mode: mode, }
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -1372,7 +1441,9 @@ impl P2PNode {
         thread::spawn(move || {
                           let mut events = Events::with_capacity(1024);
                           loop {
-                              self_clone.process(&mut events).map_err(|e| error!("{}", e)).ok();
+                              self_clone.process(&mut events)
+                                        .map_err(|e| error!("{}", e))
+                                        .ok();
                           }
                       })
     }
@@ -1386,17 +1457,11 @@ impl P2PNode {
         match self.tls_server.lock() {
             Ok(mut x) => {
                 match self.poll.lock() {
-                    Ok(mut y) => {
-                        x.connect(&mut y, ip, port, &self.get_self_peer())
-                    }
-                    Err(e) => {
-                        Err(ErrorWrapper::from(e).into())
-                    }
+                    Ok(mut y) => x.connect(&mut y, ip, port, &self.get_self_peer()),
+                    Err(e) => Err(ErrorWrapper::from(e).into()),
                 }
             }
-            Err(e) => {
-                Err(ErrorWrapper::from(e).into())
-            }
+            Err(e) => Err(ErrorWrapper::from(e).into()),
         }
     }
 
@@ -1438,36 +1503,41 @@ impl P2PNode {
     pub fn process_messages(&mut self) -> ResultExtWrapper<()> {
         //Try to send queued messages first
         //Resend queue
-        let mut resend_queue:VecDeque<Arc<Box<NetworkMessage>>> = VecDeque::new();
+        let mut resend_queue: VecDeque<Arc<Box<NetworkMessage>>> = VecDeque::new();
         {
             let mut send_q = self.send_queue.lock()?;
             loop {
                 trace!("Processing messages!");
                 let outer_pkt = send_q.pop_front();
                 match outer_pkt.clone() {
-                    Some(ref x) => { 
+                    Some(ref x) => {
                         trace!("Got message to process!");
                         match *x.clone() {
-                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::DirectMessage(_,_,_),
-                                                        _,
-                                                        _) => {
-                                if let NetworkPacket::DirectMessage(_,receiver,_) = inner_pkt {
-                                    match self.tls_server
-                                            .lock()?
-                                            .find_connection(receiver.clone())
-                                    {
+                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::DirectMessage(_,
+                                                                                           _,
+                                                                                           _),
+                                                              _,
+                                                              _) => {
+                                if let NetworkPacket::DirectMessage(_, receiver, _) = inner_pkt {
+                                    match self.tls_server.lock()?.find_connection(receiver.clone()) {
                                         Some(ref mut conn) => {
-                                            if let Some( ref peer ) = conn.peer.clone() {
+                                            if let Some(ref peer) = conn.peer.clone() {
                                                 match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                     Ok(_) => {
                                                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                                                         if let Some(ref prom) = &self.prometheus_exporter {
-                                                            prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                            prom.lock()
+                                                                .unwrap()
+                                                                .pkt_sent_inc()
+                                                                .map_err(|e| error!("{}", e))
+                                                                .ok();
                                                         };
                                                         debug!("Sent message");
                                                     }
                                                     Err(e) => {
-                                                        error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
+                                                        error!("Could not send to peer {} due to {}",
+                                                               peer.id().to_string(),
+                                                               e);
                                                         resend_queue.push_back(outer_pkt.unwrap().clone());
                                                     }
                                                 }
@@ -1480,83 +1550,90 @@ impl P2PNode {
                                     }
                                 }
                             }
-                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_,_),
-                                                        _,
-                                                        _) => {
-                                for (_, mut conn) in
-                                    &mut self.tls_server.lock()?.connections
-                                {
+                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_,
+                                                                                                _),
+                                                              _,
+                                                              _) => {
+                                for (_, mut conn) in &mut self.tls_server.lock()?.connections {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                    prom.lock()
+                                                        .unwrap()
+                                                        .pkt_sent_inc()
+                                                        .map_err(|e| error!("{}", e))
+                                                        .ok();
                                                 };
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
-                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
                                             }
                                         }
                                     }
                                 }
                             }
-                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_,_),
-                                                        _,
-                                                        _) => {
-                                for (_, mut conn) in
-                                    &mut self.tls_server.lock()?.connections
-                                {
+                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_, _), _, _) => {
+                                for (_, mut conn) in &mut self.tls_server.lock()?.connections {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                    prom.lock()
+                                                        .unwrap()
+                                                        .pkt_sent_inc()
+                                                        .map_err(|e| error!("{}", e))
+                                                        .ok();
                                                 };
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
-                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
                                             }
                                         }
                                     }
                                 }
                             }
-                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(_,_),
-                                                        _,
-                                                        _) => {
-                                for (_, mut conn) in
-                                    &mut self.tls_server.lock()?.connections
-                                {
-                                    if let Some(ref peer ) = conn.peer.clone() {
+                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(_, _),
+                                                               _,
+                                                               _) => {
+                                for (_, mut conn) in &mut self.tls_server.lock()?.connections {
+                                    if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                    prom.lock()
+                                                        .unwrap()
+                                                        .pkt_sent_inc()
+                                                        .map_err(|e| error!("{}", e))
+                                                        .ok();
                                                 };
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
-                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
                                             }
                                         }
                                     }
                                 }
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_), _, _) => {
-                                for (_, mut conn) in
-                                    &mut self.tls_server.lock()?.connections
-                                {
-                                    if let Some(ref peer) = conn.peer.clone() { 
+                                for (_, mut conn) in &mut self.tls_server.lock()?.connections {
+                                    if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock().unwrap().pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                                                    prom.lock()
+                                                        .unwrap()
+                                                        .pkt_sent_inc()
+                                                        .map_err(|e| error!("{}", e))
+                                                        .ok();
                                                 };
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
-                                                error!("Could not send to peer {} due to {}", peer.id().to_string(),e);
+                                                error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
                                             }
                                         }
                                     }
@@ -1575,7 +1652,11 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_message(&mut self, id: Option<P2PNodeId>, msg: &[u8], broadcast: bool) -> ResultExtWrapper<()>{
+    pub fn send_message(&mut self,
+                        id: Option<P2PNodeId>,
+                        msg: &[u8],
+                        broadcast: bool)
+                        -> ResultExtWrapper<()> {
         debug!("Queueing message!");
         match broadcast {
             true => {
@@ -1599,20 +1680,27 @@ impl P2PNode {
     pub fn send_ban(&mut self, id: P2PPeer) -> ResultExtWrapper<()> {
         self.send_queue
             .lock()?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(),
-                                                                          id),
-                                                  None,
-                                                  None)));
+            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id),
+                                                               None,
+                                                               None)));
         Ok(())
     }
 
     pub fn send_unban(&mut self, id: P2PPeer) -> ResultExtWrapper<()> {
-        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(),id), None, None)));
+        self.send_queue
+            .lock()?
+            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(), id),
+                                                               None,
+                                                               None)));
         Ok(())
     }
 
     pub fn send_get_peers(&mut self) -> ResultExtWrapper<()> {
-        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()), None, None)));
+        self.send_queue
+            .lock()?
+            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()),
+                                                               None,
+                                                               None)));
         Ok(())
     }
 
@@ -1670,25 +1758,32 @@ impl P2PNode {
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
         match self.tls_server.lock() {
-            Ok(mut x) => { x.ban_node(peer); Ok(())},
-            Err(e) => Err(ErrorWrapper::from(e))
+            Ok(mut x) => {
+                x.ban_node(peer);
+                Ok(())
+            }
+            Err(e) => Err(ErrorWrapper::from(e)),
         }
     }
 
     pub fn unban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
         match self.tls_server.lock() {
-            Ok(mut x) => { x.unban_node(peer); Ok(()) },
-            Err(e) => Err(ErrorWrapper::from(e))
+            Ok(mut x) => {
+                x.unban_node(peer);
+                Ok(())
+            }
+            Err(e) => Err(ErrorWrapper::from(e)),
         }
-        
     }
 
-    pub fn process(&mut self, events: &mut Events)  -> ResultExtWrapper<()> {
+    pub fn process(&mut self, events: &mut Events) -> ResultExtWrapper<()> {
         self.poll
             .lock()?
             .poll(events, Some(Duration::from_millis(500)))?;
 
-        if self.mode != P2PNodeMode::BootstrapperMode && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+        if self.mode != P2PNodeMode::BootstrapperMode
+           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+        {
             self.tls_server.lock()?.liveness_check()?;
         }
 
@@ -1699,20 +1794,24 @@ impl P2PNode {
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
-                    tls_ref
-                            .accept(&mut poll_ref, self.get_self_peer().clone())
-                            .map_err(|e| error!("{}", e)).ok();
+                    tls_ref.accept(&mut poll_ref, self.get_self_peer().clone())
+                           .map_err(|e| error!("{}", e))
+                           .ok();
                     if let Some(ref prom) = &self.prometheus_exporter {
-                        prom.lock()?.conn_received_inc().map_err(|e| error!("{}", e)).ok();
+                        prom.lock()?
+                            .conn_received_inc()
+                            .map_err(|e| error!("{}", e))
+                            .ok();
                     };
                 }
                 _ => {
                     trace!("Got data!");
-                    tls_ref
-                        .conn_event(&mut poll_ref,
-                                    &event,
-                                    &mut buckets_ref,
-                                    &self.incoming_pkts).map_err(|e| error!("Error occured while parsing event '{}'", e)).ok();
+                    tls_ref.conn_event(&mut poll_ref,
+                                       &event,
+                                       &mut buckets_ref,
+                                       &self.incoming_pkts)
+                           .map_err(|e| error!("Error occured while parsing event '{}'", e))
+                           .ok();
                 }
             }
         }
@@ -1721,10 +1820,11 @@ impl P2PNode {
             let mut tls_ref = self.tls_server.lock()?;
             let mut poll_ref = self.poll.lock()?;
             let mut buckets_ref = self.buckets.lock()?;
-            tls_ref
-                .cleanup_connections(&mut poll_ref)?;
-            if self.mode == P2PNodeMode::BootstrapperMode || self.mode == P2PNodeMode::BootstrapperPrivateMode {
-                buckets_ref.clean_peers_older_than(common::get_current_stamp()-3600000);
+            tls_ref.cleanup_connections(&mut poll_ref)?;
+            if self.mode == P2PNodeMode::BootstrapperMode
+               || self.mode == P2PNodeMode::BootstrapperPrivateMode
+            {
+                buckets_ref.clean_peers_older_than(common::get_current_stamp() - 3600000);
             }
         }
 

@@ -16,23 +16,23 @@ use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
+use p2p_client::errors::*;
 use p2p_client::p2p::*;
+use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use std::sync::mpsc;
-use std::sync::{Arc,Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
-use p2p_client::errors::*;
-use p2p_client::prometheus_exporter::{PrometheusServer,PrometheusMode};
 
-quick_main!( run );
+quick_main!(run);
 
-fn run() -> ResultExtWrapper<()>{
+fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_cli_config();
     let app_prefs = configuration::AppPreferences::new();
 
-    let bootstrap_nodes = utils::get_bootstrap_nodes( conf.bootstrap_server.clone());
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone());
 
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
@@ -61,10 +61,13 @@ fn run() -> ResultExtWrapper<()>{
     let prometheus = if conf.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
+        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
+           .map_err(|e| error!("{}", e))
+           .ok();
         Some(Arc::new(Mutex::new(srv)))
     } else if conf.prometheus_push_gateway.is_some() {
-        info!("Enabling prometheus push gateway at {}", &conf.prometheus_push_gateway.clone().unwrap());
+        info!("Enabling prometheus push gateway at {}",
+              &conf.prometheus_push_gateway.clone().unwrap());
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(Mutex::new(srv)))
     } else {
@@ -73,7 +76,7 @@ fn run() -> ResultExtWrapper<()>{
 
     info!("Debugging enabled {}", conf.debug);
 
-    let mode_type = if conf.private_node { 
+    let mode_type = if conf.private_node {
         P2PNodeMode::NormalPrivateMode
     } else {
         P2PNodeMode::NormalMode
@@ -81,12 +84,12 @@ fn run() -> ResultExtWrapper<()>{
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
-    let external_ip =if conf.external_ip.is_some() {
+    let external_ip = if conf.external_ip.is_some() {
         conf.external_ip
     } else if conf.ip_discovery_service {
         match utils::discover_external_ip(&conf.ip_discovery_service_host) {
             Ok(ip) => Some(ip.to_string()),
-            Err(_) => None
+            Err(_) => None,
         }
     } else {
         None
@@ -115,9 +118,25 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, external_ip, conf.external_port, pkt_in, Some(sender),mode_type, prometheus.clone())
+        P2PNode::new(conf.id,
+                     conf.listen_address,
+                     conf.listen_port,
+                     external_ip,
+                     conf.external_port,
+                     pkt_in,
+                     Some(sender),
+                     mode_type,
+                     prometheus.clone())
     } else {
-        P2PNode::new(conf.id, conf.listen_address, conf.listen_port, external_ip, conf.external_port, pkt_in, None, mode_type, prometheus.clone())
+        P2PNode::new(conf.id,
+                     conf.listen_address,
+                     conf.listen_port,
+                     external_ip,
+                     conf.external_port,
+                     pkt_in,
+                     None,
+                     mode_type,
+                     prometheus.clone())
     };
 
     match db.get_banlist() {
@@ -151,93 +170,88 @@ fn run() -> ResultExtWrapper<()>{
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.desired_nodes;
     let _guard_pkt = thread::spawn(move || loop {
-        if let Ok(full_msg) = pkt_out.recv() {
-            match *full_msg.clone() {
-                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg),
-                                                  _,
-                                                  _) => {
-                    if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                    }
-                    info!("DirectMessage with size {} received", msg.len());
-                }
-                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
-                                                                                    ref msg),
-                                                  _,
-                                                  _) => {
-                    if let Some(ref mut rpc) = _rpc_clone {
-                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                    }
-                    if !_no_trust_broadcasts {
-                        info!("BroadcastedMessage with size {} received", msg.len());
-                        _node_self_clone.send_message(None, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
-                    }
-                }
+                                       if let Ok(full_msg) = pkt_out.recv() {
+                                           match *full_msg.clone() {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => {
+                                                   if let Some(ref mut rpc) = _rpc_clone {
+                                                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
+                                                   }
+                                                   info!("DirectMessage with size {} received", msg.len());
+                                               }
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
+                                                   if let Some(ref mut rpc) = _rpc_clone {
+                                                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
+                                                   }
+                                                   if !_no_trust_broadcasts {
+                                                       info!("BroadcastedMessage with size {} received", msg.len());
+                                                       _node_self_clone.send_message(None, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
+                                                   }
+                                               }
 
-                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x),
-                                                   _,
-                                                   _) => {
-                    info!("Ban node request for {:?}", x);
-                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
-                    if ban.is_ok() {
-                        db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                        if !_no_trust_bans {
-                            _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
-                        }
-                    }
-                }
-                box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x),
-                                                   _,
-                                                   _) => {
-                    info!("Unban node requets for {:?}", x);
-                    let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
-                    if req.is_ok() {
-                        db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                        if !_no_trust_bans {
-                            _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
-                        }
-                    }
-                }
-                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers),
-                                                    _,
-                                                    _) => {
-                    info!("Received PeerList response, attempting to satisfy desired peers");
-                    let mut new_peers = 0;
-                    match _node_self_clone.get_nodes() {
-                        Ok(x) => {
-                            for peer_node in peers {
-                                if _node_self_clone.connect(peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e )).is_ok() {
-                                    new_peers += 1;
-                                }
-                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                    break;
-                                }
-                            }
-                        }
-                        _ => {
-                            error!("Can't get nodes - so not trying to connect to new peers!");
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
+                                               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
+                                                   info!("Ban node request for {:?}", x);
+                                                   let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
+                                                   if ban.is_ok() {
+                                                       db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                                                       if !_no_trust_bans {
+                                                           _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                                                       }
+                                                   }
+                                               }
+                                               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), _, _) => {
+                                                   info!("Unban node requets for {:?}", x);
+                                                   let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
+                                                   if req.is_ok() {
+                                                       db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                                                       if !_no_trust_bans {
+                                                           _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                                                       }
+                                                   }
+                                               }
+                                               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), _, _) => {
+                                                   info!("Received PeerList response, attempting to satisfy desired peers");
+                                                   let mut new_peers = 0;
+                                                   match _node_self_clone.get_nodes() {
+                                                       Ok(x) => {
+                                                           for peer_node in peers {
+                                                               if _node_self_clone.connect(peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e)).is_ok() {
+                                                                   new_peers += 1;
+                                                               }
+                                                               if new_peers + x.len() as u8 >= _desired_nodes_clone {
+                                                                   break;
+                                                               }
+                                                           }
+                                                       }
+                                                       _ => {
+                                                           error!("Can't get nodes - so not trying to connect to new peers!");
+                                                       }
+                                                   }
+                                               }
+                                               _ => {}
+                                           }
+                                       }
+                                   });
 
     info!("Concordium P2P layer. Network disabled: {}",
           conf.no_network);
 
-    if let Some(ref prom ) = prometheus {
+    if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
             let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
                 instance_id.clone()
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock()?.start_push_to_gateway( prom_push_addy.clone(), conf.prometheus_job_name, instance_name, 
-                conf.prometheus_push_username, conf.prometheus_push_password).map_err(|e| error!("{}", e)).ok();
+            prom.lock()?
+                .start_push_to_gateway(prom_push_addy.clone(),
+                                       conf.prometheus_job_name,
+                                       instance_name,
+                                       conf.prometheus_push_username,
+                                       conf.prometheus_push_password)
+                .map_err(|e| error!("{}", e))
+                .ok();
         }
-    }      
+    }
 
     let _node_th = node.spawn();
 
@@ -248,7 +262,7 @@ fn run() -> ResultExtWrapper<()>{
                     info!("Connecting to peer {}", &connect_to);
                     node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
                 }
-                None=> error!("Can't parse IP to connect to '{}'", &connect_to)
+                None => error!("Can't parse IP to connect to '{}'", &connect_to),
             }
         }
     }
@@ -278,7 +292,11 @@ fn run() -> ResultExtWrapper<()>{
                                               _desired_nodes_count);
                                         let mut count = 0;
                                         for i in x {
-                                            info!("Peer {}: {}/{}:{}", count, i.id().to_string(), i.ip().to_string(), i.port() );
+                                            info!("Peer {}: {}/{}:{}",
+                                                  count,
+                                                  i.id().to_string(),
+                                                  i.ip().to_string(),
+                                                  i.port());
                                             count += 1;
                                         }
                                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {

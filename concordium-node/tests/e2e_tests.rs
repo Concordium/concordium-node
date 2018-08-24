@@ -41,11 +41,27 @@ mod tests {
                                        }
                                    });
 
-        let mut node_1 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8888, None, None, pkt_in_1, Some(sender),P2PNodeMode::NormalPrivateMode, None);
+        let mut node_1 = P2PNode::new(None,
+                                      Some("127.0.0.1".to_string()),
+                                      8888,
+                                      None,
+                                      None,
+                                      pkt_in_1,
+                                      Some(sender),
+                                      P2PNodeMode::NormalPrivateMode,
+                                      None);
 
         let mut _th_1 = node_1.spawn();
 
-        let mut node_2 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8889, None, None, pkt_in_2, None,P2PNodeMode::NormalPrivateMode, None);
+        let mut node_2 = P2PNode::new(None,
+                                      Some("127.0.0.1".to_string()),
+                                      8889,
+                                      None,
+                                      None,
+                                      pkt_in_2,
+                                      None,
+                                      P2PNodeMode::NormalPrivateMode,
+                                      None);
 
         let _th_2 = node_2.spawn();
 
@@ -55,7 +71,9 @@ mod tests {
 
         thread::sleep(time::Duration::from_secs(5));
 
-        node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false).map_err(|e| panic!(e)).ok();
+        node_2.send_message(Some(node_1.get_own_id()), &msg.as_bytes().to_vec(), false)
+              .map_err(|e| panic!(e))
+              .ok();
 
         thread::sleep(time::Duration::from_secs(5));
 
@@ -119,31 +137,52 @@ mod tests {
                                        }
                                    });
 
-        let mut node_1 = P2PNode::new(None,Some("127.0.0.1".to_string()),  8898, None, None, pkt_in_1, Some(sender),P2PNodeMode::NormalPrivateMode, None);
+        let mut node_1 = P2PNode::new(None,
+                                      Some("127.0.0.1".to_string()),
+                                      8898,
+                                      None,
+                                      None,
+                                      pkt_in_1,
+                                      Some(sender),
+                                      P2PNodeMode::NormalPrivateMode,
+                                      None);
 
         let mut _th_1 = node_1.spawn();
 
-        let mut node_2 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8899, None, None, pkt_in_2, None,P2PNodeMode::NormalPrivateMode, None);
+        let mut node_2 = P2PNode::new(None,
+                                      Some("127.0.0.1".to_string()),
+                                      8899,
+                                      None,
+                                      None,
+                                      pkt_in_2,
+                                      None,
+                                      P2PNodeMode::NormalPrivateMode,
+                                      None);
 
         let _th_2 = node_2.spawn();
 
         let mut _2_node = node_2.clone();
 
         let _guard_2 = thread::spawn(move || loop {
-            if let Ok(ref outer_msg) = pkt_out_2.recv() {
-                match *outer_msg.clone() {
-                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
-                                                                                        ref msg),
-                                                      _,
-                                                      _) => {
-                        _2_node.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
-                    }
-                    _ => {}
-                }
-            }
-        });
+                                         if let Ok(ref outer_msg) = pkt_out_2.recv() {
+                                             match *outer_msg.clone() {
+                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
+                                                     _2_node.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
+                                                 }
+                                                 _ => {}
+                                             }
+                                         }
+                                     });
 
-        let mut node_3 = P2PNode::new(None, Some("127.0.0.1".to_string()), 8900, None, None, pkt_in_3, None,P2PNodeMode::NormalPrivateMode, None);
+        let mut node_3 = P2PNode::new(None,
+                                      Some("127.0.0.1".to_string()),
+                                      8900,
+                                      None,
+                                      None,
+                                      pkt_in_3,
+                                      None,
+                                      P2PNodeMode::NormalPrivateMode,
+                                      None);
 
         let _th_3 = node_3.spawn();
 
@@ -155,7 +194,9 @@ mod tests {
 
         thread::sleep(time::Duration::from_secs(5));
 
-        node_1.send_message(None, &msg.as_bytes().to_vec(), true).map_err(|e| panic!(e)).ok();
+        node_1.send_message(None, &msg.as_bytes().to_vec(), true)
+              .map_err(|e| panic!(e))
+              .ok();
 
         thread::sleep(time::Duration::from_secs(5));
 

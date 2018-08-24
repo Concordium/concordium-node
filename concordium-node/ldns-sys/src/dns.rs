@@ -109,8 +109,11 @@ pub fn resolve_dns_txt_record(entry: &str,
                                     if res_status == ldns_enum_status_LDNS_STATUS_OK {
                                         parse_results_internal(rr_res, &mut res);
                                     } else {
-                                        let mut domain_keys = ldns_fetch_valid_domain_keys(resolver, signame,
-			                                ldns_resolver_dnssec_anchors(resolver), &mut res_status as *mut _);
+                                        let mut domain_keys =
+                                            ldns_fetch_valid_domain_keys(resolver,
+                                                                         signame,
+                                                                         ldns_resolver_dnssec_anchors(resolver),
+                                                                         &mut res_status as *mut _);
                                         if res_status != ldns_enum_status_LDNS_STATUS_OK {
                                             err = Some(format!("Can't fetch keys for domain {}",
                                                                res_status));
@@ -144,7 +147,7 @@ pub fn resolve_dns_txt_record(entry: &str,
                     }
                     ldns_pkt_free(pkt);
                     ldns_resolver_deep_free(resolver);
-                } 
+                }
             }
             Err(_) => {
                 err = Some("Invalid DNS entry given".to_string());

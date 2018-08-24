@@ -2,6 +2,7 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
+use ldns_sys::dns;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
 use openssl::ec::{EcGroup, EcKey};
@@ -12,15 +13,14 @@ use openssl::rsa::Rsa;
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use rand::OsRng;
+use reqwest;
+use serde_json;
+use serde_json::Value;
 use std::io::Cursor;
 use std::io::Error;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
-use ldns_sys::dns;
-use reqwest;
-use serde_json;
-use serde_json::Value;
 
 pub fn sha256(input: &str) -> [u8; 32] {
     let mut output = [0; 32];
@@ -73,10 +73,10 @@ pub fn generate_certificate(id: String) -> Result<Cert, Error> {
                             builder.set_serial_number(&serial.to_asn1_integer().unwrap())
                                    .unwrap();
 
-                            let subject_alternative_name = SubjectAlternativeName::new()
-                .dns(&format!("{}.node.concordium.com", id))
-                .build(&builder.x509v3_context(None, None))
-                .unwrap();
+                            let subject_alternative_name =
+                                SubjectAlternativeName::new().dns(&format!("{}.node.concordium.com", id))
+                                                             .build(&builder.x509v3_context(None, None))
+                                                             .unwrap();
                             builder.append_extension(subject_alternative_name).unwrap();
 
                             builder.sign(&pkey, MessageDigest::sha256()).unwrap();
@@ -117,7 +117,7 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
 }
 
 pub fn get_bootstrap_nodes(bootstrap_name: String) -> Result<Vec<(IpAddr, u16)>, &'static str> {
-    let resolver_addresses = vec![ IpAddr::from_str("8.8.8.8").unwrap()];
+    let resolver_addresses = vec![IpAddr::from_str("8.8.8.8").unwrap()];
     match dns::resolve_dns_txt_record(&bootstrap_name, &resolver_addresses) {
         Ok(res) => read_peers_from_dns_entries(res, super::get_dns_public_key()),
         Err(_) => Err(&"Error looking up bootstrap nodes"),
@@ -140,7 +140,24 @@ pub fn serialize_bootstrap_peers(peers: &Vec<String>) -> Result<String, &'static
                                                  port));
                     }
                     IpAddr::V6(ip6) => {
-                        buffer.push_str(&format!("IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:05}", ip6.octets()[0], ip6.octets()[1], ip6.octets()[2], ip6.octets()[3], ip6.octets()[4], ip6.octets()[5], ip6.octets()[6], ip6.octets()[7],ip6.octets()[8], ip6.octets()[9], ip6.octets()[10], ip6.octets()[11], ip6.octets()[12], ip6.octets()[13], ip6.octets()[14], ip6.octets()[15], port));
+                        buffer.push_str(&format!("IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:05}",
+                                                 ip6.octets()[0],
+                                                 ip6.octets()[1],
+                                                 ip6.octets()[2],
+                                                 ip6.octets()[3],
+                                                 ip6.octets()[4],
+                                                 ip6.octets()[5],
+                                                 ip6.octets()[6],
+                                                 ip6.octets()[7],
+                                                 ip6.octets()[8],
+                                                 ip6.octets()[9],
+                                                 ip6.octets()[10],
+                                                 ip6.octets()[11],
+                                                 ip6.octets()[12],
+                                                 ip6.octets()[13],
+                                                 ip6.octets()[14],
+                                                 ip6.octets()[15],
+                                                 port));
                     }
                 }
             }
@@ -191,7 +208,8 @@ pub fn generate_bootstrap_dns(input_key: [u8; 32],
           .collect::<Vec<String>>())
 }
 
-pub fn read_peers_from_dns_entries(entries: Vec<String>, public_key_str: &str)
+pub fn read_peers_from_dns_entries(entries: Vec<String>,
+                                   public_key_str: &str)
                                    -> Result<Vec<(IpAddr, u16)>, &'static str> {
     let mut internal_entries = entries.clone();
     let mut ret: Vec<(IpAddr, u16)> = vec![];
@@ -206,7 +224,9 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>, public_key_str: &str)
                 match bytes_buf.read_u16::<NetworkEndian>() {
                     Ok(size) => {
                         if size as usize == buffer.len() - 4 {
-                            if buffer[4..68].to_string().to_lowercase() != public_key_str.to_string().to_lowercase() {
+                            if buffer[4..68].to_string().to_lowercase()
+                               != public_key_str.to_string().to_lowercase()
+                            {
                                 return Err("Invalid public key");
                             }
                             match hex::decode(&buffer[4..68].to_string()) {
@@ -236,19 +256,18 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>, public_key_str: &str)
                                                                 + 12
                                                                 + 5)];
                                                         match IpAddr::from_str(&format!("{}.{}.{}.{}",
-                                                            &ip[..3],
-                                                            &ip[3..6],
-                                                            &ip[6..9],
-                                                            &ip[9..12])[..]) {
-                                                                Ok(ip) => {
-                                                                    match port.parse::<u16>() {
-                                                                        Ok(port) => {
-                                                                            ret.push((ip,port));
-                                                                        },
-                                                                        Err(_) => return Err("Could not parse port for node")
-                                                                    }
-                                                                },
-                                                                Err(_) => return Err("Can't parse IP for node")
+                                                                                        &ip[..3],
+                                                                                        &ip[3..6],
+                                                                                        &ip[6..9],
+                                                                                        &ip[9..12])[..])
+                                                        {
+                                                            Ok(ip) => match port.parse::<u16>() {
+                                                                Ok(port) => {
+                                                                    ret.push((ip, port));
+                                                                }
+                                                                Err(_) => return Err("Could not parse port for node"),
+                                                            },
+                                                            Err(_) => return Err("Can't parse IP for node"),
                                                         }
                                                         bytes_taken_for_nodes += 3 + 12 + 5;
                                                     }
@@ -263,53 +282,52 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>, public_key_str: &str)
                                                                 + 32
                                                                 + 5)];
                                                         match IpAddr::from_str(&format!("{}:{}:{}:{}:{}:{}:{}:{}",
-                                                                &ip[..4],
-                                                                &ip[4..8],
-                                                                &ip[8..12],
-                                                                &ip[12..16],
-                                                                &ip[16..20],
-                                                                &ip[20..24],
-                                                                &ip[24..28],
-                                                                &ip[28..32])[..]) {
-                                                                    Ok(ip) => {
-                                                                        match port.parse::<u16>() {
-                                                                            Ok(port) => {
-                                                                                ret.push((ip,port));
-                                                                            },
-                                                                            Err(_) => return Err("Could not parse port for node")
-                                                                        }
-                                                                    },
-                                                                    Err(_) => return Err("Can't parse IP for node")
+                                                                                        &ip[..4],
+                                                                                        &ip[4..8],
+                                                                                        &ip[8..12],
+                                                                                        &ip[12..16],
+                                                                                        &ip[16..20],
+                                                                                        &ip[20..24],
+                                                                                        &ip[24..28],
+                                                                                        &ip[28..32])[..])
+                                                        {
+                                                            Ok(ip) => match port.parse::<u16>() {
+                                                                Ok(port) => {
+                                                                    ret.push((ip, port));
                                                                 }
+                                                                Err(_) => return Err("Could not parse port for node"),
+                                                            },
+                                                            Err(_) => return Err("Can't parse IP for node"),
+                                                        }
                                                         bytes_taken_for_nodes += 3 + 32 + 5;
                                                     }
                                                     _ => return Err("Invalid data for node"),
                                                 }
                                             }
-                                            match hex::decode(&buffer[(4+64+5+bytes_taken_for_nodes)..].to_string()) {
+                                            match hex::decode(&buffer[(4 + 64 + 5 + bytes_taken_for_nodes)..].to_string()) {
                                                 Ok(signature_bytes) => {
                                                     if signature_bytes.len() == 64 {
-                                                        let mut sig_bytes:[u8;64] = [0;64];
+                                                        let mut sig_bytes: [u8; 64] = [0; 64];
                                                         for i in 0..64 {
                                                             sig_bytes[i] = signature_bytes[i];
                                                         }
-                                                        let signature = Signature{0:sig_bytes};
+                                                        let signature = Signature { 0: sig_bytes };
                                                         let content_peers = ret.iter().map(|x| format!("{}:{}", x.0.to_string(), x.1)).collect::<Vec<String>>();
                                                         match serialize_bootstrap_peers(&content_peers) {
                                                             Ok(content) => {
-                                                                if public_key.verify(content.as_bytes(),&signature) {
-                                                                    Ok( ret )
+                                                                if public_key.verify(content.as_bytes(), &signature) {
+                                                                    Ok(ret)
                                                                 } else {
                                                                     Err("Signature invalid")
                                                                 }
-                                                            },
-                                                            Err(_) => Err("Couldn't reverse encode content")
+                                                            }
+                                                            Err(_) => Err("Couldn't reverse encode content"),
                                                         }
                                                     } else {
                                                         Err("Not correct length for signature")
                                                     }
-                                                },
-                                                Err(_) => Err("Could not read signature")
+                                                }
+                                                Err(_) => Err("Could not read signature"),
                                             }
                                         }
                                         Err(_) => Err("Incorrect number of nodes"),
@@ -338,9 +356,9 @@ pub fn generate_ed25519_key() -> [u8; 32] {
     private_key.0
 }
 
-pub fn discover_external_ip( discovery_url: &str ) -> Result<IpAddr,&'static str> {
+pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str> {
     match reqwest::get(&format!("http://{}/discovery", discovery_url)) {
-        Ok(ref mut res) if res.status().is_success()=> {
+        Ok(ref mut res) if res.status().is_success() => {
             match res.text() {
                 Ok(text) => {
                     match serde_json::from_str::<Value>(&text) {
@@ -348,20 +366,20 @@ pub fn discover_external_ip( discovery_url: &str ) -> Result<IpAddr,&'static str
                             if let Some(ref ip) = jv.get("ip") {
                                 match IpAddr::from_str(ip.as_str().unwrap()) {
                                     Ok(ip) => Ok(ip),
-                                    Err(_) => Err("Invalid IP given")
+                                    Err(_) => Err("Invalid IP given"),
                                 }
                             } else {
                                 Err("Missing data field in response")
                             }
                         }
-                        Err(_) => Err("Can't parse discovery data")
+                        Err(_) => Err("Can't parse discovery data"),
                     }
                 }
-                Err(_) => Err("Can't read text from response")
+                Err(_) => Err("Can't read text from response"),
             }
         }
         Ok(_) => Err("Can't fetch discovery data"),
-        Err(_) => Err("Can't fetch discovery data")
+        Err(_) => Err("Can't fetch discovery data"),
     }
 }
 
@@ -406,7 +424,7 @@ mod tests {
     pub fn test_dns_generated() {
         let peers: Vec<String> = vec!["10.10.10.10:8888".to_string(),
                                       "dead:beaf:::9999".to_string()];
-        let secret_key = SecretKey{0: PRIVATE_TEST_KEY};
+        let secret_key = SecretKey { 0: PRIVATE_TEST_KEY, };
         let public_hex_key = to_hex_string(&secret_key.get_public().0);
         match generate_bootstrap_dns(PRIVATE_TEST_KEY, 240, &peers) {
             Ok(res) => match read_peers_from_dns_entries(res, &public_hex_key) {

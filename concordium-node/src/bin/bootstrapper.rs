@@ -15,17 +15,17 @@ use env_logger::Env;
 use p2p_client::common::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
+use p2p_client::errors::*;
 use p2p_client::p2p::*;
+use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;
-use std::sync::{Arc,Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
-use p2p_client::errors::*;
-use p2p_client::prometheus_exporter::{PrometheusServer,PrometheusMode};
 
-quick_main!( run );
+quick_main!(run);
 
-fn run() -> ResultExtWrapper<()>{
+fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_bootstrapper_config();
     let app_prefs = configuration::AppPreferences::new();
 
@@ -56,10 +56,13 @@ fn run() -> ResultExtWrapper<()>{
     let prometheus = if conf.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port).map_err(|e| error!("{}", e)).ok();
+        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
+           .map_err(|e| error!("{}", e))
+           .ok();
         Some(Arc::new(Mutex::new(srv)))
     } else if conf.prometheus_push_gateway.is_some() {
-        info!("Enabling prometheus push gateway at {}", &conf.prometheus_push_gateway.clone().unwrap());
+        info!("Enabling prometheus push gateway at {}",
+              &conf.prometheus_push_gateway.clone().unwrap());
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(Mutex::new(srv)))
     } else {
@@ -70,7 +73,7 @@ fn run() -> ResultExtWrapper<()>{
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
-    let mode_type = if conf.private_node { 
+    let mode_type = if conf.private_node {
         P2PNodeMode::BootstrapperPrivateMode
     } else {
         P2PNodeMode::BootstrapperMode
@@ -99,9 +102,25 @@ fn run() -> ResultExtWrapper<()>{
                                            }
                                        }
                                    });
-        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, Some(sender),mode_type, prometheus.clone())
+        P2PNode::new(Some(conf.id),
+                     conf.listen_address,
+                     conf.listen_port,
+                     conf.external_ip,
+                     conf.external_port,
+                     pkt_in,
+                     Some(sender),
+                     mode_type,
+                     prometheus.clone())
     } else {
-        P2PNode::new(Some(conf.id), conf.listen_address, conf.listen_port, conf.external_ip, conf.external_port, pkt_in, None, mode_type, prometheus.clone())
+        P2PNode::new(Some(conf.id),
+                     conf.listen_address,
+                     conf.listen_port,
+                     conf.external_ip,
+                     conf.external_port,
+                     pkt_in,
+                     None,
+                     mode_type,
+                     prometheus.clone())
     };
 
     match db.get_banlist() {
@@ -120,18 +139,21 @@ fn run() -> ResultExtWrapper<()>{
     let mut _node_self_clone = node.clone();
     let _no_trust_bans = conf.no_trust_bans;
 
-     let _guard_pkt = thread::spawn(move || loop {
+    let _guard_pkt = thread::spawn(move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg.clone() {
                 box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x),
                                                    _,
                                                    _) => {
                     info!("Ban node request for {:?}", x);
-                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
+                    let ban = _node_self_clone.ban_node(x.clone())
+                                              .map_err(|e| error!("{}", e));
                     if ban.is_ok() {
                         db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
-                            _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                            _node_self_clone.send_ban(x.clone())
+                                            .map_err(|e| error!("{}", e))
+                                            .ok();
                         }
                     }
                 }
@@ -139,11 +161,14 @@ fn run() -> ResultExtWrapper<()>{
                                                    _,
                                                    _) => {
                     info!("Unban node requets for {:?}", x);
-                    let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
+                    let req = _node_self_clone.unban_node(x.clone())
+                                              .map_err(|e| error!("{}", e));
                     if req.is_ok() {
                         db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
-                            _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                            _node_self_clone.send_unban(x.clone())
+                                            .map_err(|e| error!("{}", e))
+                                            .ok();
                         }
                     }
                 }
@@ -152,15 +177,21 @@ fn run() -> ResultExtWrapper<()>{
         }
     });
 
-    if let Some(ref prom ) = prometheus {
+    if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
             let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
                 instance_id.clone()
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock()?.start_push_to_gateway( prom_push_addy.clone(), conf.prometheus_job_name, instance_name, 
-                conf.prometheus_push_username, conf.prometheus_push_password).map_err(|e| error!("{}", e)).ok();
+            prom.lock()?
+                .start_push_to_gateway(prom_push_addy.clone(),
+                                       conf.prometheus_job_name,
+                                       instance_name,
+                                       conf.prometheus_push_username,
+                                       conf.prometheus_push_password)
+                .map_err(|e| error!("{}", e))
+                .ok();
         }
     }
 
@@ -173,9 +204,7 @@ fn run() -> ResultExtWrapper<()>{
     let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                                 match node.get_nodes() {
                                     Ok(x) => {
-                                        info!("I currently have {}/{} nodes!",
-                                              x.len(),
-                                              _max_nodes);
+                                        info!("I currently have {}/{} nodes!", x.len(), _max_nodes);
                                     }
                                     Err(e) => error!("Couldn't get node list, {:?}", e),
                                 };

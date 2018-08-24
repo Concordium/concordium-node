@@ -7,12 +7,12 @@ extern crate arrayref;
 extern crate hacl_star;
 extern crate p2p_client;
 
+use p2p_client::errors::*;
 use p2p_client::utils::generate_bootstrap_dns;
 use std::fs::File;
 use std::io::Read;
 use std::process::exit;
 use structopt::StructOpt;
-use p2p_client::errors::*;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Record Generator")]
@@ -31,7 +31,7 @@ struct ConfigCli {
     dns_record_length: usize,
 }
 
-quick_main!( run );
+quick_main!(run);
 
 pub fn run() -> ResultExtWrapper<()> {
     let conf = ConfigCli::from_args();

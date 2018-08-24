@@ -44,39 +44,32 @@ mod tests {
                                            }
                                        }
                                    });
-        let node = P2PNode::new(None, Some("127.0.0.1".to_string()), 8888, None, None, pkt_in, Some(sender),P2PNodeMode::NormalPrivateMode, None);
+        let node = P2PNode::new(None,
+                                Some("127.0.0.1".to_string()),
+                                8888,
+                                None,
+                                None,
+                                pkt_in,
+                                Some(sender),
+                                P2PNodeMode::NormalPrivateMode,
+                                None);
 
         let mut _node_self_clone = node.clone();
 
         let _guard_pkt = thread::spawn(move || loop {
-            if let Ok(ref outer_msg) = pkt_out.recv() {
-                match *outer_msg.clone() {
-                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
-                                                                                   _,
-                                                                                   ref msg),
-                                                      _,
-                                                      _) => {
-                        info!("DirectMessage with {:?} received", msg)
-                    }
-                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
-                                                                                        ref msg),
-                                                      _,
-                                                      _) => {
-                        info!("BroadcastedMessage with {:?} received", msg);
-                        _node_self_clone.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
-                    }
-                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
-                        info!("Ban node request for {:?}", x)
-                    }
-                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x),
-                                                       _,
-                                                       _) => {
-                        info!("Unban node requets for {:?}", x)
-                    }
-                    _ => {}
-                }
-            }
-        });
+                                           if let Ok(ref outer_msg) = pkt_out.recv() {
+                                               match *outer_msg.clone() {
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => info!("DirectMessage with {:?} received", msg),
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
+                                                       info!("BroadcastedMessage with {:?} received", msg);
+                                                       _node_self_clone.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
+                                                   }
+                                                   box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
+                                                   box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
+                                                   _ => {}
+                                               }
+                                           }
+                                       });
 
         let mut rpc_serv = RpcServerImpl::new(node.clone(),
                                               None,
@@ -130,39 +123,32 @@ mod tests {
                                            }
                                        }
                                    });
-        let node = P2PNode::new(None, Some("127.0.0.1".to_string()), 8889, None, None, pkt_in, Some(sender),P2PNodeMode::NormalPrivateMode, None);
+        let node = P2PNode::new(None,
+                                Some("127.0.0.1".to_string()),
+                                8889,
+                                None,
+                                None,
+                                pkt_in,
+                                Some(sender),
+                                P2PNodeMode::NormalPrivateMode,
+                                None);
 
         let mut _node_self_clone = node.clone();
 
         let _guard_pkt = thread::spawn(move || loop {
-            if let Ok(ref outer_msg) = pkt_out.recv() {
-                match *outer_msg.clone() {
-                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
-                                                                                   _,
-                                                                                   ref msg),
-                                                      _,
-                                                      _) => {
-                        info!("DirectMessage with {:?} received", msg)
-                    }
-                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
-                                                                                        ref msg),
-                                                      _,
-                                                      _) => {
-                        info!("BroadcastedMessage with {:?} received", msg);
-                        _node_self_clone.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
-                    }
-                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => {
-                        info!("Ban node request for {:?}", x)
-                    }
-                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x),
-                                                       _,
-                                                       _) => {
-                        info!("Unban node requets for {:?}", x)
-                    }
-                    _ => {}
-                }
-            }
-        });
+                                           if let Ok(ref outer_msg) = pkt_out.recv() {
+                                               match *outer_msg.clone() {
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => info!("DirectMessage with {:?} received", msg),
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
+                                                       info!("BroadcastedMessage with {:?} received", msg);
+                                                       _node_self_clone.send_message(None, &msg, true).map_err(|e| panic!(e)).ok();
+                                                   }
+                                                   box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
+                                                   box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
+                                                   _ => {}
+                                               }
+                                           }
+                                       });
 
         let mut rpc_serv = RpcServerImpl::new(node.clone(),
                                               None,
