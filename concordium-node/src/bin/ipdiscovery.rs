@@ -181,7 +181,7 @@ fn run() -> ResultExtWrapper<()> {
             }
         };
         srv.start_push_to_gateway(conf.prometheus_push_gateway.unwrap().clone(),
-        conf.prometheus_push_interval,
+                                  conf.prometheus_push_interval,
                                   conf.prometheus_job_name,
                                   instance_name.clone(),
                                   conf.prometheus_push_username,
