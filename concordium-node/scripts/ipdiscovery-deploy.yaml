@@ -8,7 +8,7 @@ items:
       labels:
         name:  ipdiscovery
     spec:
-      replicas: 2
+      replicas: 4
       selector:
         matchLabels:
           app: ipdiscovery
@@ -54,6 +54,7 @@ items:
       name: ipdiscovery-ingress
       annotations:
         kubernetes.io/ingress.class: nginx
+        certmanager.k8s.io/cluster-issuer: letsencrypt-prod
     spec:
       rules:
         - host: ipdiscovery.p2p.concordium.com
@@ -63,3 +64,22 @@ items:
                 backend:
                   serviceName: ipdiscovery-service
                   servicePort: 8900
+  - apiVersion: certmanager.k8s.io/v1alpha1
+    kind: Certificate
+    metadata:
+      name: ipdiscovery-p2p
+      namespace: default
+    spec:
+      secretName: ipdiscovery-p2p-tls
+      issuerRef:
+        kind: ClusterIssuer
+        name: letsencrypt-prod
+      commonName: ipdiscovery.p2p.concordium.com
+      dnsNames:
+      - ipdiscovery.p2p.concordium.com
+      acme:
+        config:
+        - http01:
+            ingress: ipdiscovery-ingress
+          domains:
+          - ipdiscovery.p2p.concordium.com
