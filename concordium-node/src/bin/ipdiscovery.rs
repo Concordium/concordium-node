@@ -100,7 +100,7 @@ impl IpDiscoveryServer {
                 .ok();
             {
                 let mut uniques = self.unique_ips.lock().unwrap();
-                if uniques.contains(&remote_ip) {
+                if !uniques.contains(&remote_ip) {
                     uniques.insert(remote_ip.clone());
                     prom.lock()
                         .unwrap()

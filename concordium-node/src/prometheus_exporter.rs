@@ -147,6 +147,7 @@ impl PrometheusServer {
                                  prometheus_push_username: Option<String>,
                                  prometheus_push_password: Option<String>)
                                  -> ResultExtWrapper<()> {
+        let _registry = self.registry.clone();
         let _th = thread::spawn(move || {
                                     loop {
                                         let username_pass = if prometheus_push_username.is_some()
@@ -159,8 +160,9 @@ impl PrometheusServer {
                                         } else {
                                             None
                                         };
+                                        debug!("Pushing data to push gateway");
                                         thread::sleep(time::Duration::from_secs(prometheus_push_interval));
-                                        let metrics_families = prometheus::gather();
+                                        let metrics_families = _registry.gather();
                                         prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
                                     }
                                 });
