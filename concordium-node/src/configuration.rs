@@ -97,6 +97,8 @@ pub struct CliConfig {
     #[structopt(long = "prometheus-push-gateway-password",
                 help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
+    #[structopt(long="prometheus-push-gateway-interval", help = "Interval in seconds between pushes", default_value = "2")]
+    pub prometheus_push_interval: u64,
     #[structopt(long = "bootstrap-server",
                 help = "DNS name to resolve bootstrap nodes from",
                 default_value = "bootstrap.p2p.concordium.com")]
@@ -161,6 +163,8 @@ pub struct BootstrapperConfig {
     #[structopt(long = "prometheus-instance-name",
                 help = "If not present node_id will be used")]
     pub prometheus_instance_name: Option<String>,
+    #[structopt(long="prometheus-push-gateway-interval", help = "Interval in seconds between pushes", default_value = "2")]
+    pub prometheus_push_interval: u64,
     #[structopt(long = "prometheus-push-gateway-username",
                 help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_username: Option<String>,
@@ -209,6 +213,8 @@ pub struct IpDiscoveryConfig {
     #[structopt(long = "prometheus-instance-name",
                 help = "Instance id to present to prometheus")]
     pub prometheus_instance_name: Option<String>,
+    #[structopt(long="prometheus-push-gateway-interval", help = "Interval in seconds between pushes", default_value = "2")]
+    pub prometheus_push_interval: u64,
     #[structopt(long = "prometheus-push-gateway-username",
                 help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_username: Option<String>,

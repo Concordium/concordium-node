@@ -249,6 +249,7 @@ fn run() -> ResultExtWrapper<()> {
             };
             prom.lock()?
                 .start_push_to_gateway(prom_push_addy.clone(),
+                conf.prometheus_push_interval,
                                        conf.prometheus_job_name,
                                        instance_name,
                                        conf.prometheus_push_username,

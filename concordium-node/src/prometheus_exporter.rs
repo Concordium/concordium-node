@@ -141,6 +141,7 @@ impl PrometheusServer {
 
     pub fn start_push_to_gateway(&self,
                                  prometheus_push_gateway: String,
+                                 prometheus_push_interval: u64,
                                  prometheus_job_name: String,
                                  prometheus_instance_name: String,
                                  prometheus_push_username: Option<String>,
@@ -158,7 +159,7 @@ impl PrometheusServer {
                                         } else {
                                             None
                                         };
-                                        thread::sleep(time::Duration::from_secs(2));
+                                        thread::sleep(time::Duration::from_secs(prometheus_push_interval));
                                         let metrics_families = prometheus::gather();
                                         prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
                                     }
