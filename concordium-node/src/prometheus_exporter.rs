@@ -141,25 +141,30 @@ impl PrometheusServer {
 
     pub fn start_push_to_gateway(&self,
                                  prometheus_push_gateway: String,
+                                 prometheus_push_interval: u64,
                                  prometheus_job_name: String,
                                  prometheus_instance_name: String,
                                  prometheus_push_username: Option<String>,
                                  prometheus_push_password: Option<String>)
                                  -> ResultExtWrapper<()> {
-        let username_pass = if prometheus_push_username.is_some()
-                               && prometheus_push_password.is_some()
-        {
-            Some(prometheus::BasicAuthentication { username: prometheus_push_username.unwrap()
-                                                                                     .to_owned(),
-                                                   password: prometheus_push_password.unwrap()
-                                                                                     .to_owned(), })
-        } else {
-            None
-        };
+        let _registry = self.registry.clone();
         let _th = thread::spawn(move || {
-                                    thread::sleep(time::Duration::from_secs(2));
-                                    let metrics_families = prometheus::gather();
-                                    prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.to_owned(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok()
+                                    loop {
+                                        let username_pass = if prometheus_push_username.is_some()
+                                                               && prometheus_push_password.is_some()
+                                        {
+                                            Some(prometheus::BasicAuthentication { username: prometheus_push_username.clone().unwrap()
+                                                                                     .to_owned(),
+                                                   password: prometheus_push_password.clone().unwrap()
+                                                                                     .to_owned(), })
+                                        } else {
+                                            None
+                                        };
+                                        debug!("Pushing data to push gateway");
+                                        thread::sleep(time::Duration::from_secs(prometheus_push_interval));
+                                        let metrics_families = _registry.gather();
+                                        prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
+                                    }
                                 });
         Ok(())
     }
