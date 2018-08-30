@@ -102,3 +102,46 @@ Execute
 ```
 helm init
 ```
+
+## Install Kubernetes Dashboard
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml
+```
+
+A user needs to be created to use with the dashboard.
+```
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ReplaceThisWithUsername
+  namespace: kube-system
+```
+
+Grant the user cluster admin rights
+```
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mj
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: ReplaceThisWithUsername
+  name: mj
+  namespace: kube-system
+```
+
+## Modify weavenet
+For AWS we want to be able to see client IPs. For now we need to modify weave to suit this need.
+Change image to weaveworks/weave-kube:2.4.0 or newer. Under env add a new object,
+```
+              {
+                "name": "NO_MASQ_LOCAL",
+                "value": "1"
+              }
+```
+
+Also remember to change weave-npc image to weaveworks/weave-npc:2.4.0
