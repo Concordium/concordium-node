@@ -1,6 +1,8 @@
 # Install Kubernetes
 ## Enable Docker
+```
 systemctl enable docker && systemctl start docker
+```
 
 ## Install kubernetes tools. Must be done on all nodes
 ```
