@@ -27,8 +27,11 @@ items:
             name:  node0000
             resources:
               requests:
-                cpu: "20m"
-                memory: "55M"       
+                cpu: "100m"
+                memory: "100M"
+              limits:
+                cpu: "200m"
+                memory: "150M"       
             ports:
             - containerPort:  8888
               name:  node0000
