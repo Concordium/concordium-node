@@ -1,4 +1,10 @@
 # Install Kubernetes
+
+## Change to root
+```
+sudo -s
+```
+
 ## Enable Docker
 ```
 systemctl enable docker && systemctl start docker
@@ -6,8 +12,6 @@ systemctl enable docker && systemctl start docker
 
 ## Install kubernetes tools. Must be done on all nodes
 ```
-sudo -s
-
 CNI_VERSION="v0.6.0"
 mkdir -p /opt/cni/bin
 curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-amd64-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
@@ -40,8 +44,9 @@ modprobe ip_vs_sh ip_vs ip_vs_rr ip_vs_wrr
 ```
 Initialize master
 ```
-PATH=/opt/bin:$PATH kubeadm init
+PATH=/opt/bin:$PATH kubeadm init --apiserver-cert-extra-sans=ExternalIP
 ```
+ Where ExternalIP is the external IP from AWS interface
 
 ## Setup networking
 ```
@@ -53,7 +58,8 @@ Check that it's up and running before starting new nodes
 PATH=/opt/bin:$PATH kubectl get pods --all-namespaces
 ```
 
-Extract the config needed to communicate with the cluster from outside the master. Download the /etc/kubernetes/admin.conf file to ~/.kube/config at your machine
+Extract the config needed to communicate with the cluster from outside the master. Download the /etc/kubernetes/admin.conf file to ~/.kube/config at your machine.
+For AWS the IP needs to be corrected in the config file to use the external IP
 
 ## Setup nodes
 Get token on master node
@@ -97,10 +103,15 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/mast
 ## Install helm
 Follow https://docs.helm.sh/using_helm/#quickstart to get a local installation of helm on developer machine
 
+Apply the file scripts/helm-serviceaccount.yaml
+```
+kubectl apply -f helm-serviceaccount.yaml
+```
+
 Execute 
 
 ```
-helm init
+helm init --service-account tiller
 ```
 
 ## Install Kubernetes Dashboard
@@ -129,22 +140,19 @@ roleRef:
   name: cluster-admin
 subjects:
 - kind: ServiceAccount
-  name: ReplaceThisWithUsername
   name: mj
   namespace: kube-system
 ```
 
 ## Modify weavenet
 For AWS we want to be able to see client IPs. For now we need to modify weave to suit this need.
-Change image to weaveworks/weave-kube:2.4.0 or newer. Under env add a new object,
+Under env add a new object,
 ```
               {
                 "name": "NO_MASQ_LOCAL",
                 "value": "1"
               }
 ```
-
-Also remember to change weave-npc image to weaveworks/weave-npc:2.4.0
 
 ## Install cert-manager
 ```
@@ -158,7 +166,7 @@ Now configure a ClusterIssuer using scripts/LetsEncryptIssuer.yaml
 
 ## Install Prometheus and Grafana
 ```
-helm install stable/prometheus
+helm install --name prometheus --namespace prometheus stable/prometheus
 helm install stable/grafana
 ```
 
