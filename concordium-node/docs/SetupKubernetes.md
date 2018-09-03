@@ -145,3 +145,21 @@ Change image to weaveworks/weave-kube:2.4.0 or newer. Under env add a new object
 ```
 
 Also remember to change weave-npc image to weaveworks/weave-npc:2.4.0
+
+## Install cert-manager
+```
+helm install \
+    --name cert-manager \
+    --namespace kube-system \
+    stable/cert-manager
+``` 
+
+Now configure a ClusterIssuer using scripts/LetsEncryptIssuer.yaml
+
+## Install Prometheus and Grafana
+```
+helm install stable/prometheus
+helm install stable/grafana
+```
+
+If needed checkout the charts repository and changes values in values.yaml for the two packages
