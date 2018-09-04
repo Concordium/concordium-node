@@ -109,6 +109,8 @@ pub struct CliConfig {
     pub no_boostrap_dns: bool,
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
+    #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
+    pub network_ids: Vec<u8>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -177,6 +179,8 @@ pub struct BootstrapperConfig {
     pub prometheus_push_password: Option<String>,
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
+    #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
+    pub network_ids: Vec<u8>,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {

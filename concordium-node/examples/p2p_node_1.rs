@@ -84,8 +84,8 @@ fn run() -> ResultExtWrapper<()> {
                                        loop {
                                            if let Ok(ref outer_msg) = pkt_out.recv() {
                                                match *outer_msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => info!("DirectMessage with {:?} received", msg),
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => info!("BroadcastedMessage with {:?} received", msg),
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) => info!("DirectMessage/{} with {:?} received", nid, msg),
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => info!("BroadcastedMessage/{} with {:?} received", nid, msg),
                                                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
                                                box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
                                                _ => {}
@@ -127,6 +127,12 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
+                                          P2PEvent::JoinedNetwork(peer,network_id) => {
+                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          }
+                                          P2PEvent::LeftNetwork(peer,network_id) => {
+                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          }
                                       }
                                   }
                               }
@@ -139,7 +145,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      Some(sender),
                      mode_type,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     } else {
         P2PNode::new(conf.id,
                      conf.listen_address,
@@ -149,7 +156,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      None,
                      mode_type,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     };
 
     if let Some(ref prom) = prometheus {

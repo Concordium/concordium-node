@@ -77,10 +77,10 @@ fn run() -> ResultExtWrapper<()> {
                                        loop {
                                            if let Ok(ref msg) = pkt_out.recv() {
                                                match *msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) =>
-                                                 info!("DirectMessage with {:?} received", msg),
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) =>
-                                                 info!("BroadcastedMessage with {:?} received", msg),
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) =>
+                                                 info!("DirectMessage/{} with {:?} received", nid, msg),
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) =>
+                                                 info!("BroadcastedMessage/{} with {:?} received", nid, msg),
                                                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) =>
                                                 info!("Ban node request for {:?}", x),
                                                box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) =>
@@ -101,6 +101,8 @@ fn run() -> ResultExtWrapper<()> {
     } else {
         None
     };
+
+    let used_nid = *conf.network_ids.first().clone().unwrap();
 
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
@@ -124,6 +126,12 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
+                                          P2PEvent::JoinedNetwork(peer,network_id) => {
+                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          }
+                                          P2PEvent::LeftNetwork(peer,network_id) => {
+                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          }
                                       }
                                   }
                               }
@@ -136,7 +144,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      Some(sender),
                      P2PNodeMode::NormalMode,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     } else {
         P2PNode::new(conf.id,
                      conf.listen_address,
@@ -146,7 +155,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      None,
                      P2PNodeMode::NormalMode,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     };
 
     if let Some(ref prom) = prometheus {
@@ -211,7 +221,7 @@ fn run() -> ResultExtWrapper<()> {
     let _app = thread::spawn(move || {
                                  loop {
                                      info!("Sending one packet");
-                                     node.send_message(Some(P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap()), &String::from("Hello world!").as_bytes().to_vec(), false).map_err(|e| error!("Error sending {}", e)).ok();
+                                     node.send_message(Some(P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap()), used_nid, &String::from("Hello world!").as_bytes().to_vec(), false).map_err(|e| error!("Error sending {}", e)).ok();
                                      info!("Sleeping for 1 second");
                                      thread::sleep(time::Duration::from_secs(1));
                                  }

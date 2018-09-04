@@ -194,20 +194,67 @@ impl P2P for RpcServerImpl {
                && req.has_message()
                && req.has_broadcast()
                && !req.get_broadcast().get_value()
+               && req.has_network_id()
             {
                 let id =
                     P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
                 info!("Sending direct message to: {:064x}", id.get_id());
                 r.set_value(self.node
                                 .borrow_mut()
-                                .send_message(Some(id), req.get_message().get_value(), false)
+                                .send_message(Some(id), req.get_network_id().get_value() as u8, req.get_message().get_value(), false)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
                 info!("Sending broadcast message");
                 r.set_value(self.node
                                 .borrow_mut()
-                                .send_message(None, req.get_message().get_value(), true)
+                                .send_message(None, req.get_network_id().get_value() as u8, req.get_message().get_value(), true)
+                                .map_err(|e| error!("{}", e))
+                                .is_ok());
+            } else {
+                r.set_value(false);
+            }
+            let f = sink.success(r)
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
+    }
+
+    fn join_network(&self,
+                    ctx: ::grpcio::RpcContext,
+                    req: NetworkChangeRequest,
+                    sink: ::grpcio::UnarySink<SuccessResponse>) {
+        authenticate!(ctx, req, sink, &self.access_token, {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            if req.has_network_id() && req.get_network_id().get_value() > 0 && req.get_network_id().get_value() < 100_000
+            {
+                info!("Attempting to join network {}", req.get_network_id().get_value());
+                r.set_value(self.node
+                                .borrow_mut()
+                                .send_joinnetwork(req.get_network_id().get_value() as u8)
+                                .map_err(|e| error!("{}", e))
+                                .is_ok());
+            } else {
+                r.set_value(false);
+            }
+            let f = sink.success(r)
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
+    }
+
+    fn leave_network(&self,
+                    ctx: ::grpcio::RpcContext,
+                    req: NetworkChangeRequest,
+                    sink: ::grpcio::UnarySink<SuccessResponse>) {
+        authenticate!(ctx, req, sink, &self.access_token, {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            if req.has_network_id() && req.get_network_id().get_value() > 0 && req.get_network_id().get_value() < 100_000
+            {
+                info!("Attempting to leave network {}", req.get_network_id().get_value());
+                r.set_value(self.node
+                                .borrow_mut()
+                                .send_leavenetwork(req.get_network_id().get_value() as u8)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else {
@@ -315,6 +362,7 @@ impl P2P for RpcServerImpl {
                 match receiver.lock().unwrap().try_recv() {
                     Ok(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
                                                                                       _,
+                                                                                      network_id,
                                                                                       msg),
                                                          sent,
                                                          received)) => {
@@ -323,9 +371,11 @@ impl P2P for RpcServerImpl {
                         r.set_message_direct(i_msg);
                         r.set_sent_at(sent.unwrap());
                         r.set_received_at(received.unwrap());
+                        r.set_network_id(network_id as u32);
                         r.set_sender(format!("{:064x}", sender.id().get_id()));
                     }
                     Ok(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
+                                                                                            network_id,
                                                                                            msg),
                                                          sent,
                                                          received)) => {
@@ -334,6 +384,7 @@ impl P2P for RpcServerImpl {
                         r.set_message_broadcast(i_msg);
                         r.set_sent_at(sent.unwrap());
                         r.set_received_at(received.unwrap());
+                        r.set_network_id(network_id as u32);
                         r.set_sender(format!("{:064x}", sender.id().get_id()));
                     }
                     _ => r.set_message_none(MessageNone::new()),

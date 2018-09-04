@@ -101,6 +101,12 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
+                                          P2PEvent::JoinedNetwork(peer,network_id) => {
+                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          }
+                                          P2PEvent::LeftNetwork(peer,network_id) => {
+                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          }
                                       }
                                   }
                               }
@@ -113,7 +119,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      Some(sender),
                      mode_type,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     } else {
         P2PNode::new(Some(conf.id),
                      conf.listen_address,
@@ -123,7 +130,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      None,
                      mode_type,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     };
 
     match db.get_banlist() {
