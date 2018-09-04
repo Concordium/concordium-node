@@ -44,7 +44,7 @@ modprobe ip_vs_sh ip_vs ip_vs_rr ip_vs_wrr
 ```
 Initialize master
 ```
-PATH=/opt/bin:$PATH kubeadm init --apiserver-cert-extra-sans=ExternalIP
+PATH=/opt/bin:$PATH kubeadm init --apiserver-cert-extra-sans=ExternalIP --apiserver-bind-port=443
 ```
  Where ExternalIP is the external IP from AWS interface
 
@@ -60,6 +60,31 @@ PATH=/opt/bin:$PATH kubectl get pods --all-namespaces
 
 Extract the config needed to communicate with the cluster from outside the master. Download the /etc/kubernetes/admin.conf file to ~/.kube/config at your machine.
 For AWS the IP needs to be corrected in the config file to use the external IP
+
+## Set cloud provider and authentication up
+We want to enable Google OAUTH authentication to give us 2FA.
+Open /etc/kubernetes/manifests/kube-apiserver.yaml and add
+```
+    - --oidc-issuer-url=https://accounts.google.com
+    - --oidc-username-claim=email
+    - --oidc-client-id=812165771185-b7449eapj7ckth3f7jq28fmb858vl8gc.apps.googleusercontent.com
+    - --cloud-provider=aws
+```
+to the arguments to kube-apiserver.
+
+Open /etc/kubernetes/manifests/kube-controller-manager.yaml and add
+```
+    - --cloud-provider=aws
+    - --configure-cloud-routes=false
+```
+to the arguments to kube-controller-manager
+
+Open /var/lib/kubelet/kubeadm-flags.env and add
+```
+--cloud-provider=aws
+```
+as an argument to KUBELET_KUBEADM_ARGS
+
 
 ## Setup nodes
 Get token on master node
@@ -166,8 +191,8 @@ Now configure a ClusterIssuer using scripts/LetsEncryptIssuer.yaml
 
 ## Install Prometheus and Grafana
 ```
-helm install --name prometheus --namespace prometheus stable/prometheus
-helm install stable/grafana
+helm install --name prometheus --namespace prometheus --values prometheus/values.yaml stable/prometheus
+helm install --name grafana --namespace prometheus --values grafana/values.yaml stable/grafana
 ```
 
-If needed checkout the charts repository and changes values in values.yaml for the two packages
+If needed checkout the charts repository and changes values in values.yaml for the two packages. Otherwise omit the values parameter
