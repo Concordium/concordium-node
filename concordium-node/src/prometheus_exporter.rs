@@ -24,6 +24,9 @@ pub struct PrometheusServer {
     peers_gauge: IntGauge,
     connections_received: IntCounter,
     unique_ips_seen: IntCounter,
+    invalid_packets_received: IntCounter,
+    unknown_packets_received: IntCounter,
+    invalid_network_packets_received: IntCounter,
 }
 
 impl PrometheusServer {
@@ -53,13 +56,34 @@ impl PrometheusServer {
         let psc = IntCounter::with_opts(psc_opts).unwrap();
         registry.register(Box::new(psc.clone())).unwrap();
 
+        let ipr_opts = Opts::new("invalid_pkts_received", "invalid packets received");
+        let ipr = IntCounter::with_opts(ipr_opts).unwrap();
+        if mode == PrometheusMode::NodeMode {
+            registry.register(Box::new(ipr.clone())).unwrap();
+        }
+
+        let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
+        let upr = IntCounter::with_opts(upr_opts).unwrap();
+        if mode == PrometheusMode::NodeMode {
+            registry.register(Box::new(upr.clone())).unwrap();
+        }
+
+        let inpr_opts = Opts::new("invalid_network_packets_received", "invalid network packets received");
+        let inpr = IntCounter::with_opts(inpr_opts).unwrap();
+        if mode == PrometheusMode::NodeMode {
+            registry.register(Box::new(inpr.clone())).unwrap();
+        }
+
         PrometheusServer { mode: mode,
                            registry: registry.clone(),
                            pkts_received_counter: prc.clone(),
                            pkts_sent_counter: psc.clone(),
                            peers_gauge: pg.clone(),
                            connections_received: cr.clone(),
-                           unique_ips_seen: uis.clone(), }
+                           unique_ips_seen: uis.clone(),
+                           invalid_packets_received: ipr.clone(), 
+                           unknown_packets_received: upr.clone(),
+                           invalid_network_packets_received: inpr.clone(),}
     }
 
     pub fn peers_inc(&mut self) -> ResultExtWrapper<()> {
@@ -99,6 +123,21 @@ impl PrometheusServer {
 
     pub fn conn_received_inc(&mut self) -> ResultExtWrapper<()> {
         &self.connections_received.inc();
+        Ok(())
+    }
+
+    pub fn invalid_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
+        &self.invalid_packets_received.inc();
+        Ok(())
+    }
+
+    pub fn invalid_network_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
+        &self.invalid_network_packets_received.inc();
+        Ok(())
+    }
+
+    pub fn unknown_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
+        &self.unknown_packets_received.inc();
         Ok(())
     }
 

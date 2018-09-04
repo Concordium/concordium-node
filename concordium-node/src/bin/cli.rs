@@ -117,6 +117,12 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
+                                          P2PEvent::JoinedNetwork(peer,network_id) => {
+                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          }
+                                          P2PEvent::LeftNetwork(peer,network_id) => {
+                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          }
                                       }
                                   }
                               }
@@ -129,7 +135,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      Some(sender),
                      mode_type,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     } else {
         P2PNode::new(conf.id,
                      conf.listen_address,
@@ -139,7 +146,8 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      None,
                      mode_type,
-                     prometheus.clone())
+                     prometheus.clone(),
+                     conf.network_ids)
     };
 
     match db.get_banlist() {
@@ -176,19 +184,19 @@ fn run() -> ResultExtWrapper<()> {
                                        loop {
                                            if let Ok(full_msg) = pkt_out.recv() {
                                                match *full_msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref msg), _, _) => {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
-                                                   info!("DirectMessage with size {} received", msg.len());
+                                                   info!("DirectMessage/{} with size {} received", nid, msg.len());
                                                }
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msg), _, _) => {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
                                                    if !_no_trust_broadcasts {
-                                                       info!("BroadcastedMessage with size {} received", msg.len());
-                                                       _node_self_clone.send_message(None, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
+                                                       info!("BroadcastedMessage/{} with size {} received", nid, msg.len());
+                                                       _node_self_clone.send_message(None, *nid, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                                                    }
                                                }
 

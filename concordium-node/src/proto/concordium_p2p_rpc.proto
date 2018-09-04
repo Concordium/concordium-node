@@ -40,8 +40,9 @@ message PeerStatsResponse {
 
 message SendMessageRequest {
   google.protobuf.StringValue node_id = 1;
-  google.protobuf.BytesValue message = 2;
-  google.protobuf.BoolValue broadcast = 3;
+  google.protobuf.Int32Value network_id = 2;
+  google.protobuf.BytesValue message = 3;
+  google.protobuf.BoolValue broadcast = 4;
 }
 
 message MessageDirect {
@@ -58,11 +59,16 @@ message P2PNetworkMessage {
   uint64 received_at = 1;
   uint64 sent_at = 2;
   string sender = 3;
+  uint32 network_id = 4;
   oneof payload {
     MessageDirect message_direct = 20;
     MessageBroadcast message_broadcast = 21;
     MessageNone message_none = 22;
   };
+}
+
+message NetworkChangeRequest {
+  google.protobuf.Int32Value network_id = 1;
 }
 
 message Empty {}
@@ -81,4 +87,6 @@ service P2P {
   rpc SubscriptionPoll(Empty) returns (P2PNetworkMessage) {}
   rpc BanNode(PeerElement) returns (SuccessResponse) {}
   rpc UnbanNode(PeerElement) returns (SuccessResponse) {}
+  rpc JoinNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
+  rpc LeaveNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
 }
