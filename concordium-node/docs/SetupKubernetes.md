@@ -238,10 +238,10 @@ openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outfor
 Now join the cluster with the output of the two previous commands
 
 ```
-PATH=/opt/bin:$PATH kubeadm join --token <token> <master-ip>:<master-port> --discovery-token-ca-cert-hash sha256:<hash>
+PATH=/opt/bin:$PATH kubeadm join --token <token> <master-ip>:443 --discovery-token-ca-cert-hash sha256:<hash>
 ```
 
-Master IP is the IP of the master and default master port is 6443. Just wait and eventually the nodes will have joined.
+Master IP is the IP of the master. Just wait and eventually the nodes will have joined.
 
 Progress can be checked on the master(or from a local machine with .kube/config present) with 
 ```
