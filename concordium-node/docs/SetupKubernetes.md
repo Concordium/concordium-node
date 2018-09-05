@@ -1,4 +1,6 @@
 # Install Kubernetes
+For this guide Container Linux by Coreos was used.
+AMI of the image used is ami-09e088627f26fd7ec
 
 ## Setup permissions on AWS
 For the master create a policy with the following contents,
@@ -152,10 +154,16 @@ systemctl enable kubelet && systemctl start kubelet
 At times there can be issues with the PATH variable not being properly working. Issues can be resolved by prefixing all commands with PATH=/opt/bin:$PATH
 
 ## Setup master
-Load kernel modules, should probably be added to startup
+Load kernel modules
 ```
 modprobe ip_vs_sh ip_vs ip_vs_rr ip_vs_wrr
 ```
+
+Add to startup
+```
+echo -e "ip_vs_sh\nip_vs\nip_vs_rr\nip_vs_wrr" > /etc/modules-load.d/ipvs.conf
+```
+
 Initialize master
 ```
 PATH=/opt/bin:$PATH kubeadm init --apiserver-cert-extra-sans=ExternalIP --apiserver-bind-port=443
@@ -211,9 +219,14 @@ Get token on master node
 PATH=/opt/bin:$PATH kubeadm token list
 ```
 
-Load kernel modules, should probably be added to startup
+Load kernel modules
 ```
 modprobe ip_vs_sh ip_vs ip_vs_rr ip_vs_wrr
+```
+
+Add to startup
+```
+echo -e "ip_vs_sh\nip_vs\nip_vs_rr\nip_vs_wrr" > /etc/modules-load.d/ipvs.conf
 ```
 
 Get discovery token ca hash
