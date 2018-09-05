@@ -1,5 +1,119 @@
 # Install Kubernetes
 
+## Setup permissions on AWS
+For the master create a policy with the following contents,
+```
+  {
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeLaunchConfigurations",
+        "autoscaling:DescribeTags",
+        "ec2:DescribeInstances",
+        "ec2:DescribeRegions",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeVolumes",
+        "ec2:CreateSecurityGroup",
+        "ec2:CreateTags",
+        "ec2:CreateVolume",
+        "ec2:ModifyInstanceAttribute",
+        "ec2:ModifyVolume",
+        "ec2:AttachVolume",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:CreateRoute",
+        "ec2:DeleteRoute",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DeleteVolume",
+        "ec2:DetachVolume",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:DescribeVpcs",
+        "elasticloadbalancing:AddTags",
+        "elasticloadbalancing:AttachLoadBalancerToSubnets",
+        "elasticloadbalancing:ApplySecurityGroupsToLoadBalancer",
+        "elasticloadbalancing:CreateLoadBalancer",
+        "elasticloadbalancing:CreateLoadBalancerPolicy",
+        "elasticloadbalancing:CreateLoadBalancerListeners",
+        "elasticloadbalancing:ConfigureHealthCheck",
+        "elasticloadbalancing:DeleteLoadBalancer",
+        "elasticloadbalancing:DeleteLoadBalancerListeners",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeLoadBalancerAttributes",
+        "elasticloadbalancing:DetachLoadBalancerFromSubnets",
+        "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+        "elasticloadbalancing:ModifyLoadBalancerAttributes",
+        "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+        "elasticloadbalancing:SetLoadBalancerPoliciesForBackendServer",
+        "elasticloadbalancing:AddTags",
+        "elasticloadbalancing:CreateListener",
+        "elasticloadbalancing:CreateTargetGroup",
+        "elasticloadbalancing:DeleteListener",
+        "elasticloadbalancing:DeleteTargetGroup",
+        "elasticloadbalancing:DescribeListeners",
+        "elasticloadbalancing:DescribeLoadBalancerPolicies",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:ModifyListener",
+        "elasticloadbalancing:ModifyTargetGroup",
+        "elasticloadbalancing:RegisterTargets",
+        "elasticloadbalancing:SetLoadBalancerPoliciesOfListener",
+        "iam:CreateServiceLinkedRole",
+        "kms:DescribeKey"
+      ],
+      "Resource": [
+        "*"
+      ]
+    },
+  ]
+}
+```
+Assign it to the master EC2 instance.
+
+For the worker nodes create a policy with the following contents,
+```
+  {
+      "Version": "2012-10-17",
+      "Statement": [
+          {
+              "Effect": "Allow",
+              "Action": [
+                  "ec2:DescribeInstances",
+                  "ec2:DescribeRegions",
+                  "ecr:GetAuthorizationToken",
+                  "ecr:BatchCheckLayerAvailability",
+                  "ecr:GetDownloadUrlForLayer",
+                  "ecr:GetRepositoryPolicy",
+                  "ecr:DescribeRepositories",
+                  "ecr:ListImages",
+                  "ecr:BatchGetImage"
+              ],
+              "Resource": "*"
+          } 
+      ]
+  }
+```
+Assign it to all EC2 instances that will worker nodes.
+
+When the EC2 instances have been spawned assign them the following tags:
+For master:
+KubernetesCluster = ClusterName, eg. na.prod.concordium.com
+Name = MasterName, eg. master.na.prod.concordium.com
+k8s.io/role/master = 1
+
+For worker nodes:
+KubernetesCluster = ClusterName, eg. na.prod.concordium.com
+Name = NodeName, eg. node00.na.prod.concordium.com
+k8s.io/role/node = 1
+
+Make certain that proper security groups have been created.
+Master needs to have port 443 open for API communication, and worker nodes should have 30000-32000 open for load balancer to be able to communicate with worker nodes.
+SSH should to be open for all EC2 instances
+
+
 ## Change to root
 ```
 sudo -s
@@ -85,6 +199,11 @@ Open /var/lib/kubelet/kubeadm-flags.env and add
 ```
 as an argument to KUBELET_KUBEADM_ARGS
 
+Restart kubelet
+```
+systemctl restart kubelet
+```
+
 
 ## Setup nodes
 Get token on master node
@@ -115,6 +234,26 @@ Progress can be checked on the master(or from a local machine with .kube/config 
 ```
 PATH=/opt/bin:$PATH kubectl get nodes
 ```
+
+When the nodes are up and ready, open /var/lib/kubelet/kubeadm-flags.env and add
+```
+--cloud-provider=aws
+```
+as an argument to KUBELET_KUBEADM_ARGS
+
+Restart kubelet
+```
+systemctl restart kubelet
+```
+
+## Setup storage class
+We want to be able to automatically provision EBS storage on Amazon. Therefore we have to create a storage class and mark it as default.
+Apply the file scripts/create-storage-class.yaml
+
+```
+kubectl apply -f create-storage-class.yaml
+```
+
 
 ## Install nginx-ingress
 We now assume that all operations are on a local developer machine and not on the kubernetes master
@@ -196,3 +335,32 @@ helm install --name grafana --namespace prometheus --values grafana/values.yaml 
 ```
 
 If needed checkout the charts repository and changes values in values.yaml for the two packages. Otherwise omit the values parameter
+
+## Setup OAUTH authentication
+We want users to be able to use their Google account as authentication for our cluster.
+
+Download the helper tool
+```
+go get github.com/micahhausler/k8s-oidc-helper
+```
+
+Run the command 
+```
+k8s-oidc-helper -c client_secret_812165771185-b7449eapj7ckth3f7jq28fmb858vl8gc.apps.googleusercontent.com.json
+```
+
+Login to Google using the Concordium account and copy the code given back into the program.
+Now copy paste the user information into the .kube/config file. 
+
+We now need to grant that user some permissions. For admin rights apply the file scripts/grant-admin-gaccount.yaml and correct as needed.
+
+```
+kubectl apply -f grant-admin-gaccount.yaml
+```
+
+Validate that it works
+```
+kubectl --user=name@domain.com get nodes
+```
+
+You should now be able to remove the user that was auto generated from your .kube/config.
