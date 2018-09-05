@@ -168,7 +168,7 @@ Initialize master
 ```
 PATH=/opt/bin:$PATH kubeadm init --apiserver-cert-extra-sans=ExternalIP --apiserver-bind-port=443
 ```
- Where ExternalIP is the external IP from AWS interface
+Where ExternalIP is the external IP from AWS interface
 
 ## Setup networking
 ```
@@ -259,14 +259,6 @@ Restart kubelet
 systemctl restart kubelet
 ```
 
-## Setup storage class
-We want to be able to automatically provision EBS storage on Amazon. Therefore we have to create a storage class and mark it as default.
-Apply the file scripts/create-storage-class.yaml
-
-```
-kubectl apply -f create-storage-class.yaml
-```
-
 
 ## Install nginx-ingress
 We now assume that all operations are on a local developer machine and not on the kubernetes master
@@ -276,6 +268,20 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/mast
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/baremetal/service-nodeport.yaml
 
 ```
+
+## Setup storage class
+We want to be able to automatically provision EBS storage on Amazon. Therefore we have to create a storage class and mark it as default.
+Apply the file scripts/create-storage-class.yaml
+
+```
+kubectl apply -f create-storage-class.yaml
+```
+
+Mark it as default
+```
+kubectl patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+```
+
 
 ## Install helm
 Follow https://docs.helm.sh/using_helm/#quickstart to get a local installation of helm on developer machine
