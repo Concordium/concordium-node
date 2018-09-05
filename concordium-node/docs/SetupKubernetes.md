@@ -329,13 +329,23 @@ subjects:
 
 ## Modify weavenet
 For AWS we want to be able to see client IPs. For now we need to modify weave to suit this need.
-Under env add a new object,
 ```
-              {
-                "name": "NO_MASQ_LOCAL",
-                "value": "1"
-              }
+kubectl edit daemonset weave-net -n kube-system
 ```
+
+Under env we have to add a new environment variable NO_MASQ_LOCAL = "1" such that it looks like this,
+```
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: NO_MASQ_LOCAL
+          value: "1"
+```
+
+This disables local masquerading and allows us to see the external IP.
 
 ## Install cert-manager
 ```
@@ -353,7 +363,8 @@ helm install --name prometheus --namespace prometheus --values prometheus/values
 helm install --name grafana --namespace prometheus --values grafana/values.yaml stable/grafana
 ```
 
-If needed checkout the charts repository and changes values in values.yaml for the two packages. Otherwise omit the values parameter
+If needed checkout the charts repository and changes values in values.yaml for the two packages. Otherwise omit the values parameter.
+The charts repository is located at https://github.com/helm/charts.git.
 
 ## Setup OAUTH authentication
 We want users to be able to use their Google account as authentication for our cluster.
