@@ -79,9 +79,9 @@ impl NetworkMessage {
                                     match str::from_utf8(&bytes[(inner_msg_size+sender_size)..(5 + sender_size+inner_msg_size)]).unwrap().parse::<usize>() {
                                         Ok(nids) => {
                                             if bytes.len() >= sender_size+inner_msg_size+5+(nids*5) {
-                                                let mut loaded_nids: Vec<u8> = vec![];
+                                                let mut loaded_nids: Vec<u16> = vec![];
                                                 for nid_id in 0..nids {
-                                                    match str::from_utf8(&bytes[(inner_msg_size+sender_size+(nid_id*5)+5)..(10 + sender_size+inner_msg_size+(nid_id*5))]).unwrap().parse::<u8>() {
+                                                    match str::from_utf8(&bytes[(inner_msg_size+sender_size+(nid_id*5)+5)..(10 + sender_size+inner_msg_size+(nid_id*5))]).unwrap().parse::<u16>() {
                                                         Ok(loaded_nid) => loaded_nids.push(loaded_nid),
                                                         _ => error!("Can't load one of the network ids given")
                                                     }
@@ -129,9 +129,9 @@ impl NetworkMessage {
                                     match str::from_utf8(&bytes[(inner_msg_size+sender_size)..(5 + sender_size+inner_msg_size)]).unwrap().parse::<usize>() {
                                         Ok(nids) => {
                                             if bytes.len() >= sender_size+inner_msg_size+5+(nids*5) {
-                                                let mut loaded_nids: Vec<u8> = vec![];
+                                                let mut loaded_nids: Vec<u16> = vec![];
                                                 for nid_id in 0..nids {
-                                                    match str::from_utf8(&bytes[(inner_msg_size+sender_size+(nid_id*5)+5)..(10 + sender_size+inner_msg_size+(nid_id*5))]).unwrap().parse::<u8>() {
+                                                    match str::from_utf8(&bytes[(inner_msg_size+sender_size+(nid_id*5)+5)..(10 + sender_size+inner_msg_size+(nid_id*5))]).unwrap().parse::<u16>() {
                                                         Ok(loaded_nid) => loaded_nids.push(loaded_nid),
                                                         _ => error!("Can't load one of the network ids given")
                                                     }
@@ -212,7 +212,7 @@ impl NetworkMessage {
                             Some(sender) => {
                                 let sender_len = sender.serialize().len();
                                 if bytes[(inner_msg_size+sender_len)..].len() == 5 {
-                                    match str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap().parse::<u8>() {
+                                    match str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap().parse::<u16>() {
                                         Ok(network_id) => NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(sender, network_id), Some(timestamp), Some(get_current_stamp())),
                                         _ => NetworkMessage::InvalidMessage,
                                     }
@@ -229,7 +229,7 @@ impl NetworkMessage {
                             Some(sender) => {
                                 let sender_len = sender.serialize().len();
                                 if bytes[(inner_msg_size+sender_len)..].len() == 5 {
-                                    match str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap().parse::<u8>() {
+                                    match str::from_utf8(&bytes[(inner_msg_size+sender_len)..]).unwrap().parse::<u16>() {
                                         Ok(network_id) => NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(sender, network_id), Some(timestamp), Some(get_current_stamp())),
                                         _ => NetworkMessage::InvalidMessage,
                                     }
@@ -316,7 +316,7 @@ impl NetworkMessage {
                                 }                                
                                 let remainer = inner_msg_size + sender_len;
                                 let receiver_id = P2PNodeId::from_string(&(str::from_utf8(&bytes[remainer..(remainer + PROTOCOL_NODE_ID_LENGTH)]).unwrap()).to_string()).unwrap();
-                                let network_id = match str::from_utf8(&bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+PROTOCOL_NODE_ID_LENGTH+5)]).unwrap().parse::<u8>() {
+                                let network_id = match str::from_utf8(&bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+PROTOCOL_NODE_ID_LENGTH+5)]).unwrap().parse::<u16>() {
                                     Ok(nid) => nid,
                                     _ => 0,
                                 };
@@ -344,7 +344,7 @@ impl NetworkMessage {
                                 if bytes[(inner_msg_size + sender_len)..].len() < 15 {
                                     return NetworkMessage::InvalidMessage;
                                 }
-                                let network_id = match str::from_utf8(&bytes[(inner_msg_size+sender_len)..(inner_msg_size+sender_len+5)]).unwrap().parse::<u8>() {
+                                let network_id = match str::from_utf8(&bytes[(inner_msg_size+sender_len)..(inner_msg_size+sender_len+5)]).unwrap().parse::<u16>() {
                                     Ok(nid) => nid,
                                     _ => 0,
                                 };
@@ -374,8 +374,8 @@ impl NetworkMessage {
 
 #[derive(Debug, Clone)]
 pub enum NetworkPacket {
-    DirectMessage(P2PPeer, P2PNodeId, u8, Vec<u8>),
-    BroadcastedMessage(P2PPeer, u8, Vec<u8>),
+    DirectMessage(P2PPeer, P2PNodeId, u16, Vec<u8>),
+    BroadcastedMessage(P2PPeer, u16, Vec<u8>),
 }
 
 impl NetworkPacket {
@@ -427,11 +427,11 @@ pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer, P2PNodeId),
     BanNode(P2PPeer, P2PPeer),
-    Handshake(P2PPeer, Vec<u8>, Vec<u8>),
+    Handshake(P2PPeer, Vec<u16>, Vec<u8>),
     GetPeers(P2PPeer),
     UnbanNode(P2PPeer, P2PPeer),
-    JoinNetwork(P2PPeer,u8),
-    LeaveNetwork(P2PPeer,u8)
+    JoinNetwork(P2PPeer,u16),
+    LeaveNetwork(P2PPeer,u16)
 }
 
 impl NetworkRequest {
@@ -533,7 +533,7 @@ pub enum NetworkResponse {
     Pong(P2PPeer),
     FindNode(P2PPeer, Vec<P2PPeer>),
     PeerList(P2PPeer, Vec<P2PPeer>),
-    Handshake(P2PPeer, Vec<u8>, Vec<u8>),
+    Handshake(P2PPeer, Vec<u16>, Vec<u8>),
 }
 
 impl NetworkResponse {

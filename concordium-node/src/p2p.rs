@@ -64,8 +64,8 @@ pub enum P2PEvent {
     ReceivedMessageEvent(P2PNodeId),
     SentMessageEvent(P2PNodeId),
     InitiatingConnection(IpAddr, u16),
-    JoinedNetwork(P2PPeer,u8),
-    LeftNetwork(P2PPeer,u8),
+    JoinedNetwork(P2PPeer,u16),
+    LeftNetwork(P2PPeer,u16),
 }
 
 struct Buckets {
@@ -230,7 +230,7 @@ struct TlsServer {
     banned_peers: HashSet<P2PPeer>,
     mode: P2PNodeMode,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-    networks: Arc<Mutex<Vec<u8>>>,
+    networks: Arc<Mutex<Vec<u16>>>,
 }
 
 impl TlsServer {
@@ -242,7 +242,7 @@ impl TlsServer {
            self_peer: P2PPeer,
            mode: P2PNodeMode,
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-           networks: Vec<u8>)
+           networks: Vec<u16>)
            -> TlsServer {
         TlsServer { server,
                     connections: HashMap::new(),
@@ -274,12 +274,12 @@ impl TlsServer {
         self.self_peer.clone()
     }
 
-    fn remove_network(&mut self, network_id: &u8) -> ResultExtWrapper<()> {
+    fn remove_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
         self.networks.lock()?.retain(|x| x == network_id);
         Ok(())
     }
 
-    fn add_network(&mut self, network_id: &u8) -> ResultExtWrapper<()> {
+    fn add_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
         {
             let mut networks = self.networks.lock()?;
             if !networks.contains(network_id) {
@@ -546,9 +546,9 @@ struct Connection {
     messages_received: u64,
     mode: P2PNodeMode,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-    networks: Vec<u8>,
+    networks: Vec<u16>,
     event_log: Option<Sender<P2PEvent>>,
-    own_networks: Arc<Mutex<Vec<u8>>>
+    own_networks: Arc<Mutex<Vec<u16>>>
 }
 
 impl Connection {
@@ -564,7 +564,7 @@ impl Connection {
            mode: P2PNodeMode,
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            event_log: Option<Sender<P2PEvent>>,
-           own_networks: Arc<Mutex<Vec<u8>>>)
+           own_networks: Arc<Mutex<Vec<u16>>>)
            -> Connection {
         Connection { socket,
                      token,
@@ -618,7 +618,7 @@ impl Connection {
         self.last_seen = common::get_current_stamp();
     }
 
-    fn add_networks(&mut self, networks: &Vec<u8>) {
+    fn add_networks(&mut self, networks: &Vec<u16>) {
         for ele in networks {
             if !self.networks.contains(ele) {
                 self.networks.push(*ele);
@@ -626,7 +626,7 @@ impl Connection {
         }
     }
 
-    fn remove_network(&mut self, network: &u8) {
+    fn remove_network(&mut self, network: &u16) {
         self.networks.retain(|x| x != network);
     }
 
@@ -1426,7 +1426,7 @@ impl P2PNode {
                event_log: Option<mpsc::Sender<P2PEvent>>,
                mode: P2PNodeMode,
                prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-               networks: Vec<u8>)
+               networks: Vec<u16>)
                -> P2PNode {
         let addr = if let Some(ref addy) = listen_address {
             format!("{}:{}", addy, listen_port).parse().unwrap()
@@ -1832,7 +1832,7 @@ impl P2PNode {
 
     pub fn send_message(&mut self,
                         id: Option<P2PNodeId>,
-                        network_id: u8,
+                        network_id: u16,
                         msg: &[u8],
                         broadcast: bool)
                         -> ResultExtWrapper<()> {
@@ -1874,7 +1874,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_joinnetwork(&mut self, network_id: u8) -> ResultExtWrapper<()> {
+    pub fn send_joinnetwork(&mut self, network_id: u16) -> ResultExtWrapper<()> {
         self.send_queue
             .lock()?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
@@ -1883,7 +1883,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_leavenetwork(&mut self, network_id: u8) -> ResultExtWrapper<()> {
+    pub fn send_leavenetwork(&mut self, network_id: u16) -> ResultExtWrapper<()> {
         self.send_queue
             .lock()?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),

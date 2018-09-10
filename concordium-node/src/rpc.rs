@@ -201,14 +201,14 @@ impl P2P for RpcServerImpl {
                 info!("Sending direct message to: {:064x}", id.get_id());
                 r.set_value(self.node
                                 .borrow_mut()
-                                .send_message(Some(id), req.get_network_id().get_value() as u8, req.get_message().get_value(), false)
+                                .send_message(Some(id), req.get_network_id().get_value() as u16, req.get_message().get_value(), false)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
                 info!("Sending broadcast message");
                 r.set_value(self.node
                                 .borrow_mut()
-                                .send_message(None, req.get_network_id().get_value() as u8, req.get_message().get_value(), true)
+                                .send_message(None, req.get_network_id().get_value() as u16, req.get_message().get_value(), true)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else {
@@ -231,7 +231,7 @@ impl P2P for RpcServerImpl {
                 info!("Attempting to join network {}", req.get_network_id().get_value());
                 r.set_value(self.node
                                 .borrow_mut()
-                                .send_joinnetwork(req.get_network_id().get_value() as u8)
+                                .send_joinnetwork(req.get_network_id().get_value() as u16)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else {
@@ -254,7 +254,7 @@ impl P2P for RpcServerImpl {
                 info!("Attempting to leave network {}", req.get_network_id().get_value());
                 r.set_value(self.node
                                 .borrow_mut()
-                                .send_leavenetwork(req.get_network_id().get_value() as u8)
+                                .send_leavenetwork(req.get_network_id().get_value() as u16)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else {

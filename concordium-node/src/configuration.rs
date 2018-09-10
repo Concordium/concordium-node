@@ -23,7 +23,6 @@ pub struct CliConfig {
                 default_value = "ipdiscovery.p2p.concordium.com")]
     pub ip_discovery_service_host: String,
     #[structopt(long = "no-network",
-                short = "nonet",
                 help = "Disable network")]
     pub no_network: bool,
     #[structopt(long = "connect-to",
@@ -110,7 +109,7 @@ pub struct CliConfig {
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
     #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
-    pub network_ids: Vec<u8>,
+    pub network_ids: Vec<u16>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -180,7 +179,7 @@ pub struct BootstrapperConfig {
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
     #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
-    pub network_ids: Vec<u8>,
+    pub network_ids: Vec<u16>,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {
