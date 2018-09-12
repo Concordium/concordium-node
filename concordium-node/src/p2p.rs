@@ -43,6 +43,7 @@ const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
 const KEY_SIZE: u16 = 256;
 const BOOTSTRAP_PEER_COUNT: usize = 100;
+const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 
 lazy_static! {
@@ -58,14 +59,21 @@ pub enum P2PNodeMode {
     BootstrapperPrivateMode,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum P2PEvent {
     ConnectEvent(String, u16),
     DisconnectEvent(String),
     ReceivedMessageEvent(P2PNodeId),
     SentMessageEvent(P2PNodeId),
     InitiatingConnection(IpAddr, u16),
-    JoinedNetwork(P2PPeer,u16),
-    LeftNetwork(P2PPeer,u16),
+    JoinedNetwork(P2PPeer, u16),
+    LeftNetwork(P2PPeer, u16),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ConnectionType {
+    Node,
+    Bootstrapper,
 }
 
 struct Buckets {
@@ -218,6 +226,50 @@ impl PeerStatistic {
     }
 }
 
+#[derive(Clone, Debug)]
+struct UnreachableNodes {
+    nodes: Arc<Mutex<Vec<(u64, IpAddr, u16)>>>,
+}
+
+impl UnreachableNodes {
+    fn new() -> Self {
+        UnreachableNodes { nodes: Arc::new(Mutex::new(vec![])), }
+    }
+
+    fn contains(&self, ip: IpAddr, port: u16) -> bool {
+        if let Ok(ref mut nodes) = self.nodes.lock() {
+            return nodes.iter()
+                        .find(|&&x| {
+                                  let (_, mip, mport) = x;
+                                  ip == mip && port == mport
+                              })
+                        .is_some();
+        }
+        true
+    }
+
+    fn insert(&mut self, ip: IpAddr, port: u16) -> bool {
+        if let Ok(ref mut nodes) = self.nodes.lock() {
+            nodes.push((common::get_current_stamp(), ip.clone(), port));
+            true
+        } else {
+            false
+        }
+    }
+
+    fn cleanup(&mut self, since: u64) -> bool {
+        if let Ok(ref mut nodes) = self.nodes.lock() {
+            nodes.retain(|&x| {
+                             let (time, _, _) = x;
+                             time >= since
+                         });
+            true
+        } else {
+            false
+        }
+    }
+}
+
 struct TlsServer {
     server: TcpListener,
     connections: HashMap<Token, Connection>,
@@ -231,6 +283,7 @@ struct TlsServer {
     mode: P2PNodeMode,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
     networks: Arc<Mutex<Vec<u16>>>,
+    unreachable_nodes: UnreachableNodes,
 }
 
 impl TlsServer {
@@ -254,8 +307,9 @@ impl TlsServer {
                     self_peer,
                     banned_peers: HashSet::new(),
                     mode: mode,
-                    prometheus_exporter: prometheus_exporter, 
-                    networks: Arc::new(Mutex::new(networks)),}
+                    prometheus_exporter: prometheus_exporter,
+                    networks: Arc::new(Mutex::new(networks)),
+                    unreachable_nodes: UnreachableNodes::new(), }
     }
 
     fn log_event(&mut self, event: P2PEvent) {
@@ -324,7 +378,8 @@ impl TlsServer {
                 self.next_id += 1;
 
                 self.connections.insert(token,
-                                        Connection::new(socket,
+                                        Connection::new(ConnectionType::Node,
+                                                        socket,
                                                         token,
                                                         Some(tls_session),
                                                         None,
@@ -344,11 +399,16 @@ impl TlsServer {
     }
 
     fn connect(&mut self,
+               connection_type: ConnectionType,
                poll: &mut Poll,
                ip: IpAddr,
                port: u16,
                self_id: &P2PPeer)
                -> ResultExtWrapper<()> {
+        if connection_type == ConnectionType::Node && self.unreachable_nodes.contains(ip, port) {
+            error!("Node marked as unreachable, so not allowing the connection");
+            return Err(ErrorKindWrapper::UnreachablePeerError("Peer marked as unreachable, won't try it".to_string()).into());
+        }
         let self_peer = self.get_self_peer();
         if self_peer.ip() == ip && self_peer.port() == port {
             return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
@@ -380,7 +440,8 @@ impl TlsServer {
 
                 let token = Token(self.next_id);
 
-                let conn = Connection::new(x,
+                let conn = Connection::new(connection_type,
+                                           x,
                                            token,
                                            None,
                                            Some(tls_session),
@@ -403,11 +464,24 @@ impl TlsServer {
                        port);
                 let self_peer = self.get_self_peer().clone();
                 if let Some(ref mut conn) = self.connections.get_mut(&token) {
-                    serialize_bytes(conn, &NetworkRequest::Handshake(self_peer, self.networks.lock().unwrap().clone(), vec![]).serialize())?;
+                    serialize_bytes(conn,
+                                    &NetworkRequest::Handshake(self_peer,
+                                                               self.networks
+                                                                   .lock()
+                                                                   .unwrap()
+                                                                   .clone(),
+                                                               vec![]).serialize())?;
                 }
                 Ok(())
             }
-            Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
+            Err(e) => {
+                if connection_type == ConnectionType::Node
+                   && !self.unreachable_nodes.insert(ip, port)
+                {
+                    error!("Can't insert unreachable peer!");
+                }
+                Err(ErrorKindWrapper::InternalIOError(e).into())
+            }
         }
     }
 
@@ -476,13 +550,17 @@ impl TlsServer {
             }
         } else {
             for conn in self.connections.values_mut() {
-                if conn.last_seen + 1200000 < common::get_current_stamp() {
+                if conn.last_seen + 1200000 < common::get_current_stamp()
+                   && conn.connection_type == ConnectionType::Node
+                {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
                 }
                 if conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
                 }
             }
+            self.unreachable_nodes
+                .cleanup(common::get_current_stamp() - MAX_UNREACHABLE_MARK_TIME);
         }
 
         let closed_ones: Vec<_> = self.connections
@@ -523,6 +601,7 @@ impl TlsServer {
 }
 
 struct Connection {
+    connection_type: ConnectionType,
     socket: TcpStream,
     token: Token,
     closing: bool,
@@ -548,11 +627,12 @@ struct Connection {
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
     networks: Vec<u16>,
     event_log: Option<Sender<P2PEvent>>,
-    own_networks: Arc<Mutex<Vec<u16>>>
+    own_networks: Arc<Mutex<Vec<u16>>>,
 }
 
 impl Connection {
-    fn new(socket: TcpStream,
+    fn new(connection_type: ConnectionType,
+           socket: TcpStream,
            token: Token,
            tls_server_session: Option<ServerSession>,
            tls_client_session: Option<ClientSession>,
@@ -566,7 +646,8 @@ impl Connection {
            event_log: Option<Sender<P2PEvent>>,
            own_networks: Arc<Mutex<Vec<u16>>>)
            -> Connection {
-        Connection { socket,
+        Connection { connection_type,
+                     socket,
                      token,
                      closing: false,
                      closed: false,
@@ -589,9 +670,9 @@ impl Connection {
                      pkt_valid: false,
                      failed_pkts: 0,
                      prometheus_exporter: prometheus_exporter,
-                     networks: vec![] ,
+                     networks: vec![],
                      event_log: event_log,
-                     own_networks: own_networks}
+                     own_networks: own_networks, }
     }
 
     fn log_event(&mut self, event: P2PEvent) {
@@ -1007,7 +1088,10 @@ impl Connection {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
                         let my_nets = self.own_networks.lock().unwrap().clone();
-                        serialize_bytes(self, &NetworkResponse::Handshake(self_peer.clone(), my_nets, vec![]).serialize()).unwrap();
+                        serialize_bytes(self,
+                                        &NetworkResponse::Handshake(self_peer.clone(),
+                                                                    my_nets,
+                                                                    vec![]).serialize()).unwrap();
                         self.add_networks(nets);
                         self.peer = Some(sender.clone());
                         if self.mode == P2PNodeMode::BootstrapperPrivateMode
@@ -1065,9 +1149,9 @@ impl Connection {
                         };
                         serialize_bytes(self, &NetworkResponse::PeerList(self_peer, nodes).serialize()).unwrap();
                     }
-                    NetworkRequest::JoinNetwork(sender,network) => {
+                    NetworkRequest::JoinNetwork(sender, network) => {
                         self.add_networks(&vec![*network]);
-                        self.log_event(P2PEvent::JoinedNetwork(sender.clone(),*network));
+                        self.log_event(P2PEvent::JoinedNetwork(sender.clone(), *network));
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
                         {
@@ -1076,7 +1160,7 @@ impl Connection {
                     }
                     NetworkRequest::LeaveNetwork(sender, ref network) => {
                         self.remove_network(network);
-                        self.log_event(P2PEvent::LeftNetwork(sender.clone(),*network));
+                        self.log_event(P2PEvent::LeftNetwork(sender.clone(), *network));
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
                         {
@@ -1127,7 +1211,7 @@ impl Connection {
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
                     }
-                    NetworkResponse::Handshake(peer,nets,_) => {
+                    NetworkResponse::Handshake(peer, nets, _) => {
                         debug!("Got response to Handshake");
                         self.update_last_seen();
                         self.add_networks(nets);
@@ -1141,7 +1225,7 @@ impl Connection {
                                 .ok();
                         };
                         for ele in nets {
-                            self.log_event(P2PEvent::JoinedNetwork(peer.clone(),*ele));
+                            self.log_event(P2PEvent::JoinedNetwork(peer.clone(), *ele));
                         }
                     }
                 }
@@ -1151,7 +1235,7 @@ impl Connection {
                     NetworkPacket::DirectMessage(_, _, ref network_id, ref msg) => {
                         if self.own_networks.lock().unwrap().contains(network_id) {
                             if self.mode != P2PNodeMode::BootstrapperMode
-                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                               && self.mode != P2PNodeMode::BootstrapperPrivateMode
                             {
                                 self.update_last_seen();
                             }
@@ -1170,10 +1254,10 @@ impl Connection {
                             };
                         }
                     }
-                    NetworkPacket::BroadcastedMessage(_,ref network_id, ref msg) => {
+                    NetworkPacket::BroadcastedMessage(_, ref network_id, ref msg) => {
                         if self.own_networks.lock().unwrap().contains(network_id) {
                             if self.mode != P2PNodeMode::BootstrapperMode
-                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                               && self.mode != P2PNodeMode::BootstrapperPrivateMode
                             {
                                 self.update_last_seen();
                             }
@@ -1205,12 +1289,12 @@ impl Connection {
                 trace!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
                 if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock()
-                                .unwrap()
-                                .unknown_pkts_received_inc()
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        };
+                    prom.lock()
+                        .unwrap()
+                        .unknown_pkts_received_inc()
+                        .map_err(|e| error!("{}", e))
+                        .ok();
+                };
             }
             box NetworkMessage::InvalidMessage => {
                 self.failed_pkts_inc();
@@ -1223,12 +1307,12 @@ impl Connection {
                 trace!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
                 if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock()
-                                .unwrap()
-                                .invalid_pkts_received_inc()
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        };
+                    prom.lock()
+                        .unwrap()
+                        .invalid_pkts_received_inc()
+                        .map_err(|e| error!("{}", e))
+                        .ok();
+                };
             }
         }
     }
@@ -1549,7 +1633,7 @@ impl P2PNode {
                   prometheus_exporter: prometheus_exporter,
                   external_ip: own_peer_ip,
                   external_port: own_peer_port,
-                  mode: mode}
+                  mode: mode, }
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -1568,12 +1652,18 @@ impl P2PNode {
         ::VERSION.to_string()
     }
 
-    pub fn connect(&mut self, ip: IpAddr, port: u16) -> ResultExtWrapper<()> {
+    pub fn connect(&mut self,
+                   connection_type: ConnectionType,
+                   ip: IpAddr,
+                   port: u16)
+                   -> ResultExtWrapper<()> {
         self.log_event(P2PEvent::InitiatingConnection(ip.clone(), port));
         match self.tls_server.lock() {
             Ok(mut x) => {
                 match self.poll.lock() {
-                    Ok(mut y) => x.connect(&mut y, ip, port, &self.get_self_peer()),
+                    Ok(mut y) => {
+                        x.connect(connection_type, &mut y, ip, port, &self.get_self_peer())
+                    }
                     Err(e) => Err(ErrorWrapper::from(e).into()),
                 }
             }
@@ -1676,7 +1766,7 @@ impl P2PNode {
                                                               _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
                                     if let NetworkPacket::BroadcastedMessage(_, ref network_id, _ ) = inner_pkt {
-                                        if conn.own_networks.lock().unwrap().contains(network_id) { 
+                                        if conn.own_networks.lock().unwrap().contains(network_id) {
                                             if let Some(ref peer) = conn.peer.clone() {
                                                 match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                     Ok(_) => {

@@ -8,7 +8,7 @@ const APP_INFO: AppInfo = AppInfo { name: "ConcordiumP2P",
                                     author: "Concordium", };
 const APP_PREFERENCES_MAIN: &str = "main/config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
-pub const APP_PREFERENCES_PERSISTED_NODE_ID:&str = "PERSISTED_NODE_ID";
+pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
@@ -23,8 +23,7 @@ pub struct CliConfig {
                 help = "IP discovery service host",
                 default_value = "ipdiscovery.p2p.concordium.com")]
     pub ip_discovery_service_host: String,
-    #[structopt(long = "no-network",
-                help = "Disable network")]
+    #[structopt(long = "no-network", help = "Disable network")]
     pub no_network: bool,
     #[structopt(long = "connect-to",
                 short = "c",
@@ -109,7 +108,10 @@ pub struct CliConfig {
     pub no_boostrap_dns: bool,
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
-    #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
+    #[structopt(long = "network-id",
+                short = "n",
+                help = "Enable network id",
+                default_value = "1000")]
     pub network_ids: Vec<u16>,
 }
 
@@ -179,7 +181,10 @@ pub struct BootstrapperConfig {
     pub prometheus_push_password: Option<String>,
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
-    #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
+    #[structopt(long = "network-id",
+                short = "n",
+                help = "Enable network id",
+                default_value = "1000")]
     pub network_ids: Vec<u16>,
 }
 
@@ -245,7 +250,7 @@ pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
     IpDiscoveryConfig::from_args()
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct AppPreferences {
     preferences_map: Arc<Mutex<PreferencesMap<String>>>,
 }

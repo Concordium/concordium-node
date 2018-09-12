@@ -218,7 +218,7 @@ impl NetworkMessage {
                                     }
                                 } else {
                                     NetworkMessage::InvalidMessage
-                                } 
+                                }
                             }
                             _ => NetworkMessage::InvalidMessage,
                         }
@@ -235,7 +235,7 @@ impl NetworkMessage {
                                     }
                                 } else {
                                     NetworkMessage::InvalidMessage
-                                } 
+                                }
                             }
                             _ => NetworkMessage::InvalidMessage,
                         }
@@ -313,7 +313,7 @@ impl NetworkMessage {
                                 let sender_len = &peer.serialize().len();
                                 if bytes[(inner_msg_size + sender_len)..].len() < (15 + PROTOCOL_NODE_ID_LENGTH) {
                                     return NetworkMessage::InvalidMessage;
-                                }                                
+                                }
                                 let remainer = inner_msg_size + sender_len;
                                 let receiver_id = P2PNodeId::from_string(&(str::from_utf8(&bytes[remainer..(remainer + PROTOCOL_NODE_ID_LENGTH)]).unwrap()).to_string()).unwrap();
                                 let network_id = match str::from_utf8(&bytes[(remainer+PROTOCOL_NODE_ID_LENGTH)..(remainer+PROTOCOL_NODE_ID_LENGTH+5)]).unwrap().parse::<u16>() {
@@ -430,8 +430,8 @@ pub enum NetworkRequest {
     Handshake(P2PPeer, Vec<u16>, Vec<u8>),
     GetPeers(P2PPeer),
     UnbanNode(P2PPeer, P2PPeer),
-    JoinNetwork(P2PPeer,u16),
-    LeaveNetwork(P2PPeer,u16)
+    JoinNetwork(P2PPeer, u16),
+    LeaveNetwork(P2PPeer, u16),
 }
 
 impl NetworkRequest {
@@ -446,7 +446,7 @@ impl NetworkRequest {
                         me.serialize()).as_bytes()
                                        .to_vec()
             }
-            NetworkRequest::JoinNetwork(me,nid) => {
+            NetworkRequest::JoinNetwork(me, nid) => {
                 format!("{}{}{:016x}{}{}{:05}",
                         PROTOCOL_NAME,
                         PROTOCOL_VERSION,
@@ -454,9 +454,9 @@ impl NetworkRequest {
                         PROTOCOL_MESSAGE_TYPE_REQUEST_JOINNETWORK,
                         me.serialize(),
                         nid).as_bytes()
-                                       .to_vec()
+                            .to_vec()
             }
-            NetworkRequest::LeaveNetwork(me,nid) => {
+            NetworkRequest::LeaveNetwork(me, nid) => {
                 format!("{}{}{:016x}{}{}{:05}",
                         PROTOCOL_NAME,
                         PROTOCOL_VERSION,
@@ -464,7 +464,7 @@ impl NetworkRequest {
                         PROTOCOL_MESSAGE_TYPE_REQUEST_LEAVENETWORK,
                         me.serialize(),
                         nid).as_bytes()
-                                       .to_vec()
+                            .to_vec()
             }
             NetworkRequest::FindNode(me, id) => {
                 format!("{}{}{:016x}{}{}{:064x}",
@@ -496,17 +496,17 @@ impl NetworkRequest {
                         node_data.serialize()).as_bytes()
                                               .to_vec()
             }
-            NetworkRequest::Handshake(me,nids,zk) => {
+            NetworkRequest::Handshake(me, nids, zk) => {
                 let mut pkt: Vec<u8> = Vec::new();
                 for byte in format!("{}{}{:016x}{}{}{:05}{}{:010}",
-                        PROTOCOL_NAME,
-                        PROTOCOL_VERSION,
-                        get_current_stamp(),
-                        PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
-                        me.serialize(),
-                        nids.len(),
-                        nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
-                        zk.len()).as_bytes()
+                                    PROTOCOL_NAME,
+                                    PROTOCOL_VERSION,
+                                    get_current_stamp(),
+                                    PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
+                                    me.serialize(),
+                                    nids.len(),
+                                    nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
+                                    zk.len()).as_bytes()
                 {
                     pkt.push(*byte);
                 }
@@ -581,14 +581,14 @@ impl NetworkResponse {
             NetworkResponse::Handshake(me, nids, zk) => {
                 let mut pkt: Vec<u8> = Vec::new();
                 for byte in format!("{}{}{:016x}{}{}{:05}{}{:010}",
-                        PROTOCOL_NAME,
-                        PROTOCOL_VERSION,
-                        get_current_stamp(),
-                        PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
-                        me.serialize(),
-                        nids.len(),
-                        nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
-                        zk.len()).as_bytes()
+                                    PROTOCOL_NAME,
+                                    PROTOCOL_VERSION,
+                                    get_current_stamp(),
+                                    PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
+                                    me.serialize(),
+                                    nids.len(),
+                                    nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
+                                    zk.len()).as_bytes()
                 {
                     pkt.push(*byte);
                 }
@@ -836,11 +836,16 @@ mod tests {
         let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let nets = vec![0, 100];
         let test_zk = String::from("Random zk data");
-        let test_msg = NetworkResponse::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
+        let test_msg =
+            NetworkResponse::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets,_zk), _, _) => _zk == test_zk.as_bytes().to_vec() && nets == _nets,
+                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets, _zk),
+                                                    _,
+                                                    _) => {
+                        _zk == test_zk.as_bytes().to_vec() && nets == _nets
+                    }
                     _ => false,
                 })
     }
@@ -850,11 +855,16 @@ mod tests {
         let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let nets = vec![0, 100];
         let test_zk = String::from("Random zk data");
-        let test_msg = NetworkRequest::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
+        let test_msg =
+            NetworkRequest::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_,_nets,_zk), _, _) => _zk == test_zk.as_bytes().to_vec() && nets == _nets,
+                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _nets, _zk),
+                                                   _,
+                                                   _) => {
+                        _zk == test_zk.as_bytes().to_vec() && nets == _nets
+                    }
                     _ => false,
                 })
     }
@@ -867,7 +877,9 @@ mod tests {
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets,_zk), _, _) => _zk.len() == 0 && nets == _nets,
+                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets, _zk),
+                                                    _,
+                                                    _) => _zk.len() == 0 && nets == _nets,
                     _ => false,
                 })
     }
@@ -880,7 +892,9 @@ mod tests {
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_,_nets,_zk), _, _) => _zk.len() == 0 && nets == _nets,
+                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _nets, _zk),
+                                                   _,
+                                                   _) => _zk.len() == 0 && nets == _nets,
                     _ => false,
                 })
     }
@@ -893,7 +907,9 @@ mod tests {
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets,_zk), _, _) => _zk.len() == 0 && _nets.len() == 0,
+                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets, _zk),
+                                                    _,
+                                                    _) => _zk.len() == 0 && _nets.len() == 0,
                     _ => false,
                 })
     }
@@ -906,7 +922,9 @@ mod tests {
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_,_nets,_zk), _, _) => _zk.len() == 0 && nets.len() == 0,
+                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _nets, _zk),
+                                                   _,
+                                                   _) => _zk.len() == 0 && nets.len() == 0,
                     _ => false,
                 })
     }
@@ -916,11 +934,16 @@ mod tests {
         let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let nets = vec![];
         let test_zk = String::from("Random zk data");
-        let test_msg = NetworkRequest::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
+        let test_msg =
+            NetworkRequest::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_,_nets,_zk), _, _) => _zk == test_zk.as_bytes().to_vec() && nets == _nets,
+                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _nets, _zk),
+                                                   _,
+                                                   _) => {
+                        _zk == test_zk.as_bytes().to_vec() && nets == _nets
+                    }
                     _ => false,
                 })
     }
@@ -930,11 +953,16 @@ mod tests {
         let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
         let nets = vec![];
         let test_zk = String::from("Random zk data");
-        let test_msg = NetworkResponse::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
+        let test_msg =
+            NetworkResponse::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_,_nets,_zk), _, _) => _zk == test_zk.as_bytes().to_vec() && nets == _nets,
+                    NetworkMessage::NetworkResponse(NetworkResponse::Handshake(_, _nets, _zk),
+                                                    _,
+                                                    _) => {
+                        _zk == test_zk.as_bytes().to_vec() && nets == _nets
+                    }
                     _ => false,
                 })
     }
@@ -944,11 +972,16 @@ mod tests {
         let self_peer: P2PPeer = P2PPeer::from(P2PNodeId::from_string(&String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")).unwrap(), "10.10.10.10".parse().unwrap(), 8888);
         let nets = vec![0, 100];
         let test_zk = String::from("Random zk data");
-        let test_msg = NetworkRequest::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
+        let test_msg =
+            NetworkRequest::Handshake(self_peer, nets.clone(), test_zk.as_bytes().to_vec());
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _nets,_zk), _, _) => _zk == test_zk.as_bytes().to_vec() && nets == _nets,
+                    NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _nets, _zk),
+                                                   _,
+                                                   _) => {
+                        _zk == test_zk.as_bytes().to_vec() && nets == _nets
+                    }
                     _ => false,
                 })
     }
@@ -1119,7 +1152,9 @@ mod tests {
         assert!(match deserialized {
                     NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, nid, msg),
                                                   _,
-                                                  _) => text_msg.as_bytes().to_vec() == msg && nid == 100,
+                                                  _) => {
+                        text_msg.as_bytes().to_vec() == msg && nid == 100
+                    }
                     _ => false,
                 })
     }
@@ -1132,9 +1167,13 @@ mod tests {
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, nid, msg),
+                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                    nid,
+                                                                                    msg),
                                                   _,
-                                                  _) => text_msg.as_bytes().to_vec() == msg && nid == 100,
+                                                  _) => {
+                        text_msg.as_bytes().to_vec() == msg && nid == 100
+                    }
                     _ => false,
                 })
     }
@@ -1178,9 +1217,9 @@ mod tests {
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(_, network_id), _, _) => {
-                        network_id == 100
-                    }
+                    NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(_, network_id),
+                                                   _,
+                                                   _) => network_id == 100,
                     _ => false,
                 })
     }
@@ -1192,9 +1231,9 @@ mod tests {
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
-                    NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(_, network_id), _, _) => {
-                        network_id == 100
-                    }
+                    NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(_, network_id),
+                                                   _,
+                                                   _) => network_id == 100,
                     _ => false,
                 })
     }

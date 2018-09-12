@@ -123,11 +123,15 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -169,9 +173,11 @@ fn run() -> ResultExtWrapper<()> {
         }
     };
 
-   if !app_prefs.set_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID, Some(node.get_own_id().to_string())) {
-       error!("Failed to persist own node id");
-   }
+    if !app_prefs.set_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
+                             Some(node.get_own_id().to_string()))
+    {
+        error!("Failed to persist own node id");
+    }
 
     let mut rpc_serv: Option<RpcServerImpl> = None;
     if !conf.no_rpc_server {
@@ -236,7 +242,7 @@ fn run() -> ResultExtWrapper<()> {
                                                    match _node_self_clone.get_nodes() {
                                                        Ok(x) => {
                                                            for peer_node in peers {
-                                                               if _node_self_clone.connect(peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e)).is_ok() {
+                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e)).is_ok() {
                                                                    new_peers += 1;
                                                                }
                                                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
@@ -284,7 +290,9 @@ fn run() -> ResultExtWrapper<()> {
             match utils::parse_ip_port(&connect_to) {
                 Some((ip, port)) => {
                     info!("Connecting to peer {}", &connect_to);
-                    node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+                    node.connect(ConnectionType::Node, ip, port)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
                 }
                 None => error!("Can't parse IP to connect to '{}'", &connect_to),
             }
@@ -297,7 +305,9 @@ fn run() -> ResultExtWrapper<()> {
             Ok(nodes) => {
                 for (ip, port) in nodes {
                     info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                    node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+                    node.connect(ConnectionType::Bootstrapper, ip, port)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
                 }
             }
             Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
@@ -308,29 +318,47 @@ fn run() -> ResultExtWrapper<()> {
 
     let _desired_nodes_count = conf.desired_nodes;
     let _no_net_clone = conf.no_network;
-    let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                                match node.get_nodes() {
-                                    Ok(ref x) => {
-                                        info!("I currently have {}/{} nodes!",
-                                              x.len(),
-                                              _desired_nodes_count);
-                                        let mut count = 0;
-                                        for i in x {
-                                            info!("Peer {}: {}/{}:{}",
-                                                  count,
-                                                  i.id().to_string(),
-                                                  i.ip().to_string(),
-                                                  i.port());
-                                            count += 1;
-                                        }
-                                        if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
-                                            info!("Not enough nodes, sending GetPeers requests");
-                                            node.send_get_peers().map_err(|e| error!("{}", e)).ok();
-                                        }
-                                    }
-                                    Err(e) => error!("Couldn't get node list, {:?}", e),
-                                };
-                            });
+    let _bootstrappers_conf = conf.bootstrap_server;
+    let _guard_timer =
+        timer.schedule_repeating(chrono::Duration::seconds(30), move || {
+                 match node.get_nodes() {
+                     Ok(ref x) => {
+                         info!("I currently have {}/{} nodes!",
+                               x.len(),
+                               _desired_nodes_count);
+                         let mut count = 0;
+                         for i in x {
+                             info!("Peer {}: {}/{}:{}",
+                                   count,
+                                   i.id().to_string(),
+                                   i.ip().to_string(),
+                                   i.port());
+                             count += 1;
+                         }
+                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
+                             if x.len() == 0 {
+                                 info!("No nodes at all - retrying bootstrapping");
+                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone()) {
+                                     Ok(nodes) => {
+                                         for (ip, port) in nodes {
+                                             info!("Found bootstrap node IP: {} and port: {}",
+                                                   ip, port);
+                                             node.connect(ConnectionType::Bootstrapper, ip, port)
+                                                 .map_err(|e| error!("{}", e))
+                                                 .ok();
+                                         }
+                                     }
+                                     _ => error!("Can't find any bootstrap nodes - check DNS!"),
+                                 }
+                             } else {
+                                 info!("Not enough nodes, sending GetPeers requests");
+                                 node.send_get_peers().map_err(|e| error!("{}", e)).ok();
+                             }
+                         }
+                     }
+                     Err(e) => error!("Couldn't get node list, {:?}", e),
+                 };
+             });
 
     _node_th.join().unwrap();
     if let Some(ref mut serv) = rpc_serv {
