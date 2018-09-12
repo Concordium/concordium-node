@@ -13,7 +13,9 @@ extern crate timer;
 extern crate error_chain;
 
 use env_logger::Env;
-use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
+use p2p_client::common::{
+    ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse,
+};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;

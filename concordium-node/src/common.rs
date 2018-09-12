@@ -601,24 +601,33 @@ impl NetworkResponse {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
+pub enum ConnectionType {
+    Node,
+    Bootstrapper,
+}
+
 #[derive(Debug, Clone, Hash)]
 pub struct P2PPeer {
     ip: IpAddr,
     port: u16,
     id: P2PNodeId,
     last_seen: u64,
+    connection_type: ConnectionType,
 }
 
 impl P2PPeer {
-    pub fn new(ip: IpAddr, port: u16) -> Self {
-        P2PPeer { ip,
+    pub fn new(connection_type: ConnectionType, ip: IpAddr, port: u16) -> Self {
+        P2PPeer { connection_type,
+                  ip,
                   port,
                   id: P2PNodeId::from_ip_port(ip, port),
                   last_seen: get_current_stamp(), }
     }
 
-    pub fn from(id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
-        P2PPeer { id,
+    pub fn from(connection_type: ConnectionType, id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
+        P2PPeer { connection_type,
+                  id,
                   ip,
                   port,
                   last_seen: get_current_stamp(), }
@@ -671,7 +680,9 @@ impl P2PPeer {
                                         return Some(P2PPeer { id: node_id,
                                                               ip: ip_addr,
                                                               port: port,
-                                                              last_seen: get_current_stamp(), })
+                                                              last_seen: get_current_stamp(),
+                                                              connection_type:
+                                                                  ConnectionType::Node, })
                                     }
                                     Err(_) => return None,
                                 }
@@ -702,7 +713,9 @@ impl P2PPeer {
                                             return Some(P2PPeer { id: node_id,
                                                                   ip: ip_addr,
                                                                   port: port,
-                                                                  last_seen: get_current_stamp(), });
+                                                                  last_seen: get_current_stamp(),
+                                                                  connection_type:
+                                                                      ConnectionType::Node, });
                                         } else {
                                             return None;
                                         }
@@ -737,6 +750,10 @@ impl P2PPeer {
 
     pub fn last_seen(&self) -> u64 {
         self.last_seen
+    }
+
+    pub fn connection_type(&self) -> ConnectionType {
+        self.connection_type
     }
 }
 
@@ -809,7 +826,9 @@ mod tests {
     use common::*;
     #[test]
     pub fn req_ping_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let test_msg = NetworkRequest::Ping(self_peer);
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
@@ -821,7 +840,9 @@ mod tests {
 
     #[test]
     pub fn resp_pong_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let test_msg = NetworkResponse::Pong(self_peer);
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
@@ -833,7 +854,9 @@ mod tests {
 
     #[test]
     pub fn resp_handshake() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![0, 100];
         let test_zk = String::from("Random zk data");
         let test_msg =
@@ -852,7 +875,9 @@ mod tests {
 
     #[test]
     pub fn req_handshake() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![0, 100];
         let test_zk = String::from("Random zk data");
         let test_msg =
@@ -871,7 +896,9 @@ mod tests {
 
     #[test]
     pub fn resp_handshake_nozk() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![0, 100];
         let test_msg = NetworkResponse::Handshake(self_peer, nets.clone(), vec![]);
         let serialized_val = test_msg.serialize();
@@ -886,7 +913,9 @@ mod tests {
 
     #[test]
     pub fn req_handshake_nozk() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![0, 100];
         let test_msg = NetworkRequest::Handshake(self_peer, nets.clone(), vec![]);
         let serialized_val = test_msg.serialize();
@@ -901,7 +930,9 @@ mod tests {
 
     #[test]
     pub fn resp_handshake_nozk_nonets() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![];
         let test_msg = NetworkResponse::Handshake(self_peer, nets.clone(), vec![]);
         let serialized_val = test_msg.serialize();
@@ -916,7 +947,9 @@ mod tests {
 
     #[test]
     pub fn req_handshake_nozk_nonets() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![];
         let test_msg = NetworkRequest::Handshake(self_peer, nets.clone(), vec![]);
         let serialized_val = test_msg.serialize();
@@ -931,7 +964,9 @@ mod tests {
 
     #[test]
     pub fn req_handshake_no_nets() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![];
         let test_zk = String::from("Random zk data");
         let test_msg =
@@ -950,7 +985,9 @@ mod tests {
 
     #[test]
     pub fn resp_handshake_no_nets() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let nets = vec![];
         let test_zk = String::from("Random zk data");
         let test_msg =
@@ -969,7 +1006,7 @@ mod tests {
 
     #[test]
     pub fn req_handshake_000() {
-        let self_peer: P2PPeer = P2PPeer::from(P2PNodeId::from_string(&String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")).unwrap(), "10.10.10.10".parse().unwrap(), 8888);
+        let self_peer: P2PPeer = P2PPeer::from(ConnectionType::Node, P2PNodeId::from_string(&String::from("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2")).unwrap(), "10.10.10.10".parse().unwrap(), 8888);
         let nets = vec![0, 100];
         let test_zk = String::from("Random zk data");
         let test_msg =
@@ -988,7 +1025,9 @@ mod tests {
 
     #[test]
     pub fn req_get_peers() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let test_msg = NetworkRequest::GetPeers(self_peer);
         let serialized_val = test_msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized_val[..]);
@@ -1000,7 +1039,9 @@ mod tests {
 
     #[test]
     pub fn req_findnode_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
         let msg = NetworkRequest::FindNode(self_peer, node_id.clone());
         let serialized = msg.serialize();
@@ -1015,7 +1056,9 @@ mod tests {
 
     #[test]
     pub fn resp_findnode_empty_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let msg = NetworkResponse::FindNode(self_peer, vec![]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -1029,10 +1072,13 @@ mod tests {
 
     #[test]
     pub fn resp_findnode_v4_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let port: u16 = 9999;
         let ipaddr = IpAddr::from_str("8.8.8.8").unwrap();
-        let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr, port)]);
+        let msg = NetworkResponse::FindNode(self_peer,
+                                            vec![P2PPeer::new(ConnectionType::Node, ipaddr, port)]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
@@ -1047,10 +1093,13 @@ mod tests {
 
     #[test]
     pub fn resp_findnode_v6_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let port: u16 = 9999;
         let ipaddr = IpAddr::from_str("ff80::dead:beaf").unwrap();
-        let msg = NetworkResponse::FindNode(self_peer, vec![P2PPeer::new(ipaddr, port)]);
+        let msg = NetworkResponse::FindNode(self_peer,
+                                            vec![P2PPeer::new(ConnectionType::Node, ipaddr, port)]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
@@ -1065,13 +1114,16 @@ mod tests {
 
     #[test]
     pub fn resp_findnode_mixed_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let port: u16 = 9999;
         let ipaddr1 = IpAddr::from_str("ff80::dead:beaf").unwrap();
         let ipaddr2 = IpAddr::from_str("8.8.8.8").unwrap();
-        let msg = NetworkResponse::FindNode(self_peer,
-                                            vec![P2PPeer::new(ipaddr1, port),
-                                                 P2PPeer::new(ipaddr2, port)]);
+        let msg =
+            NetworkResponse::FindNode(self_peer,
+                                      vec![P2PPeer::new(ConnectionType::Node, ipaddr1, port),
+                                           P2PPeer::new(ConnectionType::Node, ipaddr2, port)]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
@@ -1084,10 +1136,13 @@ mod tests {
 
     #[test]
     pub fn resp_peerslist_v4_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let port: u16 = 9999;
         let ipaddr = IpAddr::from_str("8.8.8.8").unwrap();
-        let msg = NetworkResponse::PeerList(self_peer, vec![P2PPeer::new(ipaddr, port)]);
+        let msg = NetworkResponse::PeerList(self_peer,
+                                            vec![P2PPeer::new(ConnectionType::Node, ipaddr, port)]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
@@ -1102,10 +1157,13 @@ mod tests {
 
     #[test]
     pub fn resp_peerlist_v6_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let port: u16 = 9999;
         let ipaddr = IpAddr::from_str("ff80::dead:beaf").unwrap();
-        let msg = NetworkResponse::PeerList(self_peer, vec![P2PPeer::new(ipaddr, port)]);
+        let msg = NetworkResponse::PeerList(self_peer,
+                                            vec![P2PPeer::new(ConnectionType::Node, ipaddr, port)]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
@@ -1120,13 +1178,16 @@ mod tests {
 
     #[test]
     pub fn resp_peerslist_mixed_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let port: u16 = 9999;
         let ipaddr1 = IpAddr::from_str("ff80::dead:beaf").unwrap();
         let ipaddr2 = IpAddr::from_str("8.8.8.8").unwrap();
-        let msg = NetworkResponse::PeerList(self_peer,
-                                            vec![P2PPeer::new(ipaddr1, port),
-                                                 P2PPeer::new(ipaddr2, port)]);
+        let msg =
+            NetworkResponse::PeerList(self_peer,
+                                      vec![P2PPeer::new(ConnectionType::Node, ipaddr1, port),
+                                           P2PPeer::new(ConnectionType::Node, ipaddr2, port)]);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
         assert!(match deserialized {
@@ -1141,7 +1202,7 @@ mod tests {
     pub fn direct_message_test() {
         let ipaddr = IpAddr::from_str("10.10.10.10").unwrap();
         let port = 9999;
-        let self_peer: P2PPeer = P2PPeer::new(ipaddr, port);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node, ipaddr, port);
         let text_msg = String::from("Hello world!");
         let msg = NetworkPacket::DirectMessage(self_peer,
                                                P2PNodeId::from_ip_port(ipaddr, port),
@@ -1161,7 +1222,9 @@ mod tests {
 
     #[test]
     pub fn broadcasted_message_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let text_msg = String::from("Hello  broadcasted world!");
         let msg = NetworkPacket::BroadcastedMessage(self_peer, 100, text_msg.as_bytes().to_vec());
         let serialized = msg.serialize();
@@ -1180,9 +1243,14 @@ mod tests {
 
     #[test]
     pub fn req_bannode_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
-        let peer = P2PPeer::from(node_id, IpAddr::from_str("8.8.8.8").unwrap(), 9999);
+        let peer = P2PPeer::from(ConnectionType::Node,
+                                 node_id,
+                                 IpAddr::from_str("8.8.8.8").unwrap(),
+                                 9999);
         let msg = NetworkRequest::BanNode(self_peer, peer.clone());
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -1196,9 +1264,14 @@ mod tests {
 
     #[test]
     pub fn req_unbannode_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let node_id = P2PNodeId::from_ipstring("8.8.8.8:9999".to_string());
-        let peer = P2PPeer::from(node_id, IpAddr::from_str("8.8.8.8").unwrap(), 9999);
+        let peer = P2PPeer::from(ConnectionType::Node,
+                                 node_id,
+                                 IpAddr::from_str("8.8.8.8").unwrap(),
+                                 9999);
         let msg = NetworkRequest::UnbanNode(self_peer, peer.clone());
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -1212,7 +1285,9 @@ mod tests {
 
     #[test]
     pub fn req_joinnetwork_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let msg = NetworkRequest::JoinNetwork(self_peer, 100);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);
@@ -1226,7 +1301,9 @@ mod tests {
 
     #[test]
     pub fn req_leavenetwork_test() {
-        let self_peer: P2PPeer = P2PPeer::new(IpAddr::from_str("10.10.10.10").unwrap(), 9999);
+        let self_peer: P2PPeer = P2PPeer::new(ConnectionType::Node,
+                                              IpAddr::from_str("10.10.10.10").unwrap(),
+                                              9999);
         let msg = NetworkRequest::LeaveNetwork(self_peer, 100);
         let serialized = msg.serialize();
         let deserialized = NetworkMessage::deserialize(&serialized[..]);

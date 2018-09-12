@@ -8,7 +8,7 @@ extern crate env_logger;
 
 #[cfg(test)]
 mod tests {
-    use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest};
+    use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};
     use p2p_client::p2p::*;
     use std::sync::mpsc;
     use std::{thread, time};

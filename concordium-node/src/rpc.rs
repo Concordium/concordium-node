@@ -1,11 +1,11 @@
-use common::{NetworkMessage, NetworkPacket, P2PNodeId, P2PPeer};
+use common::{ConnectionType, NetworkMessage, NetworkPacket, P2PNodeId, P2PPeer};
 use db::P2PDB;
 use errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
 use errors::*;
 use futures::future::Future;
 use grpcio;
 use grpcio::{Environment, ServerBuilder};
-use p2p::{ConnectionType, P2PNode};
+use p2p::P2PNode;
 use proto::*;
 use std::boxed::Box;
 use std::cell::RefCell;
@@ -423,7 +423,8 @@ impl P2P for RpcServerImpl {
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {
                     let mut node = self.node.borrow_mut();
-                    let peer = P2PPeer::from(node_id.unwrap(), ip.unwrap(), port);
+                    let peer =
+                        P2PPeer::from(ConnectionType::Node, node_id.unwrap(), ip.unwrap(), port);
                     if node.ban_node(peer.clone()).is_ok() {
                         let db_done = if let Some(ref db) = self.db {
                             db.insert_ban(peer.id().to_string(),
@@ -466,7 +467,8 @@ impl P2P for RpcServerImpl {
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {
                     let mut node = self.node.borrow_mut();
-                    let peer = P2PPeer::from(node_id.unwrap(), ip.unwrap(), port);
+                    let peer =
+                        P2PPeer::from(ConnectionType::Node, node_id.unwrap(), ip.unwrap(), port);
                     if node.unban_node(peer.clone()).is_ok() {
                         let db_done = if let Some(ref db) = self.db {
                             db.delete_ban(peer.id().to_string(),

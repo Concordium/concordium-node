@@ -3,7 +3,10 @@ use atomic_counter::RelaxedCounter;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, BytesMut};
 use common;
-use common::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, P2PNodeId, P2PPeer};
+use common::{
+    ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, P2PNodeId,
+    P2PPeer,
+};
 use errors::*;
 use get_if_addrs;
 use mio::net::TcpListener;
@@ -68,12 +71,6 @@ pub enum P2PEvent {
     InitiatingConnection(IpAddr, u16),
     JoinedNetwork(P2PPeer, u16),
     LeftNetwork(P2PPeer, u16),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ConnectionType {
-    Node,
-    Bootstrapper,
 }
 
 struct Buckets {
@@ -176,7 +173,9 @@ impl Buckets {
             Some(sender_peer_id) => {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
-                        if sender_peer_id != &peer.id() {
+                        if sender_peer_id != &peer.id()
+                           && peer.connection_type() == ConnectionType::Node
+                        {
                             ret.push(peer.clone());
                         }
                     }
@@ -185,7 +184,9 @@ impl Buckets {
             None => {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
-                        ret.push(peer.clone());
+                        if peer.connection_type() == ConnectionType::Node {
+                            ret.push(peer.clone());
+                        }
                     }
                 }
             }
@@ -1216,7 +1217,11 @@ impl Connection {
                         self.update_last_seen();
                         self.add_networks(nets);
                         self.peer = Some(peer.clone());
-                        buckets.insert_into_bucket(peer, &self.own_id);
+                        let bucket_sender = P2PPeer::from(self.connection_type,
+                                                          peer.id().clone(),
+                                                          peer.ip().clone(),
+                                                          peer.port());
+                        buckets.insert_into_bucket(&bucket_sender, &self.own_id);
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock()
                                 .unwrap()
@@ -1608,7 +1613,10 @@ impl P2PNode {
             listen_port
         };
 
-        let self_peer = P2PPeer::from(_id.clone(), own_peer_ip, own_peer_port);
+        let self_peer = P2PPeer::from(ConnectionType::Node,
+                                      _id.clone(),
+                                      own_peer_ip,
+                                      own_peer_port);
 
         let tlsserv = TlsServer::new(server,
                                      Arc::new(server_conf),
@@ -2030,7 +2038,8 @@ impl P2PNode {
     }
 
     fn get_self_peer(&self) -> P2PPeer {
-        P2PPeer::from(self.get_own_id().clone(),
+        P2PPeer::from(ConnectionType::Node,
+                      self.get_own_id().clone(),
                       self.get_listening_ip().clone(),
                       self.get_listening_port())
     }
