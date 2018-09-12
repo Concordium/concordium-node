@@ -728,6 +728,10 @@ impl Connection {
         self.self_peer.clone()
     }
 
+    fn get_peer(&self) -> Option<P2PPeer> {
+        self.peer.clone()
+    }
+
     fn get_messages_received(&self) -> u64 {
         self.messages_received
     }
@@ -1018,7 +1022,7 @@ impl Connection {
                                buckets: &mut Buckets,
                                buf: &[u8],
                                packet_queue: &mpsc::Sender<Arc<Box<NetworkMessage>>>) {
-        let outer = Arc::new(box NetworkMessage::deserialize(&buf));
+        let outer = Arc::new(box NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf));
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
@@ -1326,7 +1330,7 @@ impl Connection {
         if !self.pkt_validated() {
             let buff = if let Some(ref bytebuf) = self.pkt_buffer {
                 if bytebuf.len() >= 132 {
-                    Some(bytebuf[24..].to_vec())
+                    Some(bytebuf[24..28].to_vec())
                 } else {
                     None
                 }
@@ -1335,29 +1339,20 @@ impl Connection {
             };
             match buff {
                 Some(ref bufdata) => {
-                    match P2PPeer::deserialize(&String::from_utf8(bufdata.clone().to_vec()).unwrap()) {
-                        Some(ref sender) => {
-                            let sender_len = sender.serialize().len();
-                            if self.mode == P2PNodeMode::BootstrapperMode
-                               || self.mode == P2PNodeMode::BootstrapperPrivateMode
-                            {
-                                let msg_num = String::from_utf8(bufdata[(24 + sender_len)..(24 + sender_len + 4)].to_vec()).unwrap();
-                                if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
-                                   || msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
-                                {
-                                    info!("Received network packet message, not wanted - disconnecting peer");
-                                    &self.clear_buffer();
-                                    &self.close(poll);
-                                }
-                            } else {
-                                self.set_valid();
-                                self.set_validated();
-                            }
+                    if self.mode == P2PNodeMode::BootstrapperMode
+                       || self.mode == P2PNodeMode::BootstrapperPrivateMode
+                    {
+                        let msg_num = String::from_utf8(bufdata.to_vec()).unwrap();
+                        if msg_num == common::PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
+                           || msg_num == common::PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
+                        {
+                            info!("Received network packet message, not wanted - disconnecting peer");
+                            &self.clear_buffer();
+                            &self.close(poll);
                         }
-                        _ => {
-                            self.failed_pkts_inc();
-                            self.set_validated();
-                        }
+                    } else {
+                        self.set_valid();
+                        self.set_validated();
                     }
                 }
                 _ => {}
