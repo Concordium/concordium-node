@@ -23,8 +23,12 @@ use std::str;
 use std::str::FromStr;
 
 pub fn sha256(input: &str) -> [u8; 32] {
+    sha256_bytes(input.as_bytes())
+}
+
+pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
     let mut output = [0; 32];
-    sha2::Sha256::hash(&mut output, input.as_bytes());
+    sha2::Sha256::hash(&mut output, input);
     output
 }
 

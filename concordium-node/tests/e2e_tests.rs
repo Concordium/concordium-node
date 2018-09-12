@@ -121,6 +121,7 @@ mod tests {
                     box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
                                                                                    _,
                                                                                    _,
+                                                                                   _,
                                                                                    ref recv_msg),
                                                       _,
                                                       _) => {
@@ -242,7 +243,11 @@ mod tests {
         match pkt_out_1.try_recv() {
             Ok(ref outer) => {
                 match *outer.clone() {
-                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, _, _),
+                    box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
+                                                                                   _,
+                                                                                   _,
+                                                                                   _,
+                                                                                   _),
                                                       _,
                                                       _) => {
                         panic!("Got a message, this shouldn't happen!");
@@ -331,7 +336,7 @@ mod tests {
                                          loop {
                                              if let Ok(ref outer_msg) = pkt_out_2.recv() {
                                                  match *outer_msg.clone() {
-                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
+                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,_,  ref nid, ref msg), _, _) => {
                                                      _2_node.send_message(None, *nid, &msg, true).map_err(|e| panic!(e)).ok();
                                                  }
                                                  _ => {}
@@ -377,6 +382,7 @@ mod tests {
             Ok(ref mut outer_msg) => {
                 match *outer_msg.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        _,
                                                                                         _,
                                                                                         ref recv_msg),
                                                       _,
@@ -469,7 +475,7 @@ mod tests {
                                          loop {
                                              if let Ok(ref outer_msg) = pkt_out_2.recv() {
                                                  match *outer_msg.clone() {
-                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
+                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, _, ref nid, ref msg), _, _) => {
                                                      _2_node.send_message(None, *nid, &msg, true).map_err(|e| panic!(e)).ok();
                                                  }
                                                  _ => {}
@@ -515,6 +521,7 @@ mod tests {
             Ok(ref mut outer_msg) => {
                 match *outer_msg.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        _,
                                                                                         _,
                                                                                         _),
                                                       _,

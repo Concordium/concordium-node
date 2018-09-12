@@ -202,18 +202,18 @@ fn run() -> ResultExtWrapper<()> {
                                        loop {
                                            if let Ok(full_msg) = pkt_out.recv() {
                                                match *full_msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) => {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
-                                                   info!("DirectMessage/{} with size {} received", nid, msg.len());
+                                                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                                }
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
                                                    if !_no_trust_broadcasts {
-                                                       info!("BroadcastedMessage/{} with size {} received", nid, msg.len());
+                                                       info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                                        _node_self_clone.send_message(None, *nid, &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                                                    }
                                                }

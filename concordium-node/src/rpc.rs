@@ -373,6 +373,7 @@ impl P2P for RpcServerImpl {
             if let Some(ref mut receiver) = *self.subscription_queue_out.borrow_mut() {
                 match receiver.lock().unwrap().try_recv() {
                     Ok(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
+                                                                                      msgid,
                                                                                       _,
                                                                                       network_id,
                                                                                       msg),
@@ -384,9 +385,11 @@ impl P2P for RpcServerImpl {
                         r.set_sent_at(sent.unwrap());
                         r.set_received_at(received.unwrap());
                         r.set_network_id(network_id as u32);
+                        r.set_message_id(msgid);
                         r.set_sender(format!("{:064x}", sender.id().get_id()));
                     }
                     Ok(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
+                                                                                           msg_id,
                                                                                            network_id,
                                                                                            msg),
                                                          sent,
@@ -397,6 +400,7 @@ impl P2P for RpcServerImpl {
                         r.set_sent_at(sent.unwrap());
                         r.set_received_at(received.unwrap());
                         r.set_network_id(network_id as u32);
+                        r.set_message_id(msg_id);
                         r.set_sender(format!("{:064x}", sender.id().get_id()));
                     }
                     _ => r.set_message_none(MessageNone::new()),

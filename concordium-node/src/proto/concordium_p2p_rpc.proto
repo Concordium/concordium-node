@@ -60,6 +60,7 @@ message P2PNetworkMessage {
   uint64 sent_at = 2;
   string sender = 3;
   uint32 network_id = 4;
+  string message_id = 5;
   oneof payload {
     MessageDirect message_direct = 20;
     MessageBroadcast message_broadcast = 21;
