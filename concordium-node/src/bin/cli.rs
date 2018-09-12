@@ -30,7 +30,7 @@ quick_main!(run);
 
 fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_cli_config();
-    let app_prefs = configuration::AppPreferences::new();
+    let mut app_prefs = configuration::AppPreferences::new();
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone());
 
@@ -95,6 +95,12 @@ fn run() -> ResultExtWrapper<()> {
         None
     };
 
+    let node_id = if conf.id.is_some() {
+        conf.id.clone()
+    } else {
+        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
+    };
+
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard =
@@ -127,7 +133,7 @@ fn run() -> ResultExtWrapper<()> {
                                   }
                               }
                           });
-        P2PNode::new(conf.id,
+        P2PNode::new(node_id,
                      conf.listen_address,
                      conf.listen_port,
                      external_ip,
@@ -138,7 +144,7 @@ fn run() -> ResultExtWrapper<()> {
                      prometheus.clone(),
                      conf.network_ids)
     } else {
-        P2PNode::new(conf.id,
+        P2PNode::new(node_id,
                      conf.listen_address,
                      conf.listen_port,
                      external_ip,
@@ -162,6 +168,10 @@ fn run() -> ResultExtWrapper<()> {
             db.create_banlist();
         }
     };
+
+   if !app_prefs.set_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID, Some(node.get_own_id().to_string())) {
+       error!("Failed to persist own node id");
+   }
 
     let mut rpc_serv: Option<RpcServerImpl> = None;
     if !conf.no_rpc_server {
