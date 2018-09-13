@@ -283,18 +283,22 @@ impl P2P for RpcServerImpl {
                   req: Empty,
                   sink: ::grpcio::UnarySink<PeerStatsResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
-            let data: Vec<_> = self.node
-                                   .borrow_mut()
-                                   .get_peer_stats()
-                                   .iter()
-                                   .map(|x| {
-                                            let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                                            peer_resp.set_node_id(x.id.clone());
-                                            peer_resp.set_packets_sent(x.sent);
-                                            peer_resp.set_packets_received(x.received);
-                                            peer_resp
-                                        })
-                                   .collect();
+            let data: Vec<_> =
+                self.node
+                    .borrow_mut()
+                    .get_peer_stats()
+                    .iter()
+                    .map(|x| {
+                             let mut peer_resp = PeerStatsResponse_PeerStats::new();
+                             peer_resp.set_node_id(x.id.clone());
+                             peer_resp.set_packets_sent(x.sent);
+                             peer_resp.set_packets_received(x.received);
+                             if x.measured_latency().is_some() {
+                                 peer_resp.set_measured_latency(x.measured_latency().unwrap());
+                             }
+                             peer_resp
+                         })
+                    .collect();
             let mut resp = PeerStatsResponse::new();
             resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
             let f = sink.success(resp)

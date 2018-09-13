@@ -241,11 +241,19 @@ pub struct PeerStatistic {
     pub id: String,
     pub sent: u64,
     pub received: u64,
+    pub measured_latency: Option<u64>,
 }
 
 impl PeerStatistic {
-    pub fn new(id: String, sent: u64, received: u64) -> PeerStatistic {
-        PeerStatistic { id, sent, received }
+    pub fn new(id: String,
+               sent: u64,
+               received: u64,
+               measured_latency: Option<u64>)
+               -> PeerStatistic {
+        PeerStatistic { id,
+                        sent,
+                        received,
+                        measured_latency, }
     }
 
     pub fn id(&self) -> String {
@@ -258,6 +266,10 @@ impl PeerStatistic {
 
     pub fn received(&self) -> u64 {
         self.received
+    }
+
+    pub fn measured_latency(&self) -> Option<u64> {
+        self.measured_latency.clone()
     }
 }
 
@@ -388,7 +400,8 @@ impl TlsServer {
                 Some(ref x) => {
                     ret.push(PeerStatistic::new(x.id().to_string(),
                                                 conn.get_messages_sent(),
-                                                conn.get_messages_received()));
+                                                conn.get_messages_received(),
+                                                conn.get_last_latency_measured()));
                 }
                 None => {}
             }
@@ -511,6 +524,7 @@ impl TlsServer {
                                                                    .unwrap()
                                                                    .clone(),
                                                                vec![]).serialize())?;
+                    conn.set_measured_handshake_sent();
                 }
                 Ok(())
             }
@@ -630,10 +644,14 @@ impl TlsServer {
 
     fn liveness_check(&mut self) -> ResultExtWrapper<()> {
         for conn in self.connections.values_mut() {
-            if conn.last_seen + 300000 < common::get_current_stamp() {
+            if conn.last_seen + 120000 < common::get_current_stamp()
+               || conn.get_last_ping_sent() + 300000 < common::get_current_stamp()
+            {
                 let self_peer = conn.get_self_peer().clone();
                 serialize_bytes(conn, &NetworkRequest::Ping(self_peer).serialize()).map_err(|e| error!("{}", e))
                                                                                    .ok();
+                conn.set_measured_ping_sent();
+                conn.set_last_ping_sent();
             }
         }
         Ok(())
@@ -669,6 +687,10 @@ struct Connection {
     event_log: Option<Sender<P2PEvent>>,
     own_networks: Arc<Mutex<Vec<u16>>>,
     seen_messages: SeenMessagesList,
+    sent_ping: Option<u64>,
+    sent_handshake: Option<u64>,
+    last_ping_sent: u64,
+    last_latency_measured: Option<u64>,
 }
 
 impl Connection {
@@ -715,7 +737,43 @@ impl Connection {
                      networks: vec![],
                      event_log: event_log,
                      own_networks: own_networks,
-                     seen_messages: seen_messages, }
+                     seen_messages: seen_messages,
+                     sent_ping: None,
+                     sent_handshake: None,
+                     last_latency_measured: None,
+                     last_ping_sent: 0, }
+    }
+
+    fn get_last_latency_measured(&self) -> Option<u64> {
+        self.last_latency_measured.clone()
+    }
+
+    fn set_measured_ping(&mut self) {
+        if self.sent_ping.is_some() {
+            self.last_latency_measured =
+                Some(common::get_current_stamp() - self.sent_ping.unwrap());
+            self.sent_ping = None;
+        }
+    }
+
+    fn set_measured_handshake(&mut self) {
+        if self.sent_handshake.is_some() {
+            self.last_latency_measured =
+                Some(common::get_current_stamp() - self.sent_handshake.unwrap());
+            self.sent_handshake = None;
+        }
+    }
+
+    fn set_measured_ping_sent(&mut self) {
+        if self.sent_ping.is_none() {
+            self.sent_ping = Some(common::get_current_stamp())
+        }
+    }
+
+    fn set_measured_handshake_sent(&mut self) {
+        if self.sent_handshake.is_none() {
+            self.sent_handshake = Some(common::get_current_stamp())
+        }
     }
 
     fn log_event(&mut self, event: P2PEvent) {
@@ -728,6 +786,14 @@ impl Connection {
             }
             _ => {}
         }
+    }
+
+    pub fn get_last_ping_sent(&self) -> u64 {
+        self.last_ping_sent
+    }
+
+    pub fn set_last_ping_sent(&mut self) {
+        self.last_ping_sent = common::get_current_stamp();
     }
 
     pub fn ip(&self) -> IpAddr {
@@ -1139,6 +1205,10 @@ impl Connection {
                                         &NetworkResponse::Handshake(self_peer.clone(),
                                                                     my_nets,
                                                                     vec![]).serialize()).unwrap();
+                        serialize_bytes(self,
+                                        &NetworkRequest::Ping(self_peer.clone()).serialize()).unwrap();
+                        TOTAL_MESSAGES_SENT_COUNTER.add(2);
+                        self.set_measured_ping_sent();
                         self.add_networks(nets);
                         self.peer = Some(sender.clone());
                         if self.mode == P2PNodeMode::BootstrapperPrivateMode
@@ -1152,11 +1222,9 @@ impl Connection {
                             buckets.insert_into_bucket(sender, &self.own_id);
                         }
                         if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock()
-                                .unwrap()
-                                .peers_inc()
-                                .map_err(|e| error!("{}", e))
-                                .ok();
+                            let mut _prom = prom.lock().unwrap();
+                            _prom.peers_inc().map_err(|e| error!("{}", e)).ok();
+                            _prom.pkt_sent_inc_by(2).map_err(|e| error!("{}", e)).ok();
                         };
                         if self.mode == P2PNodeMode::BootstrapperMode
                            || self.mode == P2PNodeMode::BootstrapperPrivateMode
@@ -1233,6 +1301,7 @@ impl Connection {
                     }
                     NetworkResponse::Pong(sender) => {
                         debug!("Got response for ping");
+                        self.set_measured_ping();
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
                         {
@@ -1260,6 +1329,7 @@ impl Connection {
                     }
                     NetworkResponse::Handshake(peer, nets, _) => {
                         debug!("Got response to Handshake");
+                        self.set_measured_handshake();
                         self.update_last_seen();
                         self.add_networks(nets);
                         self.peer = Some(peer.clone());

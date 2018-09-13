@@ -34,6 +34,7 @@ message PeerStatsResponse {
     string node_id = 1; 
     uint64 packets_sent = 2; 
     uint64 packets_received = 3;
+    uint64 measured_latency  = 4;
   }
   repeated PeerStats peerstats = 1;
 }
