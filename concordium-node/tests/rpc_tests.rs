@@ -43,11 +43,15 @@ mod tests {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -70,9 +74,9 @@ mod tests {
                                            loop {
                                                if let Ok(ref outer_msg) = pkt_out.recv() {
                                                    match *outer_msg.clone() {
-                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) => info!("DirectMessage/{} with {:?} received", nid, msg),
-                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
-                                                       info!("BroadcastedMessage/{} with {:?} received", nid, msg);
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => info!("DirectMessage/{}/{} with {:?} received", nid, msgid, msg),
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msgid, ref nid, ref msg), _, _) => {
+                                                       info!("BroadcastedMessage/{}/{} with {:?} received", nid, msgid, msg);
                                                        _node_self_clone.send_message(None, *nid, &msg, true).map_err(|e| panic!(e)).ok();
                                                    }
                                                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
@@ -134,11 +138,15 @@ mod tests {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -161,9 +169,9 @@ mod tests {
                                            loop {
                                                if let Ok(ref outer_msg) = pkt_out.recv() {
                                                    match *outer_msg.clone() {
-                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) => info!("DirectMessage/{} with {:?} received", nid, msg),
-                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref nid, ref msg), _, _) => {
-                                                       info!("BroadcastedMessage/{} with {:?} received", nid, msg);
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => info!("DirectMessage/{}/{} with {:?} received", nid, msgid, msg),
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msgid, ref nid, ref msg), _, _) => {
+                                                       info!("BroadcastedMessage/{}/{} with {:?} received", nid, msgid, msg);
                                                        _node_self_clone.send_message(None, *nid, &msg, true).map_err(|e| panic!(e)).ok();
                                                    }
                                                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),

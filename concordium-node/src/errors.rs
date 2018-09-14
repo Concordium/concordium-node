@@ -34,6 +34,10 @@ error_chain! {
             description("dns error occured")
             display("dns error occured '{}'", t)
         }
+        UnreachablePeerError(t: String) {
+            description("unreacheable peer error")
+            display("unreachable peer error '{}'", t)
+        }
     }
     foreign_links {
         RustlsInternalError(TLSError);

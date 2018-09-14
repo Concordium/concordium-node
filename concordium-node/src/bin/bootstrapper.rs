@@ -101,11 +101,15 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }

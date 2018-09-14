@@ -7,7 +7,8 @@ use structopt::StructOpt;
 const APP_INFO: AppInfo = AppInfo { name: "ConcordiumP2P",
                                     author: "Concordium", };
 const APP_PREFERENCES_MAIN: &str = "main/config";
-const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
+pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
+pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
@@ -22,9 +23,7 @@ pub struct CliConfig {
                 help = "IP discovery service host",
                 default_value = "ipdiscovery.p2p.concordium.com")]
     pub ip_discovery_service_host: String,
-    #[structopt(long = "no-network",
-                short = "nonet",
-                help = "Disable network")]
+    #[structopt(long = "no-network", help = "Disable network")]
     pub no_network: bool,
     #[structopt(long = "connect-to",
                 short = "c",
@@ -109,8 +108,11 @@ pub struct CliConfig {
     pub no_boostrap_dns: bool,
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
-    #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
-    pub network_ids: Vec<u8>,
+    #[structopt(long = "network-id",
+                short = "n",
+                help = "Enable network id",
+                default_value = "1000")]
+    pub network_ids: Vec<u16>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -179,8 +181,11 @@ pub struct BootstrapperConfig {
     pub prometheus_push_password: Option<String>,
     #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
     pub private_node: bool,
-    #[structopt(long = "network-id", short = "n", help = "Enable network id", default_value  = "1000")]
-    pub network_ids: Vec<u8>,
+    #[structopt(long = "network-id",
+                short = "n",
+                help = "Enable network id",
+                default_value = "1000")]
+    pub network_ids: Vec<u16>,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {
@@ -245,6 +250,7 @@ pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
     IpDiscoveryConfig::from_args()
 }
 
+#[derive(Clone, Debug)]
 pub struct AppPreferences {
     preferences_map: Arc<Mutex<PreferencesMap<String>>>,
 }
@@ -277,14 +283,14 @@ impl AppPreferences {
         }
     }
 
-    pub fn set_config(&mut self, key: String, value: Option<String>) -> bool {
+    pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
         if let Ok(ref mut store) = self.preferences_map.try_lock() {
             match value {
                 Some(val) => {
-                    store.insert(key, val);
+                    store.insert(key.to_string(), val);
                 }
                 _ => {
-                    store.remove(&key);
+                    store.remove(&key.to_string());
                 }
             }
             store.save(&APP_INFO, APP_PREFERENCES_MAIN).is_ok()
@@ -293,8 +299,8 @@ impl AppPreferences {
         }
     }
 
-    pub fn get_config(&self, key: String) -> Option<String> {
-        match self.preferences_map.lock().unwrap().get(&key) {
+    pub fn get_config(&self, key: &str) -> Option<String> {
+        match self.preferences_map.lock().unwrap().get(&key.to_string()) {
             Some(res) => Some(res.clone()),
             _ => None,
         }

@@ -68,7 +68,8 @@ impl PrometheusServer {
             registry.register(Box::new(upr.clone())).unwrap();
         }
 
-        let inpr_opts = Opts::new("invalid_network_packets_received", "invalid network packets received");
+        let inpr_opts = Opts::new("invalid_network_packets_received",
+                                  "invalid network packets received");
         let inpr = IntCounter::with_opts(inpr_opts).unwrap();
         if mode == PrometheusMode::NodeMode {
             registry.register(Box::new(inpr.clone())).unwrap();
@@ -81,9 +82,9 @@ impl PrometheusServer {
                            peers_gauge: pg.clone(),
                            connections_received: cr.clone(),
                            unique_ips_seen: uis.clone(),
-                           invalid_packets_received: ipr.clone(), 
+                           invalid_packets_received: ipr.clone(),
                            unknown_packets_received: upr.clone(),
-                           invalid_network_packets_received: inpr.clone(),}
+                           invalid_network_packets_received: inpr.clone(), }
     }
 
     pub fn peers_inc(&mut self) -> ResultExtWrapper<()> {

@@ -1,5 +1,5 @@
 use common;
-use common::P2PNodeId;
+use common::{ConnectionType, P2PNodeId};
 use rusqlite::Connection;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,8 @@ impl P2PPeer {
     }
 
     pub fn to_peer(self) -> common::P2PPeer {
-        common::P2PPeer::from(P2PNodeId::from_string(&self.id).unwrap(),
+        common::P2PPeer::from(ConnectionType::Node,
+                              P2PNodeId::from_string(&self.id).unwrap(),
                               self.ip.parse().unwrap(),
                               self.port)
     }

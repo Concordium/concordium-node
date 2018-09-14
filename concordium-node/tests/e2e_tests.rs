@@ -8,7 +8,7 @@ extern crate env_logger;
 
 #[cfg(test)]
 mod tests {
-    use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest};
+    use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};
     use p2p_client::p2p::*;
     use std::sync::mpsc;
     use std::{thread, time};
@@ -40,11 +40,15 @@ mod tests {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -53,7 +57,7 @@ mod tests {
 
         let mut node_1 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8888+test_port_added,
+                                      8888 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_1,
@@ -66,7 +70,7 @@ mod tests {
 
         let mut node_2 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8889+test_port_added,
+                                      8889 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_2,
@@ -79,11 +83,17 @@ mod tests {
 
         let msg = String::from("Hello other brother!");
 
-        node_2.connect("127.0.0.1".parse().unwrap(), 8888+test_port_added).unwrap();
+        node_2.connect(ConnectionType::Node,
+                       "127.0.0.1".parse().unwrap(),
+                       8888 + test_port_added)
+              .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
 
-        node_2.send_message(Some(node_1.get_own_id()), 100, &msg.as_bytes().to_vec(), false)
+        node_2.send_message(Some(node_1.get_own_id()),
+                            100,
+                            &msg.as_bytes().to_vec(),
+                            false)
               .map_err(|e| panic!(e))
               .ok();
 
@@ -92,7 +102,9 @@ mod tests {
         match pkt_out_1.try_recv() {
             Ok(ref x) => {
                 match *x.clone() {
-                    box NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_,_,_), _, _) => {}
+                    box NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _, _),
+                                                       _,
+                                                       _) => {}
                     _ => panic!("Didn't get handshake"),
                 }
             }
@@ -107,6 +119,7 @@ mod tests {
             Ok(ref outer) => {
                 match *outer.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
+                                                                                   _,
                                                                                    _,
                                                                                    _,
                                                                                    ref recv_msg),
@@ -152,11 +165,15 @@ mod tests {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -165,7 +182,7 @@ mod tests {
 
         let mut node_1 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8888+test_port_added,
+                                      8888 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_1,
@@ -178,7 +195,7 @@ mod tests {
 
         let mut node_2 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8889+test_port_added,
+                                      8889 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_2,
@@ -191,11 +208,17 @@ mod tests {
 
         let msg = String::from("Hello other brother!");
 
-        node_2.connect("127.0.0.1".parse().unwrap(), 8888+test_port_added).unwrap();
+        node_2.connect(ConnectionType::Node,
+                       "127.0.0.1".parse().unwrap(),
+                       8888 + test_port_added)
+              .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
 
-        node_2.send_message(Some(node_1.get_own_id()), 100, &msg.as_bytes().to_vec(), false)
+        node_2.send_message(Some(node_1.get_own_id()),
+                            100,
+                            &msg.as_bytes().to_vec(),
+                            false)
               .map_err(|e| panic!(e))
               .ok();
 
@@ -204,7 +227,9 @@ mod tests {
         match pkt_out_1.try_recv() {
             Ok(ref x) => {
                 match *x.clone() {
-                    box NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_,_,_), _, _) => {}
+                    box NetworkMessage::NetworkRequest(NetworkRequest::Handshake(_, _, _),
+                                                       _,
+                                                       _) => {}
                     _ => panic!("Didn't get handshake"),
                 }
             }
@@ -219,6 +244,7 @@ mod tests {
             Ok(ref outer) => {
                 match *outer.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
+                                                                                   _,
                                                                                    _,
                                                                                    _,
                                                                                    _),
@@ -263,11 +289,15 @@ mod tests {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -276,7 +306,7 @@ mod tests {
 
         let mut node_1 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8888+test_port_added,
+                                      8888 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_1,
@@ -289,7 +319,7 @@ mod tests {
 
         let mut node_2 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8889+test_port_added,
+                                      8889 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_2,
@@ -306,7 +336,7 @@ mod tests {
                                          loop {
                                              if let Ok(ref outer_msg) = pkt_out_2.recv() {
                                                  match *outer_msg.clone() {
-                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
+                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,_,  ref nid, ref msg), _, _) => {
                                                      _2_node.send_message(None, *nid, &msg, true).map_err(|e| panic!(e)).ok();
                                                  }
                                                  _ => {}
@@ -317,7 +347,7 @@ mod tests {
 
         let mut node_3 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8890+test_port_added,
+                                      8890 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_3,
@@ -330,9 +360,15 @@ mod tests {
 
         let msg = String::from("Hello other brother!");
 
-        node_2.connect("127.0.0.1".parse().unwrap(), 8888+test_port_added).unwrap();
+        node_2.connect(ConnectionType::Node,
+                       "127.0.0.1".parse().unwrap(),
+                       8888 + test_port_added)
+              .unwrap();
 
-        node_3.connect("127.0.0.1".parse().unwrap(), 8889+test_port_added).unwrap();
+        node_3.connect(ConnectionType::Node,
+                       "127.0.0.1".parse().unwrap(),
+                       8889 + test_port_added)
+              .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
 
@@ -346,6 +382,7 @@ mod tests {
             Ok(ref mut outer_msg) => {
                 match *outer_msg.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        _,
                                                                                         _,
                                                                                         ref recv_msg),
                                                       _,
@@ -391,11 +428,15 @@ mod tests {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -404,7 +445,7 @@ mod tests {
 
         let mut node_1 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8888+test_port_added,
+                                      8888 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_1,
@@ -417,7 +458,7 @@ mod tests {
 
         let mut node_2 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8889+test_port_added,
+                                      8889 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_2,
@@ -434,7 +475,7 @@ mod tests {
                                          loop {
                                              if let Ok(ref outer_msg) = pkt_out_2.recv() {
                                                  match *outer_msg.clone() {
-                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) => {
+                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, _, ref nid, ref msg), _, _) => {
                                                      _2_node.send_message(None, *nid, &msg, true).map_err(|e| panic!(e)).ok();
                                                  }
                                                  _ => {}
@@ -445,7 +486,7 @@ mod tests {
 
         let mut node_3 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
-                                      8890+test_port_added,
+                                      8890 + test_port_added,
                                       None,
                                       None,
                                       pkt_in_3,
@@ -458,9 +499,15 @@ mod tests {
 
         let msg = String::from("Hello other brother!");
 
-        node_2.connect("127.0.0.1".parse().unwrap(), 8888+test_port_added).unwrap();
+        node_2.connect(ConnectionType::Node,
+                       "127.0.0.1".parse().unwrap(),
+                       8888 + test_port_added)
+              .unwrap();
 
-        node_3.connect("127.0.0.1".parse().unwrap(), 8889+test_port_added).unwrap();
+        node_3.connect(ConnectionType::Node,
+                       "127.0.0.1".parse().unwrap(),
+                       8889 + test_port_added)
+              .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
 
@@ -474,6 +521,7 @@ mod tests {
             Ok(ref mut outer_msg) => {
                 match *outer_msg.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
+                                                                                        _,
                                                                                         _,
                                                                                         _),
                                                       _,

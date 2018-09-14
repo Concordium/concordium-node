@@ -7,10 +7,14 @@ extern crate mio;
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
+extern crate chrono;
 extern crate env_logger;
+extern crate timer;
 
 use env_logger::Env;
-use p2p_client::common::{NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeId};
+use p2p_client::common::{
+    ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeId,
+};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
@@ -20,6 +24,7 @@ use p2p_client::utils;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
+use timer::Timer;
 
 quick_main!(run);
 
@@ -75,16 +80,12 @@ fn run() -> ResultExtWrapper<()> {
 
     let _guard_pkt = thread::spawn(move || {
                                        loop {
-                                           if let Ok(ref msg) = pkt_out.recv() {
-                                               match *msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, _, ref nid, ref msg), _, _) =>
-                                                 info!("DirectMessage/{} with {:?} received", nid, msg),
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref nid, ref msg), _, _) =>
-                                                 info!("BroadcastedMessage/{} with {:?} received", nid, msg),
-                                               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) =>
-                                                info!("Ban node request for {:?}", x),
-                                               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) =>
-                                                 info!("Unban node requets for {:?}", x),
+                                           if let Ok(ref outer_msg) = pkt_out.recv() {
+                                               match *outer_msg.clone() {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => info!("DirectMessage/{}/{} with {:?} received", nid, msgid, msg),
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msgid, ref nid, ref msg), _, _) => info!("BroadcastedMessage/{}/{} with {:?} received", nid, msgid, msg),
+                                               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
+                                               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
                                                _ => {}
                                            }
                                            }
@@ -126,11 +127,15 @@ fn run() -> ResultExtWrapper<()> {
                                           P2PEvent::InitiatingConnection(ip, port) => {
                                               info!("Initiating connection to {}:{}", ip, port)
                                           }
-                                          P2PEvent::JoinedNetwork(peer,network_id) => {
-                                              info!("Peer {} joined network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
-                                          P2PEvent::LeftNetwork(peer,network_id) => {
-                                              info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
                                           }
                                       }
                                   }
@@ -185,7 +190,9 @@ fn run() -> ResultExtWrapper<()> {
             match utils::parse_ip_port(&connect_to) {
                 Some((ip, port)) => {
                     info!("Connecting to peer {}", &connect_to);
-                    node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+                    node.connect(ConnectionType::Node, ip, port)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
                 }
                 None => error!("Can't parse IP to connect to '{}'", &connect_to),
             }
@@ -198,7 +205,9 @@ fn run() -> ResultExtWrapper<()> {
             Ok(nodes) => {
                 for (ip, port) in nodes {
                     info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                    node.connect(ip, port).map_err(|e| error!("{}", e)).ok();
+                    node.connect(ConnectionType::Bootstrapper, ip, port)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
                 }
             }
             Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
@@ -217,6 +226,57 @@ fn run() -> ResultExtWrapper<()> {
             db.create_banlist();
         }
     };
+
+    let timer = Timer::new();
+
+    let _desired_nodes_count = conf.desired_nodes;
+    let _no_net_clone = conf.no_network;
+    let _bootstrappers_conf = conf.bootstrap_server;
+    let mut _node_clone = node.clone();
+    let _guard_timer =
+        timer.schedule_repeating(chrono::Duration::seconds(30), move || {
+                 match _node_clone.get_nodes() {
+                     Ok(ref x) => {
+                         info!("I currently have {}/{} nodes!",
+                               x.len(),
+                               _desired_nodes_count);
+                         let mut count = 0;
+                         for i in x {
+                             info!("Peer {}: {}/{}:{}",
+                                   count,
+                                   i.id().to_string(),
+                                   i.ip().to_string(),
+                                   i.port());
+                             count += 1;
+                         }
+                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
+                             if x.len() == 0 {
+                                 info!("No nodes at all - retrying bootstrapping");
+                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone()) {
+                                     Ok(nodes) => {
+                                         for (ip, port) in nodes {
+                                             info!("Found bootstrap node IP: {} and port: {}",
+                                                   ip, port);
+                                             _node_clone.connect(ConnectionType::Bootstrapper,
+                                                                 ip,
+                                                                 port)
+                                                        .map_err(|e| error!("{}", e))
+                                                        .ok();
+                                         }
+                                     }
+                                     _ => error!("Can't find any bootstrap nodes - check DNS!"),
+                                 }
+                             } else {
+                                 info!("Not enough nodes, sending GetPeers requests");
+                                 _node_clone.send_get_peers()
+                                            .map_err(|e| error!("{}", e))
+                                            .ok();
+                             }
+                         }
+                     }
+                     Err(e) => error!("Couldn't get node list, {:?}", e),
+                 };
+             });
 
     let _app = thread::spawn(move || {
                                  loop {
