@@ -2,7 +2,7 @@
 
 ## Dependencies to build the project
 * Rust (nightly)
-* openssl
+* openssl >= 1.0.1 and <= 1.1.0i
 * cmake
 * go >=1.10
 * protobuf >= 3.5.1
