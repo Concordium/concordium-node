@@ -203,6 +203,7 @@ impl P2P for RpcServerImpl {
                                 .borrow_mut()
                                 .send_message(Some(id),
                                               req.get_network_id().get_value() as u16,
+                                              None,
                                               req.get_message().get_value(),
                                               false)
                                 .map_err(|e| error!("{}", e))
@@ -213,6 +214,7 @@ impl P2P for RpcServerImpl {
                                 .borrow_mut()
                                 .send_message(None,
                                               req.get_network_id().get_value() as u16,
+                                              None,
                                               req.get_message().get_value(),
                                               true)
                                 .map_err(|e| error!("{}", e))

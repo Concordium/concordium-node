@@ -237,6 +237,7 @@ impl Buckets {
     }
 }
 
+#[derive(Debug)]
 pub struct PeerStatistic {
     pub id: String,
     pub sent: u64,
@@ -741,7 +742,7 @@ impl Connection {
                      sent_ping: None,
                      sent_handshake: None,
                      last_latency_measured: None,
-                     last_ping_sent: 0, }
+                     last_ping_sent: common::get_current_stamp(), }
     }
 
     fn get_last_latency_measured(&self) -> Option<u64> {
@@ -1359,6 +1360,7 @@ impl Connection {
                                                  ref network_id,
                                                  ref msg) => {
                         if !self.seen_messages.contains(msgid) {
+                            self.seen_messages.append(&msgid);
                             if self.own_networks.lock().unwrap().contains(network_id) {
                                 if self.mode != P2PNodeMode::BootstrapperMode
                                    && self.mode != P2PNodeMode::BootstrapperPrivateMode
@@ -1367,7 +1369,9 @@ impl Connection {
                                 }
                                 debug!("Received direct message of size {}", msg.len());
                                 match packet_queue.send(outer.clone()) {
-                                    Ok(_) => {}
+                                    Ok(_) => {
+                                        self.seen_messages.append(&msgid);
+                                    }
                                     Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                                 };
                             } else {
@@ -1399,7 +1403,9 @@ impl Connection {
                                 }
                                 debug!("Received broadcast message of size {}", msg.len());
                                 match packet_queue.send(outer.clone()) {
-                                    Ok(_) => {}
+                                    Ok(_) => {
+                                        self.seen_messages.append(&msgid);
+                                    }
                                     Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                                 };
                             } else {
@@ -1858,6 +1864,14 @@ impl P2PNode {
                 let outer_pkt = send_q.pop_front();
                 match outer_pkt.clone() {
                     Some(ref x) => {
+                        if let Some(ref prom) = &self.prometheus_exporter {
+                            match prom.lock() {
+                                Ok(ref mut lock) => {
+                                    lock.queue_size_dec().map_err(|e| error!("{}", e)).ok();
+                                }
+                                _ => error!("Couldn't lock prometheus instance"),
+                            }
+                        };
                         trace!("Got message to process!");
                         match *x.clone() {
                             box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::DirectMessage(_,
@@ -1876,13 +1890,7 @@ impl P2PNode {
                                                         Ok(_) => {
                                                             self.seen_messages.append(&msgid);
                                                             TOTAL_MESSAGES_SENT_COUNTER.inc();
-                                                            if let Some(ref prom) = &self.prometheus_exporter {
-                                                                prom.lock()
-                                                                    .unwrap()
-                                                                    .pkt_sent_inc()
-                                                                    .map_err(|e| error!("{}", e))
-                                                                    .ok();
-                                                            };
+                                                            self.pks_sent_inc()?;
                                                             debug!("Sent message");
                                                         }
                                                         Err(e) => {
@@ -1915,13 +1923,7 @@ impl P2PNode {
                                                 match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                     Ok(_) => {
                                                         self.seen_messages.append(msgid);
-                                                        if let Some(ref prom) = &self.prometheus_exporter {
-                                                            prom.lock()
-                                                                .unwrap()
-                                                                .pkt_sent_inc()
-                                                                .map_err(|e| error!("{}", e))
-                                                                .ok();
-                                                        };
+                                                        self.pks_sent_inc()?;
                                                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                                                     }
                                                     Err(e) => {
@@ -1938,13 +1940,7 @@ impl P2PNode {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
-                                                if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock()
-                                                        .unwrap()
-                                                        .pkt_sent_inc()
-                                                        .map_err(|e| error!("{}", e))
-                                                        .ok();
-                                                };
+                                                self.pks_sent_inc()?;
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
@@ -1961,13 +1957,7 @@ impl P2PNode {
                                         if let Some(ref peer) = conn.peer.clone() {
                                             match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                 Ok(_) => {
-                                                    if let Some(ref prom) = &self.prometheus_exporter {
-                                                        prom.lock()
-                                                            .unwrap()
-                                                            .pkt_sent_inc()
-                                                            .map_err(|e| error!("{}", e))
-                                                            .ok();
-                                                    };
+                                                    self.pks_sent_inc()?;
                                                     TOTAL_MESSAGES_SENT_COUNTER.inc();
                                                 }
                                                 Err(e) => {
@@ -1988,13 +1978,7 @@ impl P2PNode {
                                         if let Some(ref peer) = conn.peer.clone() {
                                             match serialize_bytes(conn, &inner_pkt.serialize()) {
                                                 Ok(_) => {
-                                                    if let Some(ref prom) = &self.prometheus_exporter {
-                                                        prom.lock()
-                                                            .unwrap()
-                                                            .pkt_sent_inc()
-                                                            .map_err(|e| error!("{}", e))
-                                                            .ok();
-                                                    };
+                                                    self.pks_sent_inc()?;
                                                     TOTAL_MESSAGES_SENT_COUNTER.inc();
                                                 }
                                                 Err(e) => {
@@ -2015,13 +1999,7 @@ impl P2PNode {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
-                                                if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock()
-                                                        .unwrap()
-                                                        .pkt_sent_inc()
-                                                        .map_err(|e| error!("{}", e))
-                                                        .ok();
-                                                };
+                                                self.pks_sent_inc()?;
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
@@ -2036,13 +2014,7 @@ impl P2PNode {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
                                             Ok(_) => {
-                                                if let Some(ref prom) = &self.prometheus_exporter {
-                                                    prom.lock()
-                                                        .unwrap()
-                                                        .pkt_sent_inc()
-                                                        .map_err(|e| error!("{}", e))
-                                                        .ok();
-                                                };
+                                                self.pks_sent_inc()?;
                                                 TOTAL_MESSAGES_SENT_COUNTER.inc();
                                             }
                                             Err(e) => {
@@ -2056,6 +2028,16 @@ impl P2PNode {
                         }
                     }
                     _ => {
+                        if let Some(ref prom) = &self.prometheus_exporter {
+                            match prom.lock() {
+                                Ok(ref mut lock) => {
+                                    lock.queue_size_inc_by(resend_queue.len() as i64)
+                                        .map_err(|e| error!("{}", e))
+                                        .ok();
+                                }
+                                _ => error!("Couldn't lock prometheus instance"),
+                            }
+                        };
                         send_q.append(&mut resend_queue);
                         break;
                     }
@@ -2065,22 +2047,49 @@ impl P2PNode {
         Ok(())
     }
 
+    fn queue_size_inc(&self) -> ResultExtWrapper<()> {
+        if let Some(ref prom) = &self.prometheus_exporter {
+            match prom.lock() {
+                Ok(ref mut lock) => {
+                    lock.queue_size_inc().map_err(|e| error!("{}", e)).ok();
+                }
+                _ => error!("Couldn't lock prometheus instance"),
+            }
+        };
+        Ok(())
+    }
+
+    fn pks_sent_inc(&self) -> ResultExtWrapper<()> {
+        if let Some(ref prom) = &self.prometheus_exporter {
+            match prom.lock() {
+                Ok(ref mut lock) => {
+                    lock.pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                }
+                _ => error!("Couldn't lock prometheus instance"),
+            }
+        };
+        Ok(())
+    }
+
     pub fn send_message(&mut self,
                         id: Option<P2PNodeId>,
                         network_id: u16,
+                        msg_id: Option<String>,
                         msg: &[u8],
                         broadcast: bool)
                         -> ResultExtWrapper<()> {
         debug!("Queueing message!");
         match broadcast {
             true => {
-                self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), NetworkPacket::generate_message_id(), network_id,  msg.to_vec()), None, None)));
+                self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg_id.unwrap_or(NetworkPacket::generate_message_id()), network_id,  msg.to_vec()), None, None)));
+                self.queue_size_inc()?;
                 return Ok(());
             }
             false => {
                 match id {
                     Some(x) => {
-                        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), NetworkPacket::generate_message_id(), x, network_id, msg.to_vec()), None, None)));
+                        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), msg_id.unwrap_or(NetworkPacket::generate_message_id()), x, network_id, msg.to_vec()), None, None)));
+                        self.queue_size_inc()?;
                         return Ok(());
                     }
                     None => {
@@ -2097,6 +2106,7 @@ impl P2PNode {
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id),
                                                                None,
                                                                None)));
+        self.queue_size_inc()?;
         Ok(())
     }
 
@@ -2106,6 +2116,7 @@ impl P2PNode {
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(), id),
                                                                None,
                                                                None)));
+        self.queue_size_inc()?;
         Ok(())
     }
 
@@ -2115,6 +2126,7 @@ impl P2PNode {
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
                                                                None,
                                                                None)));
+        self.queue_size_inc()?;
         Ok(())
     }
 
@@ -2124,6 +2136,7 @@ impl P2PNode {
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),
                                                                None,
                                                                None)));
+        self.queue_size_inc()?;
         Ok(())
     }
 
@@ -2133,7 +2146,18 @@ impl P2PNode {
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()),
                                                                None,
                                                                None)));
+        self.queue_size_inc()?;
         Ok(())
+    }
+
+    pub fn peek_queue(&self) -> Vec<String> {
+        if let Ok(lock) = self.send_queue.lock() {
+            return lock
+                .iter()
+                .map(|x| format!("{:?}", x))
+                .collect::<Vec<String>>()
+        };
+        vec![]
     }
 
     pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {

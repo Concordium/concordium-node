@@ -281,7 +281,7 @@ fn run() -> ResultExtWrapper<()> {
     let _app = thread::spawn(move || {
                                  loop {
                                      info!("Sending one packet");
-                                     node.send_message(Some(P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap()), used_nid, &String::from("Hello world!").as_bytes().to_vec(), false).map_err(|e| error!("Error sending {}", e)).ok();
+                                     node.send_message(Some(P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap()), used_nid, None, &String::from("Hello world!").as_bytes().to_vec(), false).map_err(|e| error!("Error sending {}", e)).ok();
                                      info!("Sleeping for 1 second");
                                      thread::sleep(time::Duration::from_secs(1));
                                  }

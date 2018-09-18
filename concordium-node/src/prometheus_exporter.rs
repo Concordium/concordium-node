@@ -27,6 +27,7 @@ pub struct PrometheusServer {
     invalid_packets_received: IntCounter,
     unknown_packets_received: IntCounter,
     invalid_network_packets_received: IntCounter,
+    queue_size: IntGauge,
 }
 
 impl PrometheusServer {
@@ -36,6 +37,12 @@ impl PrometheusServer {
         let pg = IntGauge::with_opts(pg_opts).unwrap();
         if mode == PrometheusMode::NodeMode {
             registry.register(Box::new(pg.clone())).unwrap();
+        }
+
+        let qs_opts = Opts::new("queue_size", "current queue size");
+        let qs = IntGauge::with_opts(qs_opts).unwrap();
+        if mode == PrometheusMode::NodeMode {
+            registry.register(Box::new(qs.clone())).unwrap();
         }
 
         let cr_opts = Opts::new("conn_received", "connections received");
@@ -84,41 +91,42 @@ impl PrometheusServer {
                            unique_ips_seen: uis.clone(),
                            invalid_packets_received: ipr.clone(),
                            unknown_packets_received: upr.clone(),
-                           invalid_network_packets_received: inpr.clone(), }
+                           invalid_network_packets_received: inpr.clone(),
+                           queue_size: qs.clone(), }
     }
 
     pub fn peers_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.peers_gauge.inc();
+        self.peers_gauge.inc();
         Ok(())
     }
 
     pub fn unique_ips_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.unique_ips_seen.inc();
+        self.unique_ips_seen.inc();
         Ok(())
     }
 
     pub fn peers_dec(&mut self) -> ResultExtWrapper<()> {
-        &self.peers_gauge.dec();
+        self.peers_gauge.dec();
         Ok(())
     }
 
     pub fn pkt_received_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.pkts_received_counter.inc();
+        self.pkts_received_counter.inc();
         Ok(())
     }
 
     pub fn pkt_received_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
-        &self.pkts_received_counter.inc_by(to_add);
+        self.pkts_received_counter.inc_by(to_add);
         Ok(())
     }
 
     pub fn pkt_sent_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.pkts_sent_counter.inc();
+        self.pkts_sent_counter.inc();
         Ok(())
     }
 
     pub fn pkt_sent_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
-        &self.pkts_sent_counter.inc_by(to_add);
+        self.pkts_sent_counter.inc_by(to_add);
         Ok(())
     }
 
@@ -128,18 +136,37 @@ impl PrometheusServer {
     }
 
     pub fn invalid_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.invalid_packets_received.inc();
+        self.invalid_packets_received.inc();
         Ok(())
     }
 
     pub fn invalid_network_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.invalid_network_packets_received.inc();
+        self.invalid_network_packets_received.inc();
         Ok(())
     }
 
     pub fn unknown_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
-        &self.unknown_packets_received.inc();
+        self.unknown_packets_received.inc();
         Ok(())
+    }
+
+    pub fn queue_size_inc(&mut self) -> ResultExtWrapper<()> {
+        self.queue_size.inc();
+        Ok(())
+    }
+
+    pub fn queue_size_dec(&mut self) -> ResultExtWrapper<()> {
+        self.queue_size.dec();
+        Ok(())
+    }
+
+    pub fn queue_size_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
+        self.queue_size.add(to_add);
+        Ok(())
+    }
+
+    pub fn queue_size(&self) -> ResultExtWrapper<(i64)> {
+        Ok(self.queue_size.get())
     }
 
     fn index(&self) -> IronResult<Response> {
