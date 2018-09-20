@@ -56,15 +56,15 @@ impl PrometheusServer {
             registry.register(Box::new(uis.clone())).unwrap();
         }
 
-        let prc_opts = Opts::new("pkts_received", "packets received");
+        let prc_opts = Opts::new("packets_received", "packets received");
         let prc = IntCounter::with_opts(prc_opts).unwrap();
         registry.register(Box::new(prc.clone())).unwrap();
 
-        let psc_opts = Opts::new("pkts_sent", "packets sent");
+        let psc_opts = Opts::new("packets_sent", "packets sent");
         let psc = IntCounter::with_opts(psc_opts).unwrap();
         registry.register(Box::new(psc.clone())).unwrap();
 
-        let ipr_opts = Opts::new("invalid_pkts_received", "invalid packets received");
+        let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
         let ipr = IntCounter::with_opts(ipr_opts).unwrap();
         if mode == PrometheusMode::NodeMode {
             registry.register(Box::new(ipr.clone())).unwrap();
@@ -86,7 +86,7 @@ impl PrometheusServer {
         let qrs_opts = Opts::new("queue_resent", "items in queue that needed to be resent");
         let qrs = IntCounter::with_opts(qrs_opts).unwrap();
         if mode == PrometheusMode::NodeMode {
-            registry.register(Box::new(inpr.clone())).unwrap();
+            registry.register(Box::new(qrs.clone())).unwrap();
         }
 
         PrometheusServer { mode: mode,
@@ -174,7 +174,7 @@ impl PrometheusServer {
     }
 
     pub fn queue_resent_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
-        self.queue_resent.add(to_add);
+        self.queue_resent.inc_by(to_add);
         Ok(())
     }
 
@@ -247,5 +247,20 @@ impl PrometheusServer {
                                     }
                                 });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use prometheus_exporter::*;
+
+    #[test]
+    pub fn test_node_mode() {
+        let _prom_inst = PrometheusServer::new(PrometheusMode::NodeMode);
+    }
+
+    #[test]
+    pub fn test_disco_mode() {
+        let _prom_inst = PrometheusServer::new(PrometheusMode::IpDiscoveryMode);
     }
 }
