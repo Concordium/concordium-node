@@ -4,6 +4,5 @@ test:cargo:
   script:
   - pacman -S openssl-1.0 --noconfirm
   - rustc --version && cargo --version 
-  - ( cd ldns-sys && cargo test --all --verbose)
+  - ( cd ldns-sys && OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0  cargo test --all --verbose)
   - OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 cargo test --all --verbose
-

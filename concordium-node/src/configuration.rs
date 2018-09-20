@@ -113,6 +113,12 @@ pub struct CliConfig {
                 help = "Enable network id",
                 default_value = "1000")]
     pub network_ids: Vec<u16>,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -186,6 +192,12 @@ pub struct BootstrapperConfig {
                 help = "Enable network id",
                 default_value = "1000")]
     pub network_ids: Vec<u16>,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {
@@ -244,6 +256,12 @@ pub struct IpDiscoveryConfig {
                 help = "Name of header to fetch remote address from if behind load balancer",
                 default_value = "X-Forwarded-For")]
     pub header_name: String,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
 }
 
 pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
@@ -253,11 +271,21 @@ pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
     preferences_map: Arc<Mutex<PreferencesMap<String>>>,
+    override_data_dir: Option<PathBuf>,
+    override_config_dir: Option<PathBuf>,
 }
 
 impl AppPreferences {
-    pub fn new() -> Self {
+    pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
         let load_result = PreferencesMap::<String>::load(&APP_INFO, APP_PREFERENCES_MAIN);
+        let override_data_dir = match override_data {
+            Some(dir) => Some(PathBuf::from(dir)),
+            _ => None,
+        };
+        let override_conf_dir = match override_conf {
+            Some(dir) => Some(PathBuf::from(dir)),
+            _ => None,
+        };
         if load_result.is_ok() {
             let mut prefs = load_result.unwrap();
             if !prefs.contains_key(&APP_PREFERENCES_KEY_VERSION.to_string()) {
@@ -271,7 +299,9 @@ impl AppPreferences {
             {
                 panic!("Incorrect version of config file!");
             }
-            AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)), }
+            AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                             override_data_dir: override_data_dir,
+                             override_config_dir: override_conf_dir, }
         } else {
             let mut prefs = PreferencesMap::<String>::new();
             prefs.insert(APP_PREFERENCES_KEY_VERSION.to_string(),
@@ -279,7 +309,9 @@ impl AppPreferences {
             if !prefs.save(&APP_INFO, APP_PREFERENCES_MAIN).is_ok() {
                 panic!("Can't write to config file!");
             }
-            AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)), }
+            AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                             override_data_dir: override_data_dir,
+                             override_config_dir: override_conf_dir, }
         }
     }
 
@@ -307,10 +339,16 @@ impl AppPreferences {
     }
 
     pub fn get_user_app_dir(&self) -> PathBuf {
-        app_root(AppDataType::UserData, &APP_INFO).unwrap()
+        match self.override_data_dir {
+            Some(ref path) => path.clone(),
+            None => app_root(AppDataType::UserData, &APP_INFO).unwrap(),
+        }
     }
 
     pub fn get_user_config_dir(&self) -> PathBuf {
-        app_root(AppDataType::UserConfig, &APP_INFO).unwrap()
+        match self.override_config_dir {
+            Some(ref path) => path.clone(),
+            None => app_root(AppDataType::UserConfig, &APP_INFO).unwrap(),
+        }
     }
 }

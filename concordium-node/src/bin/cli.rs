@@ -32,7 +32,8 @@ quick_main!(run);
 
 fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_cli_config();
-    let mut app_prefs = configuration::AppPreferences::new();
+    let mut app_prefs =
+        configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone());
 
