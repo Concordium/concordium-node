@@ -221,8 +221,8 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn test_norton_resolve_dns() {
+    // #[test] - does not behave identical geographically
+    pub fn _test_norton_resolve_dns() {
         let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("199.85.126.20").unwrap()]);
         match res {
@@ -233,8 +233,8 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn test_norton_resolve_dns_fail() {
+    // #[test] - does not behave identical geographically
+    pub fn _test_norton_resolve_dns_fail() {
         let res = resolve_dns_txt_record(&"www.dnssec-failed.org".to_string(),
                                          &vec![IpAddr::from_str("199.85.126.20").unwrap()]);
         match res {
@@ -277,8 +277,8 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn test_comodo_resolve_dns_fail() {
+    // #[test] - does not behave identical geographically
+    pub fn _test_comodo_resolve_dns_fail() {
         let res = resolve_dns_txt_record(&"www.dnssec-failed.org".to_string(),
                                          &vec![IpAddr::from_str("8.26.56.26").unwrap()]);
         match res {
@@ -299,8 +299,8 @@ mod tests {
         }
     }
 
-    #[test]
-    pub fn test_comodo_resolve_dns() {
+    // #[test] - does not behave identical geographically
+    pub fn _test_comodo_resolve_dns() {
         let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("8.26.56.26").unwrap()]);
         match res {
