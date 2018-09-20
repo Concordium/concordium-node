@@ -3,6 +3,7 @@ COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
 COPY ./scripts/start-bootstrapper.sh ./start-bootstrapper.sh
+COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 RUN pacman -Syy --noconfirm
 RUN pacman -S archlinux-keyring --noconfirm
 RUN pacman -Syu --noconfirm
