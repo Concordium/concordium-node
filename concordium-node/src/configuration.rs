@@ -1,12 +1,14 @@
 use app_dirs::*;
 use preferences::{AppInfo, Preferences, PreferencesMap};
+use std::fs::{File, OpenOptions};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use structopt::StructOpt;
 
 const APP_INFO: AppInfo = AppInfo { name: "ConcordiumP2P",
                                     author: "Concordium", };
-const APP_PREFERENCES_MAIN: &str = "main/config";
+const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
@@ -113,6 +115,12 @@ pub struct CliConfig {
                 help = "Enable network id",
                 default_value = "1000")]
     pub network_ids: Vec<u16>,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -186,6 +194,12 @@ pub struct BootstrapperConfig {
                 help = "Enable network id",
                 default_value = "1000")]
     pub network_ids: Vec<u16>,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {
@@ -244,6 +258,12 @@ pub struct IpDiscoveryConfig {
                 help = "Name of header to fetch remote address from if behind load balancer",
                 default_value = "X-Forwarded-For")]
     pub header_name: String,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
 }
 
 pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
@@ -253,33 +273,95 @@ pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
     preferences_map: Arc<Mutex<PreferencesMap<String>>>,
+    override_data_dir: Option<String>,
+    override_config_dir: Option<String>,
 }
 
 impl AppPreferences {
-    pub fn new() -> Self {
-        let load_result = PreferencesMap::<String>::load(&APP_INFO, APP_PREFERENCES_MAIN);
-        if load_result.is_ok() {
-            let mut prefs = load_result.unwrap();
-            if !prefs.contains_key(&APP_PREFERENCES_KEY_VERSION.to_string()) {
-                prefs.insert(APP_PREFERENCES_KEY_VERSION.to_string(),
-                             super::VERSION.to_string());
-                if !prefs.save(&APP_INFO, APP_PREFERENCES_MAIN).is_ok() {
-                    panic!("Can't write to config file!");
+    pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
+        let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
+        match OpenOptions::new().read(true).write(true).open(&file_path) {
+            Ok(file) => {
+                let mut reader = BufReader::new(&file);
+                let load_result = PreferencesMap::<String>::load_from(&mut reader);
+                if load_result.is_ok() {
+                    let mut prefs = load_result.unwrap();
+                    if !prefs.contains_key(&APP_PREFERENCES_KEY_VERSION.to_string()) {
+                        prefs.insert(APP_PREFERENCES_KEY_VERSION.to_string(),
+                                     super::VERSION.to_string());
+                        let mut writer = BufWriter::new(&file);
+                        if !prefs.save_to(&mut writer).is_ok() {
+                            panic!("Can't write to config file!");
+                        }
+                    } else if *prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()).unwrap()
+                              != super::VERSION.to_string()
+                    {
+                        panic!("Incorrect version of config file!");
+                    }
+                    AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                                     override_data_dir: override_data,
+                                     override_config_dir: override_conf, }
+                } else {
+                    let mut prefs = PreferencesMap::<String>::new();
+                    prefs.insert(APP_PREFERENCES_KEY_VERSION.to_string(),
+                                 super::VERSION.to_string());
+                    let mut writer = BufWriter::new(&file);
+                    if !prefs.save_to(&mut writer).is_ok() {
+                        panic!("Can't write to config file!");
+                    }
+                    writer.flush().ok();
+                    AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                                     override_data_dir: override_data,
+                                     override_config_dir: override_conf, }
                 }
-            } else if *prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()).unwrap()
-                      != super::VERSION.to_string()
-            {
-                panic!("Incorrect version of config file!");
             }
-            AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)), }
-        } else {
-            let mut prefs = PreferencesMap::<String>::new();
-            prefs.insert(APP_PREFERENCES_KEY_VERSION.to_string(),
-                         super::VERSION.to_string());
-            if !prefs.save(&APP_INFO, APP_PREFERENCES_MAIN).is_ok() {
-                panic!("Can't write to config file!");
+            _ => {
+                match File::create(&file_path) {
+                    Ok(file) => {
+                        let mut prefs = PreferencesMap::<String>::new();
+                        prefs.insert(APP_PREFERENCES_KEY_VERSION.to_string(),
+                                     super::VERSION.to_string());
+                        let mut writer = BufWriter::new(&file);
+                        if !prefs.save_to(&mut writer).is_ok() {
+                            panic!("Can't write to config file!");
+                        }
+                        writer.flush().ok();
+                        AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                                         override_data_dir: override_data,
+                                         override_config_dir: override_conf, }
+                    }
+                    _ => panic!("Can't write to config file!"),
+                }
             }
-            AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)), }
+        }
+    }
+
+    fn calculate_config_path(override_path: Option<String>) -> PathBuf {
+        match override_path {
+            Some(ref path) => PathBuf::from(path),
+            None => app_root(AppDataType::UserConfig, &APP_INFO).unwrap(),
+        }
+    }
+
+    fn calculate_data_path(override_path: Option<String>) -> PathBuf {
+        match override_path {
+            Some(ref path) => PathBuf::from(path),
+            None => app_root(AppDataType::UserData, &APP_INFO).unwrap(),
+        }
+    }
+
+    fn calculate_config_file_path(override_config_path: &Option<String>, key: &str) -> PathBuf {
+        match override_config_path {
+            Some(ref path) => {
+                let mut new_path = PathBuf::from(path);
+                new_path.push(&format!("{}.json", key));
+                new_path
+            }
+            None => {
+                let mut path = Self::calculate_config_path(None);
+                path.push(&format!("{}.json", key));
+                path
+            }
         }
     }
 
@@ -293,7 +375,24 @@ impl AppPreferences {
                     store.remove(&key.to_string());
                 }
             }
-            store.save(&APP_INFO, APP_PREFERENCES_MAIN).is_ok()
+            let file_path =
+                Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
+            match OpenOptions::new().read(true).write(true).open(&file_path) {
+                Ok(ref mut file) => {
+                    let mut writer = BufWriter::new(file);
+                    println!("SAVING NOW");
+                    if !store.save_to(&mut writer).is_ok() {
+                        error!("Couldn't save config file changes");
+                        return false;
+                    }
+                    writer.flush().ok();
+                    true
+                }
+                _ => {
+                    error!("Couldn't save config file changes");
+                    false
+                }
+            }
         } else {
             false
         }
@@ -307,10 +406,10 @@ impl AppPreferences {
     }
 
     pub fn get_user_app_dir(&self) -> PathBuf {
-        app_root(AppDataType::UserData, &APP_INFO).unwrap()
+        Self::calculate_data_path(self.override_data_dir.clone())
     }
 
     pub fn get_user_config_dir(&self) -> PathBuf {
-        app_root(AppDataType::UserConfig, &APP_INFO).unwrap()
+        Self::calculate_config_path(self.override_config_dir.clone())
     }
 }

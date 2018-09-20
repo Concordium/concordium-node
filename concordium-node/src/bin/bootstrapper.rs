@@ -27,7 +27,8 @@ quick_main!(run);
 
 fn run() -> ResultExtWrapper<()> {
     let conf = configuration::parse_bootstrapper_config();
-    let app_prefs = configuration::AppPreferences::new();
+    let app_prefs =
+        configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
 
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
