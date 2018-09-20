@@ -191,11 +191,11 @@ mod tests {
 
     #[test]
     pub fn test_googledns_resolve_dns() {
-        let res = resolve_dns_txt_record(&"internetsociety.org".to_string(),
+        let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("8.8.8.8").unwrap()]);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 1);
+                assert_eq!(resps.len(), 3);
             }
             Err(e) => panic!("{}", e),
         }
@@ -223,11 +223,11 @@ mod tests {
 
     #[test]
     pub fn test_norton_resolve_dns() {
-        let res = resolve_dns_txt_record(&"internetsociety.org".to_string(),
+        let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("199.85.126.20").unwrap()]);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 1);
+                assert_eq!(resps.len(), 3);
             }
             Err(e) => panic!("{}", e),
         }
@@ -245,11 +245,11 @@ mod tests {
 
     #[test]
     pub fn test_quadnine_resolve_dns() {
-        let res = resolve_dns_txt_record(&"internetsociety.org".to_string(),
+        let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("9.9.9.9").unwrap()]);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 1);
+                assert_eq!(resps.len(), 3);
             }
             Err(e) => panic!("{}", e),
         }
@@ -267,11 +267,11 @@ mod tests {
 
     #[test]
     pub fn test_cloudflare_resolve_dns() {
-        let res = resolve_dns_txt_record(&"internetsociety.org".to_string(),
+        let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("1.1.1.1").unwrap()]);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 1);
+                assert_eq!(resps.len(), 3);
             }
             Err(e) => panic!("{}", e),
         }
@@ -289,11 +289,11 @@ mod tests {
 
     #[test]
     pub fn test_cleanbrowsing_resolve_dns() {
-        let res = resolve_dns_txt_record(&"internetsociety.org".to_string(),
+        let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("185.228.168.168").unwrap()]);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 1);
+                assert_eq!(resps.len(), 3);
             }
             Err(e) => panic!("{}", e),
         }
@@ -301,11 +301,11 @@ mod tests {
 
     #[test]
     pub fn test_comodo_resolve_dns() {
-        let res = resolve_dns_txt_record(&"internetsociety.org".to_string(),
+        let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("8.26.56.26").unwrap()]);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 1);
+                assert_eq!(resps.len(), 3);
             }
             Err(e) => panic!("{}", e),
         }
