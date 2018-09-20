@@ -2028,17 +2028,22 @@ impl P2PNode {
                         }
                     }
                     _ => {
-                        if let Some(ref prom) = &self.prometheus_exporter {
-                            match prom.lock() {
-                                Ok(ref mut lock) => {
-                                    lock.queue_size_inc_by(resend_queue.len() as i64)
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
+                        if resend_queue.len() > 0 {
+                            if let Some(ref prom) = &self.prometheus_exporter {
+                                match prom.lock() {
+                                    Ok(ref mut lock) => {
+                                        lock.queue_size_inc_by(resend_queue.len() as i64)
+                                            .map_err(|e| error!("{}", e))
+                                            .ok();
+                                        lock.queue_resent_inc_by(resend_queue.len() as i64)
+                                            .map_err(|e| error!("{}", e))
+                                            .ok();
+                                    }
+                                    _ => error!("Couldn't lock prometheus instance"),
                                 }
-                                _ => error!("Couldn't lock prometheus instance"),
-                            }
-                        };
-                        send_q.append(&mut resend_queue);
+                            };
+                            send_q.append(&mut resend_queue);
+                        }
                         break;
                     }
                 }
@@ -2152,10 +2157,9 @@ impl P2PNode {
 
     pub fn peek_queue(&self) -> Vec<String> {
         if let Ok(lock) = self.send_queue.lock() {
-            return lock
-                .iter()
-                .map(|x| format!("{:?}", x))
-                .collect::<Vec<String>>()
+            return lock.iter()
+                       .map(|x| format!("{:?}", x))
+                       .collect::<Vec<String>>();
         };
         vec![]
     }

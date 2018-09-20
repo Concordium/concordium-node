@@ -28,6 +28,7 @@ pub struct PrometheusServer {
     unknown_packets_received: IntCounter,
     invalid_network_packets_received: IntCounter,
     queue_size: IntGauge,
+    queue_resent: IntCounter,
 }
 
 impl PrometheusServer {
@@ -82,6 +83,12 @@ impl PrometheusServer {
             registry.register(Box::new(inpr.clone())).unwrap();
         }
 
+        let qrs_opts = Opts::new("queue_resent", "items in queue that needed to be resent");
+        let qrs = IntCounter::with_opts(qrs_opts).unwrap();
+        if mode == PrometheusMode::NodeMode {
+            registry.register(Box::new(inpr.clone())).unwrap();
+        }
+
         PrometheusServer { mode: mode,
                            registry: registry.clone(),
                            pkts_received_counter: prc.clone(),
@@ -92,7 +99,8 @@ impl PrometheusServer {
                            invalid_packets_received: ipr.clone(),
                            unknown_packets_received: upr.clone(),
                            invalid_network_packets_received: inpr.clone(),
-                           queue_size: qs.clone(), }
+                           queue_size: qs.clone(),
+                           queue_resent: qrs.clone(), }
     }
 
     pub fn peers_inc(&mut self) -> ResultExtWrapper<()> {
@@ -162,6 +170,11 @@ impl PrometheusServer {
 
     pub fn queue_size_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
         self.queue_size.add(to_add);
+        Ok(())
+    }
+
+    pub fn queue_resent_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
+        self.queue_resent.add(to_add);
         Ok(())
     }
 

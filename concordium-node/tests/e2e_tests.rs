@@ -4,19 +4,19 @@ extern crate mio;
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate atomic_counter;
+extern crate env_logger;
 
 #[cfg(test)]
 mod tests {
+    use atomic_counter::AtomicCounter;
+    use atomic_counter::RelaxedCounter;
     use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};
     use p2p_client::p2p::*;
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex};
     use std::{thread, time};
-    use atomic_counter::AtomicCounter;
-    use atomic_counter::RelaxedCounter;
 
     #[test]
     pub fn e2e_000_two_nodes() {
@@ -590,7 +590,7 @@ mod tests {
         let mut peer_ports: Vec<usize> = vec![];
 
         let message_counter = Arc::new(RelaxedCounter::new(0));
-        let message_count_estimated = mesh_node_count-1;
+        let message_count_estimated = mesh_node_count - 1;
 
         let mut peer = 0;
 
@@ -626,7 +626,10 @@ mod tests {
             let th = node.spawn();
             if peer > 0 {
                 for i in 0..peer {
-                    node.connect(ConnectionType::Node, "127.0.0.1".parse().unwrap(), (instance_port-1-(i)) as u16).ok();
+                    node.connect(ConnectionType::Node,
+                                 "127.0.0.1".parse().unwrap(),
+                                 (instance_port - 1 - (i)) as u16)
+                        .ok();
                 }
             }
             peer += 1;
