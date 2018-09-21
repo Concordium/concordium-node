@@ -1028,12 +1028,12 @@ impl Connection {
             let err = &rc.unwrap_err();
 
             if let io::ErrorKind::WouldBlock = err.kind() {
-                return Err(ErrorKindWrapper::NetworkError(format!("{:?}", err)).into());
+                return Err(ErrorKindWrapper::NetworkError(format!("{}:{}/blocked {:?}", self.ip().to_string(), self.port(), err)).into());
             }
 
-            error!("read error {:?}", err);
+            //error!("read error {}:{}/{:?}", self.ip().to_string(), self.port(), err);
             self.closing = true;
-            return Err(ErrorKindWrapper::NetworkError(format!("read error {:?}", err)).into());
+            return Err(ErrorKindWrapper::NetworkError(format!("{}:{}/read error {:?}", self.ip().to_string(), self.port(), err)).into());
         }
 
         if let Ok(size) = rc {
@@ -1312,7 +1312,7 @@ impl Connection {
                         buckets.insert_into_bucket(sender, &self.own_id);
                     }
                     NetworkResponse::PeerList(sender, peers) => {
-                        debug!("Got response to FindNode");
+                        debug!("Got response to PeerList");
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
                         {
