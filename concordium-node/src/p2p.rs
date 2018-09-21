@@ -853,6 +853,8 @@ impl Connection {
         if let Some(ref mut buf) = self.pkt_buffer {
             buf.clear();
         }
+        self.currently_read = 0;
+        self.expected_size = 0;
         self.pkt_buffer = None;
     }
 
@@ -1508,8 +1510,6 @@ impl Connection {
         self.validate_packet(poll);
         if self.expected_size > 0 && self.currently_read == self.expected_size {
             trace!("Completed packet with {} size", self.currently_read);
-            self.expected_size = 0;
-            self.currently_read = 0;
             if self.pkt_valid() || !self.pkt_validated() {
                 let mut buffered = Vec::new();
                 if let Some(ref mut buf) = self.pkt_buffer {
@@ -1529,8 +1529,6 @@ impl Connection {
             }
             if self.expected_size == self.currently_read {
                 trace!("Completed packet with {} size", self.currently_read);
-                self.expected_size = 0;
-                self.currently_read = 0;
                 if self.pkt_valid() || !self.pkt_validated() {
                     let mut buffered = Vec::new();
                     if let Some(ref mut buf) = self.pkt_buffer {
