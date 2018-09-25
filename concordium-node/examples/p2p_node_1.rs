@@ -11,7 +11,7 @@ extern crate chrono;
 extern crate env_logger;
 extern crate timer;
 
-use env_logger::Env;
+use env_logger::{Env,Builder};
 use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
@@ -45,9 +45,14 @@ fn run() -> ResultExtWrapper<()> {
         P2PNodeMode::BootstrapperMode
     };
 
+    let mut log_builder = Builder::from_env(env);
+    if conf.no_log_timestamp {
+        log_builder.default_format_timestamp(false);
+    }
+    log_builder.init();
+
     p2p_client::setup_panics();
 
-    env_logger::init_from_env(env);
     info!("Starting up {} version {}!",
           p2p_client::APPNAME,
           p2p_client::VERSION);

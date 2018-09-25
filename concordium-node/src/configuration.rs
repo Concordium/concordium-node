@@ -121,6 +121,8 @@ pub struct CliConfig {
     #[structopt(long = "override-data-dir",
                 help = "Override location of data files")]
     pub data_dir: Option<String>,
+    #[structopt(long="no-log-timestamp", help = "Do not output timestamp in log output")]
+    pub no_log_timestamp: bool,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -200,6 +202,8 @@ pub struct BootstrapperConfig {
     #[structopt(long = "override-data-dir",
                 help = "Override location of data files")]
     pub data_dir: Option<String>,
+    #[structopt(long="no-log-timestamp", help = "Do not output timestamp in log output")]
+    pub no_log_timestamp: bool,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {
@@ -264,6 +268,8 @@ pub struct IpDiscoveryConfig {
     #[structopt(long = "override-data-dir",
                 help = "Override location of data files")]
     pub data_dir: Option<String>,
+    #[structopt(long="no-log-timestamp", help = "Do not output timestamp in log output")]
+    pub no_log_timestamp: bool,
 }
 
 pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
@@ -380,7 +386,6 @@ impl AppPreferences {
             match OpenOptions::new().read(true).write(true).open(&file_path) {
                 Ok(ref mut file) => {
                     let mut writer = BufWriter::new(file);
-                    println!("SAVING NOW");
                     if !store.save_to(&mut writer).is_ok() {
                         error!("Couldn't save config file changes");
                         return false;

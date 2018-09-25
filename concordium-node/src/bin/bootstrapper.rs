@@ -11,7 +11,7 @@ extern crate mio;
 extern crate timer;
 #[macro_use]
 extern crate error_chain;
-use env_logger::Env;
+use env_logger::{Env,Builder};
 use p2p_client::common::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
@@ -38,9 +38,14 @@ fn run() -> ResultExtWrapper<()> {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
 
+    let mut log_builder = Builder::from_env(env);
+    if conf.no_log_timestamp {
+        log_builder.default_format_timestamp(false);
+    }
+    log_builder.init();
+
     p2p_client::setup_panics();
 
-    env_logger::init_from_env(env);
     info!("Starting up {}-bootstrapper version {}!",
           p2p_client::APPNAME,
           p2p_client::VERSION);
