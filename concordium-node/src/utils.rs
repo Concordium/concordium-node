@@ -353,11 +353,14 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
     }
 }
 
-pub fn generate_ed25519_key() -> [u8; 32] {
-    let mut private_key = SecretKey { 0: [0; 32] };
-    let mut public_key = PublicKey { 0: [0; 32] };
+pub fn generate_ed25519_key() -> Option<[u8; 32]> {
+    let mut private_key = Some(SecretKey { 0: [0; 32] });
+    let mut public_key = Some(PublicKey { 0: [0; 32] });
     keypair(OsRng::new().unwrap(), &mut private_key, &mut public_key);
-    private_key.0
+    match private_key {
+        Some(key) => Some(key.0),
+        None => None,
+    }
 }
 
 pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str> {
@@ -399,7 +402,11 @@ mod tests {
 
     #[test]
     pub fn test_generate_key_test() {
-        let _key: [u8; 32] = generate_ed25519_key();
+        let _key: [u8; 32] = if let Some(key) = generate_ed25519_key() {
+            key
+        } else {
+            panic!("Couldn't generate key!");
+        };
     }
 
     #[test]

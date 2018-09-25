@@ -38,7 +38,11 @@ pub fn run() -> ResultExtWrapper<()> {
                                 .open(&conf.keyfile)
         {
             Ok(mut file) => {
-                let key: [u8; 32] = generate_ed25519_key();
+                let key: [u8; 32] = if let Some(key) = generate_ed25519_key() {
+                    key
+                } else {
+                    panic!("Couldn't generate private key");
+                };
                 let secret_key = SecretKey { 0: key };
                 let public_key = secret_key.get_public();
                 match file.write_all(&key) {

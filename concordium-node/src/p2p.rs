@@ -1722,10 +1722,8 @@ impl P2PNode {
             }
         };
 
-        //TLS Server config
         let mut server_conf = ServerConfig::new(NoClientAuth::new());
-        server_conf.set_single_cert(vec![cert], private_key);
-        //server_conf.key_log = Arc::new(rustls::KeyLogFile::new());
+        server_conf.set_single_cert(vec![cert], private_key).map_err(|e| error!("{}", e)).ok();
 
         let mut client_conf = ClientConfig::new();
         client_conf.dangerous()
