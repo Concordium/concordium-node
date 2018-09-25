@@ -44,6 +44,7 @@ extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
 extern crate ldns_sys;
+extern crate semver;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

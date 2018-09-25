@@ -5,6 +5,7 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use structopt::StructOpt;
+use semver::Version;
 
 const APP_INFO: AppInfo = AppInfo { name: "ConcordiumP2P",
                                     author: "Concordium", };
@@ -302,7 +303,19 @@ impl AppPreferences {
                     } else if *prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()).unwrap()
                               != super::VERSION.to_string()
                     {
-                        panic!("Incorrect version of config file!");
+                        if let Some(ref vers_str) = prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()) {
+                            match Version::parse(vers_str) {
+                                Ok(vers) => {
+                                    let int_vers = Version::parse(super::VERSION).unwrap();
+                                    if int_vers.major != vers.major {
+                                        panic!("Major versions do not match {} != {}", int_vers.major, vers.major);
+                                    } else if vers.minor > int_vers.minor  {
+                                        panic!("Version file too new {} > {}", vers.to_string(), int_vers.to_string());
+                                    }
+                                }
+                                Err(e) => panic!("Can't parse version in config file '{}'", e)
+                            }
+                        };
                     }
                     AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
                                      override_data_dir: override_data,
