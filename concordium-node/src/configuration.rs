@@ -1,11 +1,11 @@
 use app_dirs::*;
 use preferences::{AppInfo, Preferences, PreferencesMap};
+use semver::Version;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use structopt::StructOpt;
-use semver::Version;
 
 const APP_INFO: AppInfo = AppInfo { name: "ConcordiumP2P",
                                     author: "Concordium", };
@@ -122,8 +122,12 @@ pub struct CliConfig {
     #[structopt(long = "override-data-dir",
                 help = "Override location of data files")]
     pub data_dir: Option<String>,
-    #[structopt(long="no-log-timestamp", help = "Do not output timestamp in log output")]
+    #[structopt(long = "no-log-timestamp",
+                help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
+    #[structopt(long = "testrunner-url",
+                help = "URL for the test runner to submit data to")]
+    pub test_runner_url: Option<String>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -203,7 +207,8 @@ pub struct BootstrapperConfig {
     #[structopt(long = "override-data-dir",
                 help = "Override location of data files")]
     pub data_dir: Option<String>,
-    #[structopt(long="no-log-timestamp", help = "Do not output timestamp in log output")]
+    #[structopt(long = "no-log-timestamp",
+                help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
 }
 
@@ -269,12 +274,92 @@ pub struct IpDiscoveryConfig {
     #[structopt(long = "override-data-dir",
                 help = "Override location of data files")]
     pub data_dir: Option<String>,
-    #[structopt(long="no-log-timestamp", help = "Do not output timestamp in log output")]
+    #[structopt(long = "no-log-timestamp",
+                help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
 }
 
 pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
     IpDiscoveryConfig::from_args()
+}
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "IP Discovery Service")]
+pub struct TestRunnerConfig {
+    #[structopt(long = "external-ip", help = "Own external IP")]
+    pub external_ip: Option<String>,
+    #[structopt(long = "external-port", help = "Own external port")]
+    pub external_port: Option<u16>,
+    #[structopt(long = "id", short = "i", help = "Own node id")]
+    pub id: Option<String>,
+    #[structopt(long = "listen-port",
+                short = "p",
+                help = "Port to listen on",
+                default_value = "8888")]
+    pub listen_port: u16,
+    #[structopt(long = "listen-address",
+                short = "l",
+                help = "Address to listen on")]
+    pub listen_address: Option<String>,
+    #[structopt(long = "listen-http-port",
+                help = "Port to listen for http on",
+                default_value = "8950")]
+    pub listen_http_port: u16,
+    #[structopt(long = "listen-http-address",
+                help = "Address to listen for http on",
+                default_value = "0.0.0.0")]
+    pub listen_http_address: String,
+    #[structopt(long = "debug", short = "d", help = "Debug mode")]
+    pub debug: bool,
+    #[structopt(long = "trace", help = "Trace mode")]
+    pub trace: bool,
+    #[structopt(long = "override-config-dir",
+                help = "Override location of configuration files")]
+    pub config_dir: Option<String>,
+    #[structopt(long = "override-data-dir",
+                help = "Override location of data files")]
+    pub data_dir: Option<String>,
+    #[structopt(long = "no-log-timestamp",
+                help = "Do not output timestamp in log output")]
+    pub no_log_timestamp: bool,
+    #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
+    pub private_node: bool,
+    #[structopt(long = "network-id",
+                short = "n",
+                help = "Enable network id",
+                default_value = "1000")]
+    pub network_ids: Vec<u16>,
+    #[structopt(long = "desired-nodes",
+                help = "Desired nodes to always have",
+                default_value = "50")]
+    pub desired_nodes: u8,
+    #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
+    pub no_boostrap_dns: bool,
+    #[structopt(long = "bootstrap-server",
+                help = "DNS name to resolve bootstrap nodes from",
+                default_value = "bootstrap.p2p.concordium.com")]
+    pub bootstrap_server: String,
+    #[structopt(long = "no-trust-broadcasts",
+                help = "Don't blindly relay broadcasts")]
+    pub no_trust_broadcasts: bool,
+    #[structopt(long = "no-trust-bans",
+                help = "Don't blindly trust ban/unban requests")]
+    pub no_trust_bans: bool,
+    #[structopt(long = "ip-discovery-service",
+                help = "Use external IP discovery service")]
+    pub ip_discovery_service: bool,
+    #[structopt(long = "ip-discovery-service-host",
+                help = "IP discovery service host",
+                default_value = "ipdiscovery.p2p.concordium.com")]
+    pub ip_discovery_service_host: String,
+    #[structopt(long = "connect-to",
+                short = "c",
+                help = "Peer to connect to upon startup")]
+    pub connect_to: Vec<String>,
+}
+
+pub fn parse_testrunner_config() -> TestRunnerConfig {
+    TestRunnerConfig::from_args()
 }
 
 #[derive(Clone, Debug)]
@@ -303,17 +388,22 @@ impl AppPreferences {
                     } else if *prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()).unwrap()
                               != super::VERSION.to_string()
                     {
-                        if let Some(ref vers_str) = prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()) {
+                        if let Some(ref vers_str) =
+                            prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string())
+                        {
                             match Version::parse(vers_str) {
                                 Ok(vers) => {
                                     let int_vers = Version::parse(super::VERSION).unwrap();
                                     if int_vers.major != vers.major {
-                                        panic!("Major versions do not match {} != {}", int_vers.major, vers.major);
-                                    } else if vers.minor > int_vers.minor  {
-                                        panic!("Version file too new {} > {}", vers.to_string(), int_vers.to_string());
+                                        panic!("Major versions do not match {} != {}",
+                                               int_vers.major, vers.major);
+                                    } else if vers.minor > int_vers.minor {
+                                        panic!("Version file too new {} > {}",
+                                               vers.to_string(),
+                                               int_vers.to_string());
                                     }
                                 }
-                                Err(e) => panic!("Can't parse version in config file '{}'", e)
+                                Err(e) => panic!("Can't parse version in config file '{}'", e),
                             }
                         };
                     }

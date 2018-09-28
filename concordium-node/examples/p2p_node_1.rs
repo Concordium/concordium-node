@@ -11,7 +11,7 @@ extern crate chrono;
 extern crate env_logger;
 extern crate timer;
 
-use env_logger::{Env,Builder};
+use env_logger::{Builder, Env};
 use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;

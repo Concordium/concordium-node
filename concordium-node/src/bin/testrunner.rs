@@ -1,19 +1,26 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
+extern crate iron;
 extern crate p2p_client;
-#[macro_use]
-extern crate log;
-extern crate bytes;
-extern crate chrono;
-extern crate env_logger;
-extern crate grpcio;
-extern crate mio;
-extern crate timer;
+extern crate router;
 #[macro_use]
 extern crate error_chain;
-extern crate reqwest;
+extern crate chrono;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+#[macro_use]
+extern crate serde_json;
+extern crate timer;
 
 use env_logger::{Builder, Env};
+use iron::headers::ContentType;
+use iron::prelude::*;
+use iron::status;
+use p2p_client::common;
 use p2p_client::common::{
     ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse,
 };
@@ -21,9 +28,8 @@ use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
 use p2p_client::p2p::*;
-use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
-use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
+use router::Router;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,12 +37,215 @@ use timer::Timer;
 
 quick_main!(run);
 
+#[derive(Clone)]
+struct TestRunner {
+    test_start: Arc<Mutex<Option<u64>>>,
+    test_running: Arc<Mutex<bool>>,
+    registered_times: Arc<Mutex<Vec<Measurement>>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Measurement {
+    received_time: u64,
+    node_id: String,
+}
+
+impl Measurement {
+    pub fn new(received_time: u64, node_id: String) -> Self {
+        Measurement { received_time: received_time,
+                      node_id: node_id, }
+    }
+}
+
+impl TestRunner {
+    pub fn new() -> Self {
+        TestRunner { test_start: Arc::new(Mutex::new(None)),
+                     test_running: Arc::new(Mutex::new(false)),
+                     registered_times: Arc::new(Mutex::new(vec![])), }
+    }
+
+    fn index(&self) -> IronResult<Response> {
+        let mut resp = Response::with((status::Ok, format!("<html><body><h1>Test runner service for {} v{}</h1>Operational!</p></body></html>", p2p_client::APPNAME, p2p_client::VERSION)));
+        resp.headers.set(ContentType::html());
+        Ok(resp)
+    }
+
+    fn register_receipt(&self, req: &mut Request) -> IronResult<Response> {
+        match req.extensions.get::<Router>().unwrap().find("node_id") {
+            Some(node_id) => {
+                match req.extensions.get::<Router>().unwrap().find("packet_id") {
+                    Some(pktid) => {
+                        let time = common::get_current_stamp();
+                        if let Ok(mut list) = self.registered_times.lock() {
+                            list.push(Measurement::new(time, node_id.to_string()));
+                            info!("Registered time for {}/{} @ {}", node_id, pktid, time);
+                            Ok(Response::with((status::Ok, format!("REGISTERED packet {} FROM {} ON {}/{} @ {}", pktid, node_id, p2p_client::APPNAME, p2p_client::VERSION, time))))
+                        } else {
+                            error!("Couldn't register due to locking issues");
+                            Ok(Response::with((status::InternalServerError,
+                                              "Can't retrieve access to inner lock".to_string())))
+                        }
+                    }
+                    _ => {
+                        error!("Couldn't register due to missing params");
+                        Ok(Response::with((status::NotFound,
+                                          "Missing packet id in url".to_string())))
+                    }
+                }
+            }
+            _ => {
+                error!("Couldn't register due to missing params");
+                Ok(Response::with((status::NotFound, "Missing node id in url".to_string())))
+            }
+        }
+    }
+
+    fn start_test(&self) -> IronResult<Response> {
+        match self.test_running.lock() {
+            Ok(mut value) => {
+                if !*value {
+                    *value = true;
+                    info!("Started test");
+                    Ok(Response::with((status::Ok,
+                                      format!("TEST STARTED ON {}/{} @ {}",
+                                               p2p_client::APPNAME,
+                                               p2p_client::VERSION,
+                                               common::get_current_stamp()))))
+                } else {
+                    error!("Couldn't start test as it's already running");
+                    Ok(Response::with((status::Ok,
+                                      "Test already running, can't start one!".to_string())))
+                }
+            }
+            _ => {
+                error!("Couldn't register due to locking issues");
+                Ok(Response::with((status::InternalServerError,
+                                  "Can't retrieve access to inner lock".to_string())))
+            }
+        }
+    }
+
+    fn reset_test(&self) -> IronResult<Response> {
+        match self.test_running.lock() {
+            Ok(mut value) => {
+                if !*value {
+                    match self.test_start.lock() {
+                        Ok(mut inner_value) => *inner_value = None,
+                        _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
+                    }
+                    match self.registered_times.lock() {
+                        Ok(mut inner_value) => inner_value.clear(),
+                        _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
+                    }
+                    *value = false;
+                    info!("Testing reset on runner");
+                    Ok(Response::with((status::Ok,
+                                      format!("TEST RESET ON {}/{} @ {}",
+                                               p2p_client::APPNAME,
+                                               p2p_client::VERSION,
+                                               common::get_current_stamp()))))
+                } else {
+                    error!("Test running so can't reset right now");
+                    Ok(Response::with((status::Ok,
+                                      "Test already running, can't reset now!".to_string())))
+                }
+            }
+            _ => {
+                error!("Couldn't register due to locking issues");
+                Ok(Response::with((status::InternalServerError,
+                                  "Can't retrieve access to inner lock".to_string())))
+            }
+        }
+    }
+
+    fn get_results(&self) -> IronResult<Response> {
+        match self.test_running.lock() {
+            Ok(value) => {
+                if *value {
+                    match self.test_start.lock() {
+                        Ok(test_start_time) => {
+                            match self.registered_times.lock() {
+                                Ok(inner_vals) => {
+                                    let return_json = json!({
+                                        "serviceName": "TestRunner",
+                                        "serviceVersion": p2p_client::VERSION,
+                                        "measurements": *inner_vals.clone(),
+                                        "test_start_time": *test_start_time,
+                                    });
+                                    let mut resp =
+                                        Response::with((status::Ok, return_json.to_string()));
+                                    resp.headers.set(ContentType::json());
+                                    Ok(resp)
+                                }
+                                _ => {
+                                    error!("Couldn't send results due to locking issues");
+                                    Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string())))
+                                }
+                            }
+                        }
+                        _ => {
+                            error!("Couldn't send results due to locking issues");
+                            Ok(Response::with((status::InternalServerError,
+                                              "Can't retrieve access to inner lock".to_string())))
+                        }
+                    }
+                } else {
+                    Ok(Response::with((status::Ok,
+                                      "Test not running, can't get results now!".to_string())))
+                }
+            }
+            _ => {
+                error!("Couldn't send results due to locking issues");
+                Ok(Response::with((status::InternalServerError,
+                                  "Can't retrieve access to inner lock".to_string())))
+            }
+        }
+    }
+
+    pub fn start_server(&mut self, listen_ip: &String, port: u16) -> thread::JoinHandle<()> {
+        let mut router = Router::new();
+        let _self_clone = Arc::new(self.clone());
+        let _self_clone_2 = _self_clone.clone();
+        let _self_clone_3 = _self_clone.clone();
+        let _self_clone_4 = _self_clone.clone();
+        let _self_clone_5 = _self_clone.clone();
+        router.get("/",
+                   move |_: &mut Request| _self_clone.clone().index(),
+                   "index");
+        router.get("/register/:node_id/:packet_id",
+                   move |req: &mut Request| _self_clone_2.clone().register_receipt(req),
+                   "register");
+        router.get("/start_test",
+                   move |_: &mut Request| _self_clone_3.clone().start_test(),
+                   "start_test");
+        router.get("/reset_test",
+                   move |_: &mut Request| _self_clone_4.clone().reset_test(),
+                   "reset_test");
+        router.get("/get_results",
+                   move |_: &mut Request| _self_clone_5.clone().get_results(),
+                   "get_results");
+        let _listen = listen_ip.clone();
+        thread::spawn(move || {
+                          Iron::new(router).http(format!("{}:{}", _listen, port))
+                                           .unwrap();
+                      })
+    }
+}
+
 fn run() -> ResultExtWrapper<()> {
-    let conf = configuration::parse_cli_config();
+    let conf = configuration::parse_testrunner_config();
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone());
+
+    info!("Starting up {}-TestRunner version {}!",
+          p2p_client::APPNAME,
+          p2p_client::VERSION);
+    info!("Application data directory: {:?}",
+          app_prefs.get_user_app_dir());
+    info!("Application config directory: {:?}",
+          app_prefs.get_user_config_dir());
 
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
@@ -54,34 +263,10 @@ fn run() -> ResultExtWrapper<()> {
 
     p2p_client::setup_panics();
 
-    info!("Starting up {} version {}!",
-          p2p_client::APPNAME,
-          p2p_client::VERSION);
-    info!("Application data directory: {:?}",
-          app_prefs.get_user_app_dir());
-    info!("Application config directory: {:?}",
-          app_prefs.get_user_config_dir());
-
     let mut db_path = app_prefs.get_user_app_dir().clone();
     db_path.push("p2p.db");
 
     let db = P2PDB::new(db_path.as_path());
-
-    let prometheus = if conf.prometheus_server {
-        info!("Enabling prometheus server");
-        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
-           .map_err(|e| error!("{}", e))
-           .ok();
-        Some(Arc::new(Mutex::new(srv)))
-    } else if conf.prometheus_push_gateway.is_some() {
-        info!("Enabling prometheus push gateway at {}",
-              &conf.prometheus_push_gateway.clone().unwrap());
-        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        Some(Arc::new(Mutex::new(srv)))
-    } else {
-        None
-    };
 
     info!("Debugging enabled {}", conf.debug);
 
@@ -154,7 +339,7 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      Some(sender),
                      mode_type,
-                     prometheus.clone(),
+                     None,
                      conf.network_ids)
     } else {
         P2PNode::new(node_id,
@@ -165,7 +350,7 @@ fn run() -> ResultExtWrapper<()> {
                      pkt_in,
                      None,
                      mode_type,
-                     prometheus.clone(),
+                     None,
                      conf.network_ids)
     };
 
@@ -188,51 +373,24 @@ fn run() -> ResultExtWrapper<()> {
         error!("Failed to persist own node id");
     }
 
-    let mut rpc_serv: Option<RpcServerImpl> = None;
-    if !conf.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(),
-                                          Some(db.clone()),
-                                          conf.rpc_server_addr,
-                                          conf.rpc_server_port,
-                                          conf.rpc_server_token);
-        serv.start_server()?;
-        rpc_serv = Some(serv);
-    }
-
     let mut _node_self_clone = node.clone();
 
     let _no_trust_bans = conf.no_trust_bans;
     let _no_trust_broadcasts = conf.no_trust_broadcasts;
-    let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.desired_nodes;
-    let _test_runner_url = conf.test_runner_url.clone();
     let _guard_pkt = thread::spawn(move || {
                                        loop {
                                            if let Ok(full_msg) = pkt_out.recv() {
                                                match *full_msg.clone() {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
-                                                   if let Some(ref mut rpc) = _rpc_clone {
-                                                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                                                   }
                                                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                                }
                                                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
-                                                   if let Some(ref mut rpc) = _rpc_clone {
-                                                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                                                   }
                                                    if !_no_trust_broadcasts {
                                                        info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                                        _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                                                    }
-                                                   if let Some(testrunner_url ) = _test_runner_url.clone() {
-                                                       info!("Sending information to test runner");
-                                                       match reqwest::get(&format!("{}/{}/{}", testrunner_url, _node_self_clone.get_own_id().to_string(), msgid)) {
-                                                           Ok(ref mut res) if res.status().is_success() => info!("Registered packet received with test runner"),
-                                                           _ => error!("Couldn't register packet received with test runner")
-                                                       }
-                                                   };
                                                }
-
                                                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
                                                    info!("Ban node request for {:?}", x);
                                                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
@@ -278,45 +436,19 @@ fn run() -> ResultExtWrapper<()> {
                                        }
                                    });
 
-    info!("Concordium P2P layer. Network disabled: {}",
-          conf.no_network);
-
-    if let Some(ref prom) = prometheus {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
-            } else {
-                node.get_own_id().to_string()
-            };
-            prom.lock()?
-                .start_push_to_gateway(prom_push_addy.clone(),
-                                       conf.prometheus_push_interval,
-                                       conf.prometheus_job_name,
-                                       instance_name,
-                                       conf.prometheus_push_username,
-                                       conf.prometheus_push_password)
-                .map_err(|e| error!("{}", e))
-                .ok();
-        }
-    }
-
-    let _node_th = node.spawn();
-
-    if !conf.no_network {
-        for connect_to in conf.connect_to {
-            match utils::parse_ip_port(&connect_to) {
-                Some((ip, port)) => {
-                    info!("Connecting to peer {}", &connect_to);
-                    node.connect(ConnectionType::Node, ip, port)
-                        .map_err(|e| error!("{}", e))
-                        .ok();
-                }
-                None => error!("Can't parse IP to connect to '{}'", &connect_to),
+    for connect_to in conf.connect_to {
+        match utils::parse_ip_port(&connect_to) {
+            Some((ip, port)) => {
+                info!("Connecting to peer {}", &connect_to);
+                node.connect(ConnectionType::Node, ip, port)
+                    .map_err(|e| error!("{}", e))
+                    .ok();
             }
+            None => error!("Can't parse IP to connect to '{}'", &connect_to),
         }
     }
 
-    if !conf.no_network && !conf.no_boostrap_dns {
+    if !conf.no_boostrap_dns {
         info!("Attempting to bootstrap via DNS");
         match bootstrap_nodes {
             Ok(nodes) => {
@@ -334,7 +466,6 @@ fn run() -> ResultExtWrapper<()> {
     let timer = Timer::new();
 
     let _desired_nodes_count = conf.desired_nodes;
-    let _no_net_clone = conf.no_network;
     let _bootstrappers_conf = conf.bootstrap_server;
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
@@ -352,7 +483,7 @@ fn run() -> ResultExtWrapper<()> {
                                    i.port());
                              count += 1;
                          }
-                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
+                         if _desired_nodes_count > x.len() as u8 {
                              if x.len() == 0 {
                                  info!("No nodes at all - retrying bootstrapping");
                                  match utils::get_bootstrap_nodes(_bootstrappers_conf.clone()) {
@@ -377,10 +508,10 @@ fn run() -> ResultExtWrapper<()> {
                  };
              });
 
-    _node_th.join().unwrap();
-    if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server()?;
-    }
+    let mut testrunner = TestRunner::new();
+    let _th = testrunner.start_server(&conf.listen_http_address, conf.listen_http_port);
+
+    _th.join().map_err(|e| error!("{:?}", e)).ok();
 
     Ok(())
 }

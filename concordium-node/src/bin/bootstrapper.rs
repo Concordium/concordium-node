@@ -11,7 +11,7 @@ extern crate mio;
 extern crate timer;
 #[macro_use]
 extern crate error_chain;
-use env_logger::{Env,Builder};
+use env_logger::{Builder, Env};
 use p2p_client::common::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;

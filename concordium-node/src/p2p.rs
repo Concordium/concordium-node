@@ -1030,12 +1030,18 @@ impl Connection {
             let err = &rc.unwrap_err();
 
             if let io::ErrorKind::WouldBlock = err.kind() {
-                return Err(ErrorKindWrapper::NetworkError(format!("{}:{}/blocked {:?}", self.ip().to_string(), self.port(), err)).into());
+                return Err(ErrorKindWrapper::NetworkError(format!("{}:{}/blocked {:?}",
+                                                                  self.ip().to_string(),
+                                                                  self.port(),
+                                                                  err)).into());
             }
 
             //error!("read error {}:{}/{:?}", self.ip().to_string(), self.port(), err);
             self.closing = true;
-            return Err(ErrorKindWrapper::NetworkError(format!("{}:{}/read error {:?}", self.ip().to_string(), self.port(), err)).into());
+            return Err(ErrorKindWrapper::NetworkError(format!("{}:{}/read error {:?}",
+                                                              self.ip().to_string(),
+                                                              self.port(),
+                                                              err)).into());
         }
 
         if let Ok(size) = rc {
@@ -1723,7 +1729,9 @@ impl P2PNode {
         };
 
         let mut server_conf = ServerConfig::new(NoClientAuth::new());
-        server_conf.set_single_cert(vec![cert], private_key).map_err(|e| error!("{}", e)).ok();
+        server_conf.set_single_cert(vec![cert], private_key)
+                   .map_err(|e| error!("{}", e))
+                   .ok();
 
         let mut client_conf = ClientConfig::new();
         client_conf.dangerous()

@@ -10,7 +10,7 @@ extern crate hostname;
 #[macro_use]
 extern crate serde_json;
 
-use env_logger::{Env, Builder};
+use env_logger::{Builder, Env};
 use hostname::get_hostname;
 use iron::headers::ContentType;
 use iron::prelude::*;
