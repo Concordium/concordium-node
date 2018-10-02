@@ -80,7 +80,9 @@ fn run() -> ResultExtWrapper<()> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone());
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
+                                                     conf.dns_resolver.clone(),
+                                                     conf.no_dnssec);
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
@@ -239,6 +241,8 @@ fn run() -> ResultExtWrapper<()> {
     let _no_net_clone = conf.no_network;
     let _bootstrappers_conf = conf.bootstrap_server;
     let mut _node_clone = node.clone();
+    let _dnssec = conf.no_dnssec;
+    let _dns_resolvers = conf.dns_resolver.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                  match _node_clone.get_nodes() {
@@ -258,7 +262,10 @@ fn run() -> ResultExtWrapper<()> {
                          if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
                              if x.len() == 0 {
                                  info!("No nodes at all - retrying bootstrapping");
-                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone()) {
+                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
+                                                                  _dns_resolvers.clone(),
+                                                                  _dnssec)
+                                 {
                                      Ok(nodes) => {
                                          for (ip, port) in nodes {
                                              info!("Found bootstrap node IP: {} and port: {}",

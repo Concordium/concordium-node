@@ -128,6 +128,13 @@ pub struct CliConfig {
     #[structopt(long = "testrunner-url",
                 help = "URL for the test runner to submit data to")]
     pub test_runner_url: Option<String>,
+    #[structopt(long = "no-dnssec",
+                help = "Do not perform DNSsec tests for lookups")]
+    pub no_dnssec: bool,
+    #[structopt(long = "dns-resolver",
+                help = "DNS resolver to use",
+                default_value = "8.8.8.8")]
+    pub dns_resolver: Vec<String>,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -284,7 +291,7 @@ pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
 }
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "IP Discovery Service")]
+#[structopt(name = "Test Runner Service")]
 pub struct TestRunnerConfig {
     #[structopt(long = "external-ip", help = "Own external IP")]
     pub external_ip: Option<String>,
@@ -356,6 +363,13 @@ pub struct TestRunnerConfig {
                 short = "c",
                 help = "Peer to connect to upon startup")]
     pub connect_to: Vec<String>,
+    #[structopt(long = "no-dnssec",
+                help = "Do not perform DNSsec tests for lookups")]
+    pub no_dnssec: bool,
+    #[structopt(long = "dns-resolver",
+                help = "DNS resolver to use",
+                default_value = "8.8.8.8")]
+    pub dns_resolver: Vec<String>,
 }
 
 pub fn parse_testrunner_config() -> TestRunnerConfig {

@@ -237,7 +237,9 @@ fn run() -> ResultExtWrapper<()> {
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
 
-    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone());
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
+                                                     conf.dns_resolver.clone(),
+                                                     conf.no_dnssec);
 
     info!("Starting up {}-TestRunner version {}!",
           p2p_client::APPNAME,
@@ -467,6 +469,8 @@ fn run() -> ResultExtWrapper<()> {
 
     let _desired_nodes_count = conf.desired_nodes;
     let _bootstrappers_conf = conf.bootstrap_server;
+    let _dnssec = conf.no_dnssec;
+    let _dns_resolvers = conf.dns_resolver.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                  match node.get_nodes() {
@@ -486,7 +490,10 @@ fn run() -> ResultExtWrapper<()> {
                          if _desired_nodes_count > x.len() as u8 {
                              if x.len() == 0 {
                                  info!("No nodes at all - retrying bootstrapping");
-                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone()) {
+                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
+                                                                  _dns_resolvers.clone(),
+                                                                  _dnssec)
+                                 {
                                      Ok(nodes) => {
                                          for (ip, port) in nodes {
                                              info!("Found bootstrap node IP: {} and port: {}",
