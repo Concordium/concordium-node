@@ -343,7 +343,7 @@ fn run() -> ResultExtWrapper<()> {
                      Some(sender),
                      mode_type,
                      None,
-                     conf.network_ids)
+                     conf.network_ids.clone())
     } else {
         P2PNode::new(node_id,
                      conf.listen_address,
@@ -354,7 +354,7 @@ fn run() -> ResultExtWrapper<()> {
                      None,
                      mode_type,
                      None,
-                     conf.network_ids)
+                     conf.network_ids.clone())
     };
 
     match db.get_banlist() {
@@ -417,7 +417,7 @@ fn run() -> ResultExtWrapper<()> {
                                                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), _, _) => {
                                                    info!("Received PeerList response, attempting to satisfy desired peers");
                                                    let mut new_peers = 0;
-                                                   match _node_self_clone.get_nodes() {
+                                                   match _node_self_clone.get_nodes(&vec![]) {
                                                        Ok(x) => {
                                                            for peer_node in peers {
                                                                if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e)).is_ok() {
@@ -473,9 +473,10 @@ fn run() -> ResultExtWrapper<()> {
     let _dnssec = conf.no_dnssec;
     let _dns_resolvers = conf.dns_resolver.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
+    let _nids = conf.network_ids.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match node.get_nodes() {
+                 match node.get_nodes(&vec![]) {
                      Ok(ref x) => {
                          info!("I currently have {}/{} nodes!",
                                x.len(),
@@ -510,7 +511,9 @@ fn run() -> ResultExtWrapper<()> {
                                  }
                              } else {
                                  info!("Not enough nodes, sending GetPeers requests");
-                                 node.send_get_peers().map_err(|e| error!("{}", e)).ok();
+                                 node.send_get_peers(_nids.clone())
+                                     .map_err(|e| error!("{}", e))
+                                     .ok();
                              }
                          }
                      }

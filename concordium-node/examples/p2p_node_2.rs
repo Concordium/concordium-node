@@ -159,7 +159,7 @@ fn run() -> ResultExtWrapper<()> {
                      Some(sender),
                      P2PNodeMode::NormalMode,
                      prometheus.clone(),
-                     conf.network_ids)
+                     conf.network_ids.clone())
     } else {
         P2PNode::new(conf.id,
                      conf.listen_address,
@@ -170,7 +170,7 @@ fn run() -> ResultExtWrapper<()> {
                      None,
                      P2PNodeMode::NormalMode,
                      prometheus.clone(),
-                     conf.network_ids)
+                     conf.network_ids.clone())
     };
 
     if let Some(ref prom) = prometheus {
@@ -245,9 +245,10 @@ fn run() -> ResultExtWrapper<()> {
     let _dnssec = conf.no_dnssec;
     let _dns_resolvers = conf.dns_resolver.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
+    let _nids = conf.network_ids.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match _node_clone.get_nodes() {
+                 match _node_clone.get_nodes(&vec![]) {
                      Ok(ref x) => {
                          info!("I currently have {}/{} nodes!",
                                x.len(),
@@ -284,7 +285,7 @@ fn run() -> ResultExtWrapper<()> {
                                  }
                              } else {
                                  info!("Not enough nodes, sending GetPeers requests");
-                                 _node_clone.send_get_peers()
+                                 _node_clone.send_get_peers(_nids.clone())
                                             .map_err(|e| error!("{}", e))
                                             .ok();
                              }

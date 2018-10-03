@@ -317,7 +317,7 @@ impl P2P for RpcServerImpl {
             let data: Vec<_> =
                 self.node
                     .borrow_mut()
-                    .get_nodes()
+                    .get_nodes(&vec![])
                     .unwrap()
                     .iter()
                     .map(|x| {

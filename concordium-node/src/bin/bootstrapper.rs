@@ -232,7 +232,7 @@ fn run() -> ResultExtWrapper<()> {
     let _max_nodes = conf.max_nodes;
 
     let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                                match node.get_nodes() {
+                                match node.get_nodes(&vec![]) {
                                     Ok(x) => {
                                         info!("I currently have {}/{} nodes!", x.len(), _max_nodes);
                                     }

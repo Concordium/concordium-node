@@ -108,7 +108,7 @@ pub enum P2PEvent {
 }
 
 struct Buckets {
-    buckets: HashMap<u16, Vec<P2PPeer>>,
+    buckets: HashMap<u16, Vec<(P2PPeer, Vec<u16>)>>,
 }
 
 impl Buckets {
@@ -125,7 +125,7 @@ impl Buckets {
         from.get_id().clone() ^ to.get_id().clone()
     }
 
-    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId) {
+    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
         let dist = self.distance(&own_id, &node.id());
         for i in 0..KEY_SIZE {
             if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
@@ -137,13 +137,28 @@ impl Buckets {
                             x.remove(0);
                         }
 
-                        x.retain(|ref ele| ele != &node);
-                        x.push(node.clone());
+                        x.retain(|ref ele| ele.0 != *node);
+                        x.push((node.clone(), nids.clone()));
                         break;
                     }
                     None => {
                         error!("Couldn't get bucket as mutable");
                     }
+                }
+            }
+        }
+    }
+
+    pub fn update_network_ids(&mut self, node: &P2PPeer, nids: Vec<u16>) {
+        for i in 0..KEY_SIZE {
+            match self.buckets.get_mut(&i) {
+                Some(x) => {
+                    x.retain(|ref ele| ele.0 != *node);
+                    x.push((node.clone(), nids.clone()));
+                    break;
+                }
+                None => {
+                    error!("Couldn't get buck as mutable");
                 }
             }
         }
@@ -175,7 +190,7 @@ impl Buckets {
             if count < KEY_SIZE {
                 for peer in bucket {
                     if count < KEY_SIZE {
-                        ret.push(peer.clone());
+                        ret.push(peer.0.clone());
                         count += 1;
                     } else {
                         break;
@@ -192,7 +207,7 @@ impl Buckets {
         for i in 0..KEY_SIZE {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
-                    x.retain(|ref ele| ele.last_seen() >= older_than);
+                    x.retain(|ref ele| ele.0.last_seen() >= older_than);
                 }
                 None => {
                     error!("Couldn't get bucket as mutable");
@@ -201,16 +216,20 @@ impl Buckets {
         }
     }
 
-    pub fn get_all_nodes(&self, sender_id: Option<&P2PNodeId>) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self,
+                         sender_id: Option<&P2PNodeId>,
+                         networks: &Vec<u16>)
+                         -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
         match sender_id {
             Some(sender_peer_id) => {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
-                        if sender_peer_id != &peer.id()
-                           && peer.connection_type() == ConnectionType::Node
+                        if sender_peer_id != &peer.0.id()
+                           && peer.0.connection_type() == ConnectionType::Node
+                           && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
                         {
-                            ret.push(peer.clone());
+                            ret.push(peer.0.clone());
                         }
                     }
                 }
@@ -218,8 +237,10 @@ impl Buckets {
             None => {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
-                        if peer.connection_type() == ConnectionType::Node {
-                            ret.push(peer.clone());
+                        if peer.0.connection_type() == ConnectionType::Node
+                           && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
+                        {
+                            ret.push(peer.0.clone());
                         }
                     }
                 }
@@ -229,8 +250,12 @@ impl Buckets {
         ret
     }
 
-    pub fn get_random_nodes(&self, sender_id: &P2PNodeId, amount: usize) -> Vec<P2PPeer> {
-        let mut ret: Vec<P2PPeer> = self.get_all_nodes(Some(sender_id));
+    pub fn get_random_nodes(&self,
+                            sender_id: &P2PNodeId,
+                            amount: usize,
+                            nids: &Vec<u16>)
+                            -> Vec<P2PPeer> {
+        let mut ret: Vec<P2PPeer> = self.get_all_nodes(Some(sender_id), nids);
         thread_rng().shuffle(&mut ret);
         ret.truncate(amount);
         ret
@@ -1223,12 +1248,12 @@ impl Connection {
                         if self.mode == P2PNodeMode::BootstrapperPrivateMode
                            || self.mode == P2PNodeMode::NormalPrivateMode
                         {
-                            buckets.insert_into_bucket(sender, &self.own_id);
+                            buckets.insert_into_bucket(sender, &self.own_id, nets.clone());
                         } else if sender.ip().is_global()
                                   && !sender.ip().is_multicast()
                                   && !sender.ip().is_documentation()
                         {
-                            buckets.insert_into_bucket(sender, &self.own_id);
+                            buckets.insert_into_bucket(sender, &self.own_id, nets.clone());
                         }
                         if let Some(ref prom) = &self.prometheus_exporter {
                             let mut _prom = prom.lock().unwrap();
@@ -1240,7 +1265,7 @@ impl Connection {
                         {
                             debug!("Running in bootstrapper mode, so instantly sending peers {} random peers",
                                    BOOTSTRAP_PEER_COUNT);
-                            serialize_bytes(self, &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender.id(), BOOTSTRAP_PEER_COUNT)).serialize()).unwrap();
+                            serialize_bytes(self, &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender.id(), BOOTSTRAP_PEER_COUNT, &nets)).serialize()).unwrap();
                             if let Some(ref prom) = &self.prometheus_exporter {
                                 prom.lock()
                                     .unwrap()
@@ -1255,14 +1280,14 @@ impl Connection {
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
                     }
-                    NetworkRequest::GetPeers(ref sender) => {
+                    NetworkRequest::GetPeers(ref sender, ref networks) => {
                         debug!("Got request for GetPeers");
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
                         {
                             self.update_last_seen();
                         }
-                        let nodes = buckets.get_all_nodes(Some(&sender.id()));
+                        let nodes = buckets.get_all_nodes(Some(&sender.id()), networks);
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock()
@@ -1275,6 +1300,12 @@ impl Connection {
                     }
                     NetworkRequest::JoinNetwork(sender, network) => {
                         self.add_networks(&vec![*network]);
+                        match self.get_peer() {
+                            Some(peer) => {
+                                buckets.update_network_ids(&peer, self.networks.clone());
+                            }
+                            _ => {}
+                        }
                         self.log_event(P2PEvent::JoinedNetwork(sender.clone(), *network));
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
@@ -1284,6 +1315,12 @@ impl Connection {
                     }
                     NetworkRequest::LeaveNetwork(sender, ref network) => {
                         self.remove_network(network);
+                        match self.get_peer() {
+                            Some(peer) => {
+                                buckets.update_network_ids(&peer, self.networks.clone());
+                            }
+                            _ => {}
+                        }
                         self.log_event(P2PEvent::LeftNetwork(sender.clone(), *network));
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
@@ -1295,7 +1332,7 @@ impl Connection {
             }
             box NetworkMessage::NetworkResponse(ref x, _, _) => {
                 match x {
-                    NetworkResponse::FindNode(sender, peers) => {
+                    NetworkResponse::FindNode(_, peers) => {
                         debug!("Got response to FindNode");
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
@@ -1304,11 +1341,10 @@ impl Connection {
                         }
                         //Process the received node list
                         for peer in peers.iter() {
-                            buckets.insert_into_bucket(peer, &self.own_id);
+                            buckets.insert_into_bucket(peer, &self.own_id, vec![]);
                         }
-                        buckets.insert_into_bucket(sender, &self.own_id);
                     }
-                    NetworkResponse::Pong(sender) => {
+                    NetworkResponse::Pong(_) => {
                         debug!("Got response for ping");
                         self.set_measured_ping();
                         if self.mode != P2PNodeMode::BootstrapperMode
@@ -1316,10 +1352,8 @@ impl Connection {
                         {
                             self.update_last_seen();
                         }
-                        //Note that node responded back
-                        buckets.insert_into_bucket(sender, &self.own_id);
                     }
-                    NetworkResponse::PeerList(sender, peers) => {
+                    NetworkResponse::PeerList(_, peers) => {
                         debug!("Got response to PeerList");
                         if self.mode != P2PNodeMode::BootstrapperMode
                            && self.mode != P2PNodeMode::BootstrapperPrivateMode
@@ -1328,9 +1362,8 @@ impl Connection {
                         }
                         //Process the received node list
                         for peer in peers.iter() {
-                            buckets.insert_into_bucket(peer, &self.own_id);
+                            buckets.insert_into_bucket(peer, &self.own_id, vec![]);
                         }
-                        buckets.insert_into_bucket(sender, &self.own_id);
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
@@ -1346,7 +1379,7 @@ impl Connection {
                                                           peer.id().clone(),
                                                           peer.ip().clone(),
                                                           peer.port());
-                        buckets.insert_into_bucket(&bucket_sender, &self.own_id);
+                        buckets.insert_into_bucket(&bucket_sender, &self.own_id, nets.clone());
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock()
                                 .unwrap()
@@ -1834,9 +1867,9 @@ impl P2PNode {
         self.port
     }
 
-    pub fn get_nodes(&self) -> Result<Vec<P2PPeer>, Error> {
+    pub fn get_nodes(&self, nids: &Vec<u16>) -> Result<Vec<P2PPeer>, Error> {
         match self.buckets.lock() {
-            Ok(x) => Ok(x.get_all_nodes(None)),
+            Ok(x) => Ok(x.get_all_nodes(None, nids)),
             Err(_e) => Err(Error::new(ErrorKind::Other, "Couldn't get lock on buckets!")),
         }
     }
@@ -2013,7 +2046,7 @@ impl P2PNode {
                                     }
                                 }
                             }
-                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_), _, _) => {
+                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_,_), _, _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
                                     if let Some(ref peer) = conn.peer.clone() {
                                         match serialize_bytes(conn, &inner_pkt.serialize()) {
@@ -2149,10 +2182,10 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_get_peers(&mut self) -> ResultExtWrapper<()> {
+    pub fn send_get_peers(&mut self, nids: Vec<u16>) -> ResultExtWrapper<()> {
         self.send_queue
             .lock()?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer()),
+            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer(),nids.clone() ),
                                                                None,
                                                                None)));
         self.queue_size_inc()?;
