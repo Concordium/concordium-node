@@ -82,7 +82,8 @@ fn run() -> ResultExtWrapper<()> {
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
                                                      conf.dns_resolver.clone(),
-                                                     conf.no_dnssec);
+                                                     conf.no_dnssec,
+                                                     conf.bootstrap_node.clone());
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
@@ -243,6 +244,7 @@ fn run() -> ResultExtWrapper<()> {
     let mut _node_clone = node.clone();
     let _dnssec = conf.no_dnssec;
     let _dns_resolvers = conf.dns_resolver.clone();
+    let _bootstrap_node = conf.bootstrap_node.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                  match _node_clone.get_nodes() {
@@ -264,7 +266,8 @@ fn run() -> ResultExtWrapper<()> {
                                  info!("No nodes at all - retrying bootstrapping");
                                  match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
                                                                   _dns_resolvers.clone(),
-                                                                  _dnssec)
+                                                                  _dnssec,
+                                                                  _bootstrap_node.clone())
                                  {
                                      Ok(nodes) => {
                                          for (ip, port) in nodes {

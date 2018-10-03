@@ -122,8 +122,16 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
 
 pub fn get_bootstrap_nodes(bootstrap_name: String,
                            resolvers: Vec<String>,
-                           dnssec_fail: bool)
+                           dnssec_fail: bool,
+                           bootstrap_nodes: Vec<String>)
                            -> Result<Vec<(IpAddr, u16)>, &'static str> {
+    let bootstrap_nodes = bootstrap_nodes.iter()
+                                         .map(|x| parse_ip_port(x))
+                                         .flat_map(|x| x)
+                                         .collect::<Vec<(IpAddr, u16)>>();
+    if bootstrap_nodes.len() > 0 {
+        return Ok(bootstrap_nodes);
+    }
     let resolver_addresses = resolvers.iter()
                                       .map(|x| IpAddr::from_str(x))
                                       .flat_map(|x| x)

@@ -32,6 +32,9 @@ pub struct CliConfig {
                 short = "c",
                 help = "Peer to connect to upon startup")]
     pub connect_to: Vec<String>,
+    #[structopt(long = "bootstrap-node",
+                help = "Bootstrap node to use upon startup ip:port (this disables DNS bootstrapping)")]
+    pub bootstrap_node: Vec<String>,
     #[structopt(long = "listen-port",
                 short = "p",
                 help = "Port to listen on",
@@ -370,6 +373,9 @@ pub struct TestRunnerConfig {
                 help = "DNS resolver to use",
                 default_value = "8.8.8.8")]
     pub dns_resolver: Vec<String>,
+    #[structopt(long = "bootstrap-node",
+                help = "Bootstrap node to use upon startup ip:port (this disables DNS bootstrapping)")]
+    pub bootstrap_node: Vec<String>,
 }
 
 pub fn parse_testrunner_config() -> TestRunnerConfig {
