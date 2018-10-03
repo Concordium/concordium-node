@@ -1,0 +1,59 @@
+name:                Concordium
+version:             0.1.0.0
+github:              "githubuser/Concordium"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2018 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/Concordium#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- bytestring >= 0.10
+- cryptohash-sha256 >= 0.11
+- random >= 1.1
+- cereal >= 0.5.7
+- unordered-containers >= 0.2
+- containers >0.5.9.1
+- time >=1.8
+- transformers >=0.5
+- microlens-platform >=0.3
+
+library:
+  source-dirs: src
+
+executables:
+  Concordium-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - Concordium
+
+tests:
+  Concordium-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - Concordium
+    - hspec >= 2.5
+    - QuickCheck >= 2.10
