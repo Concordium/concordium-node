@@ -2,6 +2,8 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
+#[cfg(windows)]
+use ipconfig::get_adapters;
 use ldns_sys::dns;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
@@ -14,10 +16,13 @@ use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use rand::OsRng;
 use reqwest;
+use resolv_conf::Config as ResolverConfig;
 use serde_json;
 use serde_json::Value;
+use std::fs::File;
 use std::io::Cursor;
 use std::io::Error;
+use std::io::Read;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
@@ -117,6 +122,58 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(unix)]
+pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
+    if resolvers.len() > 0 {
+        resolvers.clone()
+    } else {
+        let mut buf = Vec::with_capacity(4096);
+        match File::open(resolv_conf) {
+            Ok(mut f) => {
+                match f.read_to_end(&mut buf) {
+                    Ok(_) => {
+                        match ResolverConfig::parse(&buf) {
+                            Ok(conf) => {
+                                let ret = conf.nameservers
+                                              .iter()
+                                              .map(|x| x.to_string())
+                                              .collect::<Vec<String>>();
+                                if ret.len() > 0 {
+                                    ret
+                                } else {
+                                    panic!("No DNS resolvers found in {}", resolv_conf);
+                                }
+                            }
+                            _ => panic!("Error reading file {}", resolv_conf),
+                        }
+                    }
+                    _ => panic!("Error reading file {}", resolv_conf),
+                }
+            }
+            _ => panic!("Can't open {}", resolv_conf),
+        }
+    }
+}
+
+#[cfg(windows)]
+pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
+    if resolvers.len() > 0 {
+        resolvers.clone()
+    } else {
+        let adapters = get_adapters()?;
+        let mut name_servers = vec![];
+        for dns_server in adapters.iter()
+                                  .flat_map(|adapter| adapter.dns_servers().iter())
+        {
+            name_servers.push(dns_server.to_string())
+        }
+        if name_servers.len() == 0 {
+            panic!("Could not read dns servers!");
+        }
+        name_servers
     }
 }
 
@@ -537,4 +594,21 @@ mod tests {
         }
     }
 
+    #[test]
+    pub fn test_read_resolv_conf() {
+        assert_eq!(get_resolvers("tests/resolv.conf-linux", &vec![]),
+                   vec!["2001:4860:4860::8888",
+                        "2001:4860:4860::8844",
+                        "8.8.8.8",
+                        "8.8.4.4"]);
+    }
+
+    #[test]
+    pub fn test_read_resolv_conf_with_default() {
+        assert_ne!(get_resolvers("tests/resolv.conf-linux", &vec!["9.9.9.9".to_string()]),
+                   vec!["2001:4860:4860::8888",
+                        "2001:4860:4860::8844",
+                        "8.8.8.8",
+                        "8.8.4.4"]);
+    }
 }
