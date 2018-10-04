@@ -43,7 +43,10 @@ extern crate atomic_counter;
 extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
+#[cfg(windows)]
+extern crate ipconfig;
 extern crate ldns_sys;
+extern crate resolv_conf;
 extern crate semver;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");

@@ -134,10 +134,12 @@ pub struct CliConfig {
     #[structopt(long = "no-dnssec",
                 help = "Do not perform DNSsec tests for lookups")]
     pub no_dnssec: bool,
-    #[structopt(long = "dns-resolver",
-                help = "DNS resolver to use",
-                default_value = "8.8.8.8")]
+    #[structopt(long = "dns-resolver", help = "DNS resolver to use")]
     pub dns_resolver: Vec<String>,
+    #[structopt(long = "resolv-conf",
+                help = "Location of resolv.conf",
+                default_value = "/etc/resolv.conf")]
+    pub resolv_conf: String,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -369,13 +371,15 @@ pub struct TestRunnerConfig {
     #[structopt(long = "no-dnssec",
                 help = "Do not perform DNSsec tests for lookups")]
     pub no_dnssec: bool,
-    #[structopt(long = "dns-resolver",
-                help = "DNS resolver to use",
-                default_value = "8.8.8.8")]
+    #[structopt(long = "dns-resolver", help = "DNS resolver to use")]
     pub dns_resolver: Vec<String>,
     #[structopt(long = "bootstrap-node",
                 help = "Bootstrap node to use upon startup host/ip:port (this disables DNS bootstrapping)")]
     pub bootstrap_node: Vec<String>,
+    #[structopt(long = "resolv-conf",
+                help = "Location of resolv.conf",
+                default_value = "/etc/resolv.conf")]
+    pub resolv_conf: String,
 }
 
 pub fn parse_testrunner_config() -> TestRunnerConfig {

@@ -2,7 +2,7 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.6"
+version = "0.1.7"
 description = "Concordium P2P library"
 authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
 exclude = [
@@ -68,6 +68,10 @@ reqwest = "^0.9"
 semver = "0.9.0"
 serde = "1.0"
 serde_derive = "1.0"
+resolv-conf = "0.6.1"
+
+[target.'cfg(windows)'.dependencies]
+ipconfig = { version = "^0.1.7" }
 
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"

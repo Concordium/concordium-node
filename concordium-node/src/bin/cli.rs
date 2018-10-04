@@ -36,11 +36,6 @@ fn run() -> ResultExtWrapper<()> {
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
 
-    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
-                                                     &conf.dns_resolver,
-                                                     conf.no_dnssec,
-                                                     conf.bootstrap_node.clone());
-
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
     } else if conf.debug {
@@ -64,6 +59,17 @@ fn run() -> ResultExtWrapper<()> {
           app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}",
           app_prefs.get_user_config_dir());
+
+    let dns_resolvers = utils::get_resolvers(&conf.resolv_conf, &conf.dns_resolver);
+
+    for resolver in &dns_resolvers {
+        debug!("Using resolver: {}", resolver);
+    }
+
+    let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
+                                                     &dns_resolvers,
+                                                     conf.no_dnssec,
+                                                     conf.bootstrap_node.clone());
 
     let mut db_path = app_prefs.get_user_app_dir().clone();
     db_path.push("p2p.db");
@@ -307,7 +313,7 @@ fn run() -> ResultExtWrapper<()> {
 
     if !conf.no_network {
         for connect_to in conf.connect_to {
-            match utils::parse_host_port(&connect_to, &conf.dns_resolver, conf.no_dnssec) {
+            match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
                 Some((ip, port)) => {
                     info!("Connecting to peer {}", &connect_to);
                     node.connect(ConnectionType::Node, ip, port)
@@ -340,7 +346,7 @@ fn run() -> ResultExtWrapper<()> {
     let _no_net_clone = conf.no_network;
     let _bootstrappers_conf = conf.bootstrap_server;
     let _dnssec = conf.no_dnssec;
-    let _dns_resolvers = conf.dns_resolver.clone();
+    let _dns_resolvers = dns_resolvers.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
     let _nids = conf.network_ids.clone();
     let _guard_timer =
