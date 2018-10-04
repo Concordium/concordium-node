@@ -11,10 +11,39 @@ const DNS_ANCHOR_1: &'static str = ". IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI
 const DNS_ANCHOR_2: &'static str = ". IN DNSKEY 256 3 8 AwEAAYvxrQOOujKdZz+37P+oL4l7e35/0diH/mZITGjlp4f81ZGQK42HNxSfkiSahinPR3t0YQhjC393NX4TorSiTJy76TBWddNOkC/IaGqcb4erU+nQ75k2Lf0oIpA7qTCk3UkzYBqhKDHHAr2UditE7uFLDcoX4nBLCoaH5FtfxhUqyTlRu0RBXAEuKO+rORTFP0XgA5vlzVmXtwCkb9G8GknHuO1jVAwu3syPRVHErIbaXs1+jahvWWL+Do4wd+lA+TL3+pUk+zKTD2ncq7ZbJBZddo9T7PZjvntWJUzIHIMWZRFAjpi+V7pgh0o1KYXZgDUbiA1s9oLAL1KLSdmoIYM=";
 const DNS_ANCHOR_3: &'static str = ". IN DNSKEY 257 3 8 AwEAAagAIKlVZrpC6Ia7gEzahOR+9W29euxhJhVVLOyQbSEW0O8gcCjFFVQUTf6v58fLjwBd0YI0EzrAcQqBGCzh/RStIoO8g0NfnfL2MTJRkxoXbfDaUeVPQuYEhg37NZWAJQ9VnMVDxP/VHL496M/QZxkjf5/Efucp2gaDX6RS6CXpoY68LsvPVjR0ZSwzz1apAzvN9dlzEheX7ICJBBtuA6G3LQpzW5hOA2hzCTMjJPJ8LbqF6dsV6DoBQzgul0sGIcGOYl7OyQdXfZ57relSQageu+ipAdTTJ25AsRTAoub8ONGcLmqrAmRLKBP1dfwhYB4N7knNnulqQxA+Uk1ihz0=";
 
+#[derive(Copy, Clone, Debug)]
+enum LookupType {
+    ARecord,
+    AAAARecord,
+    TXTRecord,
+}
+
 pub fn resolve_dns_txt_record(entry: &str,
                               dns_servers: &Vec<IpAddr>,
                               no_dnssec_fail: bool)
                               -> Result<Vec<String>, String> {
+    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXTRecord)
+}
+
+pub fn resolve_dns_a_record(entry: &str,
+                            dns_servers: &Vec<IpAddr>,
+                            no_dnssec_fail: bool)
+                            -> Result<Vec<String>, String> {
+    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::ARecord)
+}
+
+pub fn resolve_dns_aaaa_record(entry: &str,
+                               dns_servers: &Vec<IpAddr>,
+                               no_dnssec_fail: bool)
+                               -> Result<Vec<String>, String> {
+    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAARecord)
+}
+
+fn resolve_dns_record(entry: &str,
+                      dns_servers: &Vec<IpAddr>,
+                      no_dnssec_fail: bool,
+                      record_type: LookupType)
+                      -> Result<Vec<String>, String> {
     let mut res: Vec<String> = vec![];
     let mut err: Option<String> = None;
     unsafe {
@@ -78,14 +107,34 @@ pub fn resolve_dns_txt_record(entry: &str,
                     ldns_resolver_set_dnssec_cd(resolver, 1);
                     let mut pkt = ldns_resolver_query(resolver,
                                                       domain,
-                                                      ldns_enum_rr_type_LDNS_RR_TYPE_TXT,
+                                                      match record_type {
+                                                          LookupType::TXTRecord => {
+                                                              ldns_enum_rr_type_LDNS_RR_TYPE_TXT
+                                                          }
+                                                          LookupType::ARecord => {
+                                                              ldns_enum_rr_type_LDNS_RR_TYPE_A
+                                                          }
+                                                          LookupType::AAAARecord => {
+                                                              ldns_enum_rr_type_LDNS_RR_TYPE_AAAA
+                                                          }
+                                                      },
                                                       ldns_enum_rr_class_LDNS_RR_CLASS_IN,
                                                       LDNS_RD as u16);
                     ldns_rdf_deep_free(domain);
                     if !pkt.is_null() {
                         let mut rr_res =
                             ldns_pkt_rr_list_by_type(pkt,
-                                                     ldns_enum_rr_type_LDNS_RR_TYPE_TXT,
+                                                     match record_type {
+                                                         LookupType::TXTRecord => {
+                                                             ldns_enum_rr_type_LDNS_RR_TYPE_TXT
+                                                         }
+                                                         LookupType::ARecord => {
+                                                             ldns_enum_rr_type_LDNS_RR_TYPE_A
+                                                         }
+                                                         LookupType::AAAARecord => {
+                                                             ldns_enum_rr_type_LDNS_RR_TYPE_AAAA
+                                                         }
+                                                     },
                                                      ldns_enum_pkt_section_LDNS_SECTION_ANSWER);
                         if ldns_rr_list_rr_count(rr_res) == 0 {
                             err = Some("SERVFAIL no results".to_string());
@@ -100,7 +149,7 @@ pub fn resolve_dns_txt_record(entry: &str,
                                || no_dnssec_fail
                             {
                                 if no_dnssec_fail {
-                                    parse_results_internal(rr_res, &mut res);
+                                    parse_results_internal(rr_res, &mut res, record_type);
                                 } else {
                                     err = Some("Insecure missing RRsigs".to_string());
                                 }
@@ -115,7 +164,7 @@ pub fn resolve_dns_txt_record(entry: &str,
                                                     ldns_resolver_dnssec_anchors(resolver),
                                                     ptr::null_mut());
                                     if res_status == ldns_enum_status_LDNS_STATUS_OK {
-                                        parse_results_internal(rr_res, &mut res);
+                                        parse_results_internal(rr_res, &mut res, record_type);
                                     } else {
                                         let mut domain_keys =
                                             ldns_fetch_valid_domain_keys(resolver,
@@ -133,7 +182,9 @@ pub fn resolve_dns_txt_record(entry: &str,
                                                                      domain_keys,
                                                                      ptr::null_mut());
                                             if res_status == ldns_enum_status_LDNS_STATUS_OK {
-                                                parse_results_internal(rr_res, &mut res);
+                                                parse_results_internal(rr_res,
+                                                                       &mut res,
+                                                                       record_type);
                                             } else {
                                                 err = Some("Key verification failed".to_string());
                                             }
@@ -169,7 +220,9 @@ pub fn resolve_dns_txt_record(entry: &str,
     }
 }
 
-unsafe fn parse_results_internal(rr_res: *mut ldns_rr_list, res: &mut Vec<String>) {
+unsafe fn parse_results_internal(rr_res: *mut ldns_rr_list,
+                                 res: &mut Vec<String>,
+                                 record_type: LookupType) {
     ldns_rr_list_sort(rr_res);
     let count = ldns_rr_list_rr_count(rr_res);
     for i in 0..count {
@@ -177,17 +230,49 @@ unsafe fn parse_results_internal(rr_res: *mut ldns_rr_list, res: &mut Vec<String
         let buffer = ldns_buffer_new(1024);
         let rdf = *((*rr_ele)._rdata_fields);
         let rdf_type = ldns_rdf_get_type(rdf);
-        if rdf_type == ldns_enum_rdf_type_LDNS_RDF_TYPE_STR {
-            ldns_rdf2buffer_str_str(buffer, rdf);
-            let buffer_res = ldns_buffer2str(buffer);
-            let c_str: &CStr = CStr::from_ptr(buffer_res);
-            match c_str.to_str() {
-                Ok(ref rr_ele_rust) => {
-                    res.push(rr_ele_rust.replace("\"", "").to_owned());
+        match record_type {
+            LookupType::TXTRecord => {
+                if rdf_type == ldns_enum_rdf_type_LDNS_RDF_TYPE_STR {
+                    ldns_rdf2buffer_str_str(buffer, rdf);
+                    let buffer_res = ldns_buffer2str(buffer);
+                    let c_str: &CStr = CStr::from_ptr(buffer_res);
+                    match c_str.to_str() {
+                        Ok(ref rr_ele_rust) => {
+                            res.push(rr_ele_rust.replace("\"", "").to_owned());
+                        }
+                        Err(_) => {}
+                    }
+                    ldns_buffer_free(buffer);
                 }
-                Err(_) => {}
             }
-            ldns_buffer_free(buffer);
+            LookupType::ARecord => {
+                if rdf_type == ldns_enum_rdf_type_LDNS_RDF_TYPE_A {
+                    ldns_rdf2buffer_str_a(buffer, rdf);
+                    let buffer_res = ldns_buffer2str(buffer);
+                    let c_str: &CStr = CStr::from_ptr(buffer_res);
+                    match c_str.to_str() {
+                        Ok(ref rr_ele_rust) => {
+                            res.push(rr_ele_rust.replace("\"", "").to_owned());
+                        }
+                        Err(_) => {}
+                    }
+                    ldns_buffer_free(buffer);
+                }
+            }
+            LookupType::AAAARecord => {
+                if rdf_type == ldns_enum_rdf_type_LDNS_RDF_TYPE_AAAA {
+                    ldns_rdf2buffer_str_aaaa(buffer, rdf);
+                    let buffer_res = ldns_buffer2str(buffer);
+                    let c_str: &CStr = CStr::from_ptr(buffer_res);
+                    match c_str.to_str() {
+                        Ok(ref rr_ele_rust) => {
+                            res.push(rr_ele_rust.replace("\"", "").to_owned());
+                        }
+                        Err(_) => {}
+                    }
+                    ldns_buffer_free(buffer);
+                }
+            }
         }
     }
 }
@@ -371,6 +456,32 @@ mod tests {
         match res {
             Ok(ref resps) => {
                 assert_eq!(resps.len(), 3);
+            }
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn test_googledns_resolve_a_record() {
+        let res = resolve_dns_a_record(&"google.com".to_string(),
+                                       &vec![IpAddr::from_str("8.8.8.8").unwrap()],
+                                       true);
+        match res {
+            Ok(ref resps) => {
+                assert!(resps.len() > 0);
+            }
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    #[test]
+    pub fn test_googledns_resolve_aaaa_record() {
+        let res = resolve_dns_aaaa_record(&"google.com".to_string(),
+                                          &vec![IpAddr::from_str("8.8.8.8").unwrap()],
+                                          true);
+        match res {
+            Ok(ref resps) => {
+                assert!(resps.len() > 0);
             }
             Err(e) => panic!("{}", e),
         }

@@ -105,7 +105,7 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
             let port = input.chars()
                             .skip(n + 1)
                             .take(input.len())
-                            .collect::<String>();;
+                            .collect::<String>();
             match IpAddr::from_str(&ip) {
                 Ok(ip) => {
                     match port.parse::<usize>() {
@@ -120,13 +120,71 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
     }
 }
 
+pub fn parse_host_port(input: &String,
+                       resolvers: &Vec<String>,
+                       dnssec_fail: bool)
+                       -> Option<(IpAddr, u16)> {
+    match input.rfind(":") {
+        Some(n) => {
+            let ip = input.chars().take(n).collect::<String>();;
+            let port = input.chars()
+                            .skip(n + 1)
+                            .take(input.len())
+                            .collect::<String>();
+            match IpAddr::from_str(&ip) {
+                Ok(ip) => {
+                    match port.parse::<usize>() {
+                        Ok(port) => Some((ip, port as u16)),
+                        _ => None,
+                    }
+                }
+                _ => {
+                    match port.parse::<usize>() {
+                        Ok(port) => {
+                            let resolver_addresses = resolvers.iter()
+                                                              .map(|x| IpAddr::from_str(x))
+                                                              .flat_map(|x| x)
+                                                              .collect::<Vec<IpAddr>>();
+                            if resolver_addresses.len() == 0 {
+                                return None;
+                            }
+                            match dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail) {
+                                Ok(res) => {
+                                    if res.len() > 0 {
+                                        return Some((IpAddr::from_str(res.get(0).unwrap()).unwrap(), port as u16));
+                                    }
+                                }
+                                _ => {}
+                            }
+                            match dns::resolve_dns_aaaa_record(&ip,
+                                                               &resolver_addresses,
+                                                               dnssec_fail)
+                            {
+                                Ok(res) => {
+                                    if res.len() > 0 {
+                                        return Some((IpAddr::from_str(res.get(0).unwrap()).unwrap(), port as u16));
+                                    }
+                                }
+                                _ => {}
+                            }
+                            None
+                        }
+                        _ => None,
+                    }
+                }
+            }
+        }
+        _ => None,
+    }
+}
+
 pub fn get_bootstrap_nodes(bootstrap_name: String,
-                           resolvers: Vec<String>,
+                           resolvers: &Vec<String>,
                            dnssec_fail: bool,
                            bootstrap_nodes: Vec<String>)
                            -> Result<Vec<(IpAddr, u16)>, &'static str> {
     let bootstrap_nodes = bootstrap_nodes.iter()
-                                         .map(|x| parse_ip_port(x))
+                                         .map(|x| parse_host_port(x, resolvers, dnssec_fail))
                                          .flat_map(|x| x)
                                          .collect::<Vec<(IpAddr, u16)>>();
     if bootstrap_nodes.len() > 0 {

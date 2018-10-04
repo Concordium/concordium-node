@@ -30,10 +30,10 @@ pub struct CliConfig {
     pub no_network: bool,
     #[structopt(long = "connect-to",
                 short = "c",
-                help = "Peer to connect to upon startup")]
+                help = "Peer to connect to upon startup (host/ip:port)")]
     pub connect_to: Vec<String>,
     #[structopt(long = "bootstrap-node",
-                help = "Bootstrap node to use upon startup ip:port (this disables DNS bootstrapping)")]
+                help = "Bootstrap node to use upon startup host/ip:port (this disables DNS bootstrapping)")]
     pub bootstrap_node: Vec<String>,
     #[structopt(long = "listen-port",
                 short = "p",
@@ -364,7 +364,7 @@ pub struct TestRunnerConfig {
     pub ip_discovery_service_host: String,
     #[structopt(long = "connect-to",
                 short = "c",
-                help = "Peer to connect to upon startup")]
+                help = "Peer to connect to upon startup (host/ip:port)")]
     pub connect_to: Vec<String>,
     #[structopt(long = "no-dnssec",
                 help = "Do not perform DNSsec tests for lookups")]
@@ -374,7 +374,7 @@ pub struct TestRunnerConfig {
                 default_value = "8.8.8.8")]
     pub dns_resolver: Vec<String>,
     #[structopt(long = "bootstrap-node",
-                help = "Bootstrap node to use upon startup ip:port (this disables DNS bootstrapping)")]
+                help = "Bootstrap node to use upon startup host/ip:port (this disables DNS bootstrapping)")]
     pub bootstrap_node: Vec<String>,
 }
 

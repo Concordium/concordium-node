@@ -238,7 +238,7 @@ fn run() -> ResultExtWrapper<()> {
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
-                                                     conf.dns_resolver.clone(),
+                                                     &conf.dns_resolver,
                                                      conf.no_dnssec,
                                                      conf.bootstrap_node.clone());
 
@@ -440,7 +440,7 @@ fn run() -> ResultExtWrapper<()> {
                                    });
 
     for connect_to in conf.connect_to {
-        match utils::parse_ip_port(&connect_to) {
+        match utils::parse_host_port(&connect_to, &conf.dns_resolver, conf.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
                 node.connect(ConnectionType::Node, ip, port)
@@ -452,7 +452,7 @@ fn run() -> ResultExtWrapper<()> {
     }
 
     if !conf.no_boostrap_dns {
-        info!("Attempting to bootstrap via DNS");
+        info!("Attempting to bootstrap");
         match bootstrap_nodes {
             Ok(nodes) => {
                 for (ip, port) in nodes {
@@ -494,7 +494,7 @@ fn run() -> ResultExtWrapper<()> {
                              if x.len() == 0 {
                                  info!("No nodes at all - retrying bootstrapping");
                                  match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
-                                                                  _dns_resolvers.clone(),
+                                                                  &_dns_resolvers,
                                                                   _dnssec,
                                                                   _bootstrap_node.clone())
                                  {
