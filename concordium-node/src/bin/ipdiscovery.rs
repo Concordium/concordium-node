@@ -1,3 +1,4 @@
+#![feature(alloc_system)]
 extern crate iron;
 extern crate p2p_client;
 extern crate router;
@@ -9,7 +10,9 @@ extern crate env_logger;
 extern crate hostname;
 #[macro_use]
 extern crate serde_json;
+extern crate alloc_system;
 
+use alloc_system::System;
 use env_logger::{Builder, Env};
 use hostname::get_hostname;
 use iron::headers::ContentType;
@@ -24,6 +27,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+#[global_allocator]
+static A: System = System;
 
 quick_main!(run);
 

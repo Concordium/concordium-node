@@ -2080,6 +2080,7 @@ impl P2PNode {
                                 }
                             };
                             send_q.append(&mut resend_queue);
+                            resend_queue.clear();
                         }
                         break;
                     }
