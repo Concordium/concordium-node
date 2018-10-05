@@ -35,8 +35,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
 
-
-
 quick_main!(run);
 
 fn run() -> ResultExtWrapper<()> {
