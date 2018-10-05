@@ -1,4 +1,5 @@
 #![feature(box_syntax, box_patterns)]
+#![feature(alloc_system)]
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
@@ -7,9 +8,14 @@ extern crate mio;
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
+extern crate alloc_system;
 extern crate chrono;
 extern crate env_logger;
 extern crate timer;
+
+use alloc_system::System;
+#[global_allocator]
+static A: System = System;
 
 use env_logger::{Builder, Env};
 use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};

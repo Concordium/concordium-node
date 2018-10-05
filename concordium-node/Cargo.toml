@@ -2,7 +2,7 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.7"
+version = "0.1.9"
 description = "Concordium P2P library"
 authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
 exclude = [
@@ -25,7 +25,7 @@ structopt = "0.2"
 clap = "2"
 rand = "^0.5"
 rustc-serialize = "^0.3"
-hacl-star = "^0.0.12"
+hacl-star = "^0.0.13"
 mio = "0.6"
 bytes = "0.4"
 ring = "0.13"
@@ -34,7 +34,7 @@ num-bigint = "0.2"
 num-traits = "0.2"
 log = "0.4"
 env_logger = "0.5"
-rustls = {version = "0.13.1", features = [ "dangerous_configuration"]}
+rustls = {version = "0.14.0", features = [ "dangerous_configuration"]}
 time = "0.1.40"
 webpki = "0.18"
 byteorder = "1"
@@ -45,7 +45,7 @@ futures         = "0.1.24"
 futures-cpupool = "0.1.8"
 tls-api         = "0.1.20"
 httpbis         = "^0.7"
-grpcio          = { version = "0.3.1", default-features = false, features = ["protobuf-codec"] } 
+grpcio          = { version = "0.4.0", default-features = false, features = ["protobuf-codec"] } 
 grpc            = "0.5.0"
 preferences = "^1.1.0"
 app_dirs = "^1.2.1"
@@ -57,7 +57,7 @@ hex = "0.3.2"
 error-chain = "0.12.0"
 iron = "*"
 router = "*"
-atomic-counter = "0.1.0"
+atomic-counter = "^1.0"
 lazy_static = "1.1.0"
 human-panic = "1.0.0"
 cfg-if = "0.1"

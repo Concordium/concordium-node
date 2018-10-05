@@ -1,3 +1,4 @@
+#![feature(alloc_system)]
 extern crate iron;
 extern crate p2p_client;
 extern crate router;
@@ -9,6 +10,11 @@ extern crate env_logger;
 extern crate hostname;
 #[macro_use]
 extern crate serde_json;
+extern crate alloc_system;
+
+use alloc_system::System;
+#[global_allocator]
+static A: System = System;
 
 use env_logger::{Builder, Env};
 use hostname::get_hostname;

@@ -1,4 +1,5 @@
 #![feature(box_syntax, box_patterns)]
+#![feature(alloc_system)]
 #![recursion_limit = "1024"]
 extern crate p2p_client;
 #[macro_use]
@@ -11,7 +12,12 @@ extern crate mio;
 extern crate timer;
 #[macro_use]
 extern crate error_chain;
+extern crate alloc_system;
 extern crate reqwest;
+
+use alloc_system::System;
+#[global_allocator]
+static A: System = System;
 
 use env_logger::{Builder, Env};
 use p2p_client::common::{
