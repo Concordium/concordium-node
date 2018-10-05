@@ -1891,11 +1891,12 @@ impl P2PNode {
     }
 
     pub fn process_messages(&mut self) -> ResultExtWrapper<()> {
-        //Try to send queued messages first
-        //Resend queue
-        let mut resend_queue: VecDeque<Arc<Box<NetworkMessage>>> = VecDeque::new();
         {
             let mut send_q = self.send_queue.lock()?;
+            if send_q.len() == 0 {
+                return Ok(());
+            }
+            let mut resend_queue: VecDeque<Arc<Box<NetworkMessage>>> = VecDeque::new();
             loop {
                 trace!("Processing messages!");
                 let outer_pkt = send_q.pop_front();

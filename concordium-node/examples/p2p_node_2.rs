@@ -14,6 +14,8 @@ extern crate env_logger;
 extern crate timer;
 
 use alloc_system::System;
+#[global_allocator]
+static A: System = System;
 
 use env_logger::{Builder, Env};
 use p2p_client::common::{
@@ -29,9 +31,6 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
 use timer::Timer;
-
-#[global_allocator]
-static A: System = System;
 
 quick_main!(run);
 

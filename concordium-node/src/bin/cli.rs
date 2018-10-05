@@ -16,6 +16,9 @@ extern crate alloc_system;
 extern crate reqwest;
 
 use alloc_system::System;
+#[global_allocator]
+static A: System = System;
+
 use env_logger::{Builder, Env};
 use p2p_client::common::{
     ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse,
@@ -32,8 +35,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
 
-#[global_allocator]
-static A: System = System;
+
 
 quick_main!(run);
 

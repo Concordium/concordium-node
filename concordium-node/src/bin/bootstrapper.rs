@@ -15,6 +15,9 @@ extern crate error_chain;
 extern crate alloc_system;
 
 use alloc_system::System;
+#[global_allocator]
+static A: System = System;
+
 use env_logger::{Builder, Env};
 use p2p_client::common::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
@@ -26,9 +29,6 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
-
-#[global_allocator]
-static A: System = System;
 
 quick_main!(run);
 

@@ -13,6 +13,9 @@ extern crate serde_json;
 extern crate alloc_system;
 
 use alloc_system::System;
+#[global_allocator]
+static A: System = System;
+
 use env_logger::{Builder, Env};
 use hostname::get_hostname;
 use iron::headers::ContentType;
@@ -27,9 +30,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-#[global_allocator]
-static A: System = System;
 
 quick_main!(run);
 

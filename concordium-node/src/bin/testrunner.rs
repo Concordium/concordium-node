@@ -19,6 +19,8 @@ extern crate alloc_system;
 extern crate timer;
 
 use alloc_system::System;
+#[global_allocator]
+static A: System = System;
 
 use env_logger::{Builder, Env};
 use iron::headers::ContentType;
@@ -38,9 +40,6 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
-
-#[global_allocator]
-static A: System = System;
 
 quick_main!(run);
 
