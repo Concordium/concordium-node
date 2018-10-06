@@ -28,6 +28,9 @@ data Transaction = Transaction {
 
 instance Serialize Transaction
 
+instance Show Transaction where
+    showsPrec l (Transaction nonce d) = showsPrec l nonce . (':':) . showsPrec l d
+
 toTransactions :: ByteString -> Maybe [Transaction]
 toTransactions bs = case decode bs of
         Left _ -> Nothing

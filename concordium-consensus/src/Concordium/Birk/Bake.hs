@@ -34,4 +34,6 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     let nonce = computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- finalizationBlockPointer <$> lastFinalizedBlock
     payload <- MaybeT $ processInputs bb
-    return $ signBlock bakerSignKey slot bb bakerId electionProof nonce lastFinal payload
+    let block = signBlock bakerSignKey slot bb bakerId electionProof nonce lastFinal payload
+    storeBlock block
+    return block

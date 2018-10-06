@@ -2,6 +2,7 @@
 module Concordium.MonadImplementation where
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Maybe
 import Control.Exception(assert)
@@ -18,6 +19,7 @@ import Concordium.Payload.Transaction
 import Concordium.Payload.Monad
 import Concordium.Types
 import Concordium.Skov.Monad
+import Concordium.Kontrol.Monad
 
 data BlockStatus =
     BlockAlive !BlockHeight
@@ -181,4 +183,5 @@ instance Monad m => PayloadMonad (StateT SkovData m) where
                         let upd tr@Transaction{..} s = if transactionNonce `Map.member` s then Nothing else Just (Map.insert transactionNonce tr s)
                         MaybeT $ pure $ foldrM upd parentTrans bts
         runMaybeT $ getTrans bh
-                        
+
+instance MonadIO m => KontrolMonad (StateT SkovData m)
