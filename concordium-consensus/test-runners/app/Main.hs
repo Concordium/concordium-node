@@ -25,7 +25,7 @@ transactions gen = trs 0 (randoms gen)
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (500000, 1500000)
+        r <- randomRIO (50000, 150000)
         threadDelay r
         sendTransactions chan ts
 
@@ -44,9 +44,9 @@ relay inp monitor outps = loop
                 MsgNewBlock block -> do
                     writeChan monitor block
                     forM_ outps $ \outp -> forkIO $ do
-                        r <- (^2) <$> randomRIO (0, 7800)
+                        r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
-                        putStrLn $ "Delay: " ++ show r
+                        --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgBlockReceived block)
             loop
 
@@ -66,7 +66,7 @@ main = do
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
     let fps = FinalizationParameters (Map.empty)
     now <- truncate <$> getPOSIXTime
-    let gen = GenesisData now 10 bps fps
+    let gen = GenesisData now 1 bps fps
     trans <- transactions <$> newStdGen
     chans <- mapM (\(_, (_, bid)) -> do
         (cin, cout) <- makeRunner bid gen
@@ -76,7 +76,10 @@ main = do
     mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
     let loop = do
             block <- readChan monitorChan
-            putStrLn (showsBlock block "")
+            let bh = hashBlock block
+            putStrLn $ " n" ++ showBSHex bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
+            putStrLn $ " n" ++ showBSHex bh ++ " -> n" ++ showBSHex (blockPointer block) ++ ";"
+            --putStrLn (showsBlock block "")
             loop
     loop
 
