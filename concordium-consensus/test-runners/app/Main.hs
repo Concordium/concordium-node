@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Main where
 
 import Control.Concurrent
@@ -34,37 +35,48 @@ makeBaker bid lot = do
         (ssk, spk) <- Sig.newKeypair
         return (BakerInfo epk spk lot, BakerIdentity bid ssk esk)
 
-relay :: Chan OutMessage -> [Chan InMessage] -> IO ()
-relay inp outps = loop
+relay :: Chan OutMessage -> Chan Block -> [Chan InMessage] -> IO ()
+relay inp monitor outps = loop
     where
         loop = do
             msg <- readChan inp
             case msg of
-                MsgNewBlock block -> forM_ outps $ \outp -> writeChan outp (MsgBlockReceived block)
+                MsgNewBlock block -> do
+                    writeChan monitor block
+                    forM_ outps $ \outp -> forkIO $ do
+                        r <- (^2) <$> randomRIO (0, 7800)
+                        threadDelay r
+                        putStrLn $ "Delay: " ++ show r
+                        writeChan outp (MsgBlockReceived block)
             loop
+
+removeEach :: [a] -> [(a,[a])]
+removeEach = re []
+    where
+        re l (x:xs) = (x,l++xs) : re (x:l) xs
+        re l [] = []
 
 main :: IO ()
 main = do
-    (b1, bid1) <- makeBaker 1 0.5
-    (b2, bid2) <- makeBaker 2 0.5
+    let n = 10
+    let bns = [1..n]
+    let bakeShare = (1.0 / (fromInteger $ toInteger n))
+    bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
     let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
-                (Map.fromList [(1, b1), (2, b2)])
+                (Map.fromList [(i, b) | (i, (b, _)) <- bis])
     let fps = FinalizationParameters (Map.empty)
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 10 bps fps
-    (b1in, b1out) <- makeRunner bid1 gen
-    (b2in, b2out) <- makeRunner bid2 gen
     trans <- transactions <$> newStdGen
-    forkIO $ sendTransactions b1in trans
-    forkIO $ sendTransactions b2in trans
+    chans <- mapM (\(_, (_, bid)) -> do
+        (cin, cout) <- makeRunner bid gen
+        forkIO $ sendTransactions cin trans
+        return (cin, cout)) bis
     monitorChan <- newChan
-    forkIO $ relay b1out [b2in, monitorChan]
-    forkIO $ relay b2out [b1in, monitorChan]
+    mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
     let loop = do
-            r <- readChan monitorChan
-            case r of
-                MsgBlockReceived block -> putStrLn (showsBlock block "")
-                _ -> return ()
+            block <- readChan monitorChan
+            putStrLn (showsBlock block "")
             loop
     loop
 

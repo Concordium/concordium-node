@@ -4,6 +4,8 @@ module Concordium.Payload.Transaction where
 import GHC.Generics
 import Data.Word
 import Data.ByteString
+import Data.ByteString.Builder
+import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Serialize
 import Data.Hashable
 import Data.Bits
@@ -17,7 +19,8 @@ instance Hashable TransactionNonce where
     hash (TransactionNonce a _ _ _) = fromIntegral a
 
 instance Show TransactionNonce where
-    showsPrec _ (TransactionNonce a b c d) = showHex a . showHex b . showHex c . showHex d
+    show (TransactionNonce a b c d) =
+        LBS.unpack (toLazyByteString $ word64HexFixed a <> word64HexFixed b <> word64HexFixed c <> word64HexFixed d)
 
 instance Serialize TransactionNonce
 

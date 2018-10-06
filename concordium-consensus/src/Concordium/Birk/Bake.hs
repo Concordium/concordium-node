@@ -26,7 +26,8 @@ processInputs bh =
 
 bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
-    bb <- bestBlock
+    -- TODO: Should check that the best block is not already in this slot!
+    bb <- bestBlockBefore slot
     BirkParameters{..} <- getBirkParameters bb
     electionProof <- MaybeT . pure $ do
         lotteryPower <- bakerLotteryPower <$> birkBakers ^? ix bakerId
