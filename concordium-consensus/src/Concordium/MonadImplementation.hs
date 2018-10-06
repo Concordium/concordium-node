@@ -1,16 +1,21 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns #-}
-module Concordium.Skov.MonadImplementation where
+module Concordium.MonadImplementation where
 
+import Control.Monad
 import Control.Monad.Trans.State
+import Control.Monad.Trans.Maybe
 import Control.Exception(assert)
 import Lens.Micro.Platform
 import Data.Foldable
 
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 
-
+import Concordium.Payload.Transaction
+import Concordium.Payload.Monad
 import Concordium.Types
 import Concordium.Skov.Monad
 
@@ -28,7 +33,9 @@ data SkovData = SkovData {
     _skovGenesisData :: GenesisData,
     _skovGenesisBlock :: Block,
     _skovGenesisBlockHash :: BlockHash,
-    _skovBlockStatus :: HM.HashMap BlockHash BlockStatus
+    _skovBlockStatus :: HM.HashMap BlockHash BlockStatus,
+    _transactionsFinalized :: Map.Map TransactionNonce Transaction,
+    _transactionsPending :: Map.Map TransactionNonce Transaction
 }
 makeLenses ''SkovData
 
@@ -41,7 +48,9 @@ initialSkovData gd = SkovData {
             _skovGenesisData = gd,
             _skovGenesisBlock = gb,
             _skovGenesisBlockHash = gbh,
-            _skovBlockStatus = HM.singleton gbh (BlockFinalized gbfin)
+            _skovBlockStatus = HM.singleton gbh (BlockFinalized gbfin),
+            _transactionsFinalized = Map.empty,
+            _transactionsPending = Map.empty
         }
     where
         gb = makeGenesisBlock gd
@@ -149,6 +158,27 @@ instance Monad m => SkovMonad (StateT SkovData m) where
                     Nothing -> []
                     Just l -> l
 
-
-
+instance Monad m => PayloadMonad (StateT SkovData m) where
+    addPendingTransaction tr@Transaction{..} = do
+        isFin <- Map.member transactionNonce <$> use transactionsFinalized
+        unless isFin $ do
+            transactionsPending %= Map.insert transactionNonce tr
+    getPendingTransactionsAtBlock bh = do
+        pts <- use transactionsPending
+        getTransactionsAtBlock bh >>= \case
+            Nothing -> return Nothing
+            Just bts -> return $ Just $ Map.difference pts bts
+    getTransactionsAtBlock bh = do
+        lfp <- finalizationBlockPointer <$> lastFinalizedBlock
+        genp <- genesisBlockHash
+        let getTrans bh
+                | bh == lfp = use transactionsFinalized
+                | bh == genp = return Map.empty
+                | otherwise = do
+                        block <- MaybeT . preuse $ skovBlockTable . ix bh
+                        bts <- MaybeT . pure $ toTransactions (blockData block)
+                        parentTrans <- getTrans (blockPointer block)
+                        let upd tr@Transaction{..} s = if transactionNonce `Map.member` s then Nothing else Just (Map.insert transactionNonce tr s)
+                        MaybeT $ pure $ foldrM upd parentTrans bts
+        runMaybeT $ getTrans bh
                         
