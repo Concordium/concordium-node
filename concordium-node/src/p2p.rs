@@ -41,6 +41,7 @@ use time;
 use time::Timespec;
 use utils;
 use webpki::DNSNameRef;
+use vecio::Rawv;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -52,6 +53,22 @@ const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 lazy_static! {
     static ref TOTAL_MESSAGES_RECEIVED_COUNTER: RelaxedCounter = { RelaxedCounter::new(0) };
     static ref TOTAL_MESSAGES_SENT_COUNTER: RelaxedCounter = { RelaxedCounter::new(0) };
+}
+
+pub struct WriteVAdapter<'a> {
+    rawv: &'a mut Rawv
+}
+
+impl<'a> WriteVAdapter<'a> {
+    pub fn new(rawv: &'a mut Rawv) -> WriteVAdapter<'a> {
+        WriteVAdapter { rawv }
+    }
+}
+
+impl<'a> rustls::WriteV for WriteVAdapter<'a> {
+    fn writev(&mut self, bytes: &[&[u8]]) -> io::Result<usize> {
+        self.rawv.writev(bytes)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1615,13 +1632,13 @@ impl Connection {
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
-                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    Some(ref mut x) => x.writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
                     None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
             false => {
                 match self.tls_server_session {
-                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    Some(ref mut x) => x.writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
                     None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
@@ -1670,7 +1687,7 @@ pub struct P2PNode {
 
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
     trace!("Serializing data to connection {} bytes", pkt.len());
-    let mut size_vec = vec![];
+    let mut size_vec = Vec::with_capacity(4);
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
     conn.write_all(&size_vec[..])?;
     conn.write_all(pkt)?;
