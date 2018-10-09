@@ -6,7 +6,7 @@ then
   exit 1
 fi
 
-docker build -f scripts/basic.Dockerfile -t concordium/testrunner:$1 .
+docker build -f scripts/testrunner.Dockerfile -t concordium/testrunner:$1 .
 
 docker tag concordium/testrunner:$1 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/testrunner:$1
 

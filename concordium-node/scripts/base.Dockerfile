@@ -5,6 +5,7 @@ COPY ./scripts/init.build.env.sh ./init.build.env.sh
 COPY ./scripts/start-bootstrapper.sh ./start-bootstrapper.sh
 COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh
+COPY ./scripts/start-testrunner.sh ./start-testrunner.sh
 RUN pacman -Syy --noconfirm
 RUN pacman -S archlinux-keyring --noconfirm
 RUN pacman -Syu --noconfirm
