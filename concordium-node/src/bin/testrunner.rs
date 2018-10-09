@@ -48,6 +48,8 @@ struct TestRunner {
     test_start: Arc<Mutex<Option<u64>>>,
     test_running: Arc<Mutex<bool>>,
     registered_times: Arc<Mutex<Vec<Measurement>>>,
+    node: Arc<Mutex<P2PNode>>,
+    nid: u16
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -64,10 +66,11 @@ impl Measurement {
 }
 
 impl TestRunner {
-    pub fn new() -> Self {
+    pub fn new(node: P2PNode, nid: u16) -> Self {
         TestRunner { test_start: Arc::new(Mutex::new(None)),
                      test_running: Arc::new(Mutex::new(false)),
-                     registered_times: Arc::new(Mutex::new(vec![])), }
+                     registered_times: Arc::new(Mutex::new(vec![])), 
+                     node: Arc::new(Mutex::new(node)), nid: nid,}
     }
 
     fn index(&self) -> IronResult<Response> {
@@ -112,11 +115,14 @@ impl TestRunner {
                 if !*value {
                     *value = true;
                     info!("Started test");
+                    *self.test_start.lock().unwrap() = Some(common::get_current_stamp());
+                    self.node.lock().unwrap().send_message(None, self.nid, None, "Test runner test message".as_bytes(), true)
+                        .map_err(|e| error!("{}", e)).ok();
                     Ok(Response::with((status::Ok,
-                                      format!("TEST STARTED ON {}/{} @ {}",
-                                               p2p_client::APPNAME,
-                                               p2p_client::VERSION,
-                                               common::get_current_stamp()))))
+                                    format!("TEST STARTED ON {}/{} @ {}",
+                                            p2p_client::APPNAME,
+                                            p2p_client::VERSION,
+                                            common::get_current_stamp()))))
                 } else {
                     error!("Couldn't start test as it's already running");
                     Ok(Response::with((status::Ok,
@@ -134,7 +140,7 @@ impl TestRunner {
     fn reset_test(&self) -> IronResult<Response> {
         match self.test_running.lock() {
             Ok(mut value) => {
-                if !*value {
+                if *value {
                     match self.test_start.lock() {
                         Ok(mut inner_value) => *inner_value = None,
                         _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
@@ -144,6 +150,7 @@ impl TestRunner {
                         _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
                     }
                     *value = false;
+                    *self.test_start.lock().unwrap() = None;
                     info!("Testing reset on runner");
                     Ok(Response::with((status::Ok,
                                       format!("TEST RESET ON {}/{} @ {}",
@@ -151,9 +158,9 @@ impl TestRunner {
                                                p2p_client::VERSION,
                                                common::get_current_stamp()))))
                 } else {
-                    error!("Test running so can't reset right now");
+                    error!("Test not running so can't reset right now");
                     Ok(Response::with((status::Ok,
-                                      "Test already running, can't reset now!".to_string())))
+                                      "Test not running, can't reset now!".to_string())))
                 }
             }
             _ => {
@@ -369,6 +376,8 @@ fn run() -> ResultExtWrapper<()> {
                      conf.network_ids.clone())
     };
 
+    let _node_th = node.spawn();
+
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
@@ -478,6 +487,8 @@ fn run() -> ResultExtWrapper<()> {
         };
     }
 
+    let mut testrunner = TestRunner::new(node.clone(), *conf.network_ids.first().unwrap());
+
     let timer = Timer::new();
 
     let _desired_nodes_count = conf.desired_nodes;
@@ -486,6 +497,7 @@ fn run() -> ResultExtWrapper<()> {
     let _dns_resolvers = dns_resolvers.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
     let _nids = conf.network_ids.clone();
+    let _node_clone = node.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
                  match node.get_nodes(&vec![]) {
@@ -533,7 +545,6 @@ fn run() -> ResultExtWrapper<()> {
                  };
              });
 
-    let mut testrunner = TestRunner::new();
     let _th = testrunner.start_server(&conf.listen_http_address, conf.listen_http_port);
 
     _th.join().map_err(|e| error!("{:?}", e)).ok();

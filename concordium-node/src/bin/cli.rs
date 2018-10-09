@@ -241,7 +241,7 @@ fn run() -> ResultExtWrapper<()> {
                                                    }
                                                    if let Some(testrunner_url ) = _test_runner_url.clone() {
                                                        info!("Sending information to test runner");
-                                                       match reqwest::get(&format!("{}/{}/{}", testrunner_url, _node_self_clone.get_own_id().to_string(), msgid)) {
+                                                       match reqwest::get(&format!("{}/register/{}/{}", testrunner_url, _node_self_clone.get_own_id().to_string(), msgid)) {
                                                            Ok(ref mut res) if res.status().is_success() => info!("Registered packet received with test runner"),
                                                            _ => error!("Couldn't register packet received with test runner")
                                                        }
@@ -270,6 +270,7 @@ fn run() -> ResultExtWrapper<()> {
                                                }
                                                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), _, _) => {
                                                    info!("Received PeerList response, attempting to satisfy desired peers");
+                                                   println!("PEERS IN LIST {}", peers.len());
                                                    let mut new_peers = 0;
                                                    match _node_self_clone.get_nodes(&vec![]) {
                                                        Ok(x) => {
