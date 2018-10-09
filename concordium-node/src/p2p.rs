@@ -40,8 +40,8 @@ use std::time::Duration;
 use time;
 use time::Timespec;
 use utils;
-use webpki::DNSNameRef;
 use vecio::Rawv;
+use webpki::DNSNameRef;
 
 const SERVER: Token = Token(0);
 const BUCKET_SIZE: u8 = 20;
@@ -56,7 +56,7 @@ lazy_static! {
 }
 
 pub struct WriteVAdapter<'a> {
-    rawv: &'a mut Rawv
+    rawv: &'a mut Rawv,
 }
 
 impl<'a> WriteVAdapter<'a> {

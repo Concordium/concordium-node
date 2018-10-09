@@ -49,7 +49,7 @@ struct TestRunner {
     test_running: Arc<Mutex<bool>>,
     registered_times: Arc<Mutex<Vec<Measurement>>>,
     node: Arc<Mutex<P2PNode>>,
-    nid: u16
+    nid: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -69,8 +69,9 @@ impl TestRunner {
     pub fn new(node: P2PNode, nid: u16) -> Self {
         TestRunner { test_start: Arc::new(Mutex::new(None)),
                      test_running: Arc::new(Mutex::new(false)),
-                     registered_times: Arc::new(Mutex::new(vec![])), 
-                     node: Arc::new(Mutex::new(node)), nid: nid,}
+                     registered_times: Arc::new(Mutex::new(vec![])),
+                     node: Arc::new(Mutex::new(node)),
+                     nid: nid, }
     }
 
     fn index(&self) -> IronResult<Response> {
@@ -92,13 +93,13 @@ impl TestRunner {
                         } else {
                             error!("Couldn't register due to locking issues");
                             Ok(Response::with((status::InternalServerError,
-                                              "Can't retrieve access to inner lock".to_string())))
+                                               "Can't retrieve access to inner lock".to_string())))
                         }
                     }
                     _ => {
                         error!("Couldn't register due to missing params");
                         Ok(Response::with((status::NotFound,
-                                          "Missing packet id in url".to_string())))
+                                           "Missing packet id in url".to_string())))
                     }
                 }
             }
@@ -116,23 +117,31 @@ impl TestRunner {
                     *value = true;
                     info!("Started test");
                     *self.test_start.lock().unwrap() = Some(common::get_current_stamp());
-                    self.node.lock().unwrap().send_message(None, self.nid, None, "Test runner test message".as_bytes(), true)
-                        .map_err(|e| error!("{}", e)).ok();
+                    self.node
+                        .lock()
+                        .unwrap()
+                        .send_message(None,
+                                      self.nid,
+                                      None,
+                                      "Test runner test message".as_bytes(),
+                                      true)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
                     Ok(Response::with((status::Ok,
-                                    format!("TEST STARTED ON {}/{} @ {}",
-                                            p2p_client::APPNAME,
-                                            p2p_client::VERSION,
-                                            common::get_current_stamp()))))
+                                       format!("TEST STARTED ON {}/{} @ {}",
+                                               p2p_client::APPNAME,
+                                               p2p_client::VERSION,
+                                               common::get_current_stamp()))))
                 } else {
                     error!("Couldn't start test as it's already running");
                     Ok(Response::with((status::Ok,
-                                      "Test already running, can't start one!".to_string())))
+                                       "Test already running, can't start one!".to_string())))
                 }
             }
             _ => {
                 error!("Couldn't register due to locking issues");
                 Ok(Response::with((status::InternalServerError,
-                                  "Can't retrieve access to inner lock".to_string())))
+                                   "Can't retrieve access to inner lock".to_string())))
             }
         }
     }
@@ -153,20 +162,20 @@ impl TestRunner {
                     *self.test_start.lock().unwrap() = None;
                     info!("Testing reset on runner");
                     Ok(Response::with((status::Ok,
-                                      format!("TEST RESET ON {}/{} @ {}",
+                                       format!("TEST RESET ON {}/{} @ {}",
                                                p2p_client::APPNAME,
                                                p2p_client::VERSION,
                                                common::get_current_stamp()))))
                 } else {
                     error!("Test not running so can't reset right now");
                     Ok(Response::with((status::Ok,
-                                      "Test not running, can't reset now!".to_string())))
+                                       "Test not running, can't reset now!".to_string())))
                 }
             }
             _ => {
                 error!("Couldn't register due to locking issues");
                 Ok(Response::with((status::InternalServerError,
-                                  "Can't retrieve access to inner lock".to_string())))
+                                   "Can't retrieve access to inner lock".to_string())))
             }
         }
     }
@@ -199,18 +208,18 @@ impl TestRunner {
                         _ => {
                             error!("Couldn't send results due to locking issues");
                             Ok(Response::with((status::InternalServerError,
-                                              "Can't retrieve access to inner lock".to_string())))
+                                               "Can't retrieve access to inner lock".to_string())))
                         }
                     }
                 } else {
                     Ok(Response::with((status::Ok,
-                                      "Test not running, can't get results now!".to_string())))
+                                       "Test not running, can't get results now!".to_string())))
                 }
             }
             _ => {
                 error!("Couldn't send results due to locking issues");
                 Ok(Response::with((status::InternalServerError,
-                                  "Can't retrieve access to inner lock".to_string())))
+                                   "Can't retrieve access to inner lock".to_string())))
             }
         }
     }
