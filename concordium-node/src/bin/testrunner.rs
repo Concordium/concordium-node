@@ -16,6 +16,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_json;
 extern crate alloc_system;
+extern crate rand;
 extern crate timer;
 
 use alloc_system::System;
@@ -35,6 +36,8 @@ use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
 use p2p_client::p2p::*;
 use p2p_client::utils;
+use rand::distributions::Standard;
+use rand::{thread_rng, Rng};
 use router::Router;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -50,6 +53,7 @@ struct TestRunner {
     registered_times: Arc<Mutex<Vec<Measurement>>>,
     node: Arc<Mutex<P2PNode>>,
     nid: u16,
+    packet_size: Arc<Mutex<Option<usize>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -65,13 +69,16 @@ impl Measurement {
     }
 }
 
+const DEFAULT_TEST_PACKET_SIZE: usize = 51_200;
+
 impl TestRunner {
     pub fn new(node: P2PNode, nid: u16) -> Self {
         TestRunner { test_start: Arc::new(Mutex::new(None)),
                      test_running: Arc::new(Mutex::new(false)),
                      registered_times: Arc::new(Mutex::new(vec![])),
                      node: Arc::new(Mutex::new(node)),
-                     nid: nid, }
+                     nid: nid,
+                     packet_size: Arc::new(Mutex::new(None)), }
     }
 
     fn index(&self) -> IronResult<Response> {
@@ -110,21 +117,21 @@ impl TestRunner {
         }
     }
 
-    fn start_test(&self) -> IronResult<Response> {
+    fn start_test(&self, packet_size: usize) -> IronResult<Response> {
         match self.test_running.lock() {
             Ok(mut value) => {
                 if !*value {
                     *value = true;
                     info!("Started test");
                     *self.test_start.lock().unwrap() = Some(common::get_current_stamp());
+                    *self.packet_size.lock().unwrap() = Some(packet_size);
+                    let random_pkt: Vec<u8> = thread_rng().sample_iter(&Standard)
+                                                          .take(packet_size)
+                                                          .collect();
                     self.node
                         .lock()
                         .unwrap()
-                        .send_message(None,
-                                      self.nid,
-                                      None,
-                                      "Test runner test message".as_bytes(),
-                                      true)
+                        .send_message(None, self.nid, None, &random_pkt, true)
                         .map_err(|e| error!("{}", e))
                         .ok();
                     Ok(Response::with((status::Ok,
@@ -160,6 +167,7 @@ impl TestRunner {
                     }
                     *value = false;
                     *self.test_start.lock().unwrap() = None;
+                    *self.packet_size.lock().unwrap() = None;
                     info!("Testing reset on runner");
                     Ok(Response::with((status::Ok,
                                        format!("TEST RESET ON {}/{} @ {}",
@@ -189,10 +197,11 @@ impl TestRunner {
                             match self.registered_times.lock() {
                                 Ok(inner_vals) => {
                                     let return_json = json!({
-                                        "serviceName": "TestRunner",
-                                        "serviceVersion": p2p_client::VERSION,
+                                        "service_name": "TestRunner",
+                                        "service_version": p2p_client::VERSION,
                                         "measurements": *inner_vals.clone(),
                                         "test_start_time": *test_start_time,
+                                        "packet_size": *self.packet_size.lock().unwrap(),
                                     });
                                     let mut resp =
                                         Response::with((status::Ok, return_json.to_string()));
@@ -231,20 +240,40 @@ impl TestRunner {
         let _self_clone_3 = _self_clone.clone();
         let _self_clone_4 = _self_clone.clone();
         let _self_clone_5 = _self_clone.clone();
+        let _self_clone_6 = _self_clone.clone();
         router.get("/",
                    move |_: &mut Request| _self_clone.clone().index(),
                    "index");
         router.get("/register/:node_id/:packet_id",
                    move |req: &mut Request| _self_clone_2.clone().register_receipt(req),
                    "register");
+        router.get("/start_test/:test_packet_size",
+                   move |req: &mut Request| {
+                       match req.extensions.get::<Router>().unwrap().find("test_packet_size") {
+                            Some(size_str) => {
+                                    match size_str.parse::<usize>() {
+                                        Ok(size) => {
+                                            _self_clone_3.clone().start_test(size)
+                                        }
+                                        _ => Ok(Response::with((status::BadRequest,
+                                               "Invalid size for test packet given".to_string())))
+                                    }
+                                },
+                            _ => Ok(Response::with((status::BadRequest,
+                                               "Missing test packet size".to_string())))
+                       }
+                   },
+                   "start_test_specific");
         router.get("/start_test",
-                   move |_: &mut Request| _self_clone_3.clone().start_test(),
-                   "start_test");
+                   move |_: &mut Request| {
+                       _self_clone_4.clone().start_test(DEFAULT_TEST_PACKET_SIZE)
+                   },
+                   "start_test_generic");
         router.get("/reset_test",
-                   move |_: &mut Request| _self_clone_4.clone().reset_test(),
+                   move |_: &mut Request| _self_clone_5.clone().reset_test(),
                    "reset_test");
         router.get("/get_results",
-                   move |_: &mut Request| _self_clone_5.clone().get_results(),
+                   move |_: &mut Request| _self_clone_6.clone().get_results(),
                    "get_results");
         let _listen = listen_ip.clone();
         thread::spawn(move || {

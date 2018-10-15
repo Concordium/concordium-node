@@ -5,14 +5,26 @@ use iron::status;
 use prometheus;
 use prometheus::{Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
 use router::Router;
+use std::fmt;
 use std::sync::Arc;
 use std::thread;
 use std::time;
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum PrometheusMode {
+    BootstrapperMode,
     NodeMode,
     IpDiscoveryMode,
+}
+
+impl fmt::Display for PrometheusMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PrometheusMode::BootstrapperMode => write!(f, "bootstrapper"),
+            PrometheusMode::NodeMode => write!(f, "node"),
+            PrometheusMode::IpDiscoveryMode => write!(f, "ipdiscovery"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -36,13 +48,13 @@ impl PrometheusServer {
         let registry = Registry::new();
         let pg_opts = Opts::new("peer_number", "current peers connected");
         let pg = IntGauge::with_opts(pg_opts).unwrap();
-        if mode == PrometheusMode::NodeMode {
+        if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(pg.clone())).unwrap();
         }
 
         let qs_opts = Opts::new("queue_size", "current queue size");
         let qs = IntGauge::with_opts(qs_opts).unwrap();
-        if mode == PrometheusMode::NodeMode {
+        if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(qs.clone())).unwrap();
         }
 
@@ -66,26 +78,26 @@ impl PrometheusServer {
 
         let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
         let ipr = IntCounter::with_opts(ipr_opts).unwrap();
-        if mode == PrometheusMode::NodeMode {
+        if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(ipr.clone())).unwrap();
         }
 
         let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
         let upr = IntCounter::with_opts(upr_opts).unwrap();
-        if mode == PrometheusMode::NodeMode {
+        if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(upr.clone())).unwrap();
         }
 
         let inpr_opts = Opts::new("invalid_network_packets_received",
                                   "invalid network packets received");
         let inpr = IntCounter::with_opts(inpr_opts).unwrap();
-        if mode == PrometheusMode::NodeMode {
+        if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(inpr.clone())).unwrap();
         }
 
         let qrs_opts = Opts::new("queue_resent", "items in queue that needed to be resent");
         let qrs = IntCounter::with_opts(qrs_opts).unwrap();
-        if mode == PrometheusMode::NodeMode {
+        if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(qrs.clone())).unwrap();
         }
 
@@ -228,6 +240,7 @@ impl PrometheusServer {
                                  prometheus_push_password: Option<String>)
                                  -> ResultExtWrapper<()> {
         let _registry = self.registry.clone();
+        let _mode = self.mode.clone();
         let _th = thread::spawn(move || {
                                     loop {
                                         let username_pass = if prometheus_push_username.is_some()
@@ -243,7 +256,7 @@ impl PrometheusServer {
                                         debug!("Pushing data to push gateway");
                                         thread::sleep(time::Duration::from_secs(prometheus_push_interval));
                                         let metrics_families = _registry.gather();
-                                        prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
+                                        prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(), "mode".to_owned() => _mode.to_string(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
                                     }
                                 });
         Ok(())
@@ -262,5 +275,10 @@ mod tests {
     #[test]
     pub fn test_disco_mode() {
         let _prom_inst = PrometheusServer::new(PrometheusMode::IpDiscoveryMode);
+    }
+
+    #[test]
+    pub fn test_bootstrapper_mode() {
+        let _prom_inst = PrometheusServer::new(PrometheusMode::BootstrapperMode);
     }
 }

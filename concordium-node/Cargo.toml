@@ -2,7 +2,7 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.11"
+version = "0.1.12"
 description = "Concordium P2P library"
 authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
 exclude = [
@@ -110,3 +110,7 @@ name = "ip_discovery"
 [[bin]]
 path = "src/bin/testrunner.rs"
 name = "testrunner"
+
+[[bin]]
+path = "src/bin/testrunner_parser.rs"
+name = "testrunner_parser"

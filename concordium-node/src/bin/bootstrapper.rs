@@ -68,7 +68,7 @@ fn run() -> ResultExtWrapper<()> {
 
     let prometheus = if conf.prometheus_server {
         info!("Enabling prometheus server");
-        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
+        let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
            .map_err(|e| error!("{}", e))
            .ok();
@@ -76,7 +76,7 @@ fn run() -> ResultExtWrapper<()> {
     } else if conf.prometheus_push_gateway.is_some() {
         info!("Enabling prometheus push gateway at {}",
               &conf.prometheus_push_gateway.clone().unwrap());
-        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
+        let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
         Some(Arc::new(Mutex::new(srv)))
     } else {
         None

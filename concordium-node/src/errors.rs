@@ -1,4 +1,5 @@
 use rustls::TLSError;
+use serde_json;
 use std;
 
 error_chain! {
@@ -42,6 +43,7 @@ error_chain! {
     foreign_links {
         RustlsInternalError(TLSError);
         InternalIOError(std::io::Error);
+        JsonParseError(serde_json::Error);
     }
 }
 
