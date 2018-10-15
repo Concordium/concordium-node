@@ -145,6 +145,12 @@ impl Buckets {
     pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
         let dist = self.distance(&own_id, &node.id());
         for i in 0..KEY_SIZE {
+            match self.buckets.get_mut(&i) {
+                Some(x) => {
+                    x.retain(|ref ele| ele.0 != *node);
+                }
+                _ => {}
+            }
             if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
             {
@@ -153,8 +159,6 @@ impl Buckets {
                         if x.len() >= BUCKET_SIZE as usize {
                             x.remove(0);
                         }
-
-                        x.retain(|ref ele| ele.0 != *node);
                         x.push((node.clone(), nids.clone()));
                         break;
                     }
@@ -233,16 +237,13 @@ impl Buckets {
         }
     }
 
-    pub fn get_all_nodes(&self,
-                         sender_id: Option<&P2PNodeId>,
-                         networks: &Vec<u16>)
-                         -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &Vec<u16>) -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
-        match sender_id {
-            Some(sender_peer_id) => {
+        match sender {
+            Some(sender_peer) => {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
-                        if sender_peer_id != &peer.0.id()
+                        if sender_peer != &peer.0
                            && peer.0.connection_type() == ConnectionType::Node
                            && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
                         {
@@ -268,11 +269,11 @@ impl Buckets {
     }
 
     pub fn get_random_nodes(&self,
-                            sender_id: &P2PNodeId,
+                            sender: &P2PPeer,
                             amount: usize,
                             nids: &Vec<u16>)
                             -> Vec<P2PPeer> {
-        let mut ret: Vec<P2PPeer> = self.get_all_nodes(Some(sender_id), nids);
+        let mut ret: Vec<P2PPeer> = self.get_all_nodes(Some(sender), nids);
         thread_rng().shuffle(&mut ret);
         ret.truncate(amount);
         ret
@@ -282,6 +283,8 @@ impl Buckets {
 #[derive(Debug)]
 pub struct PeerStatistic {
     pub id: String,
+    pub ip: IpAddr,
+    pub port: u16,
     pub sent: u64,
     pub received: u64,
     pub measured_latency: Option<u64>,
@@ -289,11 +292,15 @@ pub struct PeerStatistic {
 
 impl PeerStatistic {
     pub fn new(id: String,
+               ip: IpAddr,
+               port: u16,
                sent: u64,
                received: u64,
                measured_latency: Option<u64>)
                -> PeerStatistic {
         PeerStatistic { id,
+                        ip,
+                        port,
                         sent,
                         received,
                         measured_latency, }
@@ -313,6 +320,14 @@ impl PeerStatistic {
 
     pub fn measured_latency(&self) -> Option<u64> {
         self.measured_latency.clone()
+    }
+
+    pub fn ip(&self) -> IpAddr {
+        self.ip.clone()
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
     }
 }
 
@@ -436,15 +451,19 @@ impl TlsServer {
         Ok(())
     }
 
-    pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
         let mut ret = vec![];
         for (_, ref conn) in &self.connections {
             match conn.peer {
                 Some(ref x) => {
-                    ret.push(PeerStatistic::new(x.id().to_string(),
-                                                conn.get_messages_sent(),
-                                                conn.get_messages_received(),
-                                                conn.get_last_latency_measured()));
+                    if nids.len() == 0 || conn.networks.iter().any(|nid| nids.contains(nid)) {
+                        ret.push(PeerStatistic::new(x.id().to_string(),
+                                                    x.ip().clone(),
+                                                    x.port(),
+                                                    conn.get_messages_sent(),
+                                                    conn.get_messages_received(),
+                                                    conn.get_last_latency_measured()));
+                    }
                 }
                 None => {}
             }
@@ -1282,7 +1301,7 @@ impl Connection {
                         {
                             debug!("Running in bootstrapper mode, so instantly sending peers {} random peers",
                                    BOOTSTRAP_PEER_COUNT);
-                            serialize_bytes(self, &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender.id(), BOOTSTRAP_PEER_COUNT, &nets)).serialize()).unwrap();
+                            serialize_bytes(self, &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets)).serialize()).unwrap();
                             if let Some(ref prom) = &self.prometheus_exporter {
                                 prom.lock()
                                     .unwrap()
@@ -1304,7 +1323,7 @@ impl Connection {
                         {
                             self.update_last_seen();
                         }
-                        let nodes = buckets.get_all_nodes(Some(&sender.id()), networks);
+                        let nodes = buckets.get_all_nodes(Some(&sender), networks);
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock()
@@ -1884,9 +1903,9 @@ impl P2PNode {
         self.port
     }
 
-    pub fn get_nodes(&self, nids: &Vec<u16>) -> Result<Vec<P2PPeer>, Error> {
-        match self.buckets.lock() {
-            Ok(x) => Ok(x.get_all_nodes(None, nids)),
+    pub fn get_nodes(&self, nids: &Vec<u16>) -> Result<Vec<PeerStatistic>, Error> {
+        match self.tls_server.lock() {
+            Ok(x) => Ok(x.get_peer_stats(nids)),
             Err(_e) => Err(Error::new(ErrorKind::Other, "Couldn't get lock on buckets!")),
         }
     }
@@ -2220,12 +2239,12 @@ impl P2PNode {
         vec![]
     }
 
-    pub fn get_peer_stats(&self) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &Vec<u16>) -> ResultExtWrapper<Vec<PeerStatistic>> {
         match self.tls_server.lock() {
-            Ok(x) => x.get_peer_stats(),
+            Ok(x) => Ok(x.get_peer_stats(nids)),
             Err(e) => {
                 error!("Couldn't lock for tls_server: {:?}", e);
-                vec![]
+                Err(ErrorWrapper::from(e))
             }
         }
     }

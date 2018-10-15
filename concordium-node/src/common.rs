@@ -821,7 +821,7 @@ impl P2PPeer {
 
 impl PartialEq for P2PPeer {
     fn eq(&self, other: &P2PPeer) -> bool {
-        self.id.id == other.id().id
+        self.id.id == other.id().id || (self.port == other.port() && self.ip == other.ip())
     }
 }
 

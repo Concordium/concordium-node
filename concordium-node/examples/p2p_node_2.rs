@@ -260,7 +260,7 @@ fn run() -> ResultExtWrapper<()> {
     let _nids = conf.network_ids.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match _node_clone.get_nodes(&vec![]) {
+                 match _node_clone.get_peer_stats(&vec![]) {
                      Ok(ref x) => {
                          info!("I currently have {}/{} nodes!",
                                x.len(),

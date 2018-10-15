@@ -81,6 +81,7 @@ pub fn run() -> ResultExtWrapper<()> {
         } else {
             println!("Analyzed output from test runner");
             println!("Start of test: {}", start_time);
+            println!("Measurements count: {}", measurements.len());
             println!("Packet size used: {}", packet_size);
             for ele in measurements {
                 println!("- {} got it at {} with a transmission time of {}",

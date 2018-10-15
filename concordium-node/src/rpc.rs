@@ -288,7 +288,8 @@ impl P2P for RpcServerImpl {
             let data: Vec<_> =
                 self.node
                     .borrow_mut()
-                    .get_peer_stats()
+                    .get_peer_stats(&vec![])
+                    .unwrap()
                     .iter()
                     .map(|x| {
                              let mut peer_resp = PeerStatsResponse_PeerStats::new();
@@ -323,7 +324,7 @@ impl P2P for RpcServerImpl {
                     .map(|x| {
                              let mut peer_resp = PeerElement::new();
                              let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                             node_id.set_value(format!("{:064x}", x.id().get_id()));
+                             node_id.set_value(format!("{}", x.id()));
                              peer_resp.set_node_id(node_id);
                              let mut ip = ::protobuf::well_known_types::StringValue::new();
                              ip.set_value(x.ip().to_string());

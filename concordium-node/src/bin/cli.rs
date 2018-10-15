@@ -268,13 +268,13 @@ fn run() -> ResultExtWrapper<()> {
                                                        }
                                                    }
                                                }
-                                               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), _, _) => {
+                                               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
                                                    info!("Received PeerList response, attempting to satisfy desired peers");
-                                                   println!("PEERS IN LIST {}", peers.len());
                                                    let mut new_peers = 0;
                                                    match _node_self_clone.get_nodes(&vec![]) {
                                                        Ok(x) => {
                                                            for peer_node in peers {
+                                                               debug!("Peer {}/{}/{} sent us peer info for {}/{}/{}", peer.id().to_string(),peer.ip(),peer.port(),peer_node.id().to_string(),peer_node.ip(),peer_node.port() );
                                                                if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e)).is_ok() {
                                                                    new_peers += 1;
                                                                }
@@ -358,7 +358,7 @@ fn run() -> ResultExtWrapper<()> {
     let _nids = conf.network_ids.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match node.get_nodes(&vec![]) {
+                 match node.get_peer_stats(&vec![]) {
                      Ok(ref x) => {
                          info!("I currently have {}/{} nodes!",
                                x.len(),
