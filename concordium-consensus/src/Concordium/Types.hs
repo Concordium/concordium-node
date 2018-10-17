@@ -71,6 +71,18 @@ serializeBlock (Block {..}) = do
     serializeBlockBody blockSlot blockPointer blockBaker blockProof blockNonce blockLastFinalized blockData
     put blockSignature
 
+deserializeBlock :: Get Block
+deserializeBlock = do
+    blockSlot <- get
+    blockPointer <- get
+    blockBaker <- get
+    blockProof <- get
+    blockNonce <- get
+    blockLastFinalized <- get
+    blockData <- get
+    blockSignature <- get
+    return (Block {..})
+
 signBlock :: 
     Sig.SignKey
     -> Slot

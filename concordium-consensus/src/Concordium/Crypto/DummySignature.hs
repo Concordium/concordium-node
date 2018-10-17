@@ -5,6 +5,7 @@
 module Concordium.Crypto.DummySignature(
     SignKey,
     VerifyKey,
+    KeyPair(..),
     Signature,
     newKeypair,
     sign,
@@ -29,6 +30,18 @@ instance Serialize VerifyKey where
 
 newtype Signature = Signature ByteString
     deriving (Eq, Generic, Serialize)
+
+data KeyPair = KeyPair {
+    signKey :: SignKey,
+    verifyKey :: VerifyKey
+}
+
+instance Random KeyPair where
+    random gen = (key, gen')
+        where
+            (r, gen') = random gen
+            akey = L.toStrict $ toLazyByteString $ word64BE r
+            key = KeyPair (SignKey akey) (VerifyKey akey)
 
 newKeypair :: IO (SignKey, VerifyKey)
 newKeypair = do

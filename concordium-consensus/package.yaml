@@ -34,7 +34,12 @@ dependencies:
 
 library:
   source-dirs: src
-
+  ghc-options:
+      - -fPIC
+      - -shared
+# Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
+# Possibly this depends on the platform
+  
 executables:
   Concordium-exe:
     main:                Main.hs
@@ -58,3 +63,4 @@ tests:
     - Concordium
     - hspec >= 2.5
     - QuickCheck >= 2.10
+

@@ -1,0 +1,9 @@
+[package]
+name = "RustRunner"
+version = "0.1.0"
+authors = ["Thomas Dinsdale-Young <td202@d-y.me.uk>"]
+build = "build.rs"
+
+[dependencies]
+curryrs = "^0.1.0"
+libc = "0.2"

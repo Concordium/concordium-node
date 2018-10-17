@@ -6,6 +6,7 @@
 module Concordium.Crypto.DummyVRF(
     PublicKey,
     PrivateKey,
+    KeyPair(..),
     Hash,
     Proof,
     newKeypair,
@@ -40,7 +41,19 @@ newtype Hash = Hash ByteString
 
 newtype Proof = Proof ByteString
     deriving (Eq, Generic, Serialize)
-    
+
+data KeyPair = KeyPair {
+    privateKey :: PrivateKey,
+    publicKey :: PublicKey
+}
+
+instance Random KeyPair where
+    random gen = (key, gen')
+        where
+            (r, gen') = random gen
+            akey = L.toStrict $ toLazyByteString $ word64BE r
+            key = KeyPair (PrivateKey akey) (PublicKey akey)
+
 newKeypair :: IO (PrivateKey, PublicKey)
 newKeypair = do
         r <- randomIO :: IO (Word64)
