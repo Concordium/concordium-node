@@ -13,4 +13,5 @@ RUN pacman -S protobuf cmake go clang rust git libtool rustup make m4 pkgconf op
 RUN pacman -Scc --noconfirm
 # Include older OpenSSL for linking until dependencies are updated to allow for 1.1.1
 RUN pacman -S openssl-1.0 --noconfirm
+RUN pacman -Syy heaptrack --noconfirm
 RUN ./init.build.env.sh
