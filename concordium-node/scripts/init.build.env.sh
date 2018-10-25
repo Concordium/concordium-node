@@ -9,6 +9,10 @@ find ~/.stack/programs -name \*HSrts-ghc8.4.3.so -exec cp {} /usr/local/lib \;
 
 
 
+git clone https://github.com/KDE/heaptrack.git
+(cd heaptrack && patch src/track/heaptrack.sh.cmake ../scripts/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);
+rm -rf heaptrack
+
 ldconfig
 rustup default nightly
 
