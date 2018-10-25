@@ -2,6 +2,7 @@ FROM base/archlinux
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
+COPY ./consensus ./consensus
 COPY ./scripts/start-bootstrapper.sh ./start-bootstrapper.sh
 COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh

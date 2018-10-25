@@ -1,0 +1,23 @@
+[package]
+name = "consensus-sys"
+version = "0.0.1"
+description = "consensus prototype wrapper"
+authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
+exclude = [
+    ".gitignore",
+    ".gitlab-ci.yml",
+    "test/**/*"
+]
+publish = false
+build = "build.rs"
+
+[features]
+default = []
+valgrind = []
+
+[dependencies]
+libc = "0.2"
+curryrs = "^0.1.0"
+
+[build-dependencies]
+bindgen = "0.42.0"
