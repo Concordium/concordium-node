@@ -1707,7 +1707,14 @@ pub struct P2PNode {
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
     trace!("Serializing data to connection {} bytes", pkt.len());
     let mut size_vec = Vec::with_capacity(4);
-    size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
+    match size_vec.write_u32::<NetworkEndian>(pkt.len() as u32) {
+        Ok(()) => {},
+        Err(e) => {
+            if let Some(inner_err) = e.into_inner() {
+                info!("{}", inner_err);
+            }
+        }
+    };
     match conn.write_all(&size_vec[..]) {
         Ok(()) => {},
         Err(e) => {
