@@ -2,9 +2,9 @@ image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base"
 
 test:cargo:
   variables:
-    OPENSSL_LIB_DIR=/usr/lib/openssl-1.0
-    OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0
-    LD_LIBRARY_PATH="/usr/local/lib"
+    OPENSSL_LIB_DIR: "/usr/lib/openssl-1.0"
+    OPENSSL_INCLUDE_DIR: "/usr/include/openssl-1.0"
+    LD_LIBRARY_PATH: "/usr/local/lib"
   script:
   - pacman -S openssl-1.0 --noconfirm
   - rustc --version && cargo --version 
