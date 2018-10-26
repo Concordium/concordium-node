@@ -5,6 +5,9 @@ then
   exit 1
 fi
 
+# Foreign temporary dependency, potentially a smarter way?
+git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
+
 scripts/build-base-docker.sh
 scripts/build-build-docker.sh $1
 scripts/build-bootstrapper-docker.sh $1
