@@ -13,13 +13,14 @@ extern crate timer;
 #[macro_use]
 extern crate error_chain;
 extern crate alloc_system;
-extern crate reqwest;
 extern crate consensus_sys;
+extern crate reqwest;
 
 use alloc_system::System;
 #[global_allocator]
 static A: System = System;
 
+use consensus_sys::consensus;
 use env_logger::{Builder, Env};
 use p2p_client::common::{
     ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse,
@@ -31,12 +32,11 @@ use p2p_client::p2p::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
+use std::ptr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
-use std::ptr;
-use consensus_sys::consensus;
 
 quick_main!(run);
 
@@ -408,8 +408,10 @@ fn run() -> ResultExtWrapper<()> {
 
     let baker = if conf.start_baker {
         info!("Starting up baker thread");
-        unsafe { consensus::hs_init( &0, ptr::null() ); }
-        Some( unsafe {consensus::startBaker(0, 1, 0, on_block_baked)} )
+        unsafe {
+            consensus::hs_init(&0, ptr::null());
+        }
+        Some(unsafe { consensus::startBaker(0, 1, 0, on_block_baked) })
     } else {
         None
     };
@@ -424,13 +426,14 @@ fn run() -> ResultExtWrapper<()> {
             consensus::stopBaker(*baker_ref);
             consensus::hs_exit();
         };
-
     }
 
     Ok(())
 }
 
-extern "C" fn on_block_baked(block_data : *const u8, data_length : i64) {
+extern "C" fn on_block_baked(block_data: *const u8, data_length: i64) {
     info!("Baked a block of length {}", data_length);
-    unsafe {consensus::printBlock(block_data, data_length); }
+    unsafe {
+        consensus::printBlock(block_data, data_length);
+    }
 }

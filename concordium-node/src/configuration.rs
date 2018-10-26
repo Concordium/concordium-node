@@ -141,7 +141,7 @@ pub struct CliConfig {
                 default_value = "/etc/resolv.conf")]
     pub resolv_conf: String,
     #[structopt(long = "enable-baker", help = "Enable baker thread")]
-    pub start_baker: bool
+    pub start_baker: bool,
 }
 
 pub fn parse_cli_config() -> CliConfig {

@@ -8,6 +8,6 @@ test:cargo:
   script:
   - pacman -S openssl-1.0 --noconfirm
   - rustc --version && cargo --version 
-  - ( cd ldns-sys && cargo test --all --verbose)
-  - (cd consensus-sys && cargo test --all --verbose)
+  - ( cd ldns-sys && cargo test --all --verbose )
+  - ( cd consensus-sys && cargo test --all --verbose )
   - cargo test --all --verbose
