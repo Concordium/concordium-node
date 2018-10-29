@@ -7,3 +7,5 @@ do
     docker stop nodetest$i
     docker rm nodetest$i
 done
+docker stop testrunner
+docker rm testrunner

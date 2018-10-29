@@ -11,3 +11,4 @@ tags
 path
 .vscode
 src/proto/concordium_p2p*.rs
+consensus

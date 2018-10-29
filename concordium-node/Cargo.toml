@@ -2,7 +2,7 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.13-debug"
+version = "0.1.15-debug"
 description = "Concordium P2P library"
 authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
 exclude = [
@@ -62,6 +62,7 @@ lazy_static = "1.1.0"
 human-panic = "1.0.0"
 cfg-if = "0.1"
 ldns-sys = { path = "ldns-sys" } 
+consensus-sys = { path = "consensus-sys" }
 hostname = "^0.1"
 serde_json = "1.0"
 reqwest = "^0.9"

@@ -1708,7 +1708,7 @@ fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
     trace!("Serializing data to connection {} bytes", pkt.len());
     let mut size_vec = Vec::with_capacity(4);
     match size_vec.write_u32::<NetworkEndian>(pkt.len() as u32) {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(e) => {
             if let Some(inner_err) = e.into_inner() {
                 info!("{}", inner_err);
@@ -1716,7 +1716,7 @@ fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
         }
     };
     match conn.write_all(&size_vec[..]) {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(e) => {
             if let Some(inner_err) = e.into_inner() {
                 info!("{}", inner_err);
@@ -1724,7 +1724,7 @@ fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
         }
     };
     match conn.write_all(pkt) {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(e) => {
             if let Some(inner_err) = e.into_inner() {
                 info!("{}", inner_err);
