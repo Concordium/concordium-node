@@ -1,7 +1,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use unbound;
 
 const DNS_ANCHOR_1: &'static str = ". IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=";
@@ -41,7 +41,7 @@ fn resolve_dns_record(entry: &str,
                       no_dnssec_fail: bool,
                       record_type: LookupType)
                       -> Result<Vec<String>, String>  {
-    let res = vec![];
+    let mut res = vec![];
 
     let ctx = unbound::Context::new().unwrap();
 
@@ -60,10 +60,41 @@ fn resolve_dns_record(entry: &str,
         return Err("Error adding key 3!".to_string())
     }
 
-    match ctx.resolve("www.nlnetlabs.nl", 1, 1) {
+    //Add forward resolvers
+    for ip in dns_servers {
+        if let Err(err) = ctx.set_fwd(ip) {
+            println!("error adding forwarder: {}", err);
+            return Err("Error adding forwarder!".to_string())
+        }
+    }
+
+   let record_type = match record_type {
+        LookupType::ARecord => 1,
+        LookupType::AAAARecord => 28,
+        LookupType::TXTRecord => 16,
+    };
+
+    match ctx.resolve(entry, record_type, 1) {
         Ok(ans) => {
-            for ip in ans.data().map(data_to_ipv4) {
-                println!("The address is {}", ip);
+            if !no_dnssec_fail && !ans.secure() {
+                println!("DNSSEC validation failed!");
+                return Err("DNSSEC validation failed!".to_string())
+            }
+            if record_type == 1 {
+                for ip in ans.data().map(data_to_ipv4) {
+                    res.push(format!("{}", ip));
+                    println!("The address is {}", ip);
+                }
+            } else if record_type == 28 {
+                for ip in ans.data().map(data_to_ipv6) {
+                    res.push(format!("{}", ip));
+                    println!("The address is {}", ip);
+                }
+            } else {
+                for data in ans.data() {
+                    res.push(String::from_utf8(data.to_vec()).unwrap());
+                    println!("Got data: {}", String::from_utf8(data.to_vec()).unwrap());
+                }
             }
         },
         Err(err) => {
@@ -81,6 +112,15 @@ fn data_to_ipv4(data: &[u8]) -> Ipv4Addr {
     octets[..].copy_from_slice(data);
     Ipv4Addr::from(octets)
 }
+
+fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
+    assert_eq!(data.len(), 16);
+    let mut octets = [0; 16];
+    octets[..].copy_from_slice(data);
+
+    Ipv6Addr::from(octets)
+}
+
 
 #[cfg(test)]
 mod tests {
