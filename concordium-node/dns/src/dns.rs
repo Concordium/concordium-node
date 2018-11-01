@@ -10,9 +10,9 @@ const DNS_ANCHOR_3: &'static str = ". IN DNSKEY 257 3 8 AwEAAagAIKlVZrpC6Ia7gEza
 
 #[derive(Copy, Clone, Debug)]
 enum LookupType {
-    ARecord,
-    AAAARecord,
-    TXTRecord,
+    ARecord = 1,
+    AAAARecord = 28,
+    TXTRecord = 16,
 }
 
 pub fn resolve_dns_txt_record(entry: &str,
@@ -68,32 +68,31 @@ fn resolve_dns_record(entry: &str,
         }
     }
 
-   let record_type = match record_type {
-        LookupType::ARecord => 1,
-        LookupType::AAAARecord => 28,
-        LookupType::TXTRecord => 16,
-    };
-
-    match ctx.resolve(entry, record_type, 1) {
+    match ctx.resolve(entry, record_type as u16, 1) {
         Ok(ans) => {
             if !no_dnssec_fail && !ans.secure() {
                 println!("DNSSEC validation failed!");
                 return Err("DNSSEC validation failed!".to_string())
             }
-            if record_type == 1 {
-                for ip in ans.data().map(data_to_ipv4) {
-                    res.push(format!("{}", ip));
-                    println!("The address is {}", ip);
-                }
-            } else if record_type == 28 {
-                for ip in ans.data().map(data_to_ipv6) {
-                    res.push(format!("{}", ip));
-                    println!("The address is {}", ip);
-                }
-            } else {
-                for data in ans.data() {
-                    res.push(String::from_utf8(data.to_vec()).unwrap());
-                    println!("Got data: {}", String::from_utf8(data.to_vec()).unwrap());
+
+            match record_type {
+                LookupType::ARecord => {
+                    for ip in ans.data().map(data_to_ipv4) {
+                        res.push(format!("{}", ip));
+                        println!("The address is {}", ip);
+                    }
+                },
+                LookupType::AAAARecord => {
+                    for ip in ans.data().map(data_to_ipv6) {
+                        res.push(format!("{}", ip));
+                        println!("The address is {}", ip);
+                    }
+                },
+                LookupType::TXTRecord => {
+                    for data in ans.data() {
+                        res.push(String::from_utf8(data.to_vec()).unwrap());
+                        println!("Got data: {}", String::from_utf8(data.to_vec()).unwrap());
+                    }
                 }
             }
         },
