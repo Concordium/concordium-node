@@ -1,0 +1,18 @@
+[package]
+name = "dns"
+version = "0.0.1"
+description = "dns module"
+authors = ["Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
+exclude = [
+    ".gitignore",
+    ".gitlab-ci.yml",
+    "test/**/*"
+]
+publish = false
+
+[features]
+default = []
+valgrind = []
+
+[dependencies]
+unbound = { path = "unbound-0.6.0" }
