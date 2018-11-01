@@ -13,5 +13,5 @@ git clone https://github.com/KDE/heaptrack.git
 rm -rf heaptrack
 
 ldconfig
-rustup default nightly
+rustup default nightly-2018-10-26
 
