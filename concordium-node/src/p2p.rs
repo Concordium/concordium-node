@@ -225,6 +225,7 @@ impl Buckets {
     }
 
     fn clean_peers_older_than(&mut self, older_than: u64) {
+        debug!("Cleaning buckets currently at {}",self.len());
         for i in 0..KEY_SIZE {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
@@ -266,6 +267,12 @@ impl Buckets {
         }
 
         ret
+    }
+
+    pub fn len(&self) -> usize {
+        self.buckets.iter()
+            .map(|(_,y)| y.len() as usize)
+            .sum()
     }
 
     pub fn get_random_nodes(&self,
@@ -2387,5 +2394,35 @@ impl P2PNode {
 
         self.process_messages()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use p2p::*;
+
+    #[test]
+    pub fn test_buckets_insert_duplicate_peer_id() {
+        let mut bucket = Buckets::new();
+        let p2p_self = P2PNodeId::from_ipstring("127.0.0.1:8888".to_string());
+        let p2p_node_id = P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap();
+        let p2p_new_peer = P2PPeer::from(ConnectionType::Node, p2p_node_id.clone(), IpAddr::from_str("127.0.0.1").unwrap(), 8888);
+        let p2p_new_replacement_peer = P2PPeer::from(ConnectionType::Node, p2p_node_id.clone(), IpAddr::from_str("127.0.0.1").unwrap(), 8889);
+        bucket.insert_into_bucket(&p2p_new_peer, &p2p_self, vec![]);
+        bucket.insert_into_bucket(&p2p_new_replacement_peer, &p2p_self, vec![]);
+        assert_eq!(bucket.len(), 1);
+    }
+
+    #[test]
+    pub fn test_buckets_insert_duplicate_ip_port() {
+        let mut bucket = Buckets::new();
+        let p2p_self = P2PNodeId::from_ipstring("127.0.0.1:8888".to_string());
+        let p2p_node_id = P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap();
+        let p2p_node_id_2 = P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb3".to_string()).unwrap();
+        let p2p_new_peer = P2PPeer::from(ConnectionType::Node, p2p_node_id.clone(), IpAddr::from_str("127.0.0.1").unwrap(), 8888);
+        let p2p_new_replacement_peer = P2PPeer::from(ConnectionType::Node, p2p_node_id_2.clone(), IpAddr::from_str("127.0.0.1").unwrap(), 8888);
+        bucket.insert_into_bucket(&p2p_new_peer, &p2p_self, vec![]);
+        bucket.insert_into_bucket(&p2p_new_replacement_peer, &p2p_self, vec![]);
+        assert_eq!(bucket.len(), 1);
     }
 }

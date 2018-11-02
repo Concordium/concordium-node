@@ -93,7 +93,7 @@ mod tests {
                        8888 + test_port_added)
               .unwrap();
 
-        thread::sleep(time::Duration::from_secs(5));
+        thread::sleep(time::Duration::from_secs(10));
 
         node_2.send_message(Some(node_1.get_own_id()),
                             100,
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_002_trust_broadcast() {
+    pub fn e2e_001_trust_broadcast() {
         let test_port_added = 200;
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
         let (pkt_in_2, pkt_out_2) = mpsc::channel();
@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_002_trust_broadcast_wrong_net() {
+    pub fn e2e_001_trust_broadcast_wrong_net() {
         let test_port_added = 300;
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
         let (pkt_in_2, pkt_out_2) = mpsc::channel();
@@ -545,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_003_small_mesh_net() {
+    pub fn e2e_002_small_mesh_net() {
         let test_port_added = 400;
         let mesh_node_count = 15;
 
@@ -801,13 +801,13 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_003_small_mesh_five_islands_net() {
-        islands_mesh_test!(500, 3, 5);
+    pub fn e2e_002_small_mesh_three_islands_net() {
+        islands_mesh_test!(500, 3, 3);
     }
 
     #[test]
-    pub fn e2e_003_big_mesh_five_islands_net() {
-        islands_mesh_test!(600, 5, 5);
+    pub fn e2e_003_big_mesh_three_islands_net() {
+        islands_mesh_test!(600, 5, 3);
     }
 
 }
