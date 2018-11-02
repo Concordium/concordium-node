@@ -45,7 +45,7 @@ extern crate human_panic;
 extern crate cfg_if;
 #[cfg(windows)]
 extern crate ipconfig;
-extern crate ldns_sys;
+extern crate dns;
 extern crate resolv_conf;
 extern crate semver;
 extern crate vecio;

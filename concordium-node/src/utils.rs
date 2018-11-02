@@ -4,7 +4,7 @@ use hacl_star::sha2;
 use hex;
 #[cfg(windows)]
 use ipconfig::get_adapters;
-use ldns_sys::dns;
+use dns::dns;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
 use openssl::ec::{EcGroup, EcKey};
