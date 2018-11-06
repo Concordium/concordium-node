@@ -90,7 +90,8 @@ mod tests {
 
         node_2.connect(ConnectionType::Node,
                        "127.0.0.1".parse().unwrap(),
-                       8888 + test_port_added)
+                       8888 + test_port_added,
+                       None)
               .unwrap();
 
         thread::sleep(time::Duration::from_secs(10));
@@ -216,7 +217,8 @@ mod tests {
 
         node_2.connect(ConnectionType::Node,
                        "127.0.0.1".parse().unwrap(),
-                       8888 + test_port_added)
+                       8888 + test_port_added,
+                       None)
               .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
@@ -369,12 +371,14 @@ mod tests {
 
         node_2.connect(ConnectionType::Node,
                        "127.0.0.1".parse().unwrap(),
-                       8888 + test_port_added)
+                       8888 + test_port_added,
+                       None)
               .unwrap();
 
         node_3.connect(ConnectionType::Node,
                        "127.0.0.1".parse().unwrap(),
-                       8889 + test_port_added)
+                       8889 + test_port_added,
+                       None)
               .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
@@ -508,12 +512,14 @@ mod tests {
 
         node_2.connect(ConnectionType::Node,
                        "127.0.0.1".parse().unwrap(),
-                       8888 + test_port_added)
+                       8888 + test_port_added,
+                       None)
               .unwrap();
 
         node_3.connect(ConnectionType::Node,
                        "127.0.0.1".parse().unwrap(),
-                       8889 + test_port_added)
+                       8889 + test_port_added,
+                       None)
               .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
@@ -628,7 +634,8 @@ mod tests {
                 for i in 0..peer {
                     node.connect(ConnectionType::Node,
                                  "127.0.0.1".parse().unwrap(),
-                                 (instance_port - 1 - (i)) as u16)
+                                 (instance_port - 1 - (i)) as u16,
+                                 None)
                         .ok();
                 }
             }
@@ -752,7 +759,7 @@ mod tests {
                     let th = node.spawn();
                     if peer > 0 {
                         for i in 0..peer {
-                            node.connect(ConnectionType::Node, "127.0.0.1".parse().unwrap(), (instance_port-1-(i)) as u16).ok();
+                            node.connect(ConnectionType::Node, "127.0.0.1".parse().unwrap(), (instance_port-1-(i)) as u16, None).ok();
                         }
                     }
                     peer += 1;
@@ -767,7 +774,7 @@ mod tests {
             if let Some((_,ref mut peers)) = islands.get_mut(0) {
                 if let Some((_,_, ref mut central_peer,_)) = peers.get_mut(0) {
                     for i in 1..islands_count {
-                        central_peer.connect(ConnectionType::Node,"127.0.0.1".parse().unwrap(), (test_port_added+8888+(island_size*i)) as u16) .map_err(|e| println!("{}", e)).ok();
+                        central_peer.connect(ConnectionType::Node,"127.0.0.1".parse().unwrap(), (test_port_added+8888+(island_size*i)) as u16, None) .map_err(|e| println!("{}", e)).ok();
                     }
                 };
             };

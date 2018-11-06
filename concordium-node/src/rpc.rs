@@ -120,7 +120,7 @@ impl P2P for RpcServerImpl {
                 let port = req.get_port().get_value() as u16;
                 r.set_value(self.node
                                 .borrow_mut()
-                                .connect(ConnectionType::Node, ip, port)
+                                .connect(ConnectionType::Node, ip, port, None)
                                 .map_err(|e| error!("{}", e))
                                 .is_ok());
             } else {

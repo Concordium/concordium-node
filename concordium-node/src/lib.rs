@@ -43,9 +43,9 @@ extern crate atomic_counter;
 extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
+extern crate dns;
 #[cfg(windows)]
 extern crate ipconfig;
-extern crate dns;
 extern crate resolv_conf;
 extern crate semver;
 extern crate vecio;

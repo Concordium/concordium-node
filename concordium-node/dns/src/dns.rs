@@ -40,31 +40,31 @@ fn resolve_dns_record(entry: &str,
                       dns_servers: &Vec<IpAddr>,
                       no_dnssec_fail: bool,
                       record_type: LookupType)
-                      -> Result<Vec<String>, String>  {
+                      -> Result<Vec<String>, String> {
     let mut res = vec![];
 
     let ctx = unbound::Context::new().unwrap();
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_1) {
         println!("error adding key 1: {}", err);
-        return Err("Error adding key 1!".to_string())
+        return Err("Error adding key 1!".to_string());
     }
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_2) {
         println!("error adding key 2: {}", err);
-        return Err("Error adding key 2!".to_string())
+        return Err("Error adding key 2!".to_string());
     }
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_3) {
         println!("error adding key 3: {}", err);
-        return Err("Error adding key 3!".to_string())
+        return Err("Error adding key 3!".to_string());
     }
 
     //Add forward resolvers
     for ip in dns_servers {
         if let Err(err) = ctx.set_fwd(ip) {
             println!("error adding forwarder: {}", err);
-            return Err("Error adding forwarder!".to_string())
+            return Err("Error adding forwarder!".to_string());
         }
     }
 
@@ -72,7 +72,7 @@ fn resolve_dns_record(entry: &str,
         Ok(ans) => {
             if !no_dnssec_fail && !ans.secure() {
                 println!("DNSSEC validation failed!");
-                return Err("DNSSEC validation failed!".to_string())
+                return Err("DNSSEC validation failed!".to_string());
             }
 
             match record_type {
@@ -81,13 +81,13 @@ fn resolve_dns_record(entry: &str,
                         res.push(format!("{}", ip));
                         println!("The address is {}", ip);
                     }
-                },
+                }
                 LookupType::AAAARecord => {
                     for ip in ans.data().map(data_to_ipv6) {
                         res.push(format!("{}", ip));
                         println!("The address is {}", ip);
                     }
-                },
+                }
                 LookupType::TXTRecord => {
                     for data in ans.data() {
                         res.push(String::from_utf8(data.to_vec()).unwrap());
@@ -95,10 +95,10 @@ fn resolve_dns_record(entry: &str,
                     }
                 }
             }
-        },
+        }
         Err(err) => {
             println!("resolve error: {}", err);
-            return Err("Couldn't resolve!".to_string())
+            return Err("Couldn't resolve!".to_string());
         }
     }
 
@@ -119,7 +119,6 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
 
     Ipv6Addr::from(octets)
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -479,7 +479,7 @@ fn run() -> ResultExtWrapper<()> {
                                                    match _node_self_clone.get_nodes(&vec![]) {
                                                        Ok(x) => {
                                                            for peer_node in peers {
-                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port()).map_err(|e| error!("{}", e)).is_ok() {
+                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port(), Some(peer_node.id())).map_err(|e| error!("{}", e)).is_ok() {
                                                                    new_peers += 1;
                                                                }
                                                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
@@ -502,7 +502,7 @@ fn run() -> ResultExtWrapper<()> {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(ConnectionType::Node, ip, port)
+                node.connect(ConnectionType::Node, ip, port, None)
                     .map_err(|e| error!("{}", e))
                     .ok();
             }
@@ -516,7 +516,7 @@ fn run() -> ResultExtWrapper<()> {
             Ok(nodes) => {
                 for (ip, port) in nodes {
                     info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                    node.connect(ConnectionType::Bootstrapper, ip, port)
+                    node.connect(ConnectionType::Bootstrapper, ip, port, None)
                         .map_err(|e| error!("{}", e))
                         .ok();
                 }
@@ -564,7 +564,10 @@ fn run() -> ResultExtWrapper<()> {
                                          for (ip, port) in nodes {
                                              info!("Found bootstrap node IP: {} and port: {}",
                                                    ip, port);
-                                             node.connect(ConnectionType::Bootstrapper, ip, port)
+                                             node.connect(ConnectionType::Bootstrapper,
+                                                          ip,
+                                                          port,
+                                                          None)
                                                  .map_err(|e| error!("{}", e))
                                                  .ok();
                                          }
