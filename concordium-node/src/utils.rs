@@ -163,7 +163,10 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> 
     if resolvers.len() > 0 {
         resolvers.clone()
     } else {
-        let adapters = get_adapters()?;
+        let adapters = match ipconfig::get_adapters() {
+            Ok(x) => x,
+            Err(e) => panic!("Couldn't get adapters. Bailing out!")
+        };
         let mut name_servers = vec![];
         for dns_server in adapters.iter()
                                   .flat_map(|adapter| adapter.dns_servers().iter())

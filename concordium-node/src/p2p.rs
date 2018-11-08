@@ -1660,6 +1660,7 @@ impl Connection {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
         let rc = match self.initiated_by_me {
             true => {
@@ -1671,6 +1672,30 @@ impl Connection {
             false => {
                 match self.tls_server_session {
                     Some(ref mut x) => x.writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
+        };
+
+        if rc.is_err() {
+            error!("write failed {:?}", rc);
+            self.closing = true;
+        }
+        rc.chain_err(|| ErrorKindWrapper::NetworkError("couldn't write TLS to socket".to_string()))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
+        let rc = match self.initiated_by_me {
+            true => {
+                match self.tls_client_session {
+                    Some(ref mut x) => x.write_tls(&mut self.socket),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+                }
+            }
+            false => {
+                match self.tls_server_session {
+                    Some(ref mut x) => x.write_tls(&mut self.socket),
                     None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
