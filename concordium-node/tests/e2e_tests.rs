@@ -19,6 +19,7 @@ mod tests {
     use std::{thread, time};
 
     #[test]
+    #[ignore]
     pub fn e2e_000_two_nodes() {
         let test_port_added = 0;
         let (pkt_in_1, pkt_out_1) = mpsc::channel();
@@ -146,6 +147,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_000_two_nodes_wrong_net() {
         let test_port_added = 100;
         let (pkt_in_1, pkt_out_1) = mpsc::channel();
@@ -271,6 +273,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_001_trust_broadcast() {
         let test_port_added = 200;
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
@@ -412,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_001_trust_broadcast_wrong_net() {
         let test_port_added = 300;
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
@@ -551,6 +555,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_002_small_mesh_net() {
         let test_port_added = 400;
         let mesh_node_count = 15;
@@ -808,11 +813,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_002_small_mesh_three_islands_net() {
         islands_mesh_test!(500, 3, 3);
     }
 
     #[test]
+    #[ignore]
     pub fn e2e_003_big_mesh_three_islands_net() {
         islands_mesh_test!(600, 5, 3);
     }
