@@ -46,24 +46,24 @@ fn resolve_dns_record(entry: &str,
     let ctx = unbound::Context::new().unwrap();
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_1) {
-        println!("error adding key 1: {}", err);
+        error!("error adding key 1: {}", err);
         return Err("Error adding key 1!".to_string());
     }
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_2) {
-        println!("error adding key 2: {}", err);
+        error!("error adding key 2: {}", err);
         return Err("Error adding key 2!".to_string());
     }
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_3) {
-        println!("error adding key 3: {}", err);
+        error!("error adding key 3: {}", err);
         return Err("Error adding key 3!".to_string());
     }
 
     //Add forward resolvers
     for ip in dns_servers {
         if let Err(err) = ctx.set_fwd(ip) {
-            println!("error adding forwarder: {}", err);
+            error!("error adding forwarder: {}", err);
             return Err("Error adding forwarder!".to_string());
         }
     }
@@ -71,7 +71,7 @@ fn resolve_dns_record(entry: &str,
     match ctx.resolve(entry, record_type as u16, 1) {
         Ok(ans) => {
             if !no_dnssec_fail && !ans.secure() {
-                println!("DNSSEC validation failed!");
+                error!("DNSSEC validation failed!");
                 return Err("DNSSEC validation failed!".to_string());
             }
 
@@ -79,25 +79,27 @@ fn resolve_dns_record(entry: &str,
                 LookupType::ARecord => {
                     for ip in ans.data().map(data_to_ipv4) {
                         res.push(format!("{}", ip));
-                        println!("The address is {}", ip);
+                        debug!("The address is {}", ip);
                     }
                 }
                 LookupType::AAAARecord => {
                     for ip in ans.data().map(data_to_ipv6) {
                         res.push(format!("{}", ip));
-                        println!("The address is {}", ip);
+                        debug!("The address is {}", ip);
                     }
                 }
                 LookupType::TXTRecord => {
                     for data in ans.data() {
-                        res.push(String::from_utf8(data.to_vec()).unwrap());
-                        println!("Got data: {}", String::from_utf8(data.to_vec()).unwrap());
+                        match String::from_utf8(data.to_vec()[1..].to_vec()) {
+                            Ok(read_s) => res.push(read_s),
+                            Err(e) => error!("Can't read UTF8 string due to {}", e.utf8_error()),
+                        }
                     }
                 }
             }
         }
         Err(err) => {
-            println!("resolve error: {}", err);
+            error!("resolve error: {}", err);
             return Err("Couldn't resolve!".to_string());
         }
     }
@@ -149,7 +151,8 @@ mod tests {
         }
     }
 
-    // #[test] - does not behave identical geographically
+    #[test]
+    #[ignore]
     pub fn _test_quadnine_resolve_dns_fail() {
         let res = resolve_dns_txt_record(&"www.dnssec-failed.org".to_string(),
                                          &vec![IpAddr::from_str("9.9.9.9").unwrap()],
@@ -160,7 +163,8 @@ mod tests {
         }
     }
 
-    // #[test] - does not behave identical geographically
+    #[test]
+    #[ignore]
     pub fn _test_norton_resolve_dns() {
         let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("199.85.126.20").unwrap()],
@@ -173,7 +177,8 @@ mod tests {
         }
     }
 
-    // #[test] - does not behave identical geographically
+    #[test]
+    #[ignore]
     pub fn _test_norton_resolve_dns_fail() {
         let res = resolve_dns_txt_record(&"www.dnssec-failed.org".to_string(),
                                          &vec![IpAddr::from_str("199.85.126.20").unwrap()],
@@ -184,7 +189,8 @@ mod tests {
         }
     }
 
-    // #[test] - does not behave identical geographically
+    #[test]
+    #[ignore]
     pub fn _test_quadnine_resolve_dns() {
         let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("9.9.9.9").unwrap()],
@@ -221,7 +227,8 @@ mod tests {
         }
     }
 
-    // #[test] - does not behave identical geographically
+    #[test]
+    #[ignore]
     pub fn _test_comodo_resolve_dns_fail() {
         let res = resolve_dns_txt_record(&"www.dnssec-failed.org".to_string(),
                                          &vec![IpAddr::from_str("8.26.56.26").unwrap()],
@@ -245,7 +252,8 @@ mod tests {
         }
     }
 
-    // #[test] - does not behave identical geographically
+    #[test]
+    #[ignore]
     pub fn _test_comodo_resolve_dns() {
         let res = resolve_dns_txt_record(&"concordium.com".to_string(),
                                          &vec![IpAddr::from_str("8.26.56.26").unwrap()],
@@ -330,4 +338,14 @@ mod tests {
         }
     }
 
+    #[test]
+    pub fn test_txt_record() {
+        let res = resolve_dns_txt_record(&"bootstrap.p2p.concordium.com".to_string(),
+                                         &vec![IpAddr::from_str("8.8.8.8").unwrap()],
+                                         true);
+        match res {
+            Ok(ref resps) => assert!(resps.len() > 0),
+            Err(e) => panic!("{}", e),
+        }
+    }
 }

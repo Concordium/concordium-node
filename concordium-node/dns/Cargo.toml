@@ -16,3 +16,4 @@ valgrind = []
 
 [dependencies]
 unbound = { path = "unbound-0.6.0" }
+log = "0.4"

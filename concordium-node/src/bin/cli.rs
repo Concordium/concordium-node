@@ -32,7 +32,6 @@ use p2p_client::p2p::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
-use std::ptr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -409,12 +408,12 @@ fn run() -> ResultExtWrapper<()> {
                  };
              });
 
-    let baker = if conf.start_baker {
+    let mut baker = if conf.start_baker {
         info!("Starting up baker thread");
-        unsafe {
-            consensus::hs_init(&0, ptr::null());
-        }
-        Some(unsafe { consensus::startBaker(0, 1, 0, on_block_baked) })
+        let mut consensus_runner = consensus::ConsensusContainer::new();
+        &consensus_runner.start_haskell();
+        &consensus_runner.start_baker(0, 1, 0);
+        Some(consensus_runner)
     } else {
         None
     };
@@ -424,19 +423,10 @@ fn run() -> ResultExtWrapper<()> {
         serv.stop_server()?;
     }
 
-    if let Some(ref baker_ref) = baker {
-        unsafe {
-            consensus::stopBaker(*baker_ref);
-            consensus::hs_exit();
-        };
+    if let Some(ref mut baker_ref) = baker {
+        baker_ref.stop_baker(0);
+        baker_ref.stop_haskell();
     }
 
     Ok(())
-}
-
-extern "C" fn on_block_baked(block_data: *const u8, data_length: i64) {
-    info!("Baked a block of length {}", data_length);
-    unsafe {
-        consensus::printBlock(block_data, data_length);
-    }
 }
