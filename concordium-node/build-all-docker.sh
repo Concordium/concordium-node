@@ -6,6 +6,7 @@ then
 fi
 
 # Foreign temporary dependency, potentially a smarter way?
+rm -rf consensus
 git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
 
 scripts/build-base-docker.sh
