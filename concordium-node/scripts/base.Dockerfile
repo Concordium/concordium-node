@@ -7,7 +7,7 @@ COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh
 COPY ./scripts/start-testrunner.sh ./start-testrunner.sh
 RUN pacman -Sy
-RUN pacman -S reflector
+RUN pacman -S reflector --noconfirm
 RUN reflector --verbose --latest 5 --sort rate --save /etc/pacman.d/mirrorlist
 RUN pacman -Syy --noconfirm
 RUN pacman -S archlinux-keyring --noconfirm
