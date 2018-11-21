@@ -6,6 +6,7 @@ COPY ./scripts/start-bootstrapper.sh ./start-bootstrapper.sh
 COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh
 COPY ./scripts/start-testrunner.sh ./start-testrunner.sh
+RUN pacman -Sy
 RUN pacman -S reflector
 RUN reflector --verbose --latest 5 --sort rate --save /etc/pacman.d/mirrorlist
 RUN pacman -Syy --noconfirm
