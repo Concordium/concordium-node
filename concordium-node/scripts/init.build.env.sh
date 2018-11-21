@@ -9,7 +9,7 @@ curl -sSL https://get.haskellstack.org/ | sh
   find /usr/local/lib -name libHSConcordium\*.so -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.so \; &&
   find ~/.stack/programs -name libHSrts-\*.so -exec cp {} /usr/local/lib \; &&
   ls /usr/local/lib &&
-  ls ~/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4/
+  ls ~/.stack/programs/x86_64-linux/
   ) 
 
 
