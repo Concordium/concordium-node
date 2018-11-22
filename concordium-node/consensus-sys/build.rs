@@ -13,4 +13,5 @@ fn main() {
     println!("cargo:rustc-link-search=native=/usr/local/lib");
     println!("cargo:rustc-link-lib=dylib=HSConcordium-0.1.0.0");
     println!("cargo:rustc-link-lib=dylib=HSrts-ghc8.4.3");
+    println!("cargo:rustc-link-lib=dylib=libHSinteger-gmp-1.0.2.0-ghc8.4.3")
 }
