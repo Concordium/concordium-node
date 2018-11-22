@@ -8,7 +8,8 @@ test:cargo:
   script:
   - pacman -S openssl-1.0 --noconfirm
   - pacman -S gmp --noconfirm
-  - rustc --version && cargo --version 
+  - rustc --version && cargo --version
+  - ls -lah /root/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4/lib/ghc-8.4.4/
   - ( cd dns && cargo test --all --verbose )
   - ( cd ldns-sys && cargo test --all --verbose )
   - ( cd consensus-sys && cargo test --all --verbose )
