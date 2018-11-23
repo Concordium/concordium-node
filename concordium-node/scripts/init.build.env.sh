@@ -5,7 +5,7 @@ rm -rf hacl-c
 
 curl -sSL https://get.haskellstack.org/ | sh
 ( cd consensus/Concordium && stack build --ghc-options '-dynamic' --force-dirty &&
-  cp .stack-work/install/x86_64-linux-tinfo6/lts-12.10/8.4.3/lib/x86_64-linux-ghc-8.4.3/libHSConcordium-0.1.0.0-*-ghc8.4.3.so /usr/local/lib &&
+  cp .stack-work/install/x86_64-linux-tinfo6/lts-12.10/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHSConcordium-0.1.0.0-*-ghc8.4.4.so /usr/local/lib &&
   find /usr/local/lib -name libHSConcordium\*.so -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.so \; &&
   find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; &&
   ls /usr/local/lib &&
