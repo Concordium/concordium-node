@@ -3,6 +3,9 @@ git clone https://github.com/mitls/hacl-c
 ( cd hacl-c && make && cp libhacl.so /usr/lib );
 rm -rf hacl-c
 
+git clone https://github.com/libffi/libffi.git
+( cd libffi && ./autogen.sh && ./configure && make -j8 && make install);
+
 curl -sSL https://get.haskellstack.org/ | sh
 ( cd consensus/Concordium && stack build --ghc-options '-dynamic' --force-dirty &&
   cp .stack-work/install/x86_64-linux-tinfo6/lts-12.19/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHSConcordium-0.1.0.0-*-ghc8.4.4.so /usr/local/lib &&
