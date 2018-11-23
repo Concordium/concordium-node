@@ -5,6 +5,7 @@ rm -rf hacl-c
 
 git clone https://github.com/libffi/libffi.git
 ( cd libffi && ./autogen.sh && ./configure && make -j8 && make install);
+rm -rf libffi
 
 curl -sSL https://get.haskellstack.org/ | sh
 ( cd consensus/Concordium && stack build --ghc-options '-dynamic' --force-dirty &&
