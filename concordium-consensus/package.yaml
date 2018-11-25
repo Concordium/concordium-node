@@ -37,6 +37,7 @@ library:
   ghc-options:
       - -fPIC
       - -shared
+      - -dynamic
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
   
@@ -48,6 +49,15 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -dynamic
+    dependencies:
+    - Concordium
+  Concordium-genesis:
+    main:                Main.hs
+    source-dirs:         startup
+    ghc-options:
+    - -rtsopts
+    - -dynamic
     dependencies:
     - Concordium
 

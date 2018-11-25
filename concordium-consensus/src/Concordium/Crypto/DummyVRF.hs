@@ -36,6 +36,8 @@ instance Serialize PublicKey where
 data PrivateKey = PrivateKey ByteString
     deriving (Eq, Generic)
 
+instance Serialize PrivateKey where
+
 newtype Hash = Hash ByteString
     deriving (Eq, Generic, Serialize)
 

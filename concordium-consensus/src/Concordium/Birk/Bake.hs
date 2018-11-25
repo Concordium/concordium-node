@@ -1,10 +1,13 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, DeriveGeneric #-}
 module Concordium.Birk.Bake where
 
 import qualified Data.Map.Strict as Map
 
+import GHC.Generics
 import Control.Monad.Trans.Maybe
 import Lens.Micro.Platform
+
+import Data.Serialize
 
 import Concordium.Types
 import Concordium.Skov.Monad
@@ -18,7 +21,9 @@ data BakerIdentity = BakerIdentity {
     bakerId :: BakerId,
     bakerSignKey :: BakerSignPrivateKey,
     bakerElectionKey :: BakerElectionPrivateKey
-}
+} deriving (Eq, Generic)
+
+instance Serialize BakerIdentity where
 
 processInputs :: (PayloadMonad m) => BlockHash -> m (Maybe BlockData)
 processInputs bh = 

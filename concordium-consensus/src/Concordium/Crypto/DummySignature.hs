@@ -24,6 +24,8 @@ import System.Random
 
 data SignKey = SignKey ByteString
     deriving (Eq, Generic)
+instance Serialize SignKey where
+
 data VerifyKey = VerifyKey ByteString
     deriving (Eq, Generic)
 instance Serialize VerifyKey where
