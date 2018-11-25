@@ -61,20 +61,20 @@ data BakerRunner = BakerRunner {
 }
 
 makeBakerIdentity :: BakerId -> BakerIdentity
-makeBakerIdentity bid = mbs (mkStdGen 17)
+makeBakerIdentity bid = BakerIdentity bid ssk esk
     where
-        mbs gen = BakerIdentity bid ssk esk
-            where
-                (VRF.KeyPair esk epk, gen') = random gen
-                (Sig.KeyPair ssk spk, gen'') = random gen'
+      gen = mkStdGen (fromIntegral bid)
+      (VRF.KeyPair esk epk, gen') = random gen
+      (Sig.KeyPair ssk spk, gen'') = random gen'
 
 makeBakerInfos :: Word64 -> [BakerInfo]
-makeBakerInfos nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17)
+makeBakerInfos nBakers = take (fromIntegral nBakers) $ mbs 0
     where
-        mbs gen = BakerInfo epk spk lot:mbs gen''
+        mbs n = BakerInfo epk spk lot:mbs (n+1)
             where
+                gen = mkStdGen n
                 (VRF.KeyPair esk epk, gen') = random gen
-                (Sig.KeyPair ssk spk, gen'') = random gen'
+                (Sig.KeyPair ssk spk, _) = random gen'
         lot = 1.0 / fromIntegral nBakers
 
 type CStringCallback = CString -> Int64 -> IO ()
