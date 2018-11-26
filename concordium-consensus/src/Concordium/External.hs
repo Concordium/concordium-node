@@ -19,15 +19,14 @@ import Concordium.Payload.Transaction
 import Concordium.Runner
 import Concordium.Show
 
-
-type I32 = Int32
+import qualified Concordium.Startup as S
 
 -- Test functions
 
--- triple :: I32 -> I32
--- triple x = 3 * x
+-- triple :: Int64 -> IO ()
+-- triple x = print x
 
--- foreign export ccall triple :: I32 -> I32
+-- foreign export ccall triple :: Int64 -> IO ()
 
 -- foreign import ccall "dynamic" mkCallback :: FunPtr (I32 -> IO I32) -> I32 -> IO I32
 
@@ -60,61 +59,24 @@ data BakerRunner = BakerRunner {
     bakerOutChan :: Chan OutMessage
 }
 
-makeBakerIdentity :: BakerId -> BakerIdentity
-makeBakerIdentity bid = BakerIdentity bid ssk esk
-    where
-      gen = mkStdGen (fromIntegral bid)
-      (VRF.KeyPair esk epk, gen') = random gen
-      (Sig.KeyPair ssk spk, gen'') = random gen'
-
-makeBakerInfos :: Word64 -> [BakerInfo]
-makeBakerInfos nBakers = take (fromIntegral nBakers) $ mbs 0
-    where
-        mbs n = BakerInfo epk spk lot:mbs (n+1)
-            where
-                gen = mkStdGen n
-                (VRF.KeyPair esk epk, gen') = random gen
-                (Sig.KeyPair ssk spk, _) = random gen'
-        lot = 1.0 / fromIntegral nBakers
-
 type CStringCallback = CString -> Int64 -> IO ()
 foreign import ccall "dynamic" callCStringCallback :: FunPtr CStringCallback -> CStringCallback
+
+foreign import ccall "dynamic" callCStringCallbackInstance :: FunPtr (Int64 -> CStringCallback) -> Int64 -> CStringCallback
 
 makeGenesisData :: 
     Timestamp -- ^Genesis time
     -> Word64 -- ^Number of bakers
     -> FunPtr CStringCallback -- ^Function to process the generated genesis data.
+    -> FunPtr (Int64 -> CStringCallback) -- ^Function to process each baker identity. Will be called repeatedly with different baker ids.
     -> IO ()
-makeGenesisData genTime nBakers cbk = do
-    BS.useAsCStringLen (encode genData) $ \(cdata, clen) -> callCStringCallback cbk cdata (fromIntegral clen)
+makeGenesisData genTime nBakers cbkgen cbkbaker = do
+    BS.useAsCStringLen (encode genData) $ \(cdata, clen) -> callCStringCallback cbkgen cdata (fromIntegral clen)
+    mapM_ (\bkr@(BakerIdentity bid _ _) -> BS.useAsCStringLen (encode bkr) $ \(cdata, clen) -> callCStringCallbackInstance cbkbaker (fromIntegral bid) cdata (fromIntegral clen)) bakersPrivate
     where
-        bps = BirkParameters (BS.pack "LeadershipElectionNonce")
-                             0.5 -- voting power
-                             (Map.fromList $ zip [0..] (makeBakerInfos nBakers))
-        fps = FinalizationParameters Map.empty
-        genData = GenesisData genTime
-                              10 -- slot time in seconds
-                              bps
-                              fps 
-
--- makeStartupData ::
---     Timestamp   -- ^Genesis time
---     -> Word64   -- ^Number of bakers
---     -> Word64   -- ^Index of desired baker (0 <= _ < number of bakers)
---     -> (GenesisData, BakerIdentity)
--- makeStartupData genTime nBakers bIndex = (genData, bid)
---     where
---         bakeShare = (1.0 / (fromIntegral nBakers))
---         bakers = take (fromIntegral nBakers) $ zip [0..] (makeBakers bakeShare)
---         bps = BirkParameters (BS.pack "LeadershipElectionNonce")
---             0.5 -- Voting power
---             (Map.fromList [(i,b) | (i, (b, _)) <- bakers])
---         fps = FinalizationParameters Map.empty
---         genData = GenesisData genTime
---                 10 -- Slot time in seconds
---                 bps
---                 fps
---         bid = snd $ snd (bakers !! (fromIntegral bIndex))
+        bakers = S.makeBakers (fromIntegral nBakers)
+        genData = S.makeGenesisData genTime bakers
+        bakersPrivate = map fst bakers
 
 type BlockCallback = CString -> Int64 -> IO ()
 
@@ -127,18 +89,19 @@ outLoop chan cbk = do
     BS.useAsCStringLen bbs $ \(cstr, l) -> cbk cstr (fromIntegral l)
     outLoop chan cbk
 
-startBaker :: Word64 -- ^Baker id
-           -> CString -> Int64 -- ^Serialized genesis data (c string + len)
+startBaker :: 
+           CString -> Int64 -- ^Serialized genesis data (c string + len)
+           -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
-startBaker bIndex gdataC gdataLenC bcbk = do
-    let bid = makeBakerIdentity bIndex
+startBaker gdataC gdataLenC bidC bidLenC bcbk = do
     gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
-    case decode gdata of
-      Left err -> ioError (userError err)
-      Right genData -> do
+    bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
+    case (decode gdata, decode bdata) of
+      (Right genData, Right bid) -> do
         (cin, cout) <- makeRunner bid genData
         forkIO $ outLoop cout (callBlockCallback bcbk)
         newStablePtr (BakerRunner cin cout)
+      _   -> ioError (userError $ "Error decoding serialized data.")
 
 stopBaker :: StablePtr BakerRunner -> IO ()
 stopBaker bptr = do
@@ -167,8 +130,8 @@ receiveTransaction bptr n0 n1 n2 n3 tdata tlen = do
     tbs <- BS.packCStringLen (tdata, fromIntegral tlen)
     writeChan cin $ MsgTransactionReceived (Transaction (TransactionNonce n0 n1 n2 n3) tbs)
 
-foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> IO ()
-foreign export ccall startBaker :: Word64 -> CString -> Int64 -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
+foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
+foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()

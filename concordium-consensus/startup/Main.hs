@@ -1,45 +1,16 @@
-{-# LANGUAGE TupleSections  #-}
 module Main where
 
 import System.Random
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Map as Map
 import Data.Serialize
-
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
 
 import Concordium.Types
 import Concordium.Birk.Bake
-import Concordium.Payload.Transaction
-import Concordium.Runner
-import Concordium.Show
 
 import System.Console.GetOpt
 import System.Environment
 
-makeBakers :: Word -> [(BakerIdentity,BakerInfo)]
-makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
-    where
-        lot = 1.0 / fromIntegral nBakers
-        mbs gen bid = (BakerIdentity bid ssk esk, BakerInfo epk spk lot):mbs gen'' (bid+1)
-            where
-                (VRF.KeyPair esk epk, gen') = random gen
-                (Sig.KeyPair ssk spk, gen'') = random gen'
-
-makeGenesisData :: 
-    Timestamp -- ^Genesis time
-    -> [(BakerIdentity, BakerInfo)] -- ^Public information about initial bakers
-    -> GenesisData
-makeGenesisData genTime bakers = GenesisData genTime
-                                             10 -- slot time in seconds
-                                             bps
-                                             fps
-    where
-        bps = BirkParameters (BS.pack "LeadershipElectionNonce")
-                             0.5 -- voting power
-                             (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _, binfo) <- bakers])
-        fps = FinalizationParameters Map.empty
+import Concordium.Startup (makeBakers, makeGenesisData)
 
 data CmdOption = NumBakers Word | GenTime Timestamp deriving (Show)
 
