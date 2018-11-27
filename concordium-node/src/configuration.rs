@@ -140,8 +140,12 @@ pub struct CliConfig {
                 help = "Location of resolv.conf",
                 default_value = "/etc/resolv.conf")]
     pub resolv_conf: String,
-    #[structopt(long = "enable-baker", help = "Enable baker thread")]
-    pub start_baker: bool,
+    #[structopt(long = "baker-id", help = "Baker ID")]
+    pub baker_id: Option<u64>,
+    #[structopt(long = "num-bakers", help = "Amount of bakers in the network", default_value  = "60")]
+    pub baker_num_bakers: u64,
+    #[structopt(long = "baker-genesis", help = "Genesis time to build with", default_value = "0")]
+    pub baker_genesis: u64,
 }
 
 pub fn parse_cli_config() -> CliConfig {

@@ -34,8 +34,11 @@ use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::io::{Read,Write};
+use std::fs::OpenOptions;
 use std::thread;
 use timer::Timer;
+use std::collections::HashMap;
 
 quick_main!(run);
 
@@ -111,7 +114,7 @@ fn run() -> ResultExtWrapper<()> {
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
     let external_ip = if conf.external_ip.is_some() {
-        conf.external_ip
+        conf.external_ip.clone()
     } else if conf.ip_discovery_service {
         match utils::discover_external_ip(&conf.ip_discovery_service_host) {
             Ok(ip) => Some(ip.to_string()),
@@ -164,7 +167,7 @@ fn run() -> ResultExtWrapper<()> {
                               }
                           });
         P2PNode::new(node_id,
-                     conf.listen_address,
+                     conf.listen_address.clone(),
                      conf.listen_port,
                      external_ip,
                      conf.external_port,
@@ -175,7 +178,7 @@ fn run() -> ResultExtWrapper<()> {
                      conf.network_ids.clone())
     } else {
         P2PNode::new(node_id,
-                     conf.listen_address,
+                     conf.listen_address.clone(),
                      conf.listen_port,
                      external_ip,
                      conf.external_port,
@@ -209,9 +212,9 @@ fn run() -> ResultExtWrapper<()> {
     if !conf.no_rpc_server {
         let mut serv = RpcServerImpl::new(node.clone(),
                                           Some(db.clone()),
-                                          conf.rpc_server_addr,
+                                          conf.rpc_server_addr.clone(),
                                           conf.rpc_server_port,
-                                          conf.rpc_server_token);
+                                          conf.rpc_server_token.clone());
         serv.start_server()?;
         rpc_serv = Some(serv);
     }
@@ -309,10 +312,10 @@ fn run() -> ResultExtWrapper<()> {
             prom.lock()?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
-                                       conf.prometheus_job_name,
+                                       conf.prometheus_job_name.clone(),
                                        instance_name,
-                                       conf.prometheus_push_username,
-                                       conf.prometheus_push_password)
+                                       conf.prometheus_push_username.clone(),
+                                       conf.prometheus_push_password.clone())
                 .map_err(|e| error!("{}", e))
                 .ok();
         }
@@ -321,7 +324,7 @@ fn run() -> ResultExtWrapper<()> {
     let _node_th = node.spawn();
 
     if !conf.no_network {
-        for connect_to in conf.connect_to {
+        for connect_to in &conf.connect_to {
             match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
                 Some((ip, port)) => {
                     info!("Connecting to peer {}", &connect_to);
@@ -353,7 +356,7 @@ fn run() -> ResultExtWrapper<()> {
 
     let _desired_nodes_count = conf.desired_nodes;
     let _no_net_clone = conf.no_network;
-    let _bootstrappers_conf = conf.bootstrap_server;
+    let _bootstrappers_conf = conf.bootstrap_server.clone();
     let _dnssec = conf.no_dnssec;
     let _dns_resolvers = dns_resolvers.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
@@ -408,12 +411,20 @@ fn run() -> ResultExtWrapper<()> {
                  };
              });
 
-    let mut baker = if conf.start_baker {
+    let mut baker = if conf.baker_id.is_some() {
         info!("Starting up baker thread");
-        let mut consensus_runner = consensus::ConsensusContainer::new();
-        &consensus_runner.start_haskell();
-        &consensus_runner.start_baker(0, 1, 0);
-        Some(consensus_runner)
+        consensus::ConsensusContainer::start_haskell();
+        match get_baker_data(&app_prefs, &conf) {
+            Ok((genesis,private_data)) => {
+                let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
+                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
+                Some(consensus_runner)
+            }
+            Err(_) => {
+                error!("Can't read needed data...");
+                None
+            }
+        }
     } else {
         None
     };
@@ -424,9 +435,75 @@ fn run() -> ResultExtWrapper<()> {
     }
 
     if let Some(ref mut baker_ref) = baker {
-        baker_ref.stop_baker(0);
-        baker_ref.stop_haskell();
+        baker_ref.stop_baker(conf.baker_id.unwrap());
+        consensus::ConsensusContainer::stop_haskell();
     }
 
     Ok(())
+}
+
+fn get_baker_data(app_prefs: &configuration::AppPreferences, conf: &configuration::CliConfig) -> Result<(Vec<u8>,Vec<u8>),&'static str>{
+    let mut genesis_loc = app_prefs.get_user_app_dir().clone();
+        genesis_loc.push("genesis.dat");
+        let mut  private_loc = app_prefs.get_user_app_dir().clone();
+        private_loc.push(format!("baker_private_{}.dat", conf.baker_id.unwrap()));
+        let (generated_genesis, generated_private_data) = if !genesis_loc.exists() || !private_loc.exists() {
+            match consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers) {
+                Ok((genesis,private_data)) => (genesis.clone(), private_data.clone()),
+                Err(_) => return Err("Error generating genesis and/or private baker data via haskell!"),
+            }
+        } else { 
+        (vec![], HashMap::new() )
+        };
+    let given_genesis = if !genesis_loc.exists() {
+    match OpenOptions::new().read(true)
+                .write(true)
+                .create(true)
+                .open(&genesis_loc)
+    {
+        Ok(mut file) => match file.write_all(&generated_genesis) {
+            Ok(_) => generated_genesis.clone(),
+            Err(_) => return Err("Couldn't write out genesis data"),
+        }
+        Err(_) => return Err("Couldn't open up genesis file for writing"),
+    }
+} else {
+    match OpenOptions::new().read(true)
+    .open(&genesis_loc) {
+        Ok(mut file) => {
+            let mut read_data = vec![];
+            match file.read_to_end(&mut read_data) {
+                Ok(_) => read_data.clone(),
+                Err(_) => return Err("Couldn't read genesis file properly"),
+            }
+        },
+        _ => return Err("Unexpected"),
+    }
+};
+    let given_private_data = if !private_loc.exists() {
+        match OpenOptions::new().read(true)
+                    .write(true)
+                    .create(true)
+                    .open(&private_loc)
+        {
+            Ok(mut file) => match file.write_all(generated_private_data.get(&(conf.baker_id.unwrap() as i64)).unwrap()) {
+                Ok(_) => generated_private_data.get(&(conf.baker_id.unwrap() as i64)).unwrap().clone(),
+                Err(_) => return Err("Couldn't write out private baker data"),
+            }
+            Err(_) => return Err("Couldn't open up private baker file for writing"),
+        }
+    } else {
+        match OpenOptions::new().read(true)
+        .open(&private_loc) {
+            Ok(mut file) => {
+                let mut read_data = vec![];
+                match file.read_to_end(&mut read_data) {
+                    Ok(_) => read_data.clone().to_vec(),
+                    Err(_) => return Err("Couldn't open up private baker file for reading"),
+                }
+            },
+            _ => return Err("Unexpected"),
+        }
+    };
+    Ok((given_genesis,given_private_data))
 }

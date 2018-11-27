@@ -8,6 +8,8 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{slice, str};
+use std::thread;
+use std::time;
 
 #[repr(C)]
 pub struct baker_runner {
@@ -15,9 +17,11 @@ pub struct baker_runner {
 }
 
 extern "C" {
-    pub fn startBaker(genesis_time: u64,
-                      number_of_bakers: u64,
-                      baker_index: u64,
+    pub fn startBaker(
+                    genesis_data: *const u8,
+                    genesis_data_len: i64,
+                    private_data: *const u8,
+                    private_data_len: i64,
                       bake_callback: extern "C" fn(*const u8, i64))
                       -> *mut baker_runner;
     pub fn printBlock(block_data: *const u8, data_length: i64);
@@ -30,20 +34,28 @@ extern "C" {
                               transaction_data: *const u8,
                               data_length: i64);
     pub fn stopBaker(baker: *mut baker_runner);
+    pub fn makeGenesisData(genesis_time: u64, num_bakers: u64, 
+        genesis_callback: extern "C" fn(data: *const u8, data_length: i64),
+        baker_private_data_callback: extern "C" fn(baker_id: i64, data: *const u8, data_length: i64));
 }
 
 #[derive(Clone)]
 pub struct ConsensusBaker {
     id: u64,
+    genesis_data: Vec<u8>,
+    private_data: Vec<u8>,
     runner: Arc<Mutex<*mut baker_runner>>,
 }
 
 impl ConsensusBaker {
-    pub fn new(genesis: u64, num_of_bakers: u64, baker_index: u64) -> Self {
-        info!("Starting up baker {}/{}/{}",
-              genesis, num_of_bakers, baker_index);
-        let baker = unsafe { startBaker(genesis, num_of_bakers, baker_index, on_block_baked) };
-        ConsensusBaker { id: baker_index,
+    pub fn new(baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
+        info!("Starting up baker {}",
+              baker_id);
+        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.clone()) };
+        let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone())};
+        let baker = unsafe { startBaker(c_string_genesis.as_ptr() as *const u8, genesis_data.len() as i64, c_string_private_data.as_ptr() as *const u8, private_data.len() as i64, 
+            on_block_baked) };
+        ConsensusBaker { id: baker_id, genesis_data: genesis_data, private_data: private_data,
                          runner: Arc::new(Mutex::new(baker)), }
     }
 
@@ -97,42 +109,45 @@ impl ConsensusOutQueue {
 
 lazy_static! {
     static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::new() };
+    static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> = { Mutex::new(HashMap::new()) };
+    static ref GENERATED_GENESIS_DATA: Mutex<Option<Vec<u8>>> = { Mutex::new(None) };
 }
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
+    genesis_data: Vec<u8>,
     bakers: Arc<Mutex<HashMap<u64, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
-    pub fn new() -> Self {
-        ConsensusContainer { bakers: Arc::new(Mutex::new(HashMap::new())), }
+    pub fn new(genesis_data: Vec<u8>) -> Self {
+        ConsensusContainer { genesis_data: genesis_data, bakers: Arc::new(Mutex::new(HashMap::new())), }
     }
 
-    pub fn start_haskell(&self) {
+    pub fn start_haskell() {
         info!("Starting up Haskell runner");
         start("".to_string());
     }
 
-    pub fn stop_haskell(&self) {
+    pub fn stop_haskell() {
         info!("Stopping Haskell runner");
         stop();
     }
 
-    pub fn start_baker(&mut self, genesis: u64, number_of_bakers: u64, baker_index: u64) {
+    pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
         self.bakers
             .lock()
             .unwrap()
-            .insert(baker_index,
-                    ConsensusBaker::new(genesis, number_of_bakers, baker_index));
+            .insert(baker_id,
+                    ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data.clone()));
     }
 
-    pub fn stop_baker(&mut self, baker_index: u64) {
-        match self.bakers.lock().unwrap().get_mut(&baker_index) {
+    pub fn stop_baker(&mut self, baker_id: u64) {
+        match self.bakers.lock().unwrap().get_mut(&baker_id) {
             Some(baker) => baker.stop(),
             None => error!("Can't find baker"),
         }
-        self.bakers.lock().unwrap().remove(&baker_index);
+        self.bakers.lock().unwrap().remove(&baker_id);
     }
 
     pub fn out_queue(&self) -> ConsensusOutQueue {
@@ -145,6 +160,51 @@ impl ConsensusContainer {
                 baker.send_block(&block);
             }
         }
+    }
+
+    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
+        if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.lock() {
+            **lock = None;
+        }
+        if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.lock() {
+            lock.clear();
+        }
+        unsafe { makeGenesisData(genesis_time, num_bakers, on_genesis_generated, on_private_data_generated); }
+        for _ in 0..num_bakers {
+            if !GENERATED_GENESIS_DATA.lock().unwrap().is_some() || 
+                GENERATED_PRIVATE_DATA.lock().unwrap().len() < num_bakers as usize{
+                thread::sleep(time::Duration::from_millis(200));
+            }
+        }
+        let genesis_data:Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
+            Ok(ref mut genesis) if genesis.is_some()=> genesis.clone().unwrap(),
+            _ => return Err("Didn't get genesis from haskell"),
+        };
+        if let Ok(priv_data) = GENERATED_PRIVATE_DATA.lock() {
+            if priv_data.len() < num_bakers as usize{
+                return Err("Didn't get private data from haskell");
+            } else {
+                return Ok((genesis_data.clone(), priv_data.clone()));
+            }
+        } else {
+            return Err("Didn't get private data from haskell");
+        }
+    }
+}
+
+extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
+    unsafe {
+        let s = str::from_utf8_unchecked(slice::from_raw_parts(genesis_data as *const u8,
+                                                               data_length as usize));
+        *GENERATED_GENESIS_DATA.lock().unwrap() = Some(s.as_bytes().to_vec().clone());
+    }
+}
+
+extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, data_length: i64) {
+    unsafe {
+        let s = str::from_utf8_unchecked(slice::from_raw_parts(private_data as *const u8,
+                                                               data_length as usize));
+        GENERATED_PRIVATE_DATA.lock().unwrap().insert(baker_id, s.as_bytes().to_vec().clone());
     }
 }
 
@@ -413,20 +473,24 @@ mod tests {
     }
 
     macro_rules! bakers_test {
-        ($num_bakers:expr, $blocks_num:expr) => {
-            let mut consensus_container = ConsensusContainer::new();
+        ($genesis_time: expr, $num_bakers:expr, $blocks_num:expr) => {
+            let (genesis_data, private_data) = match ConsensusContainer::generate_data($genesis_time, $num_bakers) {
+                Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                _ => panic!("Couldn't read haskell data"),
+            };
+            let mut consensus_container = ConsensusContainer::new(genesis_data);
             for i in 0..$num_bakers {
-                &consensus_container.start_baker(0, $num_bakers, i);
+                &consensus_container.start_baker(i, private_data.get(&(i as i64)).unwrap().to_vec());
             }
-            for _ in 0..$blocks_num {
+            for i in 0..$blocks_num {
                 match &consensus_container.out_queue()
-                                          .recv_timeout(Duration::from_millis(60_000))
+                                          .recv_timeout(Duration::from_millis(240_000))
                 {
                     Ok(msg) => {
                         println!("Got a proper message back {:?}", msg);
                         &consensus_container.send_block(msg);
                     }
-                    _ => panic!("No message!"),
+                    _ => panic!(format!("No message at {}!", i)),
                 }
             }
             for i in 0..$num_bakers {
@@ -438,9 +502,9 @@ mod tests {
     #[test]
     #[ignore]
     pub fn consensus_tests() {
-        start("".to_string());
-        bakers_test!(5, 10);
-        bakers_test!(10, 5);
-        stop();
+        ConsensusContainer::start_haskell();
+        bakers_test!(0, 5, 10);
+        bakers_test!(0, 10, 5);
+        ConsensusContainer::stop_haskell();
     }
 }
