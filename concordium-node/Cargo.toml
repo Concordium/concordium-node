@@ -2,7 +2,7 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.17-debug"
+version = "0.1.18-debug"
 description = "Concordium P2P library"
 authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
 exclude = [
