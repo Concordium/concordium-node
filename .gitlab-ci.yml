@@ -7,7 +7,8 @@ test:cargo:
     LD_LIBRARY_PATH: "/usr/local/lib"
   script:
   - pacman -S openssl-1.0 --noconfirm
-  - rustc --version && cargo --version 
+  - rustc --version && cargo --version
+  - stack exec -- ghc --print-libdir
   - ( cd dns && cargo test --all --verbose )
   - ( cd ldns-sys && cargo test --all --verbose )
   - ( cd consensus-sys && cargo test --all --verbose )
