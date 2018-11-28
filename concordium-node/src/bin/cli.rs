@@ -219,6 +219,24 @@ fn run() -> ResultExtWrapper<()> {
         rpc_serv = Some(serv);
     }
 
+    let mut baker = if conf.baker_id.is_some() {
+        info!("Starting up baker thread");
+        consensus::ConsensusContainer::start_haskell();
+        match get_baker_data(&app_prefs, &conf) {
+            Ok((genesis,private_data)) => {
+                let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
+                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
+                Some(consensus_runner)
+            }
+            Err(_) => {
+                error!("Can't read needed data...");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let mut _node_self_clone = node.clone();
 
     let _no_trust_bans = conf.no_trust_bans;
@@ -226,6 +244,7 @@ fn run() -> ResultExtWrapper<()> {
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.desired_nodes;
     let _test_runner_url = conf.test_runner_url.clone();
+    let mut _baker_pkt_clone = baker.clone();
     let _guard_pkt = thread::spawn(move || {
                                        loop {
                                            if let Ok(full_msg) = pkt_out.recv() {
@@ -251,6 +270,15 @@ fn run() -> ResultExtWrapper<()> {
                                                            _ => error!("Couldn't register packet received with test runner")
                                                        }
                                                    };
+                                                   if let Some(ref mut baker) = _baker_pkt_clone {
+                                                       match consensus::Block::deserialize(msg) {
+                                                           Some(block) => {
+                                                               baker.send_block(&block);
+                                                               info!("Sent block from network to baker");
+                                                           }
+                                                           _ => error!("Couldn't deserialize block, can't move forward with the message"),
+                                                       }
+                                                   }
                                                }
 
                                                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
@@ -361,9 +389,10 @@ fn run() -> ResultExtWrapper<()> {
     let _dns_resolvers = dns_resolvers.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
     let _nids = conf.network_ids.clone();
+    let mut _node_ref_guard_timer = node.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match node.get_peer_stats(&vec![]) {
+                 match _node_ref_guard_timer.get_peer_stats(&vec![]) {
                      Ok(ref x) => {
                          info!("I currently have {}/{} nodes!",
                                x.len(),
@@ -389,7 +418,7 @@ fn run() -> ResultExtWrapper<()> {
                                          for (ip, port) in nodes {
                                              info!("Found bootstrap node IP: {} and port: {}",
                                                    ip, port);
-                                             node.connect(ConnectionType::Bootstrapper,
+                                             _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
                                                           ip,
                                                           port,
                                                           None)
@@ -401,7 +430,7 @@ fn run() -> ResultExtWrapper<()> {
                                  }
                              } else {
                                  info!("Not enough nodes, sending GetPeers requests");
-                                 node.send_get_peers(_nids.clone())
+                                 _node_ref_guard_timer.send_get_peers(_nids.clone())
                                      .map_err(|e| error!("{}", e))
                                      .ok();
                              }
@@ -411,25 +440,32 @@ fn run() -> ResultExtWrapper<()> {
                  };
              });
 
-    let mut baker = if conf.baker_id.is_some() {
-        info!("Starting up baker thread");
-        consensus::ConsensusContainer::start_haskell();
-        match get_baker_data(&app_prefs, &conf) {
-            Ok((genesis,private_data)) => {
-                let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
-                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
-                Some(consensus_runner)
+    if let Some(ref mut baker) = baker {
+        let mut _baker_clone = baker.clone();
+        let mut _node_ref = node.clone();
+        let _network_id = conf.network_ids.first().unwrap().clone();
+        thread::spawn(move || {
+            loop {
+                match _baker_clone.out_queue().recv() {
+                    Ok(x) => {
+                        match x.serialize() {
+                            Ok(bytes) => {
+                                match _node_ref.send_message(None, _network_id, None, &bytes, true) {
+                                    Ok(_) => info!("Broadcasted block {}/{}", x.slot_id(), x.baker_id()),
+                                    Err(_) => error!("Couldn't broadcast block!"),
+                                }
+                            }
+                            Err(_) => error!("Couldn't serialize block {:?}", x),
+                        }
+                    }
+                    _ => error!("Error receiving block from baker"),
+                }
             }
-            Err(_) => {
-                error!("Can't read needed data...");
-                None
-            }
-        }
-    } else {
-        None
-    };
+        });
+    }
 
     _node_th.join().unwrap();
+
     if let Some(ref mut serv) = rpc_serv {
         serv.stop_server()?;
     }

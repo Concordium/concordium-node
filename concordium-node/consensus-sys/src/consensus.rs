@@ -77,6 +77,9 @@ impl ConsensusBaker {
     }
 }
 
+unsafe impl Send for ConsensusBaker {}
+unsafe impl Sync for ConsensusBaker {}
+
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
     receiver: Arc<Mutex<mpsc::Receiver<Box<Block>>>>,
@@ -373,6 +376,14 @@ impl Block {
         }
         out.extend(&self.signature);
         Ok(out)
+    }
+
+    pub fn slot_id(&self) -> u64 {
+        self.slot_id
+    }
+
+    pub fn baker_id(&self) -> u64 {
+        self.baker_id
     }
 }
 
