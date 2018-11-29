@@ -13,6 +13,7 @@ extern crate timer;
 #[macro_use]
 extern crate error_chain;
 extern crate alloc_system;
+extern crate byteorder;
 extern crate consensus_sys;
 extern crate reqwest;
 
@@ -20,6 +21,7 @@ use alloc_system::System;
 #[global_allocator]
 static A: System = System;
 
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use consensus_sys::consensus;
 use env_logger::{Builder, Env};
 use p2p_client::common::{
@@ -32,13 +34,14 @@ use p2p_client::p2p::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Cursor;
+use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::io::{Read,Write};
-use std::fs::OpenOptions;
 use std::thread;
 use timer::Timer;
-use std::collections::HashMap;
 
 quick_main!(run);
 
@@ -223,7 +226,7 @@ fn run() -> ResultExtWrapper<()> {
         info!("Starting up baker thread");
         consensus::ConsensusContainer::start_haskell();
         match get_baker_data(&app_prefs, &conf) {
-            Ok((genesis,private_data)) => {
+            Ok((genesis, private_data)) => {
                 let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
                 &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
                 Some(consensus_runner)
@@ -246,6 +249,39 @@ fn run() -> ResultExtWrapper<()> {
     let _test_runner_url = conf.test_runner_url.clone();
     let mut _baker_pkt_clone = baker.clone();
     let _guard_pkt = thread::spawn(move || {
+                                       fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
+                                                            msg: &[u8])
+                                       {
+                                           if let Some(ref mut baker) = baker_ins {
+                                               let mut type_id_bytes = Cursor::new(&msg[0..2]);
+                                               match type_id_bytes.read_u16::<BigEndian>() {
+                                                        Ok(num) => {
+                                                            match num {
+                                                                0 => {
+                                                                    match consensus::Block::deserialize(&msg[2..]) {
+                                                                        Some(block) => {
+                                                                            baker.send_block(&block);
+                                                                            info!("Sent block from network to baker");
+                                                                        }
+                                                                        _ => error!("Couldn't deserialize block, can't move forward with the message"),
+                                                                    }
+                                                                }
+                                                                1 => {
+                                                                    match consensus::Transaction::deserialize(&msg[2..]) {
+                                                                        Some(tx) => {
+                                                                            baker.send_transaction(&tx);
+                                                                            info!("Sent transaction to baker");
+                                                                        }
+                                                                        _ => error!("Could'nt deserialize transaction, can't move forward with the message"),
+                                                                    }
+                                                                }
+                                                                _ => error!("Incorrect message type received"),
+                                                            }
+                                                        }
+                                                        _ => error!("Couldn't read bytes properly for type"),
+                                                    }
+                                           }
+                                       }
                                        loop {
                                            if let Ok(full_msg) = pkt_out.recv() {
                                                match *full_msg.clone() {
@@ -254,6 +290,7 @@ fn run() -> ResultExtWrapper<()> {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
                                                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
+                                                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                                                }
                                                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
@@ -270,15 +307,7 @@ fn run() -> ResultExtWrapper<()> {
                                                            _ => error!("Couldn't register packet received with test runner")
                                                        }
                                                    };
-                                                   if let Some(ref mut baker) = _baker_pkt_clone {
-                                                       match consensus::Block::deserialize(msg) {
-                                                           Some(block) => {
-                                                               baker.send_block(&block);
-                                                               info!("Sent block from network to baker");
-                                                           }
-                                                           _ => error!("Couldn't deserialize block, can't move forward with the message"),
-                                                       }
-                                                   }
+                                                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                                                }
 
                                                box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
@@ -392,76 +421,93 @@ fn run() -> ResultExtWrapper<()> {
     let mut _node_ref_guard_timer = node.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match _node_ref_guard_timer.get_peer_stats(&vec![]) {
-                     Ok(ref x) => {
-                         info!("I currently have {}/{} nodes!",
-                               x.len(),
-                               _desired_nodes_count);
-                         let mut count = 0;
-                         for i in x {
-                             info!("Peer {}: {}/{}:{}",
-                                   count,
-                                   i.id().to_string(),
-                                   i.ip().to_string(),
-                                   i.port());
-                             count += 1;
-                         }
-                         if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
-                             if x.len() == 0 {
-                                 info!("No nodes at all - retrying bootstrapping");
-                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
-                                                                  &_dns_resolvers,
-                                                                  _dnssec,
-                                                                  _bootstrap_node.clone())
-                                 {
-                                     Ok(nodes) => {
-                                         for (ip, port) in nodes {
-                                             info!("Found bootstrap node IP: {} and port: {}",
-                                                   ip, port);
-                                             _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
-                                                          ip,
-                                                          port,
-                                                          None)
+            match _node_ref_guard_timer.get_peer_stats(&vec![]) {
+                Ok(ref x) => {
+                    info!("I currently have {}/{} nodes!",
+                          x.len(),
+                          _desired_nodes_count);
+                    let mut count = 0;
+                    for i in x {
+                        info!("Peer {}: {}/{}:{}",
+                              count,
+                              i.id().to_string(),
+                              i.ip().to_string(),
+                              i.port());
+                        count += 1;
+                    }
+                    if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
+                        if x.len() == 0 {
+                            info!("No nodes at all - retrying bootstrapping");
+                            match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
+                                                             &_dns_resolvers,
+                                                             _dnssec,
+                                                             _bootstrap_node.clone())
+                            {
+                                Ok(nodes) => {
+                                    for (ip, port) in nodes {
+                                        info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                                        _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
+                                                                      ip,
+                                                                      port,
+                                                                      None)
+                                                             .map_err(|e| error!("{}", e))
+                                                             .ok();
+                                    }
+                                }
+                                _ => error!("Can't find any bootstrap nodes - check DNS!"),
+                            }
+                        } else {
+                            info!("Not enough nodes, sending GetPeers requests");
+                            _node_ref_guard_timer.send_get_peers(_nids.clone())
                                                  .map_err(|e| error!("{}", e))
                                                  .ok();
-                                         }
-                                     }
-                                     _ => error!("Can't find any bootstrap nodes - check DNS!"),
-                                 }
-                             } else {
-                                 info!("Not enough nodes, sending GetPeers requests");
-                                 _node_ref_guard_timer.send_get_peers(_nids.clone())
-                                     .map_err(|e| error!("{}", e))
-                                     .ok();
-                             }
-                         }
-                     }
-                     Err(e) => error!("Couldn't get node list, {:?}", e),
-                 };
-             });
+                        }
+                    }
+                }
+                Err(e) => error!("Couldn't get node list, {:?}", e),
+            };
+        });
 
     if let Some(ref mut baker) = baker {
         let mut _baker_clone = baker.clone();
         let mut _node_ref = node.clone();
         let _network_id = conf.network_ids.first().unwrap().clone();
         thread::spawn(move || {
-            loop {
-                match _baker_clone.out_queue().recv() {
-                    Ok(x) => {
-                        match x.serialize() {
-                            Ok(bytes) => {
-                                match _node_ref.send_message(None, _network_id, None, &bytes, true) {
-                                    Ok(_) => info!("Broadcasted block {}/{}", x.slot_id(), x.baker_id()),
-                                    Err(_) => error!("Couldn't broadcast block!"),
-                                }
-                            }
-                            Err(_) => error!("Couldn't serialize block {:?}", x),
-                        }
-                    }
-                    _ => error!("Error receiving block from baker"),
-                }
-            }
-        });
+                          loop {
+                              match _baker_clone.out_queue().recv() {
+                                  Ok(x) => {
+                                      match x.serialize() {
+                                          Ok(bytes) => {
+                                              let mut out_bytes = vec![];
+                                              match out_bytes.write_u16::<BigEndian>(0 as u16) {
+                                                  Ok(_) => {
+                                                      out_bytes.extend(bytes);
+                                                      match _node_ref.send_message(None,
+                                                                                   _network_id,
+                                                                                   None,
+                                                                                   &out_bytes,
+                                                                                   true)
+                                                      {
+                                                          Ok(_) => {
+                                                              info!("Broadcasted block {}/{}",
+                                                                    x.slot_id(),
+                                                                    x.baker_id())
+                                                          }
+                                                          Err(_) => {
+                                                              error!("Couldn't broadcast block!")
+                                                          }
+                                                      }
+                                                  }
+                                                  Err(_) => error!("Can't write type to packet"),
+                                              }
+                                          }
+                                          Err(_) => error!("Couldn't serialize block {:?}", x),
+                                      }
+                                  }
+                                  _ => error!("Error receiving block from baker"),
+                              }
+                          }
+                      });
     }
 
     _node_th.join().unwrap();
@@ -478,68 +524,82 @@ fn run() -> ResultExtWrapper<()> {
     Ok(())
 }
 
-fn get_baker_data(app_prefs: &configuration::AppPreferences, conf: &configuration::CliConfig) -> Result<(Vec<u8>,Vec<u8>),&'static str>{
+fn get_baker_data(app_prefs: &configuration::AppPreferences,
+                  conf: &configuration::CliConfig)
+                  -> Result<(Vec<u8>, Vec<u8>), &'static str> {
     let mut genesis_loc = app_prefs.get_user_app_dir().clone();
-        genesis_loc.push("genesis.dat");
-        let mut  private_loc = app_prefs.get_user_app_dir().clone();
-        private_loc.push(format!("baker_private_{}.dat", conf.baker_id.unwrap()));
-        let (generated_genesis, generated_private_data) = if !genesis_loc.exists() || !private_loc.exists() {
-            match consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers) {
-                Ok((genesis,private_data)) => (genesis.clone(), private_data.clone()),
-                Err(_) => return Err("Error generating genesis and/or private baker data via haskell!"),
-            }
-        } else { 
-        (vec![], HashMap::new() )
-        };
-    let given_genesis = if !genesis_loc.exists() {
-    match OpenOptions::new().read(true)
-                .write(true)
-                .create(true)
-                .open(&genesis_loc)
+    genesis_loc.push("genesis.dat");
+    let mut private_loc = app_prefs.get_user_app_dir().clone();
+    private_loc.push(format!("baker_private_{}.dat", conf.baker_id.unwrap()));
+    let (generated_genesis, generated_private_data) = if !genesis_loc.exists()
+                                                         || !private_loc.exists()
     {
-        Ok(mut file) => match file.write_all(&generated_genesis) {
-            Ok(_) => generated_genesis.clone(),
-            Err(_) => return Err("Couldn't write out genesis data"),
+        match consensus::ConsensusContainer::generate_data(conf.baker_genesis,
+                                                           conf.baker_num_bakers)
+        {
+            Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+            Err(_) => return Err("Error generating genesis and/or private baker data via haskell!"),
         }
-        Err(_) => return Err("Couldn't open up genesis file for writing"),
-    }
-} else {
-    match OpenOptions::new().read(true)
-    .open(&genesis_loc) {
-        Ok(mut file) => {
-            let mut read_data = vec![];
-            match file.read_to_end(&mut read_data) {
-                Ok(_) => read_data.clone(),
-                Err(_) => return Err("Couldn't read genesis file properly"),
+    } else {
+        (vec![], HashMap::new())
+    };
+    let given_genesis = if !genesis_loc.exists() {
+        match OpenOptions::new().read(true)
+                                .write(true)
+                                .create(true)
+                                .open(&genesis_loc)
+        {
+            Ok(mut file) => {
+                match file.write_all(&generated_genesis) {
+                    Ok(_) => generated_genesis.clone(),
+                    Err(_) => return Err("Couldn't write out genesis data"),
+                }
             }
-        },
-        _ => return Err("Unexpected"),
-    }
-};
+            Err(_) => return Err("Couldn't open up genesis file for writing"),
+        }
+    } else {
+        match OpenOptions::new().read(true).open(&genesis_loc) {
+            Ok(mut file) => {
+                let mut read_data = vec![];
+                match file.read_to_end(&mut read_data) {
+                    Ok(_) => read_data.clone(),
+                    Err(_) => return Err("Couldn't read genesis file properly"),
+                }
+            }
+            _ => return Err("Unexpected"),
+        }
+    };
     let given_private_data = if !private_loc.exists() {
         match OpenOptions::new().read(true)
-                    .write(true)
-                    .create(true)
-                    .open(&private_loc)
+                                .write(true)
+                                .create(true)
+                                .open(&private_loc)
         {
-            Ok(mut file) => match file.write_all(generated_private_data.get(&(conf.baker_id.unwrap() as i64)).unwrap()) {
-                Ok(_) => generated_private_data.get(&(conf.baker_id.unwrap() as i64)).unwrap().clone(),
-                Err(_) => return Err("Couldn't write out private baker data"),
+            Ok(mut file) => {
+                match file.write_all(generated_private_data.get(&(conf.baker_id.unwrap() as i64))
+                                                           .unwrap())
+                {
+                    Ok(_) => {
+                        generated_private_data.get(&(conf.baker_id.unwrap() as i64))
+                                              .unwrap()
+                                              .clone()
+                    }
+                    Err(_) => return Err("Couldn't write out private baker data"),
+                }
             }
             Err(_) => return Err("Couldn't open up private baker file for writing"),
         }
     } else {
-        match OpenOptions::new().read(true)
-        .open(&private_loc) {
+        match OpenOptions::new().read(true).open(&private_loc) {
             Ok(mut file) => {
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
                     Ok(_) => read_data.clone().to_vec(),
                     Err(_) => return Err("Couldn't open up private baker file for reading"),
                 }
-            },
+            }
             _ => return Err("Unexpected"),
         }
     };
-    Ok((given_genesis,given_private_data))
+    Ok((given_genesis, given_private_data))
 }

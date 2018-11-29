@@ -6,10 +6,10 @@ use std::ffi::CString;
 use std::io::Cursor;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::{slice, str};
 use std::thread;
 use std::time;
+use std::time::Duration;
+use std::{slice, str};
 
 #[repr(C)]
 pub struct baker_runner {
@@ -17,11 +17,10 @@ pub struct baker_runner {
 }
 
 extern "C" {
-    pub fn startBaker(
-                    genesis_data: *const u8,
-                    genesis_data_len: i64,
-                    private_data: *const u8,
-                    private_data_len: i64,
+    pub fn startBaker(genesis_data: *const u8,
+                      genesis_data_len: i64,
+                      private_data: *const u8,
+                      private_data_len: i64,
                       bake_callback: extern "C" fn(*const u8, i64))
                       -> *mut baker_runner;
     pub fn printBlock(block_data: *const u8, data_length: i64);
@@ -34,9 +33,12 @@ extern "C" {
                               transaction_data: *const u8,
                               data_length: i64);
     pub fn stopBaker(baker: *mut baker_runner);
-    pub fn makeGenesisData(genesis_time: u64, num_bakers: u64, 
-        genesis_callback: extern "C" fn(data: *const u8, data_length: i64),
-        baker_private_data_callback: extern "C" fn(baker_id: i64, data: *const u8, data_length: i64));
+    pub fn makeGenesisData(genesis_time: u64,
+                           num_bakers: u64,
+                           genesis_callback: extern "C" fn(data: *const u8, data_length: i64),
+                           baker_private_data_callback: extern "C" fn(baker_id: i64,
+                                         data: *const u8,
+                                         data_length: i64));
 }
 
 #[derive(Clone)]
@@ -49,13 +51,19 @@ pub struct ConsensusBaker {
 
 impl ConsensusBaker {
     pub fn new(baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
-        info!("Starting up baker {}",
-              baker_id);
+        info!("Starting up baker {}", baker_id);
         let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.clone()) };
-        let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone())};
-        let baker = unsafe { startBaker(c_string_genesis.as_ptr() as *const u8, genesis_data.len() as i64, c_string_private_data.as_ptr() as *const u8, private_data.len() as i64, 
-            on_block_baked) };
-        ConsensusBaker { id: baker_id, genesis_data: genesis_data, private_data: private_data,
+        let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
+        let baker = unsafe {
+            startBaker(c_string_genesis.as_ptr() as *const u8,
+                       genesis_data.len() as i64,
+                       c_string_private_data.as_ptr() as *const u8,
+                       private_data.len() as i64,
+                       on_block_baked)
+        };
+        ConsensusBaker { id: baker_id,
+                         genesis_data: genesis_data,
+                         private_data: private_data,
                          runner: Arc::new(Mutex::new(baker)), }
     }
 
@@ -73,6 +81,21 @@ impl ConsensusBaker {
             let len = serialized.len();
             let c_string = CString::from_vec_unchecked(serialized);
             receiveBlock(*baker, c_string.as_ptr() as *const u8, len as i64);
+        }
+    }
+
+    pub fn send_transaction(&self, data: &Transaction) {
+        unsafe {
+            let baker = &*self.runner.lock().unwrap();
+            let len = data.data().len();
+            let c_string = CString::from_vec_unchecked(data.data().to_vec());
+            receiveTransaction(*baker,
+                               data.n0(),
+                               data.n1(),
+                               data.n2(),
+                               data.n3(),
+                               c_string.as_ptr() as *const u8,
+                               len as i64);
         }
     }
 }
@@ -112,7 +135,8 @@ impl ConsensusOutQueue {
 
 lazy_static! {
     static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::new() };
-    static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> = { Mutex::new(HashMap::new()) };
+    static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> =
+        { Mutex::new(HashMap::new()) };
     static ref GENERATED_GENESIS_DATA: Mutex<Option<Vec<u8>>> = { Mutex::new(None) };
 }
 
@@ -124,7 +148,8 @@ pub struct ConsensusContainer {
 
 impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
-        ConsensusContainer { genesis_data: genesis_data, bakers: Arc::new(Mutex::new(HashMap::new())), }
+        ConsensusContainer { genesis_data: genesis_data,
+                             bakers: Arc::new(Mutex::new(HashMap::new())), }
     }
 
     pub fn start_haskell() {
@@ -165,26 +190,40 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
+    pub fn send_transaction(&self, tx: &Transaction) {
+        for (_, baker) in &*self.bakers.lock().unwrap() {
+            baker.send_transaction(&tx);
+        }
+    }
+
+    pub fn generate_data(genesis_time: u64,
+                         num_bakers: u64)
+                         -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.lock() {
             **lock = None;
         }
         if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.lock() {
             lock.clear();
         }
-        unsafe { makeGenesisData(genesis_time, num_bakers, on_genesis_generated, on_private_data_generated); }
+        unsafe {
+            makeGenesisData(genesis_time,
+                            num_bakers,
+                            on_genesis_generated,
+                            on_private_data_generated);
+        }
         for _ in 0..num_bakers {
-            if !GENERATED_GENESIS_DATA.lock().unwrap().is_some() || 
-                GENERATED_PRIVATE_DATA.lock().unwrap().len() < num_bakers as usize{
+            if !GENERATED_GENESIS_DATA.lock().unwrap().is_some()
+               || GENERATED_PRIVATE_DATA.lock().unwrap().len() < num_bakers as usize
+            {
                 thread::sleep(time::Duration::from_millis(200));
             }
         }
-        let genesis_data:Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
-            Ok(ref mut genesis) if genesis.is_some()=> genesis.clone().unwrap(),
+        let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
+            Ok(ref mut genesis) if genesis.is_some() => genesis.clone().unwrap(),
             _ => return Err("Didn't get genesis from haskell"),
         };
         if let Ok(priv_data) = GENERATED_PRIVATE_DATA.lock() {
-            if priv_data.len() < num_bakers as usize{
+            if priv_data.len() < num_bakers as usize {
                 return Err("Didn't get private data from haskell");
             } else {
                 return Ok((genesis_data.clone(), priv_data.clone()));
@@ -207,7 +246,9 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
     unsafe {
         let s = str::from_utf8_unchecked(slice::from_raw_parts(private_data as *const u8,
                                                                data_length as usize));
-        GENERATED_PRIVATE_DATA.lock().unwrap().insert(baker_id, s.as_bytes().to_vec().clone());
+        GENERATED_PRIVATE_DATA.lock()
+                              .unwrap()
+                              .insert(baker_id, s.as_bytes().to_vec().clone());
     }
 }
 
@@ -271,8 +312,12 @@ impl Block {
             Ok(num) => num,
             _ => return None,
         };
-        let pointer = &data[(curr_pos + 8)..(curr_pos + 8 + pointer_size as usize)];
-        curr_pos += 8 + pointer_size as usize;
+        curr_pos += 8;
+        if data.len() < (curr_pos + pointer_size as usize) {
+            return None;
+        }
+        let pointer = &data[curr_pos..(curr_pos + pointer_size as usize)];
+        curr_pos += pointer_size as usize;
         let mut baker_id_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let baker_id = match baker_id_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
@@ -284,42 +329,66 @@ impl Block {
             Ok(num) => num,
             _ => return None,
         };
-        let proof = &data[(curr_pos + 8)..(curr_pos + 8 + proof_size as usize)];
-        curr_pos += 8 + proof_size as usize;
+        curr_pos += 8;
+        if data.len() < (curr_pos + proof_size as usize) {
+            return None;
+        }
+        let proof = &data[curr_pos..(curr_pos + proof_size as usize)];
+        curr_pos += proof_size as usize;
         let mut nonce_hash_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let nonce_hash_size = match nonce_hash_size_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        let nonce_hash = &data[(curr_pos + 8)..(curr_pos + 8 + nonce_hash_size as usize)];
-        curr_pos += 8 + nonce_hash_size as usize;
+        curr_pos += 8;
+        if data.len() < (curr_pos + nonce_hash_size as usize) {
+            return None;
+        }
+        let nonce_hash = &data[curr_pos..(curr_pos + nonce_hash_size as usize)];
+        curr_pos += nonce_hash_size as usize;
         let mut nonce_proof_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let nonce_proof_size = match nonce_proof_size_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        let nonce_proof = &data[(curr_pos + 8)..(curr_pos + 8 + nonce_proof_size as usize)];
-        curr_pos += 8 + nonce_proof_size as usize;
+        curr_pos += 8;
+        if data.len() < (curr_pos + nonce_proof_size as usize) {
+            return None;
+        }
+        let nonce_proof = &data[curr_pos..(curr_pos + nonce_proof_size as usize)];
+        curr_pos += nonce_proof_size as usize;
         let mut last_finalized_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let last_finalized_size = match last_finalized_size_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        let last_finalized = &data[(curr_pos + 8)..(curr_pos + 8 + last_finalized_size as usize)];
-        curr_pos += 8 + last_finalized_size as usize;
+        curr_pos += 8;
+        if data.len() < (curr_pos + last_finalized_size as usize) {
+            return None;
+        }
+        let last_finalized = &data[curr_pos..(curr_pos + last_finalized_size as usize)];
+        curr_pos += last_finalized_size as usize;
         let mut data_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let data_size = match data_size_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        let block_data = &data[(curr_pos + 8)..(curr_pos + 8 + data_size as usize)];
-        curr_pos += 8 + data_size as usize;
+        curr_pos += 8;
+        if data.len() < (curr_pos + data_size as usize) {
+            return None;
+        }
+        let block_data = &data[curr_pos..(curr_pos + data_size as usize)];
+        curr_pos += data_size as usize;
         let mut signature_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let signature_size = match signature_size_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        let signature = &data[(curr_pos + 8)..(curr_pos + 8 + signature_size as usize)];
+        curr_pos += 8;
+        if data.len() < (curr_pos + signature_size as usize) {
+            return None;
+        }
+        let signature = &data[curr_pos..(curr_pos + signature_size as usize)];
         Some(Block { slot_id: slot_id,
                      pointer: pointer.to_vec(),
                      baker_id: baker_id,
@@ -384,6 +453,117 @@ impl Block {
 
     pub fn baker_id(&self) -> u64 {
         self.baker_id
+    }
+}
+
+#[derive(Debug)]
+pub struct Transaction {
+    n0: u64,
+    n1: u64,
+    n2: u64,
+    n3: u64,
+    data: Vec<u8>,
+}
+
+impl Transaction {
+    pub fn new(n0: u64, n1: u64, n2: u64, n3: u64, data: &[u8]) -> Self {
+        Transaction { n0: n0,
+                      n1: n1,
+                      n2: n2,
+                      n3: n3,
+                      data: data.to_vec(), }
+    }
+
+    pub fn deserialize(data: &[u8]) -> Option<Self> {
+        if data.len() < 40 {
+            return None;
+        }
+        let mut curr_pos = 0;
+        let mut n0_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let n0 = match n0_bytes.read_u64::<BigEndian>() {
+            Ok(num) => num,
+            _ => return None,
+        };
+        curr_pos += 8;
+        let mut n1_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let n1 = match n1_bytes.read_u64::<BigEndian>() {
+            Ok(num) => num,
+            _ => return None,
+        };
+        curr_pos += 8;
+        let mut n2_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let n2 = match n2_bytes.read_u64::<BigEndian>() {
+            Ok(num) => num,
+            _ => return None,
+        };
+        curr_pos += 8;
+        let mut n3_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let n3 = match n3_bytes.read_u64::<BigEndian>() {
+            Ok(num) => num,
+            _ => return None,
+        };
+        curr_pos += 8;
+        let mut data_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let data_size = match data_size_bytes.read_u64::<BigEndian>() {
+            Ok(num) => num,
+            _ => return None,
+        };
+        curr_pos += 8;
+        if data.len() < (curr_pos + data_size as usize) {
+            return None;
+        }
+        let bytes = &data[curr_pos..(curr_pos + data_size as usize)];
+        Some(Transaction { n0: n0,
+                           n1: n1,
+                           n2: n2,
+                           n3: n3,
+                           data: bytes.to_vec(), })
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
+        let mut out: Vec<u8> = vec![];
+        match out.write_u64::<BigEndian>(self.n0) {
+            Ok(_) => {}
+            Err(_) => return Err("Can't write n0"),
+        }
+        match out.write_u64::<BigEndian>(self.n1) {
+            Ok(_) => {}
+            Err(_) => return Err("Can't write n1"),
+        }
+        match out.write_u64::<BigEndian>(self.n2) {
+            Ok(_) => {}
+            Err(_) => return Err("Can't write n2"),
+        }
+        match out.write_u64::<BigEndian>(self.n3) {
+            Ok(_) => {}
+            Err(_) => return Err("Can't write n3"),
+        }
+        match out.write_u64::<BigEndian>(self.data.len() as u64) {
+            Ok(_) => {}
+            Err(_) => return Err("Can't write size of data"),
+        }
+        out.extend(&self.data);
+        Ok(out)
+    }
+
+    pub fn n0(&self) -> u64 {
+        self.n0
+    }
+
+    pub fn n1(&self) -> u64 {
+        self.n1
+    }
+
+    pub fn n2(&self) -> u64 {
+        self.n2
+    }
+
+    pub fn n3(&self) -> u64 {
+        self.n3
+    }
+
+    pub fn data(&self) -> &Vec<u8> {
+        &self.data
     }
 }
 
@@ -483,15 +663,36 @@ mod tests {
         assert_eq!(expected_out, Block::serialize(&block).unwrap());
     }
 
+    #[test]
+    pub fn serialization_serialize_deserialize_transaction_000() {
+        let tx = Transaction::new(100, 200, 300, 400, &[61, 187, 166]);
+        match tx.serialize() {
+            Ok(bytes) => {
+                if let Some(tx_des) = Transaction::deserialize(&bytes) {
+                    assert_eq!(tx.n0(), tx_des.n0());
+                    assert_eq!(tx.n1(), tx_des.n1());
+                    assert_eq!(tx.n2(), tx_des.n2());
+                    assert_eq!(tx.n3(), tx_des.n3());
+                    assert_eq!(tx.data(), tx_des.data());
+                } else {
+                    panic!("Couldn't deserialize");
+                }
+            }
+            Err(_) => panic!("Couldn't serialize"),
+        }
+    }
+
     macro_rules! bakers_test {
         ($genesis_time: expr, $num_bakers:expr, $blocks_num:expr) => {
-            let (genesis_data, private_data) = match ConsensusContainer::generate_data($genesis_time, $num_bakers) {
-                Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
-                _ => panic!("Couldn't read haskell data"),
-            };
+            let (genesis_data, private_data) =
+                match ConsensusContainer::generate_data($genesis_time, $num_bakers) {
+                    Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                    _ => panic!("Couldn't read haskell data"),
+                };
             let mut consensus_container = ConsensusContainer::new(genesis_data);
             for i in 0..$num_bakers {
-                &consensus_container.start_baker(i, private_data.get(&(i as i64)).unwrap().to_vec());
+                &consensus_container.start_baker(i,
+                                                 private_data.get(&(i as i64)).unwrap().to_vec());
             }
             for i in 0..$blocks_num {
                 match &consensus_container.out_queue()
