@@ -1474,7 +1474,7 @@ impl Connection {
                                 };
                             }
                         } else {
-                            error!("Dropping duplicate packet {}/{}/{}",
+                            info!("Dropping duplicate packet {}/{}/{}",
                                    sender.id().to_string(),
                                    network_id,
                                    msgid);
@@ -1508,7 +1508,7 @@ impl Connection {
                                 };
                             }
                         } else {
-                            error!("Dropping duplicate packet {}/{}/{}",
+                            info!("Dropping duplicate packet {}/{}/{}",
                                    sender.id().to_string(),
                                    network_id,
                                    msgid);
