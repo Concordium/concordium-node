@@ -6,13 +6,14 @@ COPY ./scripts/start-bootstrapper.sh ./start-bootstrapper.sh
 COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh
 COPY ./scripts/start-testrunner.sh ./start-testrunner.sh
-RUN pacman -Sy
-RUN pacman -S reflector --noconfirm
-RUN pacman -Syy --noconfirm
-RUN pacman -S archlinux-keyring --noconfirm
-RUN pacman -Syu --noconfirm
-RUN pacman -S protobuf cmake go clang rust git libtool rustup make m4 pkgconf openssl autoconf automake ldns boost zstd patch libunwind libdwarf elfutils unbound --noconfirm
-RUN pacman -Scc --noconfirm
-# Include older OpenSSL for linking until dependencies are updated to allow for 1.1.1
-RUN pacman -S openssl-1.0 --noconfirm
-RUN ./init.build.env.sh
+RUN pacman -Sy &&\ 
+    pacman -S reflector --noconfirm &&\
+    pacman -Syy --noconfirm && \ 
+    pacman -S archlinux-keyring --noconfirm &&\ 
+    pacman -Syu --noconfirm &&\ 
+    pacman -S protobuf openssl-1.0 cmake go clang rust git\
+    libtool rustup make m4 pkgconf openssl autoconf\ 
+    automake ldns boost zstd patch libunwind libdwarf \
+    elfutils unbound --noconfirm &&\ 
+    pacman -Scc --noconfirm && \
+    ./init.build.env.sh
