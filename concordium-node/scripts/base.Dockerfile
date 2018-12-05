@@ -1,4 +1,4 @@
-FROM base/archlinux
+FROM archlinux/base
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
