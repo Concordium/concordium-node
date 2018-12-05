@@ -339,7 +339,7 @@ fn run() -> ResultExtWrapper<()> {
                                                        Ok(x) => {
                                                            for peer_node in peers {
                                                                debug!("Peer {}/{}/{} sent us peer info for {}/{}/{}", peer.id().to_string(),peer.ip(),peer.port(),peer_node.id().to_string(),peer_node.ip(),peer_node.port() );
-                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port(), Some(peer_node.id())).map_err(|e| error!("{}", e)).is_ok() {
+                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port(), Some(peer_node.id())).map_err(|e| info!("{}", e)).is_ok() {
                                                                    new_peers += 1;
                                                                }
                                                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
@@ -452,7 +452,7 @@ fn run() -> ResultExtWrapper<()> {
                                                                       ip,
                                                                       port,
                                                                       None)
-                                                             .map_err(|e| error!("{}", e))
+                                                             .map_err(|e| info!("{}", e))
                                                              .ok();
                                     }
                                 }
