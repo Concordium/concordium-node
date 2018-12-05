@@ -66,7 +66,8 @@ mod tests {
                                 Some(sender),
                                 P2PNodeMode::NormalPrivateMode,
                                 None,
-                                vec![]);
+                                vec![],
+                                100);
 
         let mut _node_self_clone = node.clone();
 
@@ -161,7 +162,8 @@ mod tests {
                                 Some(sender),
                                 P2PNodeMode::NormalPrivateMode,
                                 None,
-                                vec![]);
+                                vec![],
+                                100);
 
         let mut _node_self_clone = node.clone();
 

@@ -150,6 +150,10 @@ pub struct CliConfig {
                 help = "Genesis time to build with",
                 default_value = "0")]
     pub baker_genesis: u64,
+    #[structopt(long = "minimum-peers-bucket",
+                help = "Minimum peers to keep in each bucket always",
+                default_value = "100")]
+    pub min_peers_bucket: usize,
 }
 
 pub fn parse_cli_config() -> CliConfig {
@@ -232,6 +236,10 @@ pub struct BootstrapperConfig {
     #[structopt(long = "no-log-timestamp",
                 help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
+    #[structopt(long = "minimum-peers-bucket",
+                help = "Minimum peers to keep in each bucket always",
+                default_value = "100")]
+    pub min_peers_bucket: usize,
 }
 
 pub fn parse_bootstrapper_config() -> BootstrapperConfig {
@@ -390,6 +398,10 @@ pub struct TestRunnerConfig {
                 help = "Location of resolv.conf",
                 default_value = "/etc/resolv.conf")]
     pub resolv_conf: String,
+    #[structopt(long = "minimum-peers-bucket",
+                help = "Minimum peers to keep in each bucket always",
+                default_value = "100")]
+    pub min_peers_bucket: usize,
 }
 
 pub fn parse_testrunner_config() -> TestRunnerConfig {

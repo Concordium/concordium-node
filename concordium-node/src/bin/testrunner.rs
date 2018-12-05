@@ -400,7 +400,8 @@ fn run() -> ResultExtWrapper<()> {
                      Some(sender),
                      mode_type,
                      None,
-                     conf.network_ids.clone())
+                     conf.network_ids.clone(),
+                     conf.min_peers_bucket)
     } else {
         P2PNode::new(node_id,
                      conf.listen_address,
@@ -411,7 +412,8 @@ fn run() -> ResultExtWrapper<()> {
                      None,
                      mode_type,
                      None,
-                     conf.network_ids.clone())
+                     conf.network_ids.clone(),
+                     conf.min_peers_bucket)
     };
 
     let _node_th = node.spawn();

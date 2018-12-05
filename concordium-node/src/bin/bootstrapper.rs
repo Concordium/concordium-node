@@ -137,7 +137,8 @@ fn run() -> ResultExtWrapper<()> {
                      Some(sender),
                      mode_type,
                      prometheus.clone(),
-                     conf.network_ids)
+                     conf.network_ids,
+                     conf.min_peers_bucket)
     } else {
         P2PNode::new(Some(conf.id),
                      conf.listen_address,
@@ -148,7 +149,8 @@ fn run() -> ResultExtWrapper<()> {
                      None,
                      mode_type,
                      prometheus.clone(),
-                     conf.network_ids)
+                     conf.network_ids,
+                     conf.min_peers_bucket)
     };
 
     match db.get_banlist() {
