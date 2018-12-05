@@ -224,12 +224,24 @@ impl Buckets {
         ret
     }
 
-    fn clean_peers_older_than(&mut self, older_than: u64) {
+    fn clean_peers(&mut self, retain_minimum: usize) {
         debug!("Cleaning buckets currently at {}", self.len());
         for i in 0..KEY_SIZE {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
-                    x.retain(|ref ele| ele.0.last_seen() >= older_than);
+                    if retain_minimum < x.len() {
+                        x.sort_by(|a, b| {
+                                      use std::cmp::Ordering;
+                                      if a > b {
+                                          return Ordering::Less;
+                                      } else if a < b {
+                                          return Ordering::Greater;
+                                      } else {
+                                          return Ordering::Equal;
+                                      }
+                                  });
+                        x.drain(retain_minimum..);
+                    }
                 }
                 None => {
                     error!("Couldn't get bucket as mutable");
@@ -1740,6 +1752,7 @@ pub struct P2PNode {
     external_ip: IpAddr,
     external_port: u16,
     seen_messages: SeenMessagesList,
+    minimum_per_bucket: usize,
 }
 
 fn serialize_bytes(conn: &mut Connection, pkt: &[u8]) -> ResultExtWrapper<()> {
@@ -1782,7 +1795,8 @@ impl P2PNode {
                event_log: Option<mpsc::Sender<P2PEvent>>,
                mode: P2PNodeMode,
                prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-               networks: Vec<u16>)
+               networks: Vec<u16>,
+               minimum_per_bucket: usize)
                -> P2PNode {
         let addr = if let Some(ref addy) = listen_address {
             format!("{}:{}", addy, listen_port).parse().unwrap()
@@ -1912,7 +1926,8 @@ impl P2PNode {
                   external_ip: own_peer_ip,
                   external_port: own_peer_port,
                   mode: mode,
-                  seen_messages: seen_messages, }
+                  seen_messages: seen_messages,
+                  minimum_per_bucket: minimum_per_bucket, }
     }
 
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
@@ -2425,7 +2440,7 @@ impl P2PNode {
             if self.mode == P2PNodeMode::BootstrapperMode
                || self.mode == P2PNodeMode::BootstrapperPrivateMode
             {
-                buckets_ref.clean_peers_older_than(common::get_current_stamp() - 3600000);
+                buckets_ref.clean_peers(self.minimum_per_bucket);
             }
         }
 

@@ -9,6 +9,7 @@
 * [LDNS](https://git.nlnetlabs.nl/ldns)
 * libclang >= 6.0
 * [HACL*](https://github.com/mitls/hacl-c)
+* Stack
 
 ## Running the library as a binary (usable via RPC)
 `cargo run -- --debug --private-mode`

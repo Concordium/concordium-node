@@ -70,7 +70,8 @@ mod tests {
                                       Some(sender),
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let mut _th_1 = node_1.spawn();
 
@@ -83,7 +84,8 @@ mod tests {
                                       None,
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let _th_2 = node_2.spawn();
 
@@ -198,7 +200,8 @@ mod tests {
                                       Some(sender),
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let mut _th_1 = node_1.spawn();
 
@@ -211,7 +214,8 @@ mod tests {
                                       None,
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![200]);
+                                      vec![200],
+                                      100);
 
         let _th_2 = node_2.spawn();
 
@@ -325,7 +329,8 @@ mod tests {
                                       Some(sender),
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let mut _th_1 = node_1.spawn();
 
@@ -338,7 +343,8 @@ mod tests {
                                       None,
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let _th_2 = node_2.spawn();
 
@@ -366,7 +372,8 @@ mod tests {
                                       None,
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let _th_3 = node_3.spawn();
 
@@ -467,7 +474,8 @@ mod tests {
                                       Some(sender),
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![100]);
+                                      vec![100],
+                                      100);
 
         let mut _th_1 = node_1.spawn();
 
@@ -480,7 +488,8 @@ mod tests {
                                       None,
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![200]);
+                                      vec![200],
+                                      100);
 
         let _th_2 = node_2.spawn();
 
@@ -508,7 +517,8 @@ mod tests {
                                       None,
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
-                                      vec![200]);
+                                      vec![200],
+                                      100);
 
         let _th_3 = node_3.spawn();
 
@@ -617,7 +627,8 @@ mod tests {
                                         Some(sender.clone()),
                                         P2PNodeMode::NormalPrivateMode,
                                         Some(Arc::new(Mutex::new(prometheus.clone()))),
-                                        vec![100]);
+                                        vec![100],
+                                        100);
             let mut _node_self_clone = node.clone();
             let _msg_counter = message_counter.clone();
             let _guard_pkt = thread::spawn(move || {
@@ -745,7 +756,8 @@ mod tests {
                                                 Some(sender.clone()),
                                                 P2PNodeMode::NormalPrivateMode,
                                                 Some(Arc::new(Mutex::new(prometheus.clone()))),
-                                                vec![100]);
+                                                vec![100],
+                                                100);
                     let mut _node_self_clone = node.clone();
                     let _guard_pkt = thread::spawn(move || {
                         loop {
