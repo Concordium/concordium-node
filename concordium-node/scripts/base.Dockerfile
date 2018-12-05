@@ -7,10 +7,7 @@ COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh
 COPY ./scripts/start-testrunner.sh ./start-testrunner.sh
 RUN pacman -Sy &&\
-    pacman -Syyu && \
-    pacman -S protobuf openssl-1.0 cmake go clang git\
-    libtool rustup make m4 pkgconf openssl autoconf\ 
-    automake ldns boost zstd patch libunwind libdwarf \
-    elfutils unbound --noconfirm && \
+    pacman -Syyu --noconfirm && \
+    pacman -S protobuf openssl-1.0 cmake go clang git libtool rustup make m4 pkgconf openssl autoconf automake ldns file boost zstd patch libunwind libdwarf elfutils unbound --noconfirm && \
     pacman -Scc --noconfirm && \
     ./init.build.env.sh
