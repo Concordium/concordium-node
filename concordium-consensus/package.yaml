@@ -31,13 +31,20 @@ dependencies:
 - time >=1.8
 - transformers >=0.5
 - microlens-platform >=0.3
+- mtl >=2.2
 
 library:
   source-dirs: src
   ghc-options:
       - -fPIC
       - -shared
-      - -dynamic
+  when: 
+    - condition: os(windows)
+      then:
+        ghc-options: -static
+      else:
+        ghc-options: -dynamic
+
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
   
@@ -49,7 +56,12 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    - -dynamic
+    when: 
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          ghc-options: -dynamic
     dependencies:
     - Concordium
   Concordium-genesis:
@@ -57,7 +69,12 @@ executables:
     source-dirs:         startup
     ghc-options:
     - -rtsopts
-    - -dynamic
+    when: 
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          ghc-options: -dynamic
     dependencies:
     - Concordium
 
