@@ -14,19 +14,30 @@ data FreezeMessage val
     | Vote (Maybe val)
 
 data FreezeState val party = FreezeState {
-    -- |The justified proposals as a map from values to pairs of the total weight of the parties proposing it
-    -- and the set of parties proposing it.
+    -- |The proposals.  Each proposal is associated with a triple consisting of:
+    -- a @Bool@ indicating whether the proposed candidate is justified;
+    -- the total weight of parties proposing the value; and
+    -- the set of parties that have made the proposal.
+    -- Note that each party should be allowed only one proposal.
+    -- In particular, if a party has made a proposal, no additional
+    -- proposals should be considered from that party.
     _proposals :: Map val (Bool, Int, Set party),
     -- |The set of parties that have submitted proposals.  This includes proposals that are not yet justified,
     -- in order to avoid allowing a party to make more than one proposal.
     _proposers :: Set party,
     -- |The weighted total of the parties who have made justified proposals.
     _totalProposals :: Int,
+    -- |The number of distinct justified proposals.  This is used to determine
+    -- when a vote for no value is justified.
     _distinctJustifiedProposals :: Int,
-    -- |The justified votes as a map from values to pairs of the total weight of voters for the value and the
-    -- set of voters for the value.
+    -- |The votes.  Each vote is associated with a triple consisting of:
+    -- a @Bool@ indicating whether the vote is justified;
+    -- the total weight of parties voting for the value; and
+    -- the set of parties that have voted for the value.
+    -- Like proposals, we only consider the first vote for a given party.
     _votes :: Map (Maybe val) (Bool, Int, Set party),
-    -- |The set of parties from which votes have been received.  This includes votes that are not yet justified.
+    -- |The set of parties from which votes have been received.
+    -- This includes votes that are not yet justified.
     _voters :: Set party,
     -- |The weighted total of the parties who have made justified votes.
     _totalVotes :: Int
@@ -65,7 +76,9 @@ whenAddToSet val setLens act = do
 
 -- |Create a new instance of the freeze protocol.  The implementation assumes synchronous
 -- access to the FreezeState.  That is, the state cannot be updated concurrently during calls
--- to 'propose' or 'freezeMessage'.
+-- to 'propose' or 'freezeMessage'.  The implementation should be re-entrant, in the sense
+-- that 'awaitCandidate', 'broadcastFreezeMessage' and 'frozen' could call back 'propose'
+-- or 'freezeMessage'.  However, it's generally considered that this should not happen.
 newFreezeInstance :: forall val party m. (Ord val, Ord party, FreezeMonad val party m) => Int -> Int -> (party -> Int) -> party -> FreezeInstance val party m
 newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
     where
@@ -114,8 +127,8 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
             vtrs <- use voters
             unless (me `Set.member` vtrs) $ do
                 vote <- determineVote . Map.toList <$> use proposals
-                broadcastFreezeMessage (Vote vote)
                 addVote me vote
+                broadcastFreezeMessage (Vote vote)
         determineResult [] = Nothing
         determineResult ((_, (False, _, _)) : rs) = determineResult rs
         determineResult ((vote, (True, weight, _)) : rs) = if weight > corruptWeight then Just vote else determineResult rs
