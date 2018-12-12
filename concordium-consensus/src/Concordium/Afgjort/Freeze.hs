@@ -12,6 +12,7 @@ import Lens.Micro.Platform
 data FreezeMessage val
     = Proposal val
     | Vote (Maybe val)
+    deriving (Eq, Ord, Show)
 
 data FreezeState val party = FreezeState {
     -- |The proposals.  Each proposal is associated with a triple consisting of:
@@ -41,7 +42,7 @@ data FreezeState val party = FreezeState {
     _voters :: Set party,
     -- |The weighted total of the parties who have made justified votes.
     _totalVotes :: Int
-}
+} deriving (Eq, Ord, Show)
 makeLenses ''FreezeState
 
 
@@ -83,7 +84,7 @@ newFreezeInstance :: forall val party m. (Ord val, Ord party, FreezeMonad val pa
 newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
     where
         -- Add a proposal.
-        addProposal party value = whenAddToSet party proposers $ do
+        addProposal party value = when (partyWeight party > 0) $ whenAddToSet party proposers $ do
             use (proposals . at value) >>= \case
                 Nothing -> do
                     proposals . at value ?= (False, partyWeight party, Set.singleton party)
@@ -91,17 +92,17 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                         Just (False, weight, parties) <- use (proposals . at value)
                         proposals . at value ?= (True, weight, parties)
                         newTotalProposals <- totalProposals <%= (weight +)
-                        when (newTotalProposals >= totalWeight - corruptWeight) doVote
                         when (weight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                         currJProps <- distinctJustifiedProposals <%= (1+)
                         when (currJProps == 2) $ justifyVote Nothing
+                        when (newTotalProposals >= totalWeight - corruptWeight) doVote
                 Just (isCandidate, oldWeight, parties) -> do
                     let newWeight = partyWeight party + oldWeight
                     proposals . at value ?= (isCandidate, newWeight, Set.insert party parties)
                     when isCandidate $ do
                         newTotalProposals <- totalProposals <%= (partyWeight party +)
-                        when (newTotalProposals > totalWeight - corruptWeight) doVote
                         when (newWeight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
+                        when (newTotalProposals >= totalWeight - corruptWeight) doVote
         justifyVote vote =
             use (votes . at vote) >>= \case
                 Nothing -> votes . at vote ?= (True, 0, Set.empty)
@@ -110,7 +111,7 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                     newTotalVotes <- totalVotes <%= (weight +)
                     when (newTotalVotes >= totalWeight - corruptWeight) doFinish
                 Just (True, _, _) -> return () 
-        addVote party vote = whenAddToSet party voters $ do
+        addVote party vote = when (partyWeight party > 0) $ whenAddToSet party voters $ do
             use (votes . at vote) >>= \case
                 Nothing -> 
                     votes . at vote ?= (False, partyWeight party, Set.singleton party)
