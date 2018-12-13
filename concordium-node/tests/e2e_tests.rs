@@ -318,7 +318,6 @@ mod tests {
     pub fn e2e_001_trust_broadcast() {
         setup();
         let test_port_added = next_port_offset( 10);
-
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
         let (pkt_in_2, pkt_out_2) = mpsc::channel();
         let (pkt_in_3, pkt_out_3) = mpsc::channel();
