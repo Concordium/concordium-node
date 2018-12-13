@@ -500,7 +500,7 @@ impl TlsServer {
     fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> ResultExtWrapper<()> {
         match self.server.accept() {
             Ok((socket, addr)) => {
-                debug!("Accepting new connection from {:?}", addr);
+                debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_id.ip(), self_id.port());
                 self.log_event(P2PEvent::ConnectEvent(format!("{}", addr.ip()), addr.port()));
 
                 let tls_session = ServerSession::new(&self.server_tls_config);
@@ -1486,7 +1486,9 @@ impl Connection {
                                 };
                             }
                         } else {
-                            info!("Dropping duplicate packet {}/{}/{}",
+                            info!("Dropping duplicate packet from {:?}:{} to {:?}:{}, {}/{}/{}",
+                                   sender.ip(), sender.port(),
+                                   self.self_peer.ip(), self.self_peer.port(),
                                    sender.id().to_string(),
                                    network_id,
                                    msgid);
@@ -1503,7 +1505,10 @@ impl Connection {
                                 {
                                     self.update_last_seen();
                                 }
-                                debug!("Received broadcast message of size {}", msg.len());
+                                debug!("Node {:?}:{} has received broadcast message from {:?}:{} of size {}", 
+                                       self.self_peer.ip(), self.self_peer.port(),
+                                       sender.ip(), sender.port(),
+                                       msg.len());
                                 match packet_queue.send(outer.clone()) {
                                     Ok(_) => {
                                         self.seen_messages.append(&msgid);
@@ -1520,7 +1525,9 @@ impl Connection {
                                 };
                             }
                         } else {
-                            info!("Dropping duplicate packet {}/{}/{}",
+                            info!("Dropping duplicate packet from {:?}:{} to {:?}:{}, {}/{}/{}",
+                                   sender.ip(), sender.port(),
+                                   self.self_peer.ip(), self.self_peer.port(),
                                    sender.id().to_string(),
                                    network_id,
                                    msgid);
@@ -2006,6 +2013,34 @@ impl P2PNode {
         (time::get_time() - self.start_time).num_milliseconds()
     }
 
+    /// Connetion is valid for a broadcast if sender is not target and 
+    /// and network_id is owned by connection.
+    fn is_valid_connection_in_broadcast(&self, conn: &Connection, sender: &P2PPeer, network_id: &u16) -> bool {
+        if let Some(ref peer) = conn.peer {
+            if peer.id() != sender.id() {
+                return conn.own_networks.lock().unwrap().contains(network_id);
+            }
+        }
+        false
+    }
+
+    fn process_broadcasted_message(&self, sender: &P2PPeer, msgid: &String,  network_id: &u16, data: &Vec<u8> ) -> ResultExtWrapper<()> {
+        self.tls_server.lock()?
+            .connections.values_mut()
+            .filter( |conn| { 
+                self.is_valid_connection_in_broadcast( conn, sender, network_id) 
+            })
+        .fold( Ok(()), |status, ref mut conn| {
+            serialize_bytes( conn, data)
+                .and_then( |_| {
+                    self.seen_messages.append(msgid);
+                    TOTAL_MESSAGES_SENT_COUNTER.inc();
+                    self.pks_sent_inc()
+                })
+            .and( status)
+        })
+    }
+
     pub fn process_messages(&mut self) -> ResultExtWrapper<()> {
         {
             let mut send_q = self.send_queue.lock()?;
@@ -2064,29 +2099,14 @@ impl P2PNode {
                                     }
                                 }
                             }
-                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_,
-                                                                                                _,
-                                                                                                _,
-                                                                                                _),
-                                                              _,
-                                                              _) => {
-                                for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let NetworkPacket::BroadcastedMessage(_, ref msgid, ref network_id, _ ) = inner_pkt {
-                                        if conn.own_networks.lock().unwrap().contains(network_id) {
-                                            if let Some(ref peer) = conn.peer.clone() {
-                                                match serialize_bytes(conn, &inner_pkt.serialize()) {
-                                                    Ok(_) => {
-                                                        self.seen_messages.append(msgid);
-                                                        self.pks_sent_inc()?;
-                                                        TOTAL_MESSAGES_SENT_COUNTER.inc();
-                                                    }
-                                                    Err(e) => {
-                                                        error!("Could not send to peer {} due to {}", peer.id().to_string(), e);
-                                                    }
-                                                }
-                                            }
+                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_, _, _, _), _, _) => {
+                                if let NetworkPacket::BroadcastedMessage(ref sender, ref msgid, ref network_id, _ ) = inner_pkt {
+                                    match self.process_broadcasted_message( sender, msgid, network_id, &inner_pkt.serialize()) {
+                                        Ok(_) => {},
+                                        Err(e) => {
+                                            error!("Could not send to peer XXX due to {}", e);
                                         }
-                                    }
+                                    };
                                 }
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_, _), _, _) => {
