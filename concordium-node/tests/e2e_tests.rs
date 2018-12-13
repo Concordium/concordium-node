@@ -15,8 +15,17 @@ mod tests {
     use p2p_client::p2p::*;
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
     use std::sync::mpsc;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Once, ONCE_INIT};
     use std::{thread, time};
+
+    static INIT: Once = ONCE_INIT;
+
+    /// It initilizes the global logger with a env logger, but just once. 
+    fn setup() {
+        INIT.call_once( || {
+            env_logger::init()
+        });
+    }
 
     #[test]
     #[ignore]
@@ -277,8 +286,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_001_trust_broadcast() {
+        setup();
+
         let test_port_added = 200;
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
         let (pkt_in_2, pkt_out_2) = mpsc::channel();
@@ -397,9 +407,10 @@ mod tests {
               .map_err(|e| panic!(e))
               .ok();
 
-        thread::sleep(time::Duration::from_secs(5));
+        let pkt_out_3_timeout = time::Duration::from_secs( 30);
+        let mut pkt_out_3_msg = pkt_out_3.recv_timeout( pkt_out_3_timeout);
 
-        match pkt_out_3.try_recv() {
+        match pkt_out_3_msg {
             Ok(ref mut outer_msg) => {
                 match *outer_msg.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
