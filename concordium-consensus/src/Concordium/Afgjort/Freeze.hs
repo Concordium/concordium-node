@@ -92,8 +92,8 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                         Just (False, weight, parties) <- use (proposals . at value)
                         proposals . at value ?= (True, weight, parties)
                         newTotalProposals <- totalProposals <%= (weight +)
-                        when (weight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                         currJProps <- distinctJustifiedProposals <%= (1+)
+                        when (weight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                         when (currJProps == 2) $ justifyVote Nothing
                         when (newTotalProposals >= totalWeight - corruptWeight) doVote
                 Just (isCandidate, oldWeight, parties) -> do
