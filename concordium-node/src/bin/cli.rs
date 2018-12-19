@@ -24,13 +24,13 @@ static A: System = System;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use consensus_sys::consensus;
 use env_logger::{Builder, Env};
-use p2p_client::common::{
-    ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse,
-};
+use p2p_client::common::{ ConnectionType };
+use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
 use p2p_client::p2p::*;
+use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;

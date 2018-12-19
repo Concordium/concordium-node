@@ -11,17 +11,54 @@ extern crate env_logger;
 mod tests {
     use atomic_counter::AtomicCounter;
     use atomic_counter::RelaxedCounter;
-    use p2p_client::common::{ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest};
+    use p2p_client::common::{ ConnectionType };
+    use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
+    use p2p_client::connection::{ P2PEvent, P2PNodeMode };
     use p2p_client::p2p::*;
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
     use std::sync::mpsc;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Once, ONCE_INIT};
+    use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
     use std::{thread, time};
+
+    static INIT: Once = ONCE_INIT;
+    static PORT_OFFSET: AtomicUsize = ATOMIC_USIZE_INIT;
+
+    #[derive(Debug, Clone)]
+    pub enum NetworkStep {
+        Handshake(u16),
+        Broadcast(u16),
+    }
+
+    /// It initializes the global logger with a `env_logger`, but just once. 
+    fn setup() {
+        INIT.call_once( || {
+            env_logger::init()
+        });
+    }
+
+    /// It returns next port available and it ensures that next `slot_size` ports will be 
+    /// available too.
+    ///
+    /// # Arguments
+    /// * `slot_size` - Size of blocked ports. It 
+    ///
+    /// # Example
+    /// ```
+    /// let port_range_1 = next_port_offset( 10);   // It will return 0, you can use from 0..9
+    /// let port_range_2 = next_port_offset( 20);   // It will return 10, you can use from 10..19
+    /// let port_range_3 = next_port_offset( 100);  // It will return 30, you can use from 20..129
+    /// let port_range_4 = next_port_offset( 130);
+    /// ```
+    fn next_port_offset( slot_size: usize) -> u16 {
+        PORT_OFFSET.fetch_add( slot_size, Ordering::SeqCst) as u16
+    }
 
     #[test]
     #[ignore]
     pub fn e2e_000_two_nodes() {
-        let test_port_added = 0;
+        setup();
+        let test_port_added = next_port_offset( 10);
         let (pkt_in_1, pkt_out_1) = mpsc::channel();
         let (pkt_in_2, _pkt_out_2) = mpsc::channel();
 
@@ -151,7 +188,8 @@ mod tests {
     #[test]
     #[ignore]
     pub fn e2e_000_two_nodes_wrong_net() {
-        let test_port_added = 100;
+        setup();
+        let test_port_added = next_port_offset( 10);
         let (pkt_in_1, pkt_out_1) = mpsc::channel();
         let (pkt_in_2, _pkt_out_2) = mpsc::channel();
 
@@ -277,9 +315,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_001_trust_broadcast() {
-        let test_port_added = 200;
+        setup();
+        let test_port_added = next_port_offset( 10);
+        
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
         let (pkt_in_2, pkt_out_2) = mpsc::channel();
         let (pkt_in_3, pkt_out_3) = mpsc::channel();
@@ -397,9 +436,10 @@ mod tests {
               .map_err(|e| panic!(e))
               .ok();
 
-        thread::sleep(time::Duration::from_secs(5));
+        let pkt_out_3_timeout = time::Duration::from_secs( 30);
+        let mut pkt_out_3_msg = pkt_out_3.recv_timeout( pkt_out_3_timeout);
 
-        match pkt_out_3.try_recv() {
+        match pkt_out_3_msg {
             Ok(ref mut outer_msg) => {
                 match *outer_msg.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,
@@ -424,7 +464,8 @@ mod tests {
     #[test]
     #[ignore]
     pub fn e2e_001_trust_broadcast_wrong_net() {
-        let test_port_added = 300;
+        setup();
+        let test_port_added = next_port_offset( 10);
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
         let (pkt_in_2, pkt_out_2) = mpsc::channel();
         let (pkt_in_3, pkt_out_3) = mpsc::channel();
@@ -567,7 +608,9 @@ mod tests {
     #[test]
     #[ignore]
     pub fn e2e_002_small_mesh_net() {
-        let test_port_added = 400;
+        setup();
+        let test_port_added = next_port_offset( 50);
+
         let mesh_node_count = 15;
 
         let (sender, receiver) = mpsc::channel();
@@ -656,8 +699,8 @@ mod tests {
                 }
             }
             peer += 1;
-            peers.push((instance_port, th, node, prometheus));
-            peer_ports.push(instance_port);
+            peers.push((instance_port as usize, th, node, prometheus));
+            peer_ports.push(instance_port as usize);
         }
 
         thread::sleep(time::Duration::from_secs(5));
@@ -679,7 +722,7 @@ mod tests {
             }
         }
 
-        assert_eq!(message_count_estimated, message_counter.get());
+        assert_eq!(message_count_estimated as usize, message_counter.get());
     }
 
     macro_rules! islands_mesh_test {
@@ -836,4 +879,130 @@ mod tests {
         islands_mesh_test!(600, 5, 3);
     }
 
+    #[test]
+    /// This test call `no_relay_broadcast_so_sender` test using 2 nodes.
+    pub fn e2e_004_2_no_relay_broadcast_to_sender() {
+        no_relay_broadcast_so_sender( 2); 
+    }
+    
+    #[test]
+    /// This test call `no_relay_broadcast_so_sender` test using 8 nodes.
+    pub fn e2e_004_8_no_relay_broadcast_to_sender() {
+        no_relay_broadcast_so_sender( 8); 
+    }
+    
+    #[test]
+    /// This test call `no_relay_broadcast_so_sender` test using 20 nodes.
+    pub fn e2e_004_20_no_relay_broadcast_to_sender() {
+        no_relay_broadcast_so_sender( 20); 
+    }
+
+    /// It creates `num_nodes` nodes. All nodes from `1..num_nodes` will be connected to node `0`.
+    /// After all handshakes, node 0 will send a broadcast message.
+    /// This test checks that number of broadcast messages is what we expected.
+    fn no_relay_broadcast_so_sender( num_nodes: usize) { 
+        setup();
+        let test_port_added = next_port_offset( num_nodes + 1);
+        let network_id: u16 = 100;
+
+        let (tx, rx) = mpsc::channel();
+
+        let mut nodes: Vec<P2PNode> = Vec::new();
+        let mut node_threads = vec![];
+
+        // 0. Create P2PNodes
+        for n in 0..num_nodes {
+            let tx_i = tx.clone();
+            
+            let mut node = P2PNode::new( 
+                    None, Some("127.0.0.1".to_string()), 8888 + test_port_added + n as u16,
+                    None, None, tx_i, None, P2PNodeMode::NormalPrivateMode, None, 
+                    vec![100], 100);
+
+            if n > 0 {
+                let root = &nodes[0];
+                node.connect(
+                        ConnectionType::Node, root.get_listening_ip(),
+                        root.get_listening_port(), None).unwrap();
+            }
+
+            node_threads.push( node.spawn());
+            nodes.push( node);
+        }
+        
+        let root: &mut P2PNode = nodes.first_mut().unwrap();
+        let broadcast_msg: &str = "Hello broadcasted!";
+
+        // 0. Gather agent checks that others P2PNode 
+        let (net_tx, net_rx) = mpsc::channel();
+
+        let ga_exp_num_nodes: u16 = (num_nodes -1) as u16;
+        let ga_root_id = root.get_own_id();
+        let ga_network_id = network_id;
+
+        let gather_agent = thread::spawn( move || {
+            let mut exp_broadcast: i32 = ga_exp_num_nodes as i32;
+            let mut exp_handshake: i32 = ga_exp_num_nodes as i32;
+
+            for received in rx {
+                match *received{
+                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref nid, ref msg), _,_) => { 
+                        exp_broadcast -= 1;
+                        assert!( exp_broadcast >= 0);
+
+                        if exp_broadcast == 0 {
+                            debug!( "Broadcast has been confirmed by {} nodes", ga_exp_num_nodes);
+                            net_tx.send( NetworkStep::Broadcast( ga_exp_num_nodes)).unwrap();
+                        }
+                        assert_eq!( *msg, broadcast_msg.as_bytes().to_vec());
+                        assert_eq!( ga_root_id, sender.id());
+                        assert_eq!( ga_network_id, *nid);
+                    },
+                    box NetworkMessage::NetworkRequest( NetworkRequest::Handshake(_,_,_), _,_) => {
+                        exp_handshake -= 1;
+                        assert!( exp_handshake >= 0);
+
+                        if exp_handshake == 0 {
+                            debug!( "Handshake has been confirmed by {} nodes", ga_exp_num_nodes);
+                            net_tx.send( NetworkStep::Handshake( ga_exp_num_nodes)).unwrap();
+                        }
+                    },
+                    ref other_msg => { debug!( "No forward message: {:?}", other_msg); }
+                }
+
+                if exp_broadcast == 0 && exp_handshake == 0 {
+                    break;
+                }
+            }
+        });
+
+        // 1. Wait until all nodes make their handshake.
+        let net_rx_msg_1 = net_rx.recv_timeout( time::Duration::from_secs(20))
+            .expect("Unexpected message while handshake waiting");
+        
+        match net_rx_msg_1 {
+            NetworkStep::Handshake(count) =>  assert_eq!( (num_nodes -1) as u16, count),
+            ref e => panic!( "Unexpected message while handshake waiting: {:?}", e)
+        };
+
+        // 2. Send broadcast message.
+        let root_id = Some(root.get_own_id());
+        root.send_message( 
+                root_id, network_id, None, 
+                &broadcast_msg.as_bytes().to_vec(), true)
+            .map_err( |e| panic!(e))
+            .ok();
+        debug!( "Broadcast message from root({}) node to others!", root.get_listening_port());
+
+        // 3. Wait until all broadcast messages are received.
+        let net_rx_msg_2 = net_rx.recv_timeout( time::Duration::from_secs(10))
+            .expect( "Unexpected message while broadcast waiting");
+
+        match net_rx_msg_2 {
+            NetworkStep::Broadcast( count ) => assert_eq!( (num_nodes -1) as u16, count),
+            ref e => panic!( "Unexpected message while broadcast waiting: {:?}", e)
+        };
+
+        gather_agent.join().expect( "Gather agent has failed");
+    }
 }
