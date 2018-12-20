@@ -41,22 +41,32 @@ data FreezeState val party = FreezeState {
     -- This includes votes that are not yet justified.
     _voters :: Set party,
     -- |The weighted total of the parties who have made justified votes.
-    _totalVotes :: Int
+    _totalVotes :: Int,
+    -- |The set of decisions that have become justified.
+    _justifiedDecisions :: Set (Maybe val),
+    -- |Whether we have output a justifed decision already.
+    _completed :: Bool
 } deriving (Eq, Ord, Show)
 makeLenses ''FreezeState
 
 
 initialFreezeState :: FreezeState val party
-initialFreezeState = FreezeState Map.empty Set.empty 0 0 Map.empty Set.empty 0
+initialFreezeState = FreezeState Map.empty Set.empty 0 0 Map.empty Set.empty 0 Set.empty False
 
 -- | 'FreezeMonad' is implemented by a client that wishes to use the Freeze protocol
 class (MonadState (FreezeState val party) m) => FreezeMonad val party m where
-    -- |Perform an action when a candidate becomes justified.
+    -- |Register and action to perform when a given candidate becomes justified.
     -- If the candidate is already justified, then the action is perfomed
     -- immediately.
     awaitCandidate :: val -> m () -> m ()
+    -- |Broadcast a 'FreezeMessage' to all parties.  It is not necessary for the
+    -- messages to be sent back to the 'FreezeInstance', but should not be harmful
+    -- either.
     broadcastFreezeMessage :: FreezeMessage val -> m ()
+    -- |Output the decision from running the freeze protocol.
     frozen :: Maybe val -> m ()
+    -- |Notify that a decision from the freeze protocol has become justified.
+    decisionJustified :: Maybe val -> m ()
 
 
 data FreezeInstance val party m = FreezeInstance {
@@ -77,14 +87,14 @@ whenAddToSet val setLens act = do
 
 -- |Create a new instance of the freeze protocol.  The implementation assumes synchronous
 -- access to the FreezeState.  That is, the state cannot be updated concurrently during calls
--- to 'propose' or 'freezeMessage'.  The implementation should be re-entrant, in the sense
--- that 'awaitCandidate', 'broadcastFreezeMessage' and 'frozen' could call back 'propose'
--- or 'freezeMessage'.  However, it's generally considered that this should not happen.
+-- to 'propose' or 'freezeMessage'.  The implementation is not re-entrant: 'awaitCandidate',
+-- 'broadcastFreezeMessage', 'frozen' and 'decisionJustified' should _not_ call back
+-- 'propose' or 'freezeMessage'.
 newFreezeInstance :: forall val party m. (Ord val, Ord party, FreezeMonad val party m) => Int -> Int -> (party -> Int) -> party -> FreezeInstance val party m
 newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
     where
         -- Add a proposal.
-        addProposal party value = when (partyWeight party > 0) $ whenAddToSet party proposers $ do
+        addProposal party value = when (partyWeight party > 0) $ whenAddToSet party proposers $
             use (proposals . at value) >>= \case
                 Nothing -> do
                     proposals . at value ?= (False, partyWeight party, Set.singleton party)
@@ -109,9 +119,11 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                 Just (False, weight, parties) -> do
                     votes . at vote ?= (True, weight, parties)
                     newTotalVotes <- totalVotes <%= (weight +)
+                    -- TODO: Record when a decision becomes justified
+                    when (weight > corruptWeight) $ justifyDecision vote
                     when (newTotalVotes >= totalWeight - corruptWeight) doFinish
                 Just (True, _, _) -> return () 
-        addVote party vote = when (partyWeight party > 0) $ whenAddToSet party voters $ do
+        addVote party vote = when (partyWeight party > 0) $ whenAddToSet party voters $
             use (votes . at vote) >>= \case
                 Nothing -> 
                     votes . at vote ?= (False, partyWeight party, Set.singleton party)
@@ -120,7 +132,10 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                 Just (True, weight, parties) -> do
                     votes . at vote ?= (True, partyWeight party + weight, Set.insert party parties)
                     newTotalVotes <- totalVotes <%= (partyWeight party +)
+                    -- TODO: Record when a decision becomes justified
+                    when (partyWeight party + weight > corruptWeight) $ justifyDecision vote
                     when (newTotalVotes >= totalWeight - corruptWeight) doFinish
+        justifyDecision decision = whenAddToSet decision justifiedDecisions $ decisionJustified decision
         determineVote [] = Nothing
         determineVote ((_, (False, _, _)) : rs) = determineVote rs
         determineVote ((val, (True, weight, _)) : rs) = if weight >= totalWeight - corruptWeight then Just val else determineVote rs
@@ -130,14 +145,12 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                 vote <- determineVote . Map.toList <$> use proposals
                 addVote me vote
                 broadcastFreezeMessage (Vote vote)
-        determineResult [] = Nothing
-        determineResult ((_, (False, _, _)) : rs) = determineResult rs
-        determineResult ((vote, (True, weight, _)) : rs) = if weight > corruptWeight then Just vote else determineResult rs
         doFinish = do
-            -- Use Map.toDescList to ensure that Nothing is the least preferred outcome
-            (determineResult . Map.toDescList <$> use votes) >>= \case
-                Nothing -> return () -- "This should not happen."
-                Just res -> frozen res -- We have determined an outcome.
+            alreadyCompleted <- completed <<.= True
+            unless alreadyCompleted $
+                (Set.toDescList <$> use justifiedDecisions) >>= \case
+                    [] -> completed .= False -- "This should not happen."
+                    (res : _) -> frozen res -- Take the first justified decision. Using toDescList ensures that Nothing is the least preferred decision.
         propose :: val -> m ()
         propose candidate = do
             pps <- use proposers

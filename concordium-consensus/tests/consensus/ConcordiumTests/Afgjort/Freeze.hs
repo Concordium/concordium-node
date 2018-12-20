@@ -59,6 +59,7 @@ data FreezeInput party val
 data FreezeOutput val
     = FOMessage (FreezeMessage val)
     | FOComplete (Maybe val)
+    | FOJustifiedDecision (Maybe val)
     deriving (Eq, Ord, Show)
 
 type FreezeTState val party m = (Map.Map val (Maybe (FreezeT val party m ())), FreezeState val party)
@@ -87,14 +88,15 @@ tellState = FreezeT $ do
     tell [Right state]
 
 instance (Monad m, Ord val, Ord party) => FreezeMonad val party (FreezeT val party m) where
-    awaitCandidate v x = tellState >> (FreezeT $ do
+    awaitCandidate v x = (FreezeT $ do
         candWait <- use (_1 . at v)
         case candWait of
             Nothing -> (_1 . at v) ?= Just x
             (Just Nothing) -> runFreezeT x
             (Just (Just a)) -> (_1 . at v) ?= Just (a >> x))
-    broadcastFreezeMessage m = tellState >> FreezeT (tell [Left $ FOMessage m])
-    frozen v = tellState >> FreezeT (tell [Left $ FOComplete v])
+    broadcastFreezeMessage m = FreezeT (tell [Left $ FOMessage m])
+    frozen v = FreezeT (tell [Left $ FOComplete v])
+    decisionJustified v = FreezeT (tell [Left $ FOJustifiedDecision v])
 
 notifyCandidate :: (Monad m, Ord val, Ord party) => val -> FreezeT val party m ()
 notifyCandidate val = FreezeT $ do
@@ -130,11 +132,11 @@ type FreezeExample = (FreezeTContext Int, Int, [FreezeInput Int String], [Freeze
 
 ex1 :: FreezeExample
 ex1 = (equalParties 2 0, 0, [FICandidate "A", FICandidate "B", FIProposal 1 "B", FIRequestProposal "B", FIVote 1 (Just "B")],
-    [FOMessage (Vote (Just "B")), FOMessage (Proposal "B"), FOComplete (Just "B")])
+    [FOMessage (Vote (Just "B")), FOMessage (Proposal "B"), FOJustifiedDecision (Just "B"), FOComplete (Just "B")])
 
 ex2 :: FreezeExample
 ex2 = (equalParties 2 0, 0, [FIProposal 1 "A", FIRequestProposal "B", FICandidate "A", FICandidate "B", FIVote 1 Nothing],
-    [FOMessage (Vote (Nothing)), FOMessage (Proposal "B"), FOComplete Nothing])
+    [FOMessage (Vote (Nothing)), FOMessage (Proposal "B"), FOJustifiedDecision Nothing, FOComplete Nothing])
     
 testFreezeExampleAllPerms :: FreezeExample -> Spec
 testFreezeExampleAllPerms (ctx, me, inp, outp) = sequence_ [describe ("permutation " ++ show n) $ testFreezeExample (ctx, me, inp', outp) | inp' <- permutations inp | n <- [0..]]
@@ -164,6 +166,8 @@ testQCInvariantExample (tp, cp, inp) = sequence_ [it "state satisfies invariant"
 
 testStream2 = (4, 1, [FICandidate 'A', FICandidate 'B', FICandidate 'C', FIRequestProposal 'A', FIProposal 1 'A', FIProposal 2 'B', FIProposal 3 'B', FIVote 1 (Just 'A'), FIVote 2 (Just 'B')])
 
+testStream3 = (6, 1, [FIVote 4 (Just 'C'),FIProposal 3 'D',FICandidate 'B',FIVote 2 (Just 'C'),FIProposal 2 'C',FICandidate 'B',FICandidate 'A',FIRequestProposal 'C',FIVote 1 (Just 'B'),FIProposal 5 'D',FIVote 2 Nothing,FIRequestProposal 'C',FICandidate 'D',FIVote 1 (Just 'A'),FIVote 4 (Just 'B'),FIVote 1 (Just 'B'),FIProposal 2 'C',FIRequestProposal 'B',FIProposal 5 'C',FIProposal 2 'C',FIVote 3 Nothing,FIProposal 2 'C',FIVote 4 (Just 'B'),FIProposal 1 'C',FICandidate 'D',FIVote 3 Nothing,FIRequestProposal 'B',FICandidate 'A',FIVote 4 (Just 'A'),FIVote 2 (Just 'D'),FIVote 5 Nothing,FICandidate 'D',FIProposal 1 'C',FIRequestProposal 'A',FIRequestProposal 'C',FIRequestProposal 'C',FIVote 5 (Just 'B'),FIProposal 4 'C',FICandidate 'C'])
+
 testFreezeExample :: FreezeExample -> Spec
 testFreezeExample (ctx@(tw,cw,pw), me, inp, outp) = do
         sequence_ [it "state satisfies invariant" $ checkInvariant ctx st | st <- rights (rights res)]
@@ -180,4 +184,5 @@ tests = describe "Concordium.Afgjort.Freeze" $ do
     describe "ex2" $ testFreezeExampleAllPerms ex2
     describe "testStream1" $ testQCInvariantExample testStream1
     describe "testStream2" $ testQCInvariantExample testStream2
+    describe "testStream3" $ testQCInvariantExample testStream3
     it "invariant on random trace" $ qcInvariant

@@ -38,6 +38,7 @@ library:
   ghc-options:
       - -fPIC
       - -shared
+      - -Wall
   when: 
     - condition: os(windows)
       then:
@@ -56,6 +57,7 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
     when: 
       - condition: os(windows)
         then:
@@ -69,6 +71,7 @@ executables:
     source-dirs:         startup
     ghc-options:
     - -rtsopts
+    - -Wall
     when: 
       - condition: os(windows)
         then:
@@ -86,6 +89,7 @@ tests:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
     dependencies:
     - Concordium
     - hspec >= 2.5
