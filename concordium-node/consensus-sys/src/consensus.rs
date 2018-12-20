@@ -152,6 +152,14 @@ impl ConsensusContainer {
                              bakers: Arc::new(Mutex::new(HashMap::new())), }
     }
 
+    #[cfg(windows)]
+    pub fn start_haskell() {
+        info!("Starting up Haskell runner");
+        start();
+    }
+
+
+    #[cfg(not(windows))]
     pub fn start_haskell() {
         info!("Starting up Haskell runner");
         start("".to_string());

@@ -1,0 +1,45 @@
+101d100
+<     let mut zlib = "z";
+109,125c108,111
+<     if cfg!(windows) {
+<         let profile = match &*env::var("PROFILE").unwrap_or("debug".to_owned()) {
+<             "bench" | "release" => {
+<                 zlib = "zlibstatic";
+<                 "Release"
+<             }
+<             _ => {
+<                 zlib = "zlibstaticd";
+<                 "Debug"
+<             }
+<         };
+<         println!("cargo:rustc-link-search=native={}/{}", build_dir, profile);
+<         for path in third_party {
+<             println!(
+<                 "cargo:rustc-link-search=native={}/third_party/{}/{}",
+<                 build_dir, path, profile
+<             );
+---
+> 
+>     let zlib = match &*env::var("PROFILE").unwrap_or("debug".to_owned()) {
+>         "bench" | "release" => {
+>             "zlibstatic"
+127,133c113,114
+<     } else {
+<         println!("cargo:rustc-link-search=native={}", build_dir);
+<         for path in third_party {
+<             println!(
+<                 "cargo:rustc-link-search=native={}/third_party/{}",
+<                 build_dir, path,
+<             );
+---
+>         _ => {
+>             "zlibstatic"
+134a116,123
+>     };
+> 
+>     println!("cargo:rustc-link-search=native={}", build_dir);
+>     for path in third_party {
+>         println!(
+>             "cargo:rustc-link-search=native={}/third_party/{}",
+>             build_dir, path,
+>         );

@@ -17,10 +17,10 @@ valgrind = []
 
 [dependencies]
 libc = "0.2"
-curryrs = { version = "^0.2.0", features = ["threaded"] }
 log = "0.4"
 lazy_static = "1.1.0"
 byteorder = "1"
+curryrs = { version = "^0.2.0", features = ["threaded"] }
 
 [build-dependencies]
 bindgen = "0.43.1"
