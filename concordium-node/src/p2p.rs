@@ -8,7 +8,10 @@ use common::{
     P2PPeer,
 };
 use errors::*;
+#[cfg(not(windows))]
 use get_if_addrs;
+#[cfg(windows)]
+use ipconfig;
 use mio::net::TcpListener;
 use mio::net::TcpStream;
 use mio::*;
@@ -2329,6 +2332,7 @@ impl P2PNode {
         }
     }
 
+    #[cfg(not(windows))]
     pub fn get_ip() -> Option<IpAddr> {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
         let mut ip: IpAddr = localhost.clone();
@@ -2348,6 +2352,37 @@ impl P2PNode {
                     //Ignore for now
                 }
             };
+        }
+
+        if ip == localhost {
+            None
+        } else {
+            Some(ip)
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn get_ip() -> Option<IpAddr> {
+        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
+        let mut ip: IpAddr = localhost.clone();
+
+        for adapter in ipconfig::get_adapters().unwrap() {
+            for ip_new in adapter.ip_addresses() {
+                match ip_new {
+                    V4(x) => {
+                        if !x.is_loopback()
+                        && !x.is_link_local()
+                        && !x.is_multicast()
+                        && !x.is_broadcast()
+                        {
+                            ip = IpAddr::V4(*x);
+                        }
+                    }
+                    V6(_) => {
+                        //Ignore for now
+                    }
+                };
+            }
         }
 
         if ip == localhost {

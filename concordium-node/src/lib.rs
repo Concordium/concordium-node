@@ -6,6 +6,7 @@ extern crate error_chain;
 extern crate structopt;
 extern crate byteorder;
 extern crate bytes;
+#[cfg(not(windows))]
 extern crate get_if_addrs;
 extern crate hacl_star;
 extern crate libc;
