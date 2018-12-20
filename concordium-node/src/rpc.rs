@@ -1,4 +1,6 @@
-use common::{ConnectionType, NetworkMessage, NetworkPacket, P2PNodeId, P2PPeer};
+use common::{ConnectionType, P2PNodeId, P2PPeer};
+use network::{ NetworkMessage, NetworkPacket };
+
 use db::P2PDB;
 use errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
 use errors::*;

@@ -70,6 +70,8 @@ pub mod prometheus_exporter;
 pub mod proto;
 pub mod rpc;
 pub mod utils;
+pub mod connection;
+pub mod network;
 
 cfg_if! {
     if #[cfg(not(debug_assertions))] {

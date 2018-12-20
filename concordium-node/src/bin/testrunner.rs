@@ -28,13 +28,13 @@ use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
 use p2p_client::common;
-use p2p_client::common::{
-    ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse,
-};
+use p2p_client::common::{ ConnectionType };
+use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
 use p2p_client::p2p::*;
+use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::utils;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng};

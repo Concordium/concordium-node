@@ -19,11 +19,12 @@ use alloc_system::System;
 static A: System = System;
 
 use env_logger::{Builder, Env};
-use p2p_client::common::{NetworkMessage, NetworkRequest};
+use p2p_client::network::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
 use p2p_client::p2p::*;
+use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};

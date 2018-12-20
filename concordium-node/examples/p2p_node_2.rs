@@ -18,9 +18,9 @@ use alloc_system::System;
 static A: System = System;
 
 use env_logger::{Builder, Env};
-use p2p_client::common::{
-    ConnectionType, NetworkMessage, NetworkPacket, NetworkRequest, P2PNodeId,
-};
+use p2p_client::common::{ ConnectionType, P2PNodeId };
+use p2p_client::connection::{ P2PEvent, P2PNodeMode };
+use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
