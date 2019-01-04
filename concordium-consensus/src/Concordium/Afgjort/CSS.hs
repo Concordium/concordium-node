@@ -75,7 +75,14 @@ saw :: Choice -> Lens' (CSSState party sig) (Map party (Int, Map party sig))
 saw True = sawTop
 saw False = sawBot
 
-sawJustified :: (Ord party) => party -> Choice -> party -> SimpleGetter (CSSState party sig) Bool
+-- |Given a witnessing party (@seer@), a choice (@c@) and a nominating party (@seen@),
+-- produces a 'SimpleGetter' for a 'CSSState' that returns @True@ exactly when we have
+-- a justified message from @seer@ that @seen@ nominated @c@.
+sawJustified :: (Ord party) =>
+    party       -- ^ @seer@
+    -> Choice   -- ^ @c@
+    -> party    -- ^ @seen@
+    -> SimpleGetter (CSSState party sig) Bool
 sawJustified seer c seen = to $ \s ->
     (s ^. justified c) && (isJust $ s ^. input c . at seen) &&
         case s ^. saw c . at seen of
@@ -92,9 +99,17 @@ iSaw = to g
             (False, True) -> (True, ) <$> _inputTop s
             (True, True) -> ((False, ) <$> _inputBot s) `Map.union` ((True, ) <$> _inputTop s)
 -}
+
+data CoreSet party sig = CoreSet {
+    coreTop :: Maybe (Map party sig),
+    coreBot :: Maybe (Map party sig)
+}
+
 class (MonadState (CSSState party sig) m) => CSSMonad party sig m where
     -- |Sign and broadcast a CSS message to all parties, _including_ our own 'CSSInstance'.
     sendCSSMessage :: CSSMessage party sig -> m ()
+    -- |Determine the core set.
+    selectCoreSet :: CoreSet party sig -> m ()
 
 data CSSInstance party sig m = CSSInstance {
     -- |Called to notify when a choice becomes justified.
@@ -154,5 +169,18 @@ newCSSInstance totalWeight corruptWeight partyWeight me checkSig = CSSInstance {
                 oldRep <- report <<.= False
                 when oldRep $ do
                     sendCSSMessage . DoneReporting =<< use iSaw
-        addDoneReporting :: party -> sig -> Map party choice -> m ()
+        addDoneReporting :: party -> sig -> Map party Choice -> m ()
         addDoneReporting src sig sawSet = undefined
+        handleDoneReporting :: party -> [(party, Choice)] -> m ()
+        handleDoneReporting party [] = do
+            alreadyDone <- Set.member party <$> use justifiedDoneReporting
+            unless alreadyDone $ do
+                justifiedDoneReporting %= Set.insert party
+                newJDRW <- justifiedDoneReportingWeight <%= (+ partyWeight party)
+                -- When we hit the mark, we can generate the core set.
+                when (newJDRW >= totalWeight - corruptWeight && newJDRW - partyWeight party < totalWeight - corruptWeight) $ do
+                    CSSState{..} <- get
+                    selectCoreSet $ CoreSet {
+                        coreTop = if _topJustified then Just _inputTop else Nothing,
+                        coreBot = if _botJustified then Just _inputBot else Nothing
+                    }
