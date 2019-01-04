@@ -19,6 +19,16 @@ use network::{
     NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets
 };
 
+/// Helper macro to create callbacks from raw function pointers or closures.
+#[macro_export]
+macro_rules! make_callback {
+    ($callback:expr) => {
+        Rc::new( Box::new( $callback ) )
+    }
+}
+
+pub mod parse_handler;
+pub mod packet_handler;
 pub mod message_handler;
 
 pub const BOOTSTRAP_PEER_COUNT: usize = 100;
