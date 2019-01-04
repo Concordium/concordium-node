@@ -2,6 +2,10 @@ use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 use common::{ P2PPeer, P2PNodeId };
 use std::rc::{ Rc };
 
+/// Helper macro to run all callbacks using `message` expression as argument.
+///
+/// # TODO 
+/// It should accumulate errors from different handlers into a unique composed error.
 macro_rules! run_callbacks{
     ($handlers:expr, $message:expr, $errorMsg: expr) => {
         $handlers.iter()
@@ -16,6 +20,8 @@ macro_rules! run_callbacks{
     }
 }
 
+/// Helper macro to create callbacks from raw function pointers or closures.
+#[macro_export]
 macro_rules! make_callback {
     ($callback:expr) => {
         Rc::new( Box::new( $callback ) )
@@ -25,6 +31,35 @@ macro_rules! make_callback {
 pub type ParseCallbackResult = Result<(), String>;
 pub type ParseCallback<T> = Fn(&T) -> ParseCallbackResult;
 
+/// It stores any number of functions or closures and it is able to execute them
+/// because it implements `Fn`, `FnMut` and `FnOnce`.
+///
+/// # Examples
+/// ```
+/// extern crate p2p_client;
+/// use p2p_client::connection::message_handler::{ ParseHandler };
+/// use std::rc::{ Rc };
+/// use std::cell::{ RefCell };
+///
+/// let acc = Rc::new( RefCell::new(58));
+/// let acc_1 = acc.clone();
+/// let acc_2 = acc.clone();
+///
+/// let ph = ParseHandler::new( "Closures".to_string())
+///            .add_callback( Rc::new( Box::new( move |x: &i32| {
+///                *acc_1.borrow_mut() += x;
+///                Ok(()) 
+///            })))
+///            .add_callback( Rc::new( Box::new( move |x: &i32| { 
+///                *acc_2.borrow_mut() *= x;
+///                Ok(()) 
+///            })));
+///
+/// let value = 42 as i32;
+/// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42 
+/// assert_eq!( *acc.borrow(), 4200); 
+///
+/// ```
 #[derive(Clone)]
 pub struct ParseHandler<T> {
     pub error_msg: String,
@@ -40,7 +75,10 @@ impl<T> ParseHandler<T> {
         }
     }
 
-    pub fn add_callback(mut self, callback: Rc< Box< Fn(&T) -> ParseCallbackResult > >) -> Self 
+    /// It adds new callback into this functor.
+    /// 
+    /// Callbacks are executed in the same order they were introduced.
+    pub fn add_callback(mut self, callback: Rc< Box< ParseCallback<T> > >) -> Self 
     {
         self.callbacks.push( callback );
         self
@@ -73,7 +111,7 @@ impl<T> Fn<(&T,)> for ParseHandler<T> {
 }
 
 #[cfg(test)]
-mod ParseHandlerTest {
+mod parse_handler_unit_test {
     use connection::message_handler::{ ParseHandler, ParseCallbackResult };
     use std::rc::{ Rc };
     use std::cell::{ RefCell };
@@ -81,39 +119,43 @@ mod ParseHandlerTest {
     fn raw_func_1( _v: &i32) -> ParseCallbackResult { Ok(()) }
     fn raw_func_2( _v: &i32) -> ParseCallbackResult { Ok(()) }
 
+    /// It tests if raw functions can be added as callback.
     #[test]
     pub fn test_parse_handler_raw_functions() {
         let ph = ParseHandler::new( "Raw functions".to_string())
-            .add_callback( Rc::new ( Box::new( raw_func_1 )))
-            .add_callback( Rc::new ( Box::new( raw_func_2 )))
-            .add_callback( Rc::new ( Box::new( raw_func_1 )));
+            .add_callback( make_callback!( raw_func_1 ))
+            .add_callback( make_callback!( raw_func_2 ))
+            .add_callback( make_callback!( raw_func_1 ));
 
         let value = 42 as i32;
         (&ph)(&value).unwrap();
     }
 
+    /// It tests if closures can be added as callback.
     #[test]
     pub fn test_parse_handler_closure() {
         let ph = ParseHandler::new( "Closures".to_string())
-            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })))
-            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })));
+            .add_callback( make_callback!( |_x: &i32| { Ok(()) }))
+            .add_callback( make_callback!( |_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
         (&ph)(&value).unwrap();
     }
 
+    /// It tests if we can mix closures and functions.
     #[test]
     pub fn test_parse_handler_mix() {
         let ph = ParseHandler::new( "Raw function and  Closure".to_string())
-            .add_callback( Rc::new ( Box::new( raw_func_1 )))
-            .add_callback( Rc::new ( Box::new( raw_func_2 )))
-            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })))
-            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })));
+            .add_callback( make_callback!( raw_func_1 ))
+            .add_callback( make_callback!( raw_func_2 ))
+            .add_callback( make_callback!( |_x: &i32| { Ok(()) }))
+            .add_callback( make_callback!( |_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
         (&ph)(&value).unwrap();
     }
 
+    /// Test for complex closures, I mean, closures that copy/move some variables from scope.
     #[test]
     pub fn test_parse_hadler_complex_closure() {
         let shd_counter = Rc::new( RefCell::new(0));
@@ -136,6 +178,7 @@ mod ParseHandlerTest {
     }
 }
 
+/// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
     request_parser: ParseHandler<NetworkRequest>,
@@ -157,21 +200,21 @@ impl MessageHandler {
 
     pub fn add_request_callback(
             mut self, 
-            callback: Rc< Box <Fn(&NetworkRequest) -> ParseCallbackResult> > ) -> Self {
+            callback: Rc< Box < ParseCallback<NetworkRequest> > > ) -> Self {
         self.request_parser = self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
             mut self, 
-            callback: Rc< Box <Fn(&NetworkResponse) -> ParseCallbackResult> > ) -> Self {
+            callback: Rc< Box < ParseCallback<NetworkResponse> > > ) -> Self {
         self.response_parser = self.response_parser.add_callback( callback);
         self
     }
     
     pub fn add_packet_callback(
             mut self, 
-            callback: Rc< Box< Fn(&NetworkPacket) -> ParseCallbackResult > > ) -> Self {
+            callback: Rc< Box< ParseCallback<NetworkPacket> > > ) -> Self {
         self.packet_parser = self.packet_parser.add_callback( callback);
         self
     }
@@ -221,11 +264,11 @@ impl Fn<(&NetworkMessage,)> for MessageHandler {
 }
 
 #[cfg(test)]
-mod MessageHandlerTest {
+mod message_handler_unit_test {
     use connection::message_handler::{ MessageHandler, ParseCallbackResult };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
     
-    use common::{ ConnectionType, P2PPeer, P2PNodeId };
+    use common::{ ConnectionType, P2PPeer };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::rc::{ Rc };
 
@@ -253,8 +296,6 @@ mod MessageHandlerTest {
     }
 }
 
-
-/*
 type PacketHandlerDirect = (P2PPeer, String, P2PNodeId, u16, Vec<u8>);
 type PacketHandlerBroadcast = (P2PPeer, String, u16, Vec<u8>);
 
@@ -264,7 +305,6 @@ pub struct PacketHandler {
 }
 
 impl PacketHandler {
-    
     pub fn new() -> Self {
         PacketHandler {
             direct_parser: ParseHandler::<PacketHandlerDirect>::new( 
@@ -274,17 +314,21 @@ impl PacketHandler {
         }
     }
 
-    pub fn add_direct_callback( mut self, callback: ParseCallback<PacketHandlerDirect>) -> Self {
+    pub fn add_direct_callback( 
+            mut self, 
+            callback: Rc< Box< ParseCallback<PacketHandlerDirect> > >) -> Self {
         self.direct_parser = self.direct_parser.add_callback( callback);
         self
     }
     
-    pub fn add_broadcast_callback( mut self, callback: ParseCallback<PacketHandlerBroadcast>) -> Self {
+    pub fn add_broadcast_callback( 
+            mut self, 
+            callback: Rc< Box< ParseCallback<PacketHandlerBroadcast> > >) -> Self {
         self.broadcast_parser = self.broadcast_parser.add_callback( callback);
         self
     }
-
-    
+   
+    /// *todo*: This is making copies. We should try to use `ref`.
     fn process_message(&self, msg: &NetworkPacket) -> ParseCallbackResult {
         match msg {
             NetworkPacket::DirectMessage(peer, msgid, nodeid, nid, inner_msg) => {
@@ -297,7 +341,6 @@ impl PacketHandler {
             }
         }
     }
-
 }
 
 impl FnOnce<(&NetworkPacket,)> for PacketHandler {
@@ -326,18 +369,14 @@ impl Fn<(&NetworkPacket,)> for PacketHandler {
     }
 }
 
-
-
-
-
-
 #[cfg(test)]
-mod tests {
+mod integration_test {
     use connection::message_handler::{ MessageHandler, PacketHandler, PacketHandlerDirect, PacketHandlerBroadcast, ParseCallbackResult };
     use common::{ ConnectionType, P2PPeer, P2PNodeId };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
     use network::packet::{ NetworkPacket as NetworkPacketEnum };
 
+    use std::rc::{ Rc };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT };
 
@@ -348,7 +387,7 @@ mod tests {
     static NETWORK_PACKET_BROADCAST_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
     // Test data for `on_network_request_handler`.
-    pub fn on_network_request_handler_data() -> Vec<NetworkMessage> {
+    pub fn network_request_handler_data() -> Vec<NetworkMessage> {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
         let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
         let inner_msg: Vec<u8> = "Message XXX".to_string().as_bytes().to_vec();
@@ -386,60 +425,59 @@ mod tests {
     fn make_message_handler() -> MessageHandler {
         
         let pkg_handler = PacketHandler::new()
-            .add_direct_callback( |pd: &PacketHandlerDirect| {
+            .add_direct_callback( make_callback!( |_pd: &PacketHandlerDirect| {
                 NETWORK_PACKET_DIRECT_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
-            })
-            .add_broadcast_callback( |pb: &PacketHandlerBroadcast| {
+            }))
+            .add_broadcast_callback( make_callback!( |_pb: &PacketHandlerBroadcast| {
                 NETWORK_PACKET_BROADCAST_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
-            });
+            }));
 
-        let pkg_forward = Box::new( move |p: &NetworkPacketEnum| {
-            NETWORK_PACKET_COUNTER.fetch_add( 1, Ordering::SeqCst);
-            (pkg_handler)(p)
-         });
- 
         let msg_handler = MessageHandler::new()
-            .add_request_callback( network_request_handler_1)
-            .add_request_callback( network_request_handler_2)
-            .add_request_callback( |_x: &NetworkRequest| { 
+            .add_request_callback( make_callback!( network_request_handler_1))
+            .add_request_callback( make_callback!( network_request_handler_2))
+            .add_request_callback( make_callback!( |_x: &NetworkRequest| { 
                 println!( 
                     "Network Request {}", 
                     NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed)); 
                 Ok(()) 
-            })
-            .add_response_callback(|_x: &NetworkResponse| { 
+            }))
+            .add_response_callback( make_callback!( |_x: &NetworkResponse| { 
                 NETWORK_RESPONSE_COUNTER.fetch_add( 1, Ordering::SeqCst); 
                 Ok(())
-            })
-            .add_packet_callback( pkg_forward );
+            }))
+            .add_packet_callback( make_callback!( move |p: &NetworkPacketEnum| {
+                NETWORK_PACKET_COUNTER.fetch_add( 1, Ordering::SeqCst);
+                (pkg_handler)(p)
+            }));
 
         msg_handler 
     }
 
 
     #[test]
-    pub fn on_network_request_handler() {
+    pub fn network_request_handler() {
         let mh: MessageHandler = make_message_handler();
 
-        for message in on_network_request_handler_data() {
+        for message in network_request_handler_data() {
             let _status = (&mh)( &message);
         }
 
         assert_eq!( NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 2);
         assert_eq!( NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 1);
         assert_eq!( NETWORK_PACKET_COUNTER.load(Ordering::Relaxed), 2);
-        // assert_eq!( NETWORK_PACKET_BROADCAST_COUNTER.load(Ordering::Relaxed), 1);
-        // assert_eq!( NETWORK_PACKET_DIRECT_COUNTER.load(Ordering::Relaxed), 1);
+        assert_eq!( NETWORK_PACKET_BROADCAST_COUNTER.load(Ordering::Relaxed), 1);
+        assert_eq!( NETWORK_PACKET_DIRECT_COUNTER.load(Ordering::Relaxed), 1);
 
-        for message in on_network_request_handler_data() {
+        for message in network_request_handler_data() {
             let _status = (&mh)( &message);
         }
         
         assert_eq!( NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 4);
         assert_eq!( NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 2);
+        assert_eq!( NETWORK_PACKET_COUNTER.load(Ordering::Relaxed), 4);
+        assert_eq!( NETWORK_PACKET_BROADCAST_COUNTER.load(Ordering::Relaxed), 2);
+        assert_eq!( NETWORK_PACKET_DIRECT_COUNTER.load(Ordering::Relaxed), 2);
     }
 }
-
-*/

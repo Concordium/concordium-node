@@ -19,7 +19,7 @@ use network::{
     NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets
 };
 
-mod message_handler;
+pub mod message_handler;
 
 pub const BOOTSTRAP_PEER_COUNT: usize = 100;
 
