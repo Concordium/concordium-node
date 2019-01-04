@@ -1,10 +1,11 @@
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 use common::{ P2PPeer, P2PNodeId };
+use std::rc::{ Rc };
 
 macro_rules! run_callbacks{
     ($handlers:expr, $message:expr, $errorMsg: expr) => {
         $handlers.iter()
-            .map( |handler| { handler($message) })
+            .map( |handler| { (handler)($message) })
             .fold( Ok(()), |status, handler_result|{
                 match handler_result {
                     Err(e) => Err(e),
@@ -15,24 +16,32 @@ macro_rules! run_callbacks{
     }
 }
 
+macro_rules! make_callback {
+    ($callback:expr) => {
+        Rc::new( Box::new( $callback ) )
+    }
+}
+
 pub type ParseCallbackResult = Result<(), String>;
-pub type ParseCallback<T> = fn(&T) -> ParseCallbackResult;
+pub type ParseCallback<T> = Fn(&T) -> ParseCallbackResult;
 
 #[derive(Clone)]
 pub struct ParseHandler<T> {
     pub error_msg: String,
-    pub callbacks: Vec< ParseCallback<T> >
+    pub callbacks: Vec< Rc < Box< Fn(&T) -> ParseCallbackResult > > >
 }
 
 impl<T> ParseHandler<T> {
+
     pub fn new( error_msg: String ) -> Self {
-        ParseHandler::<T> {
+        ParseHandler {
             error_msg: error_msg.clone(),
             callbacks: Vec::new() 
         }
     }
 
-    pub fn add_callback(mut self, callback: ParseCallback<T> ) -> Self {
+    pub fn add_callback(mut self, callback: Rc< Box< Fn(&T) -> ParseCallbackResult > >) -> Self 
+    {
         self.callbacks.push( callback );
         self
     }
@@ -63,7 +72,69 @@ impl<T> Fn<(&T,)> for ParseHandler<T> {
     }
 }
 
+#[cfg(test)]
+mod ParseHandlerTest {
+    use connection::message_handler::{ ParseHandler, ParseCallbackResult };
+    use std::rc::{ Rc };
+    use std::cell::{ RefCell };
 
+    fn raw_func_1( _v: &i32) -> ParseCallbackResult { Ok(()) }
+    fn raw_func_2( _v: &i32) -> ParseCallbackResult { Ok(()) }
+
+    #[test]
+    pub fn test_parse_handler_raw_functions() {
+        let ph = ParseHandler::new( "Raw functions".to_string())
+            .add_callback( Rc::new ( Box::new( raw_func_1 )))
+            .add_callback( Rc::new ( Box::new( raw_func_2 )))
+            .add_callback( Rc::new ( Box::new( raw_func_1 )));
+
+        let value = 42 as i32;
+        (&ph)(&value).unwrap();
+    }
+
+    #[test]
+    pub fn test_parse_handler_closure() {
+        let ph = ParseHandler::new( "Closures".to_string())
+            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })))
+            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })));
+
+        let value = 42 as i32;
+        (&ph)(&value).unwrap();
+    }
+
+    #[test]
+    pub fn test_parse_handler_mix() {
+        let ph = ParseHandler::new( "Raw function and  Closure".to_string())
+            .add_callback( Rc::new ( Box::new( raw_func_1 )))
+            .add_callback( Rc::new ( Box::new( raw_func_2 )))
+            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })))
+            .add_callback( Rc::new( Box::new( |_x: &i32| { Ok(()) })));
+
+        let value = 42 as i32;
+        (&ph)(&value).unwrap();
+    }
+
+    #[test]
+    pub fn test_parse_hadler_complex_closure() {
+        let shd_counter = Rc::new( RefCell::new(0));
+        let shd_counter_1 = shd_counter.clone();
+        let shd_counter_2 = shd_counter.clone();
+
+        let ph = ParseHandler::new( "Complex Closure".to_string())
+            .add_callback( make_callback!( move |_x: &i32| { 
+                *shd_counter_1.borrow_mut() += 1; 
+                Ok(()) }))
+            .add_callback( make_callback!( move |_: &i32| {
+                *shd_counter_2.borrow_mut() += 1;
+                Ok(()) }));
+
+
+        let value = 42 as i32;
+        (ph)(&value).unwrap();
+
+        assert_eq!( *shd_counter.borrow(), 2);
+    }
+}
 
 #[derive(Clone)]
 pub struct MessageHandler {
@@ -84,17 +155,23 @@ impl MessageHandler {
         }
     }
 
-    pub fn add_request_callback(mut self, callback: ParseCallback<NetworkRequest> ) -> Self {
+    pub fn add_request_callback(
+            mut self, 
+            callback: Rc< Box <Fn(&NetworkRequest) -> ParseCallbackResult> > ) -> Self {
         self.request_parser = self.request_parser.add_callback( callback);
         self
     }
 
-    pub fn add_response_callback(mut self, callback: ParseCallback<NetworkResponse>) -> Self {
+    pub fn add_response_callback(
+            mut self, 
+            callback: Rc< Box <Fn(&NetworkResponse) -> ParseCallbackResult> > ) -> Self {
         self.response_parser = self.response_parser.add_callback( callback);
         self
     }
     
-    pub fn add_packet_callback(mut self, callback: ParseCallback<NetworkPacket>) -> Self {
+    pub fn add_packet_callback(
+            mut self, 
+            callback: Rc< Box< Fn(&NetworkPacket) -> ParseCallbackResult > > ) -> Self {
         self.packet_parser = self.packet_parser.add_callback( callback);
         self
     }
@@ -143,7 +220,41 @@ impl Fn<(&NetworkMessage,)> for MessageHandler {
     }
 }
 
+#[cfg(test)]
+mod MessageHandlerTest {
+    use connection::message_handler::{ MessageHandler, ParseCallbackResult };
+    use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
+    
+    use common::{ ConnectionType, P2PPeer, P2PNodeId };
+    use std::net::{ IpAddr, Ipv4Addr };
+    use std::rc::{ Rc };
 
+    fn request_handler_func_1( _nr: &NetworkRequest) -> ParseCallbackResult { Ok(()) }
+    fn request_handler_func_2( _nr: &NetworkRequest) -> ParseCallbackResult { Ok(()) }
+    fn response_handler_func_1( _nr: &NetworkResponse) -> ParseCallbackResult { Ok(()) }
+    fn packet_handler_func_1( _np: &NetworkPacket) -> ParseCallbackResult { Ok(()) }
+
+    #[test]
+    pub fn test_message_handler_mix() {
+        let mh = MessageHandler::new()
+            .add_request_callback( make_callback!( request_handler_func_1))
+            .add_request_callback( make_callback!( request_handler_func_2))
+            .add_request_callback( make_callback!( |_| { Ok(()) })) 
+            .add_response_callback( make_callback!( response_handler_func_1))
+            .add_response_callback( make_callback!( response_handler_func_1))
+            .add_packet_callback( make_callback!( |_| { Ok(()) }))
+            .add_packet_callback( make_callback!( packet_handler_func_1));
+
+        let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
+        let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
+        let msg = NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer), None, None);
+
+        (mh)(&msg).unwrap();
+    }
+}
+
+
+/*
 type PacketHandlerDirect = (P2PPeer, String, P2PNodeId, u16, Vec<u8>);
 type PacketHandlerBroadcast = (P2PPeer, String, u16, Vec<u8>);
 
@@ -283,6 +394,11 @@ mod tests {
                 NETWORK_PACKET_BROADCAST_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             });
+
+        let pkg_forward = Box::new( move |p: &NetworkPacketEnum| {
+            NETWORK_PACKET_COUNTER.fetch_add( 1, Ordering::SeqCst);
+            (pkg_handler)(p)
+         });
  
         let msg_handler = MessageHandler::new()
             .add_request_callback( network_request_handler_1)
@@ -297,11 +413,7 @@ mod tests {
                 NETWORK_RESPONSE_COUNTER.fetch_add( 1, Ordering::SeqCst); 
                 Ok(())
             })
-            .add_packet_callback( |p: &NetworkPacketEnum| {
-                NETWORK_PACKET_COUNTER.fetch_add( 1, Ordering::SeqCst);
-                // (pkg_handler)(p)
-                Ok(())
-            });
+            .add_packet_callback( pkg_forward );
 
         msg_handler 
     }
@@ -330,4 +442,4 @@ mod tests {
     }
 }
 
-
+*/
