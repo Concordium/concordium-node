@@ -33,7 +33,7 @@ use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, Networ
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
-use p2p_client::p2p::*;
+use p2p_client::p2p::p2p_node::{ P2PNode };
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::utils;
 use rand::distributions::Standard;

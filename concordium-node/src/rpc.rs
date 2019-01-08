@@ -7,7 +7,7 @@ use errors::*;
 use futures::future::Future;
 use grpcio;
 use grpcio::{Environment, ServerBuilder};
-use p2p::P2PNode;
+use p2p::p2p_node::{ P2PNode };
 use proto::*;
 use std::boxed::Box;
 use std::cell::RefCell;

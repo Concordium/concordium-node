@@ -14,7 +14,7 @@ mod tests {
     use p2p_client::common::{ ConnectionType };
     use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
     use p2p_client::connection::{ P2PEvent, P2PNodeMode };
-    use p2p_client::p2p::*;
+    use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex, Once, ONCE_INIT};
