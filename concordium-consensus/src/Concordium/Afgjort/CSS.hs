@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances #-}
 -- |Core Set Selection algorithm
 module Concordium.Afgjort.CSS where
 
@@ -8,7 +8,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe
 import Control.Monad.State.Class
-import Control.Monad
+import Control.Monad.RWS
 import Lens.Micro.Platform
 
 type Choice = Bool
@@ -63,7 +63,7 @@ data CSSState party sig = CSSState {
     _manySaw :: Map party Choices,
     -- |The total weight of parties in '_manySaw'.
     _manySawWeight :: Int,
-    _unjustifiedDoneReporting :: Map (party, Choice) [(party, [(party, Choice)])],
+    _unjustifiedDoneReporting :: Map (party, Choice) (Map party [(party, Choice)]),
     _justifiedDoneReporting :: Set party,
     _justifiedDoneReportingWeight :: Int,
     _core :: Maybe (CoreSet party sig)
@@ -113,6 +113,23 @@ class (MonadState (CSSState party sig) m) => CSSMonad party sig m where
     -- |Determine the core set.
     selectCoreSet :: CoreSet party sig -> m ()
 
+data CSSOutputEvent party sig
+    = SendCSSMessage (CSSMessage party sig)
+    | SelectCoreSet (CoreSet party sig)
+
+newtype CSS party sig a = CSS {
+    runCSS :: RWS () (Endo [CSSOutputEvent party sig]) (CSSState party sig) a
+} deriving (Functor, Applicative, Monad)
+
+instance MonadState (CSSState party sig) (CSS party sig) where
+    get = CSS get
+    put = CSS . put
+    state = CSS . state
+
+instance CSSMonad party sig (CSS party sig) where
+    sendCSSMessage msg = CSS $ tell $ Endo (SendCSSMessage msg :)
+    selectCoreSet cs = CSS $ tell $ Endo (SelectCoreSet cs :)
+
 data CSSInstance party sig m = CSSInstance {
     -- |Called to notify when a choice becomes justified.
     justifyChoice :: Choice -> m (),
@@ -124,6 +141,7 @@ data CSSInstance party sig m = CSSInstance {
 whenM :: (Monad m) => m Bool -> m () -> m ()
 whenM t a = t >>= \r -> when r a
 
+{-# SPECIALIZE newCSSInstance :: forall party sig. Ord party => Int -> Int -> (party -> Int) -> party -> (party -> sig -> CSSMessage party sig -> Bool) -> CSSInstance party sig (CSS party sig) #-}
 newCSSInstance :: forall party sig m. (CSSMonad party sig m, Ord party) => Int -> Int -> (party -> Int) -> party -> (party -> sig -> CSSMessage party sig -> Bool) -> CSSInstance party sig m
 newCSSInstance totalWeight corruptWeight partyWeight me checkSig = CSSInstance {..}
     where
@@ -131,32 +149,37 @@ newCSSInstance totalWeight corruptWeight partyWeight me checkSig = CSSInstance {
         justifyChoice c = do
             -- Record the choice as justified
             alreadyJustified <- justified c <<.= True
-            -- If it wasn't already justified and we're in the report phase...
-            unless alreadyJustified $ whenM (use report) $ do
+            -- If it wasn't already justified...
+            unless alreadyJustified $ do
                 inputs <- use (input c)
-                forM_ (Map.toList inputs) $ \(p, sig) -> do
-                    -- each received nomination for this choice becomes justified...
-                    seen <- isJust <$> use (iSaw . at p)
-                    -- so, unless it was already in iSaw...
-                    unless seen $ do
-                        -- add it to iSaw
-                        iSaw . at p ?= c
-                        -- and send a seen message.
-                        sendCSSMessage $ Seen p c
+                forM_ (Map.toList inputs) $ \(p, _) -> justifyNomination p c
+        -- Call when a nomination (@c@) by a party (@src@) becomes justified,
+        -- i.e. @input c . at src@ gives @Just sig@ and @justified c@ gives @True@.
+        justifyNomination :: party -> Choice -> m ()
+        justifyNomination src c = do
+            -- In the report phase, add the nomination to @iSaw@ and send a seen message
+            -- (unless we already did for this @src@).
+            whenM (use report) $ do
+                seen <- isJust <$> use (iSaw . at src)
+                unless seen $ do
+                    iSaw . at src ?= c
+                    sendCSSMessage $ Seen src c
+            -- Consider any DoneReporting messages waiting on justified @Seen src c@ messages
+            use (unjustifiedDoneReporting . at (src, c)) >>= mapM_ (\m ->
+                -- Consider the @Seen src c@ messages (which now become justified)
+                use (saw c . at src) >>= mapM_ (\(_, jsMap) -> do
+                    -- Divide the DoneReporting messages on whether we have got the
+                    -- corresponding (now justified) @Seen@ message
+                    let (js, ujs) = Map.partitionWithKey (\k _ -> isJust (jsMap ^. at k)) m
+                    -- Put those messages back where we don't
+                    unjustifiedDoneReporting . at (src, c) .= if Map.null ujs then Nothing else Just ujs
+                    -- And handle those where we do.
+                    forM_ (Map.toList js) $ uncurry handleDoneReporting))
         receiveCSSMessage :: party -> sig -> CSSMessage party sig -> m ()
         receiveCSSMessage src sig (Input c) = do
             -- Record that we've seen this nomination
             input c . at src ?= sig
-            whenM (use report) $ do -- Only collect inputs while in report phase
-                -- If we've not already seen a nomination from this party
-                seen <- isJust <$> use (iSaw . at src)                
-                unless seen $ do
-                    -- and the choice is justified
-                    whenM (use (justified c)) $ do
-                        -- add it to iSaw
-                        iSaw . at src ?= c
-                        -- and send a seen message.
-                        sendCSSMessage $ Seen src c
+            whenM (use (justified c)) $ justifyNomination src c
         receiveCSSMessage src sig (Seen sp c) = do
             -- Update the set of parties that claim to have seen @sp@ make choice @c@
             let updateSaw Nothing = Just (partyWeight src, Map.singleton src sig)
@@ -164,23 +187,21 @@ newCSSInstance totalWeight corruptWeight partyWeight me checkSig = CSSInstance {
                     | isNothing (Map.lookup src oldMap) = Just (oldWeight + partyWeight src, Map.insert src sig oldMap)
                     | otherwise = o
             Just (weight, _) <- saw c . at sp <%= updateSaw
-            -- If the weight exceeds the threshold
-            when (weight >= totalWeight - corruptWeight) $ 
-                -- and the choice is justified
-                whenM (use (justified c)) $
-                    -- and was actually nominated by party @sp@
-                    whenM (isJust <$> use (input c . at sp)) $
-                        -- then add it to the manySaw set
-                        addManySaw sp c
-        receiveCSSMessage src sig (DoneReporting sawSet) = do
-            handleDoneReporting src (Map.toList sawSet)
+            -- Check if this seen message is justified
+            whenM (use (justified c)) $ whenM (isJust <$> use (input c . at sp)) $ do
+                -- If the weight is high enough, record it in manySaw
+                when (weight >= totalWeight - corruptWeight) $ addManySaw sp c
+                -- If there is a DoneReporting message awaiting this becoming justified, handle it
+                hdr <- unjustifiedDoneReporting . at (sp, c) . non Map.empty . at src <<.= Nothing
+                forM_ hdr $ handleDoneReporting src
+        receiveCSSMessage src sig (DoneReporting sawSet) = handleDoneReporting src (Map.toList sawSet)
         addManySaw :: party -> Choice -> m ()
         addManySaw party c = do
             oldMS <- manySaw . at party <<%= addChoice c
-            msw <- if (isNothing oldMS) then manySawWeight <%= (+ partyWeight party) else use manySawWeight
+            msw <- if isNothing oldMS then manySawWeight <%= (+ partyWeight party) else use manySawWeight
             when (msw >= totalWeight - corruptWeight) $ do
                 oldRep <- report <<.= False
-                when oldRep $ do
+                when oldRep $
                     sendCSSMessage . DoneReporting =<< use iSaw
         handleDoneReporting :: party -> [(party, Choice)] -> m ()
         handleDoneReporting party [] = do
@@ -192,18 +213,18 @@ newCSSInstance totalWeight corruptWeight partyWeight me checkSig = CSSInstance {
                 when (newJDRW >= totalWeight - corruptWeight) $ do
                     css@CSSState{..} <- get
                     when (isNothing _core) $ do
-                        let core = CoreSet {
+                        let theCore = CoreSet {
                             coreTop = if _topJustified then Just _inputTop else Nothing,
                             coreBot = if _botJustified then Just _inputBot else Nothing
                         }
-                        put (css{_core = Just core})
-                        selectCoreSet core
-        handleDoneReporting party sawList@((s, c) : remainder) = do
+                        put (css{_core = Just theCore})
+                        selectCoreSet theCore
+        handleDoneReporting party ((s, c) : remainder) = do
             scJust <- use (sawJustified party c s)
             if scJust then
                 handleDoneReporting party remainder
             else
-                unjustifiedDoneReporting . at (s c) %= \case
-                    Nothing -> Just [(party, remainder)]
-                    Just l -> Just ((party,remainder) : l)
--- TODO: Deal with unjustifiedDoneReporting when we get justified seen messages.
+                unjustifiedDoneReporting . at (s, c) %= \case
+                    Nothing -> Just (Map.singleton party remainder)
+                    Just l -> Just (Map.insert party remainder l)
+
