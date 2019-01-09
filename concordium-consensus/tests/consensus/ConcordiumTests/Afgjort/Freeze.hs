@@ -47,7 +47,7 @@ invariantFreezeState' totalWeight corruptWeight partyWeight fs = do
             Nothing -> False
             (Just (j, wt, _)) -> j && wt >= totalWeight - 2 * corruptWeight
         (allVotes, justVotes, vers, voteOK) = Map.foldlWithKey voteAcc (0, 0, Set.empty, pure ()) (_votes fs)
-        checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ sy ++ " (" ++ show y ++ ")"
+        checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
 data FreezeInput party val
     = FICandidate val

@@ -24,12 +24,13 @@ data CSSMessage party sig
     = Input Choice
     | Seen party Choice
     | DoneReporting (Map party Choice) -- Possbly use list instead
+    deriving (Eq, Ord, Show)
 
 
 data CoreSet party sig = CoreSet {
     coreTop :: Maybe (Map party sig),
     coreBot :: Maybe (Map party sig)
-}
+} deriving (Show)
 
 -- | Invariant:
 --
@@ -67,8 +68,26 @@ data CSSState party sig = CSSState {
     _justifiedDoneReporting :: Set party,
     _justifiedDoneReportingWeight :: Int,
     _core :: Maybe (CoreSet party sig)
-}
+} deriving (Show)
 makeLenses ''CSSState
+
+initialCSSState :: CSSState party sig
+initialCSSState = CSSState {
+    _report = True,
+    _botJustified = False,
+    _topJustified = False,
+    _inputTop = Map.empty,
+    _inputBot = Map.empty,
+    _sawTop = Map.empty,
+    _sawBot = Map.empty,
+    _iSaw = Map.empty,
+    _manySaw = Map.empty,
+    _manySawWeight = 0,
+    _unjustifiedDoneReporting = Map.empty,
+    _justifiedDoneReporting = Set.empty,
+    _justifiedDoneReportingWeight = 0,
+    _core = Nothing
+}
 
 justified :: Choice -> Lens' (CSSState party sig) Bool
 justified True = topJustified
@@ -96,17 +115,6 @@ sawJustified seer c seen = to $ \s ->
             Nothing -> False
             Just (_, m) -> isJust $ m ^. at seer
 
-{-
-iSaw :: (Ord party) => SimpleGetter (CSSState party sig) (Map party (Choice, sig))
-iSaw = to g
-    where
-        g s = case (_botJustified s, _topJustified s) of
-            (False, False) -> Map.empty
-            (True, False) -> (False, ) <$> _inputBot s
-            (False, True) -> (True, ) <$> _inputTop s
-            (True, True) -> ((False, ) <$> _inputBot s) `Map.union` ((True, ) <$> _inputTop s)
--}
-
 class (MonadState (CSSState party sig) m) => CSSMonad party sig m where
     -- |Sign and broadcast a CSS message to all parties, _including_ our own 'CSSInstance'.
     sendCSSMessage :: CSSMessage party sig -> m ()
@@ -118,8 +126,11 @@ data CSSOutputEvent party sig
     | SelectCoreSet (CoreSet party sig)
 
 newtype CSS party sig a = CSS {
-    runCSS :: RWS () (Endo [CSSOutputEvent party sig]) (CSSState party sig) a
+    runCSS' :: RWS () (Endo [CSSOutputEvent party sig]) (CSSState party sig) a
 } deriving (Functor, Applicative, Monad)
+
+runCSS :: CSS party sig a -> CSSState party sig -> (a, CSSState party sig, [CSSOutputEvent party sig])
+runCSS z s = runRWS (runCSS' z) () s & _3 %~ (\(Endo f) -> f [])
 
 instance MonadState (CSSState party sig) (CSS party sig) where
     get = CSS get
@@ -141,9 +152,9 @@ data CSSInstance party sig m = CSSInstance {
 whenM :: (Monad m) => m Bool -> m () -> m ()
 whenM t a = t >>= \r -> when r a
 
-{-# SPECIALIZE newCSSInstance :: forall party sig. Ord party => Int -> Int -> (party -> Int) -> party -> (party -> sig -> CSSMessage party sig -> Bool) -> CSSInstance party sig (CSS party sig) #-}
-newCSSInstance :: forall party sig m. (CSSMonad party sig m, Ord party) => Int -> Int -> (party -> Int) -> party -> (party -> sig -> CSSMessage party sig -> Bool) -> CSSInstance party sig m
-newCSSInstance totalWeight corruptWeight partyWeight me checkSig = CSSInstance {..}
+{-# SPECIALIZE newCSSInstance :: forall party sig. Ord party => Int -> Int -> (party -> Int) -> CSSInstance party sig (CSS party sig) #-}
+newCSSInstance :: forall party sig m. (CSSMonad party sig m, Ord party) => Int -> Int -> (party -> Int) -> CSSInstance party sig m
+newCSSInstance totalWeight corruptWeight partyWeight = CSSInstance {..}
     where
         justifyChoice :: Choice -> m ()
         justifyChoice c = do
