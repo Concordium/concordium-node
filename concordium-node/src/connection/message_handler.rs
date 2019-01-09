@@ -1,9 +1,6 @@
+use std::sync::{ Arc, Mutex };
 use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
-
-use std::rc::{ Rc };
-
-
 
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
@@ -27,21 +24,21 @@ impl MessageHandler {
 
     pub fn add_request_callback(
             mut self, 
-            callback: Rc< Box < ParseCallback<NetworkRequest> > > ) -> Self {
+            callback: Arc < Mutex < Box < ParseCallback<NetworkRequest> > > > ) -> Self {
         self.request_parser = self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
             mut self, 
-            callback: Rc< Box < ParseCallback<NetworkResponse> > > ) -> Self {
+            callback: Arc < Mutex < Box < ParseCallback<NetworkResponse> > > > ) -> Self {
         self.response_parser = self.response_parser.add_callback( callback);
         self
     }
     
     pub fn add_packet_callback(
             mut self, 
-            callback: Rc< Box< ParseCallback<NetworkPacket> > > ) -> Self {
+            callback: Arc < Mutex < Box< ParseCallback<NetworkPacket> > > > ) -> Self {
         self.packet_parser = self.packet_parser.add_callback( callback);
         self
     }
@@ -97,7 +94,7 @@ mod message_handler_unit_test {
     
     use common::{ ConnectionType, P2PPeer };
     use std::net::{ IpAddr, Ipv4Addr };
-    use std::rc::{ Rc };
+    use std::sync::{ Arc, Mutex };
 
     fn request_handler_func_1( _nr: &NetworkRequest) -> ParseCallbackResult { Ok(()) }
     fn request_handler_func_2( _nr: &NetworkRequest) -> ParseCallbackResult { Ok(()) }
@@ -132,7 +129,7 @@ mod integration_test {
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
     use network::packet::{ NetworkPacket as NetworkPacketEnum };
 
-    use std::rc::{ Rc };
+    use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT };
 

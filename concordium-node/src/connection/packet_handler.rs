@@ -1,8 +1,7 @@
+use std::sync::{ Arc, Mutex };
 use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult };
 use network::{ NetworkPacket };
 use common::{ P2PPeer, P2PNodeId };
-
-use std::rc::{ Rc };
 
 pub type PacketHandlerDirect = (P2PPeer, String, P2PNodeId, u16, Vec<u8>);
 pub type PacketHandlerBroadcast = (P2PPeer, String, u16, Vec<u8>);
@@ -24,14 +23,14 @@ impl PacketHandler {
 
     pub fn add_direct_callback( 
             mut self, 
-            callback: Rc< Box< ParseCallback<PacketHandlerDirect> > >) -> Self {
+            callback: Arc < Mutex < Box< ParseCallback<PacketHandlerDirect> > > >) -> Self {
         self.direct_parser = self.direct_parser.add_callback( callback);
         self
     }
     
     pub fn add_broadcast_callback( 
             mut self, 
-            callback: Rc< Box< ParseCallback<PacketHandlerBroadcast> > >) -> Self {
+            callback: Arc< Mutex < Box< ParseCallback<PacketHandlerBroadcast> > > >) -> Self {
         self.broadcast_parser = self.broadcast_parser.add_callback( callback);
         self
     }

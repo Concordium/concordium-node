@@ -23,7 +23,7 @@ use network::{
 #[macro_export]
 macro_rules! make_callback {
     ($callback:expr) => {
-        Rc::new( Box::new( $callback ) )
+        Arc::new ( Mutex::new ( Box::new( $callback )))
     }
 }
 

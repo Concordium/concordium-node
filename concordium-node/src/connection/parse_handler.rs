@@ -1,4 +1,4 @@
-use std::rc::{ Rc };
+use std::sync::{ Arc, Mutex };
 
 /// Helper macro to run all callbacks using `message` expression as argument.
 ///
@@ -7,6 +7,8 @@ use std::rc::{ Rc };
 macro_rules! run_callbacks{
     ($handlers:expr, $message:expr, $errorMsg: expr) => {
         $handlers.iter()
+            .map( |handler_mtx| handler_mtx.lock())
+            .filter_map( |handler_guard| handler_guard.ok())
             .map( |handler| { (handler)($message) })
             .fold( Ok(()), |status, handler_result|{
                 match handler_result {
@@ -27,8 +29,10 @@ pub type ParseCallback<T> = Fn(&T) -> ParseCallbackResult;
 /// # Examples
 /// ```
 /// extern crate p2p_client;
+/// use p2p_client::connection::*;
 /// use p2p_client::connection::parse_handler::{ ParseHandler };
 /// use std::rc::{ Rc };
+/// use std::sync::{ Arc, Mutex };
 /// use std::cell::{ RefCell };
 ///
 /// let acc = Rc::new( RefCell::new(58));
@@ -36,14 +40,14 @@ pub type ParseCallback<T> = Fn(&T) -> ParseCallbackResult;
 /// let acc_2 = acc.clone();
 ///
 /// let ph = ParseHandler::new( "Closures".to_string())
-///            .add_callback( Rc::new( Box::new( move |x: &i32| {
+///            .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| {
 ///                *acc_1.borrow_mut() += x;
 ///                Ok(()) 
-///            })))
-///            .add_callback( Rc::new( Box::new( move |x: &i32| { 
+///            }))))
+///            .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| { 
 ///                *acc_2.borrow_mut() *= x;
 ///                Ok(()) 
-///            })));
+///            }))));
 ///
 /// let value = 42 as i32;
 /// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42 
@@ -53,22 +57,26 @@ pub type ParseCallback<T> = Fn(&T) -> ParseCallbackResult;
 #[derive(Clone)]
 pub struct ParseHandler<T> {
     pub error_msg: String,
-    pub callbacks: Vec< Rc < Box< Fn(&T) -> ParseCallbackResult > > >
+    pub callbacks: Vec< Arc < Mutex < Box< Fn(&T) -> ParseCallbackResult > > > >
 }
+
+unsafe impl<T> Send for ParseHandler<T> {}
+unsafe impl<T> Sync for ParseHandler<T> {}
 
 impl<T> ParseHandler<T> {
 
     pub fn new( error_msg: String ) -> Self {
         ParseHandler {
             error_msg: error_msg.clone(),
-            callbacks: Vec::new() 
+            // 3. callbacks: Arc::new( Vec::new())
+            callbacks: Vec::new()
         }
     }
 
     /// It adds new callback into this functor.
     /// 
     /// Callbacks are executed in the same order they were introduced.
-    pub fn add_callback(mut self, callback: Rc< Box< ParseCallback<T> > >) -> Self 
+    pub fn add_callback(mut self, callback: Arc< Mutex < Box< ParseCallback<T> > > > ) -> Self 
     {
         self.callbacks.push( callback );
         self
@@ -104,6 +112,7 @@ impl<T> Fn<(&T,)> for ParseHandler<T> {
 mod parse_handler_unit_test {
     use connection::parse_handler::{ ParseHandler, ParseCallbackResult };
     use std::rc::{ Rc };
+    use std::sync::{ Arc, Mutex };
     use std::cell::{ RefCell };
 
     fn raw_func_1( _v: &i32) -> ParseCallbackResult { Ok(()) }
