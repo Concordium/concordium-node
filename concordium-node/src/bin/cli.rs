@@ -24,7 +24,7 @@ static A: System = System;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use consensus_sys::consensus;
 use env_logger::{Builder, Env};
-use p2p_client::common::{ ConnectionType };
+use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
@@ -510,6 +510,40 @@ fn run() -> ResultExtWrapper<()> {
                               }
                           }
                       });
+    }
+
+    //TPS test
+
+    if let Some(ref tps_test_recv_id) = conf.tps_test_recv_id {
+        let mut _id_clone = tps_test_recv_id.clone();
+        let mut _dir_clone = conf.tps_test_data_dir.clone();
+        let mut _node_ref = node.clone();
+        let _network_id = conf.network_ids.first().unwrap().clone();
+        thread::spawn(move || {
+            let test_messages = utils::get_tps_test_messages(_dir_clone);
+            for message in test_messages {
+                let mut out_bytes = vec![];
+                match out_bytes.write_u16::<BigEndian>(0 as u16) {
+                    Ok(_) => {
+                        out_bytes.extend(message);
+                        match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
+                                                    _network_id,
+                                                    None,
+                                                    &out_bytes,
+                                                    false) {
+                                                          Ok(_) => {
+                                                              info!("Sent TPS test bytes of len {}",
+                                                                    out_bytes.len());
+                                                          }
+                                                          Err(_) => {
+                                                              error!("Couldn't broadcast block!")
+                                                          }
+                                                    }
+                    },
+                    Err(_) => error!("Can't write type to packet"),
+                }
+            }
+        });
     }
 
     _node_th.join().unwrap();
