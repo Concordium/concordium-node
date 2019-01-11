@@ -26,6 +26,7 @@ use std::io::Read;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
+use std::fs;
 
 pub fn sha256(input: &str) -> [u8; 32] {
     sha256_bytes(input.as_bytes())
@@ -526,6 +527,24 @@ pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str>
         Ok(_) => Err("Can't fetch discovery data"),
         Err(_) => Err("Can't fetch discovery data"),
     }
+}
+
+pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
+    let mut ret = Vec::new();
+    if let Some(ref _path) = path {
+        println!("Trying path: {}", _path);
+        let files = fs::read_dir(_path).unwrap();
+        for file in files {
+            let file = file.unwrap().path();
+            if !file.is_dir() {
+                let data = fs::read(file).expect("Unable to read file!");
+                ret.push(data);
+            }
+        }
+    }
+
+
+    ret
 }
 
 #[cfg(test)]
