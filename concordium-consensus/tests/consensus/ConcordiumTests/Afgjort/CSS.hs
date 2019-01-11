@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TupleSections #-}
+{-# LANGUAGE RecordWildCards #-}
 module ConcordiumTests.Afgjort.CSS where
 
 import Data.Monoid
@@ -31,7 +31,7 @@ invariantCSSState totalWeight corruptWeight partyWeight s = do
 
 data CSSInput party sig
         = JustifyChoice Choice
-        | ReceiveCSSMessage party sig (CSSMessage party sig)
+        | ReceiveCSSMessage party sig (CSSMessage party)
         deriving (Eq, Ord, Show)
 
 -- |Pick an element from a seqeunce, returning the element

@@ -20,7 +20,7 @@ addChoice c Nothing = Just (Just c)
 addChoice _ (Just Nothing) = Just Nothing
 addChoice c cs@(Just (Just c')) = if c == c' then cs else Just Nothing
 
-data CSSMessage party sig
+data CSSMessage party
     = Input Choice
     | Seen party Choice
     | DoneReporting (Map party Choice) -- Possbly use list instead
@@ -117,12 +117,12 @@ sawJustified seer c seen = to $ \s ->
 
 class (MonadState (CSSState party sig) m) => CSSMonad party sig m where
     -- |Sign and broadcast a CSS message to all parties, _including_ our own 'CSSInstance'.
-    sendCSSMessage :: CSSMessage party sig -> m ()
+    sendCSSMessage :: CSSMessage party -> m ()
     -- |Determine the core set.
     selectCoreSet :: CoreSet party sig -> m ()
 
 data CSSOutputEvent party sig
-    = SendCSSMessage (CSSMessage party sig)
+    = SendCSSMessage (CSSMessage party)
     | SelectCoreSet (CoreSet party sig)
 
 newtype CSS party sig a = CSS {
@@ -146,7 +146,7 @@ data CSSInstance party sig m = CSSInstance {
     justifyChoice :: Choice -> m (),
     -- |Handle an incoming CSSMessage from a party.  The second argument is the signature,
     -- which must be valid for the party and message.
-    receiveCSSMessage :: party -> sig -> CSSMessage party sig -> m ()
+    receiveCSSMessage :: party -> sig -> CSSMessage party -> m ()
 }
 
 whenM :: (Monad m) => m Bool -> m () -> m ()
@@ -186,7 +186,7 @@ newCSSInstance totalWeight corruptWeight partyWeight = CSSInstance {..}
                     unjustifiedDoneReporting . at (src, c) .= if Map.null ujs then Nothing else Just ujs
                     -- And handle those where we do.
                     forM_ (Map.toList js) $ uncurry handleDoneReporting))
-        receiveCSSMessage :: party -> sig -> CSSMessage party sig -> m ()
+        receiveCSSMessage :: party -> sig -> CSSMessage party -> m ()
         receiveCSSMessage src sig (Input c) = do
             -- Record that we've seen this nomination
             input c . at src ?= sig

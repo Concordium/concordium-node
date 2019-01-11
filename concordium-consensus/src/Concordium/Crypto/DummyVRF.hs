@@ -42,7 +42,7 @@ newtype Hash = Hash ByteString
     deriving (Eq, Generic, Serialize)
 
 newtype Proof = Proof ByteString
-    deriving (Eq, Generic, Serialize)
+    deriving (Eq, Generic, Serialize, Show)
 
 data KeyPair = KeyPair {
     privateKey :: PrivateKey,
