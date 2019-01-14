@@ -175,6 +175,9 @@ newCSSInstance totalWeight corruptWeight partyWeight = CSSInstance {..}
                 unless seen $ do
                     iSaw . at src ?= c
                     sendCSSMessage $ Seen src c
+            -- Update manySaw if the now-justified choice has been Seen sufficiently
+            use (saw c . at src) >>= mapM_ (\(w, _) ->
+                when (w >= totalWeight - corruptWeight) $ addManySaw src c)
             -- Consider any DoneReporting messages waiting on justified @Seen src c@ messages
             use (unjustifiedDoneReporting . at (src, c)) >>= mapM_ (\m ->
                 -- Consider the @Seen src c@ messages (which now become justified)

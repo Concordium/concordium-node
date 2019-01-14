@@ -5,6 +5,7 @@ import Data.Monoid
 import Data.Maybe
 import Control.Monad
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Concordium.Afgjort.CSS
 import Data.Sequence (Seq)
@@ -24,10 +25,21 @@ invariantCSSState totalWeight corruptWeight partyWeight s = do
             when (s ^. botJustified) $ checkBinary (\m1 m2 -> Map.null (m1 Map.\\ m2)) (s ^. inputBot) (s ^. iSaw) "subsumed by" "[justified] bottom inputs" "iSaw"
         forM_ (Map.toList $ s ^. sawTop) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
         forM_ (Map.toList $ s ^. sawBot) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", bottom)") "given weight"
+        forM_ (Map.toList (s ^. iSaw)) $ \(p,c) -> do
+            unless (s ^. justified c) $ Left $ "iSaw contains " ++ show (p,c) ++ " but the choice is not justified"
+            unless (isJust (s ^. input c . at p)) $ Left $ "iSaw contains " ++ show (p,c) ++ ", which is not in the input"
+        checkBinary (==) computedManySaw (s ^. manySaw) "==" "computed manySaw" "given manySaw"
+        checkBinary (==) computedJustifiedDoneReportingWeight (s ^. justifiedDoneReportingWeight) "==" "computed justifiedDoneReporting weight" "given value"
+        forM_ (Map.toList (s ^. unjustifiedDoneReporting)) $ \((seen,c),m) ->
+            forM_ (Map.toList m) $ \(seer,_) ->
+                when (s ^. sawJustified seer c seen) $ Left $ "unjustifiedDoneReporting " ++ show seer ++ " waiting on " ++ show (seen,c) ++ " which is seen and justified"
     where
         sumPartyWeights = Map.foldlWithKey (\w k _ -> w + partyWeight k) 0
         computedManySawWeight = sumPartyWeights (s ^. manySaw)
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+        computedManySaw' c = if s ^. justified c then (const (Just c)) <$> Map.filter (\(w,_) -> w >= totalWeight - corruptWeight) ((s ^. saw c) `Map.intersection` (s ^. input c)) else Map.empty
+        computedManySaw = Map.unionWith (const $ const Nothing) (computedManySaw' True) (computedManySaw' False)
+        computedJustifiedDoneReportingWeight = sum $ partyWeight <$> Set.toList (s ^. justifiedDoneReporting)
 
 data CSSInput party sig
         = JustifyChoice Choice
