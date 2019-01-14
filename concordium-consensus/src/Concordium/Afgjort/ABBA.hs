@@ -9,26 +9,42 @@ import Data.Word
 import Control.Monad.State.Class
 import Control.Monad.RWS
 import Lens.Micro.Platform
+import System.Random
+import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.DummyVRF as VRF
 import Concordium.Afgjort.CSS
 
+data Ticket = Ticket {
+    ticketValue :: Word64,
+    ticketProof :: VRF.Proof
+} deriving (Eq, Show)
+
+calculateTicketValue :: Int -> VRF.Proof -> Word64
+calculateTicketValue weight = maximum . take weight . randoms . mkStdGen . VRF.hashToInt . VRF.proofToHash
+
+checkTicket :: BS.ByteString -> Int -> VRF.PublicKey -> Ticket -> Bool
+checkTicket baid weight key Ticket{..} =
+        VRF.verifyKey key &&
+        VRF.verify key baid ticketProof &&
+        ticketValue == calculateTicketValue weight ticketProof
+
 data ABBAMessage party
-    = Justified Word Bool VRF.Proof
+    = Justified Word Bool Ticket
     | CSSSeen Word party Choice
     | CSSDoneReporting Word (Map party Choice)
     | WeAreDone Choice
     deriving (Eq, Show)
 
 data PhaseState party sig = PhaseState {
-    _lotteryProofs :: Map party VRF.Proof,
+    _lotteryTickets :: Map (Word64, party) Ticket,
     _phaseCSSState :: CSSState party sig
 }
 makeLenses ''PhaseState
 
 initialPhaseState :: PhaseState party sig
 initialPhaseState = PhaseState {
-    _lotteryProofs = Map.empty,
+    _lotteryTickets = Map.empty,
     _phaseCSSState = initialCSSState
 }
 
@@ -103,8 +119,8 @@ liftCSS phase a = do
         liftMsg (Seen p c) = CSSSeen phase p c
         liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
 
-newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => Int -> Int -> (party -> Int) -> ABBAInstance party sig m
-newABBAInstance totalWeight corruptWeight partyWeight = ABBAInstance {..}
+newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => Int -> Int -> (party -> Int) -> (party -> VRF.PublicKey) -> party -> VRF.PrivateKey -> ABBAInstance party sig m
+newABBAInstance totalWeight corruptWeight partyWeight pubKeys me privateKey = ABBAInstance {..}
     where
         CSSInstance{..} = newCSSInstance totalWeight corruptWeight partyWeight
         justifyABBAChoice :: Choice -> m ()
@@ -117,10 +133,10 @@ newABBAInstance totalWeight corruptWeight partyWeight = ABBAInstance {..}
             forM_ cs handleCoreSet
             return r
         receiveABBAMessage :: party -> sig -> ABBAMessage party -> m ()
-        receiveABBAMessage src sig (Justified phase c pf) = do
+        receiveABBAMessage src sig (Justified phase c ticket) = do
             -- TODO: Check the proof!
             myLiftCSS phase (receiveCSSMessage src sig (Input c))
-            phaseState phase . lotteryProofs . at src ?= pf
+            phaseState phase . lotteryTickets . at (ticketValue ticket, src) ?= ticket
         receiveABBAMessage src sig (CSSSeen phase p c) =
             myLiftCSS phase (receiveCSSMessage src sig (Seen p c))
         receiveABBAMessage src sig (CSSDoneReporting phase m) =

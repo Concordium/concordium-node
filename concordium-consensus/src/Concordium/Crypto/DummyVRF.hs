@@ -16,6 +16,7 @@ module Concordium.Crypto.DummyVRF(
     verify,
     verifyKey,
     hashToDouble,
+    hashToInt,
     emptyHash,
     emptyProof
 ) where
@@ -90,6 +91,11 @@ hashToDouble :: Hash -> Double
 hashToDouble (Hash h) = case runGet getWord64be h of
     Left e -> error e
     Right w -> encodeFloat (toInteger w) (-64)
+
+hashToInt :: Hash -> Int
+hashToInt (Hash h) = case runGet getInt64be h of
+    Left e -> error e
+    Right i -> fromIntegral i
 
 -- |An empty hash value (typically, not a valid hash)
 emptyHash :: Hash
