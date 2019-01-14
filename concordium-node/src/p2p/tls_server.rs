@@ -1,4 +1,4 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, Mutex, RwLock };
 use std::net::{ IpAddr, SocketAddr };
 use mio::net::{ TcpListener, TcpStream };
 use mio::{ Token, Poll, Event };
@@ -20,9 +20,9 @@ use network::{ NetworkRequest, NetworkMessage, Buckets };
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 
-pub struct TlsServer {
+pub struct TlsServer<'a> {
     server: TcpListener,
-    pub connections: HashMap<Token, Connection>,
+    pub connections: HashMap<Token, Connection<'a>>,
     next_id: usize,
     server_tls_config: Arc<ServerConfig>,
     client_tls_config: Arc<ClientConfig>,
@@ -35,9 +35,11 @@ pub struct TlsServer {
     networks: Arc<Mutex<Vec<u16>>>,
     unreachable_nodes: UnreachableNodes,
     seen_messages: SeenMessagesList,
+    buckets: Arc< RwLock< Buckets > >
+    
 }
 
-impl TlsServer {
+impl<'a> TlsServer<'a> {
     pub fn new(server: TcpListener,
            server_cfg: Arc<ServerConfig>,
            client_cfg: Arc<ClientConfig>,
@@ -47,8 +49,10 @@ impl TlsServer {
            mode: P2PNodeMode,
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            networks: Vec<u16>,
-           seen_messages: SeenMessagesList)
-           -> TlsServer {
+           seen_messages: SeenMessagesList,
+           buckets: Arc< RwLock< Buckets > >
+           )
+           -> Self {
         TlsServer { server,
                     connections: HashMap::new(),
                     next_id: 2,
@@ -62,7 +66,9 @@ impl TlsServer {
                     prometheus_exporter: prometheus_exporter,
                     networks: Arc::new(Mutex::new(networks)),
                     unreachable_nodes: UnreachableNodes::new(),
-                    seen_messages: seen_messages, }
+                    seen_messages: seen_messages, 
+                    buckets: buckets
+        }
     }
 
     pub fn log_event(&mut self, event: P2PEvent) {
@@ -150,7 +156,8 @@ impl TlsServer {
                                                         self.prometheus_exporter.clone(),
                                                         self.event_log.clone(),
                                                         self.networks.clone(),
-                                                        self.seen_messages.clone()));
+                                                        self.seen_messages.clone(),
+                                                        self.buckets.clone()));
                 self.connections[&token].register(poll)
             }
             Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
@@ -218,7 +225,8 @@ impl TlsServer {
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
                                            self.networks.clone(),
-                                           self.seen_messages.clone());
+                                           self.seen_messages.clone(),
+                                           self.buckets.clone());
 
                 conn.register(poll)?;
                 self.next_id += 1;
@@ -251,7 +259,7 @@ impl TlsServer {
         }
     }
 
-    pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
+    pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection<'a>> {
         let mut tok = Token(0);
         for (token, mut connection) in &self.connections {
             match connection.peer {
@@ -284,13 +292,12 @@ impl TlsServer {
     pub fn conn_event(&mut self,
                   poll: &mut Poll,
                   event: &Event,
-                  mut buckets: &mut Buckets,
                   packet_queue: &Sender<Arc<Box<NetworkMessage>>>)
                   -> ResultExtWrapper<()> {
         let token = event.token();
         if self.connections.contains_key(&token) {
             match self.connections.get_mut(&token) {
-                Some(x) => x.ready(poll, event, &mut buckets, &packet_queue)
+                Some(x) => x.ready(poll, event, &packet_queue)
                             .map_err(|e| error!("Error while performing ready() check on connection '{}'", e))
                             .ok(),
                 None => {

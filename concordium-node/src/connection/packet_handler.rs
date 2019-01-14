@@ -6,12 +6,12 @@ use common::{ P2PPeer, P2PNodeId };
 pub type PacketHandlerDirect = (P2PPeer, String, P2PNodeId, u16, Vec<u8>);
 pub type PacketHandlerBroadcast = (P2PPeer, String, u16, Vec<u8>);
 
-pub struct PacketHandler {
-    pub direct_parser: ParseHandler< PacketHandlerDirect >,
-    pub broadcast_parser: ParseHandler< PacketHandlerBroadcast >
+pub struct PacketHandler<'a> {
+    pub direct_parser: ParseHandler<'a, PacketHandlerDirect >,
+    pub broadcast_parser: ParseHandler<'a, PacketHandlerBroadcast >
 }
 
-impl PacketHandler {
+impl<'a> PacketHandler<'a> {
     pub fn new() -> Self {
         PacketHandler {
             direct_parser: ParseHandler::<PacketHandlerDirect>::new( 
@@ -23,14 +23,14 @@ impl PacketHandler {
 
     pub fn add_direct_callback( 
             mut self, 
-            callback: Arc < Mutex < Box< ParseCallback<PacketHandlerDirect> > > >) -> Self {
+            callback: Arc < Mutex < Box< ParseCallback<'a, PacketHandlerDirect> > > >) -> Self {
         self.direct_parser = self.direct_parser.add_callback( callback);
         self
     }
     
     pub fn add_broadcast_callback( 
             mut self, 
-            callback: Arc< Mutex < Box< ParseCallback<PacketHandlerBroadcast> > > >) -> Self {
+            callback: Arc< Mutex < Box< ParseCallback<'a, PacketHandlerBroadcast> > > >) -> Self {
         self.broadcast_parser = self.broadcast_parser.add_callback( callback);
         self
     }
@@ -50,7 +50,7 @@ impl PacketHandler {
     }
 }
 
-impl FnOnce<(&NetworkPacket,)> for PacketHandler {
+impl<'a> FnOnce<(&NetworkPacket,)> for PacketHandler<'a> {
     type Output = ParseCallbackResult;
 
     extern "rust-call" fn call_once(self, args: (&NetworkPacket,)) -> ParseCallbackResult
@@ -60,7 +60,7 @@ impl FnOnce<(&NetworkPacket,)> for PacketHandler {
     }
 }
 
-impl FnMut<(&NetworkPacket,)> for PacketHandler {
+impl<'a> FnMut<(&NetworkPacket,)> for PacketHandler<'a> {
     extern "rust-call" fn call_mut(&mut self, args: (&NetworkPacket,)) -> ParseCallbackResult
     {
         let msg = args.0;
@@ -68,7 +68,7 @@ impl FnMut<(&NetworkPacket,)> for PacketHandler {
     }
 }
 
-impl Fn<(&NetworkPacket,)> for PacketHandler {
+impl<'a> Fn<(&NetworkPacket,)> for PacketHandler<'a> {
     extern "rust-call" fn call(&self, args: (&NetworkPacket,)) -> ParseCallbackResult
     {
         let msg = args.0;

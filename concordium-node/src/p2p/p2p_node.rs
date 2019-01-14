@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+
+use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
@@ -11,7 +12,6 @@ use rustls::{ Certificate, PrivateKey, NoClientAuth, ServerConfig, ClientConfig 
 use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
 use time::{ Timespec };
-use std::thread;
 use utils;
 
 use prometheus_exporter::{ PrometheusServer };
@@ -24,14 +24,15 @@ use p2p::no_certificate_verification::{ NoCertificateVerification };
 use p2p::peer_statistics::{ PeerStatistic };
 use errors::*;
 
+
 const SERVER: Token = Token(0);
 
 #[derive(Clone)]
-pub struct P2PNode {
-    tls_server: Arc<Mutex<TlsServer>>,
+pub struct P2PNode<'a> {
+    tls_server: Arc<Mutex<TlsServer<'a>>>,
     poll: Arc<Mutex<Poll>>,
     id: P2PNodeId,
-    buckets: Arc<Mutex<Buckets>>,
+    buckets: Arc<RwLock<Buckets>>,
     send_queue: Arc<Mutex<VecDeque<Arc<Box<NetworkMessage>>>>>,
     ip: IpAddr,
     port: u16,
@@ -48,7 +49,7 @@ pub struct P2PNode {
 
 
 
-impl P2PNode {
+impl<'a> P2PNode<'a> {
     pub fn new(supplied_id: Option<String>,
                listen_address: Option<String>,
                listen_port: u16,
@@ -60,7 +61,7 @@ impl P2PNode {
                prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
                networks: Vec<u16>,
                minimum_per_bucket: usize)
-               -> P2PNode {
+               -> Self {
         let addr = if let Some(ref addy) = listen_address {
             format!("{}:{}", addy, listen_port).parse().unwrap()
         } else {
@@ -164,6 +165,8 @@ impl P2PNode {
 
         let seen_messages = SeenMessagesList::new();
 
+        let buckets = Arc::new(RwLock::new(Buckets::new()));
+
         let tlsserv = TlsServer::new(server,
                                      Arc::new(server_conf),
                                      Arc::new(client_conf),
@@ -173,12 +176,13 @@ impl P2PNode {
                                      mode,
                                      prometheus_exporter.clone(),
                                      networks,
-                                     seen_messages.clone());
+                                     seen_messages.clone(),
+                                     buckets.clone());
 
         P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),
                   id: _id,
-                  buckets: Arc::new(Mutex::new(Buckets::new())),
+                  buckets: buckets,
                   send_queue: Arc::new(Mutex::new(VecDeque::new())),
                   ip: ip,
                   port: listen_port,
@@ -193,6 +197,7 @@ impl P2PNode {
                   minimum_per_bucket: minimum_per_bucket, }
     }
 
+    /*
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
         let mut self_clone = self.clone();
         thread::spawn(move || {
@@ -204,6 +209,15 @@ impl P2PNode {
                           }
                       })
     }
+    pub fn run(&self) {
+        let mut events = Events::with_capacity(1024);
+        loop {
+            self.process(&mut events)
+            .map_err(|e| error!("{}", e))
+            .ok();
+        }
+    }
+    */
 
     pub fn get_version(&self) -> String {
         ::VERSION.to_string()
@@ -682,7 +696,6 @@ impl P2PNode {
         for event in events.iter() {
             let mut tls_ref = self.tls_server.lock()?;
             let mut poll_ref = self.poll.lock()?;
-            let mut buckets_ref = self.buckets.lock()?;
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
@@ -700,7 +713,6 @@ impl P2PNode {
                     trace!("Got data!");
                     tls_ref.conn_event(&mut poll_ref,
                                        &event,
-                                       &mut buckets_ref,
                                        &self.incoming_pkts)
                            .map_err(|e| error!("Error occured while parsing event '{}'", e))
                            .ok();
@@ -711,11 +723,11 @@ impl P2PNode {
         {
             let mut tls_ref = self.tls_server.lock()?;
             let mut poll_ref = self.poll.lock()?;
-            let mut buckets_ref = self.buckets.lock()?;
             tls_ref.cleanup_connections(&mut poll_ref)?;
             if self.mode == P2PNodeMode::BootstrapperMode
                || self.mode == P2PNodeMode::BootstrapperPrivateMode
             {
+                let mut buckets_ref = self.buckets.write()?;
                 buckets_ref.clean_peers(self.minimum_per_bucket);
             }
         }

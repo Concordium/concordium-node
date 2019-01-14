@@ -1,4 +1,4 @@
-#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits)]
+#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, rustc_private, extern_crate_item_prelude, concat_idents)]
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
@@ -44,11 +44,13 @@ extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
 extern crate dns;
+extern crate crossbeam_utils;
 #[cfg(windows)]
 extern crate ipconfig;
 extern crate resolv_conf;
 extern crate semver;
 extern crate vecio;
+
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

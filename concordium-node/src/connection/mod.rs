@@ -6,7 +6,7 @@ use rustls::{ TLSError, ServerSession, ClientSession, Session };
 use std::io::{ Error, ErrorKind, Cursor, Result, Read, Write };
 use std::net::{Shutdown, IpAddr };
 use byteorder::{ NetworkEndian, ReadBytesExt, WriteBytesExt };
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, Mutex, RwLock };
 use atomic_counter::{ AtomicCounter, RelaxedCounter };
 use std::sync::mpsc::{ Sender };
 use prometheus_exporter::{ PrometheusServer };
@@ -18,6 +18,9 @@ use network::{
     PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets
 };
+use self::message_handler::{ MessageHandler };
+use self::request_handler::{ RequestHandler };
+use self::parse_handler::{ ParseCallbackResult };
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
@@ -27,8 +30,38 @@ macro_rules! make_callback {
     }
 }
 
+#[macro_export]
+macro_rules! impl_all_fns {
+    ($type:ident, $msg:ident) => {
+
+        impl<'a> FnOnce<(&$msg,)> for $type<'a> {
+            type Output = ParseCallbackResult;
+
+            extern "rust-call" fn call_once(self, args: (&$msg,)) -> ParseCallbackResult
+            {
+                self.process_message( args.0)
+            }
+        }
+
+        impl<'a> FnMut<(&$msg,)> for $type<'a>{
+            extern "rust-call" fn call_mut(&mut self, args: (&$msg,)) -> ParseCallbackResult
+            {
+                self.process_message( args.0)
+            }
+        }
+
+        impl<'a> Fn<(&$msg,)> for $type<'a>{
+            extern "rust-call" fn call(&self, args: (&$msg,)) -> ParseCallbackResult
+            {
+                self.process_message( args.0)
+            }
+        }
+    }
+}
+
 pub mod parse_handler;
 pub mod packet_handler;
+pub mod request_handler;
 pub mod message_handler;
 
 pub const BOOTSTRAP_PEER_COUNT: usize = 100;
@@ -107,7 +140,7 @@ pub enum P2PEvent {
     LeftNetwork(P2PPeer, u16),
 }
 
-pub struct Connection {
+pub struct Connection<'a> {
     pub connection_type: ConnectionType,
     socket: TcpStream,
     token: Token,
@@ -140,9 +173,12 @@ pub struct Connection {
     sent_handshake: Option<u64>,
     last_ping_sent: u64,
     last_latency_measured: Option<u64>,
+
+    pub buckets: Arc< RwLock < Buckets > >,
+    message_handler: MessageHandler<'a>
 }
 
-impl Connection {
+impl<'a> Connection<'a> {
     pub fn new(connection_type: ConnectionType,
            socket: TcpStream,
            token: Token,
@@ -157,9 +193,10 @@ impl Connection {
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            event_log: Option<Sender<P2PEvent>>,
            own_networks: Arc<Mutex<Vec<u16>>>,
-           seen_messages: SeenMessagesList)
-           -> Connection {
-        Connection { connection_type,
+           seen_messages: SeenMessagesList,
+           buckets: Arc< RwLock< Buckets > >)
+           -> Self {
+        let lself = Connection { connection_type,
                      socket,
                      token,
                      closing: false,
@@ -190,8 +227,89 @@ impl Connection {
                      sent_ping: None,
                      sent_handshake: None,
                      last_latency_measured: None,
-                     last_ping_sent: common::get_current_stamp(), }
+                     last_ping_sent: common::get_current_stamp(), 
+                     buckets: buckets,
+                     message_handler: MessageHandler::new()
+        };
+
+
+        //lself.setup_message_handler()
+        lself
     }
+
+    // Setup message handler
+    // ============================
+
+    fn make_message_handler(&self) -> MessageHandler<'a> {
+        let request_handler = RequestHandler::new();
+
+        let message_handler = MessageHandler::new()
+            .add_request_callback( make_callback!(
+                move |req: &NetworkRequest| { (request_handler)(req) }));
+
+        message_handler
+    }
+
+    /// Default `NetworkRequest::Ping` handler.
+    fn default_network_request_ping_handle(&mut self) -> ParseCallbackResult {
+        //Respond with pong
+        debug!("Got request for ping");
+        if self.mode != P2PNodeMode::BootstrapperMode
+            && self.mode != P2PNodeMode::BootstrapperPrivateMode
+            {
+                self.update_last_seen();
+            }
+        TOTAL_MESSAGES_SENT_COUNTER.inc();
+        if let Some(ref prom) = &self.prometheus_exporter {
+            prom.lock()
+                .unwrap()
+                .pkt_sent_inc()
+                .map_err(|e| error!("{}", e))
+                .ok();
+        };
+
+        let self_peer = self.get_self_peer().clone();
+        self.serialize_bytes( &NetworkResponse::Pong(self_peer).serialize())
+            .map_err( |e| e.to_string()) 
+    }
+
+    fn default_network_request_find_node_handle(&mut self, node_id: &P2PNodeId) -> ResultExtWrapper<()> {
+        //Return list of nodes
+        debug!("Got request for FindNode");
+        if self.mode != P2PNodeMode::BootstrapperMode
+            && self.mode != P2PNodeMode::BootstrapperPrivateMode
+            {
+                self.update_last_seen();
+            }
+        
+        let self_peer = self.get_self_peer().clone();
+        let nodes = self.buckets.read()?.closest_nodes(node_id);
+        self.serialize_bytes( &NetworkResponse::FindNode(self_peer, nodes).serialize())?;
+        Ok(())
+    }
+
+    fn make_default_network_request_handler(&self) -> RequestHandler<'a> {
+        let request_handler = RequestHandler::<'a>::new()
+            /*
+            .add_ping_callback( make_callback!( |nr: &NetworkRequest|{
+                self.default_network_request_ping_handle();
+                Ok(())
+            }))
+            .add_find_node_callback( make_callback!( |nr: &NetworkRequest|{
+                match nr {
+                    NetworkRequest::FindNode( ref sender, ref nodeid) => {
+                        self.default_network_request_find_node_handle( nodeid)
+                    }
+                    _ => {
+                        Ok(())
+                    }
+                }.map_err( |e| e.to_string() )
+            }))*/;
+
+        request_handler
+    }
+
+    // =============================
 
     pub fn get_last_latency_measured(&self) -> Option<u64> {
         self.last_latency_measured.clone()
@@ -410,12 +528,12 @@ impl Connection {
     pub fn ready(&mut self,
              poll: &mut Poll,
              ev: &Event,
-             buckets: &mut Buckets,
+             /*buckets: &mut Buckets,*/
              packets_queue: &Sender<Arc<Box<NetworkMessage>>>)
              -> ResultExtWrapper<()> {
         if ev.readiness().is_readable() {
             self.do_tls_read().map_err(|e| error!("{}", e)).ok();
-            self.try_plain_read(poll, &packets_queue, buckets);
+            self.try_plain_read(poll, &packets_queue /*, buckets*/);
         }
 
         if ev.readiness().is_writable() {
@@ -523,8 +641,8 @@ impl Connection {
 
     fn try_plain_read(&mut self,
                       poll: &mut Poll,
-                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>,
-                      mut buckets: &mut Buckets) {
+                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>/*,
+                      mut buckets: &mut Buckets*/) {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
@@ -551,7 +669,7 @@ impl Connection {
 
         if !buf.is_empty() {
             trace!("plaintext read {:?}", buf.len());
-            self.incoming_plaintext(poll, &packets_queue, &mut buckets, &buf);
+            self.incoming_plaintext(poll, &packets_queue, /*&mut buckets,*/ &buf);
         }
     }
 
@@ -579,7 +697,7 @@ impl Connection {
     }
 
     fn process_complete_packet(&mut self,
-                               buckets: &mut Buckets,
+                               // buckets: &mut Buckets,
                                buf: &[u8],
                                packet_queue: &Sender<Arc<Box<NetworkMessage>>>) {
         let outer = Arc::new(box NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf));
@@ -593,38 +711,14 @@ impl Connection {
                 .map_err(|e| error!("{}", e))
                 .ok();
         };
+
+        (self.message_handler)(&outer);
+
         match *outer.clone() {
             box NetworkMessage::NetworkRequest(ref x, _, _) => {
                 match x {
-                    NetworkRequest::Ping(_) => {
-                        //Respond with pong
-                        debug!("Got request for ping");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        TOTAL_MESSAGES_SENT_COUNTER.inc();
-                        if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock()
-                                .unwrap()
-                                .pkt_sent_inc()
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        };
-                        self.serialize_bytes( &NetworkResponse::Pong(self_peer).serialize()).unwrap();
-                    }
-                    NetworkRequest::FindNode(_, x) => {
-                        //Return list of nodes
-                        debug!("Got request for FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        let nodes = buckets.closest_nodes(x);
-                        self.serialize_bytes( &NetworkResponse::FindNode(self_peer, nodes).serialize()).unwrap();
-                    }
+                    NetworkRequest::Ping(_) => { }
+                    NetworkRequest::FindNode(_, _x) => { }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
                         if self.mode != P2PNodeMode::BootstrapperMode
@@ -666,12 +760,14 @@ impl Connection {
                         if self.mode == P2PNodeMode::BootstrapperPrivateMode
                            || self.mode == P2PNodeMode::NormalPrivateMode
                         {
-                            buckets.insert_into_bucket(sender, &self.own_id, nets.clone());
+                            self.buckets.write().unwrap()
+                                .insert_into_bucket(sender, &self.own_id, nets.clone());
                         } else if sender.ip().is_global()
                                   && !sender.ip().is_multicast()
                                   && !sender.ip().is_documentation()
                         {
-                            buckets.insert_into_bucket(sender, &self.own_id, nets.clone());
+                            self.buckets.write().unwrap()
+                                .insert_into_bucket(sender, &self.own_id, nets.clone());
                         }
                         if let Some(ref prom) = &self.prometheus_exporter {
                             let mut _prom = prom.lock().unwrap();
@@ -683,7 +779,10 @@ impl Connection {
                         {
                             debug!("Running in bootstrapper mode, so instantly sending peers {} random peers",
                                    BOOTSTRAP_PEER_COUNT);
-                            self.serialize_bytes( &NetworkResponse::PeerList(self_peer, buckets.get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets)).serialize()).unwrap();
+                            let random_nodes = self.buckets.read().unwrap()
+                                .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets);
+                            self.serialize_bytes( &NetworkResponse::PeerList(
+                                    self_peer, random_nodes).serialize()).unwrap();
                             if let Some(ref prom) = &self.prometheus_exporter {
                                 prom.lock()
                                     .unwrap()
@@ -705,7 +804,8 @@ impl Connection {
                         {
                             self.update_last_seen();
                         }
-                        let nodes = buckets.get_all_nodes(Some(&sender), networks);
+                        let nodes = self.buckets.read().unwrap()
+                            .get_all_nodes(Some(&sender), networks);
                         TOTAL_MESSAGES_SENT_COUNTER.inc();
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock()
@@ -720,7 +820,8 @@ impl Connection {
                         self.add_networks(&vec![*network]);
                         match self.get_peer() {
                             Some(peer) => {
-                                buckets.update_network_ids(&peer, self.networks.clone());
+                                self.buckets.write().unwrap().
+                                    update_network_ids(&peer, self.networks.clone());
                             }
                             _ => {}
                         }
@@ -735,7 +836,8 @@ impl Connection {
                         self.remove_network(network);
                         match self.get_peer() {
                             Some(peer) => {
-                                buckets.update_network_ids(&peer, self.networks.clone());
+                                self.buckets.write().unwrap()
+                                    .update_network_ids(&peer, self.networks.clone());
                             }
                             _ => {}
                         }
@@ -758,8 +860,9 @@ impl Connection {
                             self.update_last_seen();
                         }
                         //Process the received node list
+                        let mut ref_buckets = self.buckets.write().unwrap();
                         for peer in peers.iter() {
-                            buckets.insert_into_bucket(peer, &self.own_id, vec![]);
+                            ref_buckets.insert_into_bucket(peer, &self.own_id, vec![]);
                         }
                     }
                     NetworkResponse::Pong(_) => {
@@ -779,8 +882,9 @@ impl Connection {
                             self.update_last_seen();
                         }
                         //Process the received node list
+                        let mut ref_buckets = self.buckets.write().unwrap();
                         for peer in peers.iter() {
-                            buckets.insert_into_bucket(peer, &self.own_id, vec![]);
+                            ref_buckets.insert_into_bucket(peer, &self.own_id, vec![]);
                         }
                         match packet_queue.send(outer.clone()) {
                             Ok(_) => {}
@@ -797,7 +901,8 @@ impl Connection {
                                                           peer.id().clone(),
                                                           peer.ip().clone(),
                                                           peer.port());
-                        buckets.insert_into_bucket(&bucket_sender, &self.own_id, nets.clone());
+                        self.buckets.write().unwrap()
+                            .insert_into_bucket(&bucket_sender, &self.own_id, nets.clone());
                         if let Some(ref prom) = &self.prometheus_exporter {
                             prom.lock()
                                 .unwrap()
@@ -961,7 +1066,7 @@ impl Connection {
     fn incoming_plaintext(&mut self,
                           poll: &mut Poll,
                           packets_queue: &Sender<Arc<Box<NetworkMessage>>>,
-                          buckets: &mut Buckets,
+                          // buckets: &mut Buckets,
                           buf: &[u8]) {
         trace!("Received plaintext");
         self.validate_packet(poll);
@@ -972,10 +1077,10 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                self.process_complete_packet(buckets, &buffered, &packets_queue);
+                self.process_complete_packet( /*buckets,*/ &buffered, &packets_queue);
             }
             self.clear_buffer();
-            self.incoming_plaintext(poll, packets_queue, buckets, buf);
+            self.incoming_plaintext(poll, packets_queue, /*buckets,*/ buf);
         } else if self.expected_size > 0
                   && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
         {
@@ -991,7 +1096,7 @@ impl Connection {
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
                     }
-                    self.process_complete_packet(buckets, &buffered, &packets_queue);
+                    self.process_complete_packet( /*buckets,*/ &buffered, &packets_queue);
                 }
                 self.clear_buffer();
             }
@@ -1006,10 +1111,10 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                self.process_complete_packet(buckets, &buffered, &packets_queue);
+                self.process_complete_packet( /*buckets,*/ &buffered, &packets_queue);
             }
             self.clear_buffer();
-            self.incoming_plaintext(poll, &packets_queue, buckets, &buf[to_take as usize..]);
+            self.incoming_plaintext(poll, &packets_queue, /*buckets,*/ &buf[to_take as usize..]);
         } else if buf.len() >= 4 {
             trace!("Trying to read size");
             let _buf = &buf[..4].to_vec();
@@ -1018,12 +1123,12 @@ impl Connection {
             if self.expected_size > 268_435_456 {
                 error!("Packet can't be bigger than 256MB");
                 self.expected_size = 0;
-                self.incoming_plaintext(poll, &packets_queue, buckets, &buf[4..]);
+                self.incoming_plaintext(poll, &packets_queue, /*buckets,*/ &buf[4..]);
             } else {
                 self.setup_buffer();
                 if buf.len() > 4 {
                     trace!("Got enough to read it...");
-                    self.incoming_plaintext(poll, &packets_queue, buckets, &buf[4..]);
+                    self.incoming_plaintext(poll, &packets_queue, /*buckets,*/ &buf[4..]);
                 }
             }
         }

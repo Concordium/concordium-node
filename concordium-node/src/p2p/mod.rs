@@ -2,40 +2,10 @@ pub mod tls_server;
 pub mod unreachable_nodes;
 pub mod no_certificate_verification;
 pub mod peer_statistics;
+pub mod p2p_service_forwarder;
 pub mod p2p_node;
 
-/*
-use errors::*;
-use get_if_addrs;
-use mio::net::{ TcpListener, TcpStream };
-use mio::*;
-use prometheus_exporter::PrometheusServer;
-use rustls::{
-    Certificate, ClientConfig, ClientSession, NoClientAuth, PrivateKey, RootCertStore,
-    ServerCertVerified, ServerCertVerifier, ServerConfig, ServerSession, TLSError
-};
-
-use atomic_counter::{ AtomicCounter };
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{ Error, ErrorKind };
-use std::net::{ SocketAddr, IpAddr };
-use std::net::IpAddr::{V4, V6};
-use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use time;
-use time::Timespec;
-use utils;
-use webpki::DNSNameRef;
-
-use common;
-use common::{ ConnectionType, P2PNodeId, P2PPeer };
-use network::{ NetworkMessage, NetworkPacket, NetworkRequest, Buckets };
-use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, TOTAL_MESSAGES_SENT_COUNTER }; 
-*/
+pub use self::p2p_service_forwarder::*;
 
 
 #[cfg(test)]

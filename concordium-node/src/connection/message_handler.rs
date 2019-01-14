@@ -4,13 +4,13 @@ use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
-pub struct MessageHandler {
-    request_parser: ParseHandler<NetworkRequest>,
-    response_parser: ParseHandler<NetworkResponse>,
-    packet_parser: ParseHandler<NetworkPacket> 
+pub struct MessageHandler<'a> {
+    request_parser: ParseHandler<'a, NetworkRequest>,
+    response_parser: ParseHandler<'a, NetworkResponse>,
+    packet_parser: ParseHandler<'a, NetworkPacket> 
 }
 
-impl MessageHandler {
+impl<'a> MessageHandler<'a> {
     pub fn new() -> Self {
         MessageHandler {
             request_parser : ParseHandler::<NetworkRequest>::new( 
@@ -24,21 +24,21 @@ impl MessageHandler {
 
     pub fn add_request_callback(
             mut self, 
-            callback: Arc < Mutex < Box < ParseCallback<NetworkRequest> > > > ) -> Self {
+            callback: Arc < Mutex < Box < ParseCallback<'a, NetworkRequest> > > > ) -> Self {
         self.request_parser = self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
             mut self, 
-            callback: Arc < Mutex < Box < ParseCallback<NetworkResponse> > > > ) -> Self {
+            callback: Arc < Mutex < Box < ParseCallback<'a, NetworkResponse> > > > ) -> Self {
         self.response_parser = self.response_parser.add_callback( callback);
         self
     }
     
     pub fn add_packet_callback(
             mut self, 
-            callback: Arc < Mutex < Box< ParseCallback<NetworkPacket> > > > ) -> Self {
+            callback: Arc < Mutex < Box< ParseCallback<'a, NetworkPacket> > > > ) -> Self {
         self.packet_parser = self.packet_parser.add_callback( callback);
         self
     }
@@ -61,31 +61,7 @@ impl MessageHandler {
     }
 }
 
-impl FnOnce<(&NetworkMessage,)> for MessageHandler {
-    type Output = ParseCallbackResult;
-
-    extern "rust-call" fn call_once(self, args: (&NetworkMessage,)) -> ParseCallbackResult
-    {
-        let msg: &NetworkMessage = args.0;
-        self.process_message( msg)
-    }
-}
-
-impl FnMut<(&NetworkMessage,)> for MessageHandler {
-    extern "rust-call" fn call_mut(&mut self, args: (&NetworkMessage,)) -> ParseCallbackResult
-    {
-        let msg: &NetworkMessage = args.0;
-        self.process_message( msg)
-    }
-}
-
-impl Fn<(&NetworkMessage,)> for MessageHandler {
-    extern "rust-call" fn call(&self, args: (&NetworkMessage,)) -> ParseCallbackResult
-    {
-        let msg: &NetworkMessage = args.0;
-        self.process_message( msg)
-    }
-}
+impl_all_fns!( MessageHandler, NetworkMessage);
 
 #[cfg(test)]
 mod message_handler_unit_test {
@@ -111,12 +87,13 @@ mod message_handler_unit_test {
             .add_response_callback( make_callback!( response_handler_func_1))
             .add_packet_callback( make_callback!( |_| { Ok(()) }))
             .add_packet_callback( make_callback!( packet_handler_func_1));
+        let mh_arc = Arc::new( mh);
 
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
         let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
         let msg = NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer), None, None);
 
-        (mh)(&msg).unwrap();
+        (mh_arc)(&msg).unwrap();
     }
 }
 

@@ -47,11 +47,11 @@ use timer::Timer;
 quick_main!(run);
 
 #[derive(Clone)]
-struct TestRunner {
+struct TestRunner<'a> {
     test_start: Arc<Mutex<Option<u64>>>,
     test_running: Arc<Mutex<bool>>,
     registered_times: Arc<Mutex<Vec<Measurement>>>,
-    node: Arc<Mutex<P2PNode>>,
+    node: Arc<Mutex< P2PNode<'a> > >,
     nid: u16,
     packet_size: Arc<Mutex<Option<usize>>>,
 }
@@ -71,7 +71,7 @@ impl Measurement {
 
 const DEFAULT_TEST_PACKET_SIZE: usize = 51_200;
 
-impl TestRunner {
+impl<'a> TestRunner<'a> {
     pub fn new(node: P2PNode, nid: u16) -> Self {
         TestRunner { test_start: Arc::new(Mutex::new(None)),
                      test_running: Arc::new(Mutex::new(false)),
