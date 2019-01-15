@@ -11,7 +11,7 @@ electionProbability :: LotteryPower -> ElectionDifficulty -> Double
 electionProbability alpha diff = 1 - (1 - diff) ** alpha
 
 leaderElectionMessage :: LeadershipElectionNonce -> Slot -> ByteString
-leaderElectionMessage nonce sl =
+leaderElectionMessage nonce (Slot sl) =
   L.toStrict
     $  toLazyByteString
     $  stringUtf8 "LE"
@@ -54,7 +54,7 @@ electionLuck diff lotPow proof =
 
 
 blockNonceMessage :: LeadershipElectionNonce -> Slot -> ByteString
-blockNonceMessage nonce slot =
+blockNonceMessage nonce (Slot slot) =
   L.toStrict
     $  toLazyByteString
     $  stringUtf8 "NONCE"

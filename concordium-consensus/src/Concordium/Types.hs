@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards, DeriveGeneric, GeneralizedNewtypeDeriving #-}
 module Concordium.Types where
 
 import GHC.Generics
@@ -13,14 +13,14 @@ import qualified Concordium.Crypto.DummySignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.DummyVRF as VRF
 
-type Slot = Word64
+newtype Slot = Slot Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 type BlockHash = ByteString
 type BakerId = Word64
 type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
 type BlockNonce = (VRF.Hash, VRF.Proof)
 type BlockData = ByteString
-type BlockHeight = Word64
+newtype BlockHeight = BlockHeight Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show)
 
 type LeadershipElectionNonce = ByteString
 type BakerSignVerifyKey = Sig.VerifyKey
@@ -116,7 +116,7 @@ data FinalizationRecord = FinalizationRecord {
     finalizationIndex :: BlockHeight,
     finalizationBlockPointer :: BlockHash,
     finalizationProof :: FinalizationProof,
-    finalizationDelay :: Word32
+    finalizationDelay :: BlockHeight
 }
 
 data BakerInfo = BakerInfo {

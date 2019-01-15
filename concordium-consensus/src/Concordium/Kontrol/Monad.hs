@@ -39,7 +39,7 @@ getCurrentSlot :: (KontrolMonad m) => m Slot
 getCurrentSlot = do
         GenesisData{..} <- genesisData
         ct <- currentTimestamp
-        return ((ct - genesisTime) `div` genesisSlotDuration)
+        return $ Slot ((ct - genesisTime) `div` genesisSlotDuration)
 
-getFinalizationParameters :: (KontrolMonad m) => Slot -> m FinalizationParameters
+getFinalizationParameters :: (KontrolMonad m) => BlockHeight -> m FinalizationParameters
 getFinalizationParameters _ = genesisFinalizationParameters <$> genesisData
