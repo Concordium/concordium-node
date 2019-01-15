@@ -7,6 +7,8 @@ pub mod p2p_node;
 
 pub use self::p2p_service_forwarder::*;
 
+pub use self::p2p_node::P2PNode;
+
 
 #[cfg(test)]
 mod tests {

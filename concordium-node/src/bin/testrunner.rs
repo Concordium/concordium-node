@@ -29,12 +29,12 @@ use iron::prelude::*;
 use iron::status;
 use p2p_client::common;
 use p2p_client::common::{ ConnectionType };
+use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
-use p2p_client::p2p::p2p_node::{ P2PNode };
-use p2p_client::connection::{ P2PEvent, P2PNodeMode };
+use p2p_client::p2p::*;
 use p2p_client::utils;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng};
@@ -47,11 +47,11 @@ use timer::Timer;
 quick_main!(run);
 
 #[derive(Clone)]
-struct TestRunner<'a> {
+struct TestRunner {
     test_start: Arc<Mutex<Option<u64>>>,
     test_running: Arc<Mutex<bool>>,
     registered_times: Arc<Mutex<Vec<Measurement>>>,
-    node: Arc<Mutex< P2PNode<'a> > >,
+    node: Arc<Mutex<P2PNode>>,
     nid: u16,
     packet_size: Arc<Mutex<Option<usize>>>,
 }
@@ -71,7 +71,7 @@ impl Measurement {
 
 const DEFAULT_TEST_PACKET_SIZE: usize = 51_200;
 
-impl<'a> TestRunner<'a> {
+impl TestRunner {
     pub fn new(node: P2PNode, nid: u16) -> Self {
         TestRunner { test_start: Arc::new(Mutex::new(None)),
                      test_running: Arc::new(Mutex::new(false)),

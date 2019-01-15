@@ -9,6 +9,7 @@ use utils;
 
 use network::{ PROTOCOL_NODE_ID_LENGTH };
 
+
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum ConnectionType {
     Node,

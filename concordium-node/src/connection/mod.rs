@@ -6,9 +6,13 @@ use rustls::{ TLSError, ServerSession, ClientSession, Session };
 use std::io::{ Error, ErrorKind, Cursor, Result, Read, Write };
 use std::net::{Shutdown, IpAddr };
 use byteorder::{ NetworkEndian, ReadBytesExt, WriteBytesExt };
+// use std::sync::{ Arc, Mutex, RwLock, Weak };
 use std::sync::{ Arc, Mutex, RwLock };
+use std::rc::{ Rc, Weak };
 use atomic_counter::{ AtomicCounter, RelaxedCounter };
 use std::sync::mpsc::{ Sender };
+use std::sync::atomic::{ AtomicU64, Ordering };
+
 use prometheus_exporter::{ PrometheusServer };
 use errors::ErrorKindWrapper::{ InternalIOError, NetworkError };
 
@@ -20,7 +24,7 @@ use network::{
 };
 use self::message_handler::{ MessageHandler };
 use self::request_handler::{ RequestHandler };
-use self::parse_handler::{ ParseCallbackResult };
+use self::parse_handler::{ ParseCallbackResult, ParseCallbackWrapper };
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
@@ -34,7 +38,7 @@ macro_rules! make_callback {
 macro_rules! impl_all_fns {
     ($type:ident, $msg:ident) => {
 
-        impl<'a> FnOnce<(&$msg,)> for $type<'a> {
+        impl FnOnce<(&$msg,)> for $type {
             type Output = ParseCallbackResult;
 
             extern "rust-call" fn call_once(self, args: (&$msg,)) -> ParseCallbackResult
@@ -43,14 +47,14 @@ macro_rules! impl_all_fns {
             }
         }
 
-        impl<'a> FnMut<(&$msg,)> for $type<'a>{
+        impl FnMut<(&$msg,)> for $type{
             extern "rust-call" fn call_mut(&mut self, args: (&$msg,)) -> ParseCallbackResult
             {
                 self.process_message( args.0)
             }
         }
 
-        impl<'a> Fn<(&$msg,)> for $type<'a>{
+        impl Fn<(&$msg,)> for $type{
             extern "rust-call" fn call(&self, args: (&$msg,)) -> ParseCallbackResult
             {
                 self.process_message( args.0)
@@ -140,14 +144,98 @@ pub enum P2PEvent {
     LeftNetwork(P2PPeer, u16),
 }
 
-pub struct Connection<'a> {
+fn serialize_bytes( session: &mut Rc<dyn Session>, pkt: &[u8]) -> ResultExtWrapper<()> {
+    // Write size of pkt into 4 bytes vector.
+    let mut size_vec = Vec::with_capacity(4);
+    size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
+
+    // Write 4bytes size + pkt into session.
+    let inner_session = Rc::get_mut( session).ok_or("Packet cannot be serialized")?;
+    inner_session.write_all( &size_vec[..])?; 
+    inner_session.write_all( pkt)?;
+
+    Ok(())
+}
+
+macro_rules! update_atomic_stamp {
+    ($mode:ident, $stamp:ident) => {
+        if $mode != P2PNodeMode::BootstrapperMode && $mode != P2PNodeMode::BootstrapperPrivateMode {
+            $stamp.store( common::get_current_stamp(), Ordering::Relaxed);
+        }
+    }
+}
+
+
+/// Default `NetworkRequest::Ping` handler. 
+/// It responds with a pong packet. 
+fn default_network_request_ping_handle( 
+        weak_session: & Weak<dyn Session>,
+        peer: &P2PPeer,
+        mode: P2PNodeMode, 
+        last_seen: & Rc< AtomicU64 >,
+        prometheus_exporter: & Option<Arc< Mutex< PrometheusServer>>>) -> ParseCallbackResult {
+
+    update_atomic_stamp!( mode, last_seen);
+    TOTAL_MESSAGES_SENT_COUNTER.inc();
+
+    if let Some(ref prom) = prometheus_exporter {
+        prom.lock().unwrap()
+            .pkt_sent_inc()
+            .map_err(|e| error!("{}", e))
+            .ok();
+    };
+
+    // Make `Pong` response and send
+    if let Some(mut session) = weak_session.upgrade() {
+        let pong_data = NetworkResponse::Pong(peer.clone()).serialize();
+
+        serialize_bytes( &mut session, &pong_data)
+            .map_err(|e| error!("{}", e));
+    }
+
+    Ok(())
+}
+
+/// It sends the list of nodes.
+fn default_network_request_find_node_handle(
+        session_opt: & Option< Weak< dyn Session>>,
+        self_peer: &P2PPeer,
+        mode: P2PNodeMode,
+        last_seen: & Rc< AtomicU64 >,
+        buckets: & Arc< RwLock< Buckets> >,
+        req: &NetworkRequest
+    ) -> ResultExtWrapper<()> {
+
+    match req {
+        NetworkRequest::FindNode(_, node_id) => {
+            update_atomic_stamp!( mode, last_seen);
+   
+            //Return list of nodes
+            if let Some(weak_session) = session_opt {
+                if let Some(mut session) = weak_session.upgrade() {
+                    let nodes = buckets.read()?.closest_nodes(node_id);
+                    let response_data = NetworkResponse::FindNode(self_peer.clone(), nodes).serialize();
+
+                    serialize_bytes( &mut session, &response_data)
+                        .map_err(|e| error!("{}", e));
+                }
+            }
+        }
+        _ => {}
+    };
+    Ok(())
+}
+
+type NetworkRequestSafeFn = ParseCallbackWrapper<NetworkRequest>;
+
+pub struct Connection {
     pub connection_type: ConnectionType,
     socket: TcpStream,
     token: Token,
     pub closing: bool,
     closed: bool,
-    tls_server_session: Option<ServerSession>,
-    tls_client_session: Option<ClientSession>,
+    tls_server_session: Option< Rc< ServerSession > >,
+    tls_client_session: Option< Rc< ClientSession > >,
     initiated_by_me: bool,
     own_id: P2PNodeId,
     pub peer: Option<P2PPeer>,
@@ -159,7 +247,7 @@ pub struct Connection<'a> {
     peer_port: u16,
     expected_size: u32,
     pkt_buffer: Option<BytesMut>,
-    pub last_seen: u64,
+    last_seen: Rc<AtomicU64>,
     self_peer: P2PPeer,
     messages_sent: u64,
     messages_received: u64,
@@ -174,16 +262,16 @@ pub struct Connection<'a> {
     last_ping_sent: u64,
     last_latency_measured: Option<u64>,
 
-    pub buckets: Arc< RwLock < Buckets > >,
-    message_handler: MessageHandler<'a>
+    buckets: Arc< RwLock < Buckets > >,
+    message_handler: MessageHandler
 }
 
-impl<'a> Connection<'a> {
+impl Connection {
     pub fn new(connection_type: ConnectionType,
            socket: TcpStream,
            token: Token,
-           tls_server_session: Option<ServerSession>,
-           tls_client_session: Option<ClientSession>,
+           tls_server_session: Option< ServerSession>,
+           tls_client_session: Option< ClientSession>,
            initiated_by_me: bool,
            own_id: P2PNodeId,
            self_peer: P2PPeer,
@@ -196,20 +284,20 @@ impl<'a> Connection<'a> {
            seen_messages: SeenMessagesList,
            buckets: Arc< RwLock< Buckets > >)
            -> Self {
-        let lself = Connection { connection_type,
-                     socket,
+        let mut lself = Connection { connection_type,
+                     socket: socket,
                      token,
                      closing: false,
                      closed: false,
-                     tls_server_session,
-                     tls_client_session,
+                     tls_server_session: if let Some(s) = tls_server_session { Some(Rc::new(s))} else { None },
+                     tls_client_session: if let Some(c) = tls_client_session { Some(Rc::new(c))} else { None },
                      initiated_by_me,
                      own_id,
                      peer: None,
                      currently_read: 0,
                      expected_size: 0,
                      pkt_buffer: None,
-                     last_seen: common::get_current_stamp(),
+                     last_seen: Rc::new( AtomicU64::new( common::get_current_stamp())),
                      self_peer: self_peer,
                      messages_received: 0,
                      messages_sent: 0,
@@ -233,63 +321,84 @@ impl<'a> Connection<'a> {
         };
 
 
-        //lself.setup_message_handler()
+        lself.message_handler = lself.make_message_handler();
         lself
     }
 
     // Setup message handler
     // ============================
+    
+    fn make_default_network_request_ping_handle(&self) -> NetworkRequestSafeFn {
+        let mode = self.mode.clone();
+        let last_seen = self.last_seen.clone();
+        let prom = self.prometheus_exporter.clone();
+        let self_peer = self.get_self_peer();
+        let session = self.session().clone();
 
-    fn make_message_handler(&self) -> MessageHandler<'a> {
-        let request_handler = RequestHandler::new();
+        make_callback!( move |_req: &NetworkRequest| { 
+            default_network_request_ping_handle(
+                &session, &self_peer, mode, &last_seen, &prom)
+        })
+    }
 
-        let message_handler = MessageHandler::new()
+    fn make_default_network_request_find_node_handle(&self) -> NetworkRequestSafeFn {
+        let mode = self.mode.clone();
+        let last_seen = self.last_seen.clone();
+        let prom = self.prometheus_exporter.clone();
+        let self_peer = self.get_self_peer();
+        let session = self.session().clone();
+
+        make_callback!( move |_req: &NetworkRequest| { 
+            default_network_request_ping_handle(
+                &session, &self_peer, mode, &last_seen, &prom)
+        })
+    }
+
+    fn make_default_network_request_ban_node_handler(&self) -> NetworkRequestSafeFn {
+        make_callback!( move |_req: &NetworkRequest| { 
+            Ok(())
+        })
+    }
+
+
+    fn make_request_handler(&self) -> RequestHandler {
+
+        RequestHandler::new()
+            .add_ping_callback( self.make_default_network_request_ping_handle())
+            .add_find_node_callback( self.make_default_network_request_find_node_handle())
+            .add_ban_node_callback( self.make_default_network_request_ban_node_handler())
+            .add_unban_node_callback( make_callback!(
+                move | _req: &NetworkRequest| {
+                    Ok(())
+            }))
+            .add_handshake_callback( make_callback!(
+                move | _req: &NetworkRequest| {
+                    Ok(())
+            }))
+            .add_get_peers_callback( make_callback!(
+                move | _req: &NetworkRequest| {
+                    Ok(())
+            }))
+            .add_join_network_callback( make_callback!(
+                move | _req: &NetworkRequest| {
+                    Ok(())
+            }))
+            .add_leave_network_callback( make_callback!(
+                move | _req: &NetworkRequest| {
+                    Ok(())
+            }))
+    }
+
+    fn make_message_handler(&mut self) -> MessageHandler {
+        let request_handler = self.make_request_handler();
+
+        MessageHandler::new()
             .add_request_callback( make_callback!(
-                move |req: &NetworkRequest| { (request_handler)(req) }));
-
-        message_handler
+                move |req: &NetworkRequest| { (request_handler)(req) }))
     }
 
-    /// Default `NetworkRequest::Ping` handler.
-    fn default_network_request_ping_handle(&mut self) -> ParseCallbackResult {
-        //Respond with pong
-        debug!("Got request for ping");
-        if self.mode != P2PNodeMode::BootstrapperMode
-            && self.mode != P2PNodeMode::BootstrapperPrivateMode
-            {
-                self.update_last_seen();
-            }
-        TOTAL_MESSAGES_SENT_COUNTER.inc();
-        if let Some(ref prom) = &self.prometheus_exporter {
-            prom.lock()
-                .unwrap()
-                .pkt_sent_inc()
-                .map_err(|e| error!("{}", e))
-                .ok();
-        };
-
-        let self_peer = self.get_self_peer().clone();
-        self.serialize_bytes( &NetworkResponse::Pong(self_peer).serialize())
-            .map_err( |e| e.to_string()) 
-    }
-
-    fn default_network_request_find_node_handle(&mut self, node_id: &P2PNodeId) -> ResultExtWrapper<()> {
-        //Return list of nodes
-        debug!("Got request for FindNode");
-        if self.mode != P2PNodeMode::BootstrapperMode
-            && self.mode != P2PNodeMode::BootstrapperPrivateMode
-            {
-                self.update_last_seen();
-            }
-        
-        let self_peer = self.get_self_peer().clone();
-        let nodes = self.buckets.read()?.closest_nodes(node_id);
-        self.serialize_bytes( &NetworkResponse::FindNode(self_peer, nodes).serialize())?;
-        Ok(())
-    }
-
-    fn make_default_network_request_handler(&self) -> RequestHandler<'a> {
-        let request_handler = RequestHandler::<'a>::new()
+    fn make_default_network_request_handler(&self) -> RequestHandler {
+        let request_handler = RequestHandler::new()
             /*
             .add_ping_callback( make_callback!( |nr: &NetworkRequest|{
                 self.default_network_request_ping_handle();
@@ -372,7 +481,11 @@ impl<'a> Connection<'a> {
     }
 
     fn update_last_seen(&mut self) {
-        self.last_seen = common::get_current_stamp();
+        self.last_seen.store( common::get_current_stamp(), Ordering::Relaxed);
+    }
+
+    pub fn last_seen(&self) -> u64 {
+        self.last_seen.load( Ordering::Relaxed)
     }
 
     fn add_networks(&mut self, networks: &Vec<u16>) {
@@ -572,20 +685,10 @@ impl<'a> Connection<'a> {
     }
 
     fn do_tls_read(&mut self) -> ResultExtWrapper<(usize)> {
-        let rc = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.read_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.read_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
-        };
+        let mut session = self.session().upgrade().ok_or( "Invalid weak session")?;
+        let inner_session = Rc::get_mut( &mut session).ok_or( "Session cannot be mutable")?;
+
+        let rc = inner_session.read_tls(&mut self.socket);
 
         if rc.is_err() {
             let err = &rc.unwrap_err();
@@ -614,20 +717,7 @@ impl<'a> Connection<'a> {
         }
 
         // Process newly-received TLS messages.
-        let processed = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.process_new_packets(),
-                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
-                }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.process_new_packets(),
-                    None => Err(TLSError::General(String::from("Couldn't find session!"))),
-                }
-            }
-        };
+        let processed = inner_session.process_new_packets();
 
         if processed.is_err() {
             error!("cannot process packet: {:?}", processed);
@@ -646,19 +736,14 @@ impl<'a> Connection<'a> {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
-        let rc = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.read_to_end(&mut buf),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
+        let rc = match self.session().upgrade() {
+            Some(ref mut rc_session) => {
+                match Rc::get_mut( rc_session){
+                    Some(ref mut session) => session.read_to_end(&mut buf),
+                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
                 }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.read_to_end(&mut buf),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
+            },
+            None => Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
         };
 
         if rc.is_err() {
@@ -673,26 +758,35 @@ impl<'a> Connection<'a> {
         }
     }
 
+
+    fn session(&self) -> Weak<dyn Session> {
+        if self.initiated_by_me {
+            if let Some(ref cli_session) = self.tls_client_session {
+                Rc::downgrade( & (Rc::clone(&cli_session) as Rc<dyn Session>))
+            } else {
+                Weak::<ClientSession>::new() as Weak<dyn Session>
+            }
+        } else {
+            if let Some(ref srv_session) = self.tls_server_session {
+                Rc::downgrade( & (Rc::clone(&srv_session) as Rc<dyn Session>))
+            } else {
+                Weak::<ServerSession>::new() as Weak<dyn Session>
+            }
+        }
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
-        match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => {
+        match self.session().upgrade() {
+            Some(ref mut rc_session) => {
+                match Rc::get_mut( rc_session) {
+                    Some(ref mut session) => {
                         self.messages_sent += 1;
-                        x.write_all(bytes)
-                    }
+                        session.write_all(bytes)
+                    },
                     None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
-            }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => {
-                        self.messages_sent += 1;
-                        x.write_all(bytes)
-                    }
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
+            },
+            None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
         }
     }
 
@@ -720,16 +814,6 @@ impl<'a> Connection<'a> {
                     NetworkRequest::Ping(_) => { }
                     NetworkRequest::FindNode(_, _x) => { }
                     NetworkRequest::BanNode(_, _) => {
-                        debug!("Got request for BanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        match packet_queue.send(outer.clone()) {
-                            Ok(_) => {}
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                        };
                     }
                     NetworkRequest::UnbanNode(_, _) => {
                         debug!("Got request for UnbanNode");
@@ -1170,13 +1254,13 @@ impl<'a> Connection<'a> {
         let rc = match self.initiated_by_me {
             true => {
                 match self.tls_client_session {
-                    Some(ref mut x) => x.writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
+                    Some(ref mut x) => Rc::get_mut(x).unwrap().writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
                     None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }
             false => {
                 match self.tls_server_session {
-                    Some(ref mut x) => x.writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
+                    Some(ref mut x) => Rc::get_mut(x).unwrap().writev_tls(&mut WriteVAdapter::new(&mut self.socket)),
                     None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
                 }
             }

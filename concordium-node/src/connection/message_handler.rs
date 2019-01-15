@@ -1,44 +1,46 @@
 use std::sync::{ Arc, Mutex };
+
 use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
-pub struct MessageHandler<'a> {
-    request_parser: ParseHandler<'a, NetworkRequest>,
-    response_parser: ParseHandler<'a, NetworkResponse>,
-    packet_parser: ParseHandler<'a, NetworkPacket> 
+pub struct MessageHandler {
+    request_parser: ParseHandler<NetworkRequest>,
+    response_parser: ParseHandler<NetworkResponse>,
+    packet_parser: ParseHandler<NetworkPacket>,
 }
 
-impl<'a> MessageHandler<'a> {
+impl MessageHandler {
     pub fn new() -> Self {
+
         MessageHandler {
             request_parser : ParseHandler::<NetworkRequest>::new( 
                     "Network Request Handler".to_string()),
             response_parser: ParseHandler::<NetworkResponse>::new( 
                     "Network Response Handler".to_string()),
             packet_parser: ParseHandler::<NetworkPacket>::new( 
-                    "Network Package Handler".to_string())
+                    "Network Package Handler".to_string()),
         }
     }
 
     pub fn add_request_callback(
             mut self, 
-            callback: Arc < Mutex < Box < ParseCallback<'a, NetworkRequest> > > > ) -> Self {
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> Self {
         self.request_parser = self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
             mut self, 
-            callback: Arc < Mutex < Box < ParseCallback<'a, NetworkResponse> > > > ) -> Self {
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> Self {
         self.response_parser = self.response_parser.add_callback( callback);
         self
     }
     
     pub fn add_packet_callback(
             mut self, 
-            callback: Arc < Mutex < Box< ParseCallback<'a, NetworkPacket> > > > ) -> Self {
+            callback: Arc< Mutex< Box<ParseCallback<NetworkPacket> > > > ) -> Self {
         self.packet_parser = self.packet_parser.add_callback( callback);
         self
     }

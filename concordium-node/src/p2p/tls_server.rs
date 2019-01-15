@@ -20,9 +20,9 @@ use network::{ NetworkRequest, NetworkMessage, Buckets };
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 
-pub struct TlsServer<'a> {
+pub struct TlsServer {
     server: TcpListener,
-    pub connections: HashMap<Token, Connection<'a>>,
+    pub connections: HashMap<Token, Connection>,
     next_id: usize,
     server_tls_config: Arc<ServerConfig>,
     client_tls_config: Arc<ClientConfig>,
@@ -39,7 +39,7 @@ pub struct TlsServer<'a> {
     
 }
 
-impl<'a> TlsServer<'a> {
+impl TlsServer {
     pub fn new(server: TcpListener,
            server_cfg: Arc<ServerConfig>,
            client_cfg: Arc<ClientConfig>,
@@ -201,7 +201,7 @@ impl<'a> TlsServer<'a> {
                         .map_err(|e| error!("{}", e))
                         .ok();
                 };
-                let tls_session =
+                let tls_session = 
                     ClientSession::new(&self.client_tls_config,
                                        match DNSNameRef::try_from_ascii_str(&"node.concordium.com")
                                        {
@@ -259,7 +259,7 @@ impl<'a> TlsServer<'a> {
         }
     }
 
-    pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection<'a>> {
+    pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
         let mut tok = Token(0);
         for (token, mut connection) in &self.connections {
             match connection.peer {
@@ -317,13 +317,13 @@ impl<'a> TlsServer<'a> {
            || self.mode == P2PNodeMode::BootstrapperPrivateMode
         {
             for conn in self.connections.values_mut() {
-                if conn.last_seen + 300000 < common::get_current_stamp() {
+                if conn.last_seen() + 300000 < common::get_current_stamp() {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
                 }
             }
         } else {
             for conn in self.connections.values_mut() {
-                if conn.last_seen + 1200000 < common::get_current_stamp()
+                if conn.last_seen() + 1200000 < common::get_current_stamp()
                    && conn.connection_type == ConnectionType::Node
                 {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
@@ -371,7 +371,7 @@ impl<'a> TlsServer<'a> {
 
     pub fn liveness_check(&mut self) -> ResultExtWrapper<()> {
         for conn in self.connections.values_mut() {
-            if conn.last_seen + 120000 < common::get_current_stamp()
+            if conn.last_seen() + 120000 < common::get_current_stamp()
                || conn.get_last_ping_sent() + 300000 < common::get_current_stamp()
             {
                 let self_peer = conn.get_self_peer().clone();

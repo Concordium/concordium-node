@@ -24,7 +24,7 @@ use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::errors::*;
-use p2p_client::p2p::p2p_node::{ P2PNode };
+use p2p_client::p2p::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::utils;
 use std::sync::mpsc;

@@ -1,35 +1,34 @@
 use common::{ConnectionType, P2PNodeId, P2PPeer};
 use network::{ NetworkMessage, NetworkPacket };
-
 use db::P2PDB;
 use errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
 use errors::*;
 use futures::future::Future;
 use grpcio;
-use p2p::p2p_node::{ P2PNode };
+use grpcio::{Environment, ServerBuilder};
+use p2p::P2PNode;
 use proto::*;
 use std::boxed::Box;
 use std::cell::RefCell;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex };
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
-pub struct RpcServerImpl<'a> {
-    node: RefCell<P2PNode<'a>>,
+pub struct RpcServerImpl {
+    node: RefCell<P2PNode>,
     listen_port: u16,
     listen_addr: String,
     access_token: String,
-    // server: Option<Arc<Mutex<grpcio::Server>>>,
+    server: Option<Arc<Mutex<grpcio::Server>>>,
     subscription_queue_out: RefCell<Option<Arc<Mutex<mpsc::Receiver<Box<NetworkMessage>>>>>>,
     subscription_queue_in: RefCell<Option<mpsc::Sender<Box<NetworkMessage>>>>,
     db: Option<P2PDB>,
 }
 
-
-impl<'a> RpcServerImpl<'a> {
-    pub fn new(node: P2PNode<'a>,
+impl RpcServerImpl {
+    pub fn new(node: P2PNode,
                db: Option<P2PDB>,
                listen_addr: String,
                listen_port: u16,
@@ -39,7 +38,7 @@ impl<'a> RpcServerImpl<'a> {
                         listen_addr: listen_addr,
                         listen_port: listen_port,
                         access_token: access_token,
-                        // server: None,
+                        server: None,
                         subscription_queue_out: RefCell::new(None),
                         subscription_queue_in: RefCell::new(None),
                         db: db, }
@@ -64,7 +63,21 @@ impl<'a> RpcServerImpl<'a> {
         *self.subscription_queue_out.borrow_mut() = None;
     }
 
-    /*
+    pub fn start_server(&mut self) -> ResultExtWrapper<()> {
+        let self_clone = self.clone();
+        let env = Arc::new(Environment::new(1));
+        let service = create_p2_p(self_clone.clone());
+        info!("RPC started on {}:{}",
+              self_clone.listen_addr, self_clone.listen_port);
+        let mut server = ServerBuilder::new(env).register_service(service)
+                                                .bind(self_clone.listen_addr, self_clone.listen_port)
+                                                .build()
+                                                .chain_err(|| ProcessControlError("can't start server".to_string()))?;
+        server.start();
+        self.server = Some(Arc::new(Mutex::new(server)));
+        Ok(())
+    }
+
     pub fn stop_server(&mut self) -> ResultExtWrapper<()> {
         if let Some(ref mut server) = self.server {
             &server.lock()
@@ -74,7 +87,7 @@ impl<'a> RpcServerImpl<'a> {
                    .chain_err(|| ProcessControlError("can't stop process".to_string()))?;
         }
         Ok(())
-    }*/
+    }
 }
 
 macro_rules! authenticate {
@@ -96,28 +109,7 @@ macro_rules! authenticate {
     };
 }
 
-/*
-pub fn make_grpcio_server( rpc_server: Arc< Box< RpcServerImpl > > ) -> Arc< Mutex < grpcio::server >> {
-    // let self_clone = self.clone();
-    let env = Arc::new(Environment::new(1));
-
-    let p2p_forwarder = p2p_service_forwarder();
-    p2p_forwarder.targets.write().unwrap().push( p2p);
-
-    info!("RPC started on {}:{}",
-          p2p.listen_addr, p2p.listen_port);
-
-    let mut server = ServerBuilder::new(env).register_service(service)
-        .bind(self_clone.listen_addr, self_clone.listen_port)
-        .build()
-        .chain_err(|| ProcessControlError("can't start server".to_string()))?;
-    server.start();
-
-    Arc::new(Mutex::new(server));
-}*/
-
-
-impl<'a> P2P for RpcServerImpl<'a> {
+impl P2P for RpcServerImpl {
     fn peer_connect(&self,
                     ctx: ::grpcio::RpcContext,
                     req: PeerConnectRequest,

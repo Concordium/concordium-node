@@ -13,6 +13,7 @@ use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
 use time::{ Timespec };
 use utils;
+use std::thread;
 
 use prometheus_exporter::{ PrometheusServer };
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
@@ -28,8 +29,8 @@ use errors::*;
 const SERVER: Token = Token(0);
 
 #[derive(Clone)]
-pub struct P2PNode<'a> {
-    tls_server: Arc<Mutex<TlsServer<'a>>>,
+pub struct P2PNode {
+    tls_server: Arc<Mutex<TlsServer>>,
     poll: Arc<Mutex<Poll>>,
     id: P2PNodeId,
     buckets: Arc<RwLock<Buckets>>,
@@ -47,9 +48,10 @@ pub struct P2PNode<'a> {
     minimum_per_bucket: usize,
 }
 
+unsafe impl Send for P2PNode {}
 
 
-impl<'a> P2PNode<'a> {
+impl P2PNode {
     pub fn new(supplied_id: Option<String>,
                listen_address: Option<String>,
                listen_port: u16,
@@ -197,7 +199,6 @@ impl<'a> P2PNode<'a> {
                   minimum_per_bucket: minimum_per_bucket, }
     }
 
-    /*
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
         let mut self_clone = self.clone();
         thread::spawn(move || {
@@ -209,6 +210,7 @@ impl<'a> P2PNode<'a> {
                           }
                       })
     }
+    /*
     pub fn run(&self) {
         let mut events = Events::with_capacity(1024);
         loop {
@@ -216,8 +218,7 @@ impl<'a> P2PNode<'a> {
             .map_err(|e| error!("{}", e))
             .ok();
         }
-    }
-    */
+    }*/
 
     pub fn get_version(&self) -> String {
         ::VERSION.to_string()

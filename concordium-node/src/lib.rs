@@ -1,4 +1,4 @@
-#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, rustc_private, extern_crate_item_prelude, concat_idents)]
+#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, rustc_private, extern_crate_item_prelude, concat_idents,integer_atomics)]
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;

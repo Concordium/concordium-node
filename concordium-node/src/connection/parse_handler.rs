@@ -20,8 +20,10 @@ macro_rules! run_callbacks{
     }
 }
 
+// pub type HandlerContextWrapper = Rc< HandlerContext >;
 pub type ParseCallbackResult = Result<(), String>;
-pub type ParseCallback<'a, T> = (Fn(&T) -> ParseCallbackResult) + 'a;
+pub type ParseCallback<T> = (Fn(&T) -> ParseCallbackResult);
+pub type ParseCallbackWrapper<T> = Arc< Mutex< Box< ParseCallback<T> > > >;
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -55,34 +57,35 @@ pub type ParseCallback<'a, T> = (Fn(&T) -> ParseCallbackResult) + 'a;
 ///
 /// ```
 #[derive(Clone)]
-pub struct ParseHandler<'a, T> {
+pub struct ParseHandler<T> {
     pub error_msg: String,
-    pub callbacks: Vec< Arc < Mutex < Box< (Fn(&T) -> ParseCallbackResult ) + 'a> > > >
+    pub callbacks: Vec< ParseCallbackWrapper<T> >,
+    // pub context: HandlerContextWrapper
 }
 
-unsafe impl<'a, T> Send for ParseHandler<'a, T> {}
-unsafe impl<'a, T> Sync for ParseHandler<'a, T> {}
+// unsafe impl<T> Send for ParseHandler<T> {}
+// unsafe impl<T> Sync for ParseHandler<T> {}
 
-impl<'a, T> ParseHandler<'a, T> {
+impl<T> ParseHandler<T> {
 
     pub fn new( error_msg: String ) -> Self {
         ParseHandler {
             error_msg: error_msg.clone(),
-            callbacks: Vec::new()
+            callbacks: Vec::new(),
         }
     }
 
     /// It adds new callback into this functor.
     /// 
     /// Callbacks are executed in the same order they were introduced.
-    pub fn add_callback(mut self, callback: Arc< Mutex < Box< (Fn(&T) -> ParseCallbackResult) + 'a> > > ) -> Self 
+    pub fn add_callback(mut self, callback: ParseCallbackWrapper<T> ) -> Self 
     {
         self.callbacks.push( callback );
         self
     }
 }
 
-impl<'a, T> FnOnce<(&T,)> for ParseHandler<'a, T> {
+impl<T> FnOnce<(&T,)> for ParseHandler<T> {
     type Output = ParseCallbackResult;
     extern "rust-call" fn call_once(self, args: (&T,)) -> ParseCallbackResult
     {
@@ -91,7 +94,7 @@ impl<'a, T> FnOnce<(&T,)> for ParseHandler<'a, T> {
     }
 }
 
-impl<'a, T> FnMut<(&T,)> for ParseHandler<'a, T> {
+impl<T> FnMut<(&T,)> for ParseHandler<T> {
     extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> ParseCallbackResult
     {
         let msg: &T = args.0;
@@ -99,7 +102,7 @@ impl<'a, T> FnMut<(&T,)> for ParseHandler<'a, T> {
     }
 }
 
-impl<'a, T> Fn<(&T,)> for ParseHandler<'a, T> {
+impl<T> Fn<(&T,)> for ParseHandler<T> {
     extern "rust-call" fn call(&self, args: (&T,)) -> ParseCallbackResult
     {
         let msg: &T = args.0;
