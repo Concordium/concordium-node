@@ -60,13 +60,19 @@ data CSSState party sig = CSSState {
     _sawBot :: Map party (Int, Map party sig),
     -- |The set of nominations we saw.  That is, the first justified nomination we received from each party.
     _iSaw :: Map party Choice,
-
+    -- |The set of parties for which (n-t) parties have sent justified Seen messages.
     _manySaw :: Map party Choices,
     -- |The total weight of parties in '_manySaw'.
     _manySawWeight :: Int,
+    -- |For each pair @(seen,c)@ for which we have not received a justified input, this records
+    -- parties that have sent DoneReporting messages that include this pair, where all previous
+    -- pairs have been justified and all future pairs are held in the list.
     _unjustifiedDoneReporting :: Map (party, Choice) (Map party [(party, Choice)]),
+    -- |The set of parties for which we have received fully justified DoneReporting messages.
     _justifiedDoneReporting :: Set party,
+    -- |The total weight of parties for which we have received fully justified DoneReporting messages.
     _justifiedDoneReportingWeight :: Int,
+    -- |If '_justifiedDoneReportingWeight' is at least (n-t), then the core set determined at that time.  Otherwise @Nothing@.
     _core :: Maybe (CoreSet party sig)
 } deriving (Show)
 makeLenses ''CSSState

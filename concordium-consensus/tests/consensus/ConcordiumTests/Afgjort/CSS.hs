@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell #-}
 module ConcordiumTests.Afgjort.CSS where
 
 import Data.Monoid
@@ -11,6 +11,7 @@ import Concordium.Afgjort.CSS
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
+import Data.List
 
 import Test.QuickCheck
 import Test.Hspec
@@ -32,6 +33,7 @@ invariantCSSState totalWeight corruptWeight partyWeight checkSig s = do
             forM_ (Map.toList m) $ \(seer,_) ->
                 when (s ^. sawJustified seer c seen) $ Left $ "unjustifiedDoneReporting " ++ show seer ++ " waiting on " ++ show (seen,c) ++ " which is seen and justified"
         forM_ allSigs $ \(p, m, sig) -> unless (checkSig p m sig) $ Left $ "Signature not valid: " ++ show (p, m, sig)
+        checkBinary (==) (isJust $ s ^. core) (s ^. justifiedDoneReportingWeight >= totalWeight - corruptWeight) "<->" "core determined" "justifiedDoneReporting >= totalWeight - corruptWeight"
     where
         sumPartyWeights = Map.foldlWithKey (\w k _ -> w + partyWeight k) 0
         computedManySawWeight = sumPartyWeights (s ^. manySaw)
@@ -43,6 +45,27 @@ invariantCSSState totalWeight corruptWeight partyWeight checkSig s = do
                 [(p, Input False, sig) | (p, sig) <- Map.toList (s ^. inputBot)] ++
                 [(p, Seen q True, sig) | (q, (_, m)) <- Map.toList (s ^. sawTop), (p, sig) <- Map.toList m] ++
                 [(p, Seen q False, sig) | (q, (_, m)) <- Map.toList (s ^. sawBot), (p, sig) <- Map.toList m]
+
+data History party = History {
+    _receivedDoneReporting :: Map.Map party [[(party, Choice)]]
+}
+makeLenses ''History
+
+initialHistory :: History party
+initialHistory = History Map.empty
+
+checkUpdateHistory :: (Ord party, Show party) => CSSState party sig -> CSSInput party sig -> [CSSOutputEvent party sig] -> History party -> Either String (History party)
+checkUpdateHistory s inp outp hist0 = do
+        let ujdrs = [(p, reverse $ (q, c) : l) | ((q, c), m) <- Map.toList $ s ^. unjustifiedDoneReporting, (p, l) <- Map.toList m]
+        forM_ ujdrs $ \(p, l) -> unless (any (justifiedAfterPrefix p l) (hist ^. receivedDoneReporting . at p . non [])) $ Left $ "unjustifiedDoneReporting invalid for party " ++ show p
+        forM_ (Set.toList $ s ^. justifiedDoneReporting) $ \p -> unless (any (sawAllJustified p) (hist ^. receivedDoneReporting . at p . non [])) $ Left $ "justifiedDoneReporting invalid for party " ++ show p
+        return hist
+    where
+        hist = case inp of
+                ReceiveCSSMessage p _ (DoneReporting m) -> hist0 & receivedDoneReporting . at p %~ Just . (Map.toDescList m:) . fromMaybe []
+                _ -> hist0
+        justifiedAfterPrefix seer l rdr = isJust $ sawAllJustified seer <$> stripPrefix l rdr
+        sawAllJustified seer = all (\(seen, c) -> s ^. sawJustified seer c seen)
 
 data CSSInput party sig
         = JustifyChoice Choice
@@ -93,10 +116,10 @@ runCSSTest :: Int -> Int -> Int -> Seq.Seq (Int, CSSInput Int MySig) -> Vec.Vect
 runCSSTest = runCSSTest' coresCheck
 
 runCSSTest' :: (Int -> Int -> Vec.Vector (First (CoreSet Int MySig)) -> Property) -> Int -> Int -> Int -> Seq.Seq (Int, CSSInput Int MySig) -> Vec.Vector (CSSState Int MySig) -> Vec.Vector (First (CoreSet Int MySig)) -> Gen Property
-runCSSTest' ccheck allparties nparties corruptWeight = go
+runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
     where
-        go :: Seq.Seq (Int, CSSInput Int MySig) -> Vec.Vector (CSSState Int MySig) -> Vec.Vector (First (CoreSet Int MySig)) -> Gen Property
-        go msgs sts cores
+        go :: History Int -> Seq.Seq (Int, CSSInput Int MySig) -> Vec.Vector (CSSState Int MySig) -> Vec.Vector (First (CoreSet Int MySig)) -> Gen Property
+        go hist msgs sts cores
             | null msgs = return $ ccheck allparties corruptWeight cores
             | otherwise = do
                 ((rcpt, inp), msgs') <- selectFromSeq msgs
@@ -106,11 +129,13 @@ runCSSTest' ccheck allparties nparties corruptWeight = go
                 let (_, s', out) = runCSS a (sts Vec.! rcpt)
                 {-return $ counterexample (show rcpt ++ ": " ++ show inp) $ -}
                 case invariantCSSState allparties corruptWeight (const 1) myCheckSig s' of
-                        Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
-                        Right _ -> do
+                    Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
+                    Right _ -> case checkUpdateHistory s' inp out hist of
+                        Left err -> return $ counterexample ("History invariant failed: " ++ err ++ "\n" ++ show s') False
+                        Right hist' -> do
                             let sts' = sts & ix rcpt .~ s'
                             let (msgs'', core') = mconcat $ fromOut rcpt <$> out
-                            go (msgs'' <> msgs') sts' (cores & ix rcpt %~ (<> core'))
+                            go hist' (msgs'' <> msgs') sts' (cores & ix rcpt %~ (<> core'))
         fromOut src (SendCSSMessage msg) = (Seq.fromList [(i,signReceiveCSSMessage src msg)|i <- parties], mempty)
         fromOut _ (SelectCoreSet theCore) = (mempty, First (Just theCore))
         CSSInstance{..} = newCSSInstance allparties corruptWeight (const 1)
@@ -177,7 +202,7 @@ singleCSSWithBadEnv allparties = do
 
 
 tests :: Spec
-tests = describe "Concordium.Afgjort.CSS" $ do
+tests = parallel $ describe "Concordium.Afgjort.CSS" $ do
     it "5 parties" $ withMaxSuccess 1000 $ multiCSSTest 5
     it "10 parties" $ withMaxSuccess 100 $ multiCSSTest 10
     it "15 parties" $ withMaxSuccess 100 $ multiCSSTest 15

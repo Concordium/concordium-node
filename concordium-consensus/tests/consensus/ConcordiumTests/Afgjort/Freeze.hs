@@ -178,7 +178,7 @@ testFreezeExample (ctx@(tw,cw,pw), me, inp, outp) = do
 testInitialInvariant = it "Invariant holds for intitial freeze state" (invariantFreezeState 0 0 (\_ -> undefined) (initialFreezeState :: FreezeState Int Int))
 
 tests :: Spec
-tests = describe "Concordium.Afgjort.Freeze" $ do
+tests = parallel $ describe "Concordium.Afgjort.Freeze" $ do
     testInitialInvariant
     describe "ex1" $ testFreezeExampleAllPerms ex1
     describe "ex2" $ testFreezeExampleAllPerms ex2
