@@ -532,7 +532,7 @@ pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str>
 pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     let mut ret = Vec::new();
     if let Some(ref _path) = path {
-        println!("Trying path: {}", _path);
+        info!("Trying path to find TPS test messages: {}", _path);
         let files = fs::read_dir(_path).unwrap();
         for file in files {
             let file = file.unwrap().path();

@@ -154,6 +154,8 @@ pub struct CliConfig {
                 help = "Minimum peers to keep in each bucket always",
                 default_value = "100")]
     pub min_peers_bucket: usize,
+    #[structopt(long = "enable-tps-test-recv", help = "Enable TPS test recv")]
+    pub enable_tps_test: bool,
     #[structopt(long = "tps-test-recv-id", help = "Receiver of TPS test")]
     pub tps_test_recv_id: Option<String>,
     #[structopt(long = "tps-test-data-dir", help = "Directory containing files to perform TPS test independent of other layers")]
