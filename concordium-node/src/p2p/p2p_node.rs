@@ -1,4 +1,3 @@
-
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
@@ -211,15 +210,6 @@ impl P2PNode {
                           }
                       })
     }
-    /*
-    pub fn run(&self) {
-        let mut events = Events::with_capacity(1024);
-        loop {
-            self.process(&mut events)
-            .map_err(|e| error!("{}", e))
-            .ok();
-        }
-    }*/
 
     pub fn get_version(&self) -> String {
         ::VERSION.to_string()
@@ -655,15 +645,6 @@ impl P2PNode {
                       self.get_listening_ip().clone(),
                       self.get_listening_port())
     }
-
-    /*
-    pub fn get_total_sent(&self) -> u64 {
-        TOTAL_MESSAGES_SENT_COUNTER.get() as u64
-    }
-
-    pub fn get_total_received(&self) -> u64 {
-        TOTAL_MESSAGES_SENT_COUNTER.get() as u64
-    }*/
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
         match self.tls_server.lock() {

@@ -1,14 +1,3 @@
-/*
-use vecio::{ Rawv };
-use errors::{ ResultExtWrapper, ResultExt };
-use std::io::{ Error, ErrorKind, Cursor, Result };
-
-use byteorder::{ NetworkEndian, ReadBytesExt, WriteBytesExt };
-use std::rc::{ Rc };
-
-use errors::ErrorKindWrapper::{ InternalIOError, NetworkError };
-*/
-
 use std::sync::{ Arc, RwLock };
 use rustls::{ ServerSession, ClientSession, Session };
 
@@ -19,8 +8,6 @@ type NetworkRequestSafeFn = ParseCallbackWrapper<NetworkRequest>;
 type ConnServerSession = Option< Arc< RwLock< ServerSession > > >;
 type ConnClientSession = Option< Arc< RwLock< ClientSession > > >;
 type ConnSession = Option< Arc< RwLock<dyn Session > > >;
-// type ConnWrite = Option< Arc< RwLock<dyn Write > > >;
-// type ConnRead = Option< Arc< RwLock<dyn Read> > >;
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]

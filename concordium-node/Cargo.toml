@@ -71,7 +71,6 @@ serde = "1.0"
 serde_derive = "1.0"
 resolv-conf = "0.6.1"
 vecio = "0.1"
-crossbeam = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.7" }

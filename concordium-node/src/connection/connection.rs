@@ -408,12 +408,11 @@ impl Connection {
     pub fn ready(&mut self,
              poll: &mut Poll,
              ev: &Event,
-             /*buckets: &mut Buckets,*/
              packets_queue: &Sender<Arc<Box<NetworkMessage>>>)
              -> ResultExtWrapper<()> {
         if ev.readiness().is_readable() {
             self.do_tls_read().map_err(|e| error!("{}", e)).ok();
-            self.try_plain_read(poll, &packets_queue /*, buckets*/);
+            self.try_plain_read(poll, &packets_queue);
         }
 
         if ev.readiness().is_writable() {
@@ -504,8 +503,7 @@ impl Connection {
 
     fn try_plain_read(&mut self,
                       poll: &mut Poll,
-                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>/*,
-                      mut buckets: &mut Buckets*/) {
+                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>) {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
@@ -528,22 +526,13 @@ impl Connection {
 
         if !buf.is_empty() {
             trace!("plaintext read {:?}", buf.len());
-            self.incoming_plaintext(poll, &packets_queue, /*&mut buckets,*/ &buf);
+            self.incoming_plaintext(poll, &packets_queue, &buf);
         }
     }
 
     fn session(&self) -> ConnSession {
        sessionAs!( self, Session)
     }
-
-    /*fn session_as_writer(&self) -> ConnWrite {
-        sessionAs!( self, Write)
-    }
-
-    fn session_as_wead(&self) -> ConnRead {
-        sessionAs!( self, Read)
-    }*/
-
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
         if let Some(ref session) = self.session() {
@@ -559,7 +548,6 @@ impl Connection {
     }
 
     fn process_complete_packet(&mut self,
-                               // buckets: &mut Buckets,
                                buf: &[u8],
                                packet_queue: &Sender<Arc<Box<NetworkMessage>>>) {
         let outer = Arc::new(box NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf));
@@ -920,7 +908,6 @@ impl Connection {
     fn incoming_plaintext(&mut self,
                           poll: &mut Poll,
                           packets_queue: &Sender<Arc<Box<NetworkMessage>>>,
-                          // buckets: &mut Buckets,
                           buf: &[u8]) {
         trace!("Received plaintext");
         self.validate_packet(poll);
@@ -931,10 +918,10 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                self.process_complete_packet( /*buckets,*/ &buffered, &packets_queue);
+                self.process_complete_packet( &buffered, &packets_queue);
             }
             self.clear_buffer();
-            self.incoming_plaintext(poll, packets_queue, /*buckets,*/ buf);
+            self.incoming_plaintext(poll, packets_queue, buf);
         } else if self.expected_size > 0
                   && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
         {
@@ -950,7 +937,7 @@ impl Connection {
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
                     }
-                    self.process_complete_packet( /*buckets,*/ &buffered, &packets_queue);
+                    self.process_complete_packet( &buffered, &packets_queue);
                 }
                 self.clear_buffer();
             }
@@ -965,10 +952,10 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                self.process_complete_packet( /*buckets,*/ &buffered, &packets_queue);
+                self.process_complete_packet( &buffered, &packets_queue);
             }
             self.clear_buffer();
-            self.incoming_plaintext(poll, &packets_queue, /*buckets,*/ &buf[to_take as usize..]);
+            self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..]);
         } else if buf.len() >= 4 {
             trace!("Trying to read size");
             let _buf = &buf[..4].to_vec();
@@ -977,12 +964,12 @@ impl Connection {
             if self.expected_size > 268_435_456 {
                 error!("Packet can't be bigger than 256MB");
                 self.expected_size = 0;
-                self.incoming_plaintext(poll, &packets_queue, /*buckets,*/ &buf[4..]);
+                self.incoming_plaintext(poll, &packets_queue, &buf[4..]);
             } else {
                 self.setup_buffer();
                 if buf.len() > 4 {
                     trace!("Got enough to read it...");
-                    self.incoming_plaintext(poll, &packets_queue, /*buckets,*/ &buf[4..]);
+                    self.incoming_plaintext(poll, &packets_queue, &buf[4..]);
                 }
             }
         }
