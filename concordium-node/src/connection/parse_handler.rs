@@ -1,4 +1,5 @@
 use std::sync::{ Arc, Mutex };
+use errors::{ ErrorWrapper, ResultExtWrapper, ErrorKindWrapper };
 
 /// Helper macro to run all callbacks using `message` expression as argument.
 ///
@@ -12,16 +13,18 @@ macro_rules! run_callbacks{
             .map( |handler| { (handler)($message) })
             .fold( Ok(()), |status, handler_result|{
                 match handler_result {
-                    Err(e) => Err(e),
+                    Err(e) => match e {
+                        ErrorWrapper(ErrorKindWrapper::FunctorRunningError(_), _) => { Err(e) },
+                        _ => Err( ErrorWrapper::with_chain( e, 
+                                ErrorKindWrapper::FunctorRunningError( $errorMsg))),
+                    }
                     Ok(_) => status
                 }
             })
-            .map_err( |_| $errorMsg.to_string())
     }
 }
 
-// pub type HandlerContextWrapper = Rc< HandlerContext >;
-pub type ParseCallbackResult = Result<(), String>;
+pub type ParseCallbackResult = ResultExtWrapper<()>;
 pub type ParseCallback<T> = (Fn(&T) -> ParseCallbackResult);
 pub type ParseCallbackWrapper<T> = Arc< Mutex< Box< ParseCallback<T> > > >;
 
@@ -41,7 +44,7 @@ pub type ParseCallbackWrapper<T> = Arc< Mutex< Box< ParseCallback<T> > > >;
 /// let acc_1 = acc.clone();
 /// let acc_2 = acc.clone();
 ///
-/// let ph = ParseHandler::new( "Closures".to_string())
+/// let ph = ParseHandler::new( "Closures")
 ///            .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| {
 ///                *acc_1.borrow_mut() += x;
 ///                Ok(()) 
@@ -58,7 +61,7 @@ pub type ParseCallbackWrapper<T> = Arc< Mutex< Box< ParseCallback<T> > > >;
 /// ```
 #[derive(Clone)]
 pub struct ParseHandler<T> {
-    pub error_msg: String,
+    pub error_msg: &'static str,
     pub callbacks: Vec< ParseCallbackWrapper<T> >,
     // pub context: HandlerContextWrapper
 }
@@ -68,9 +71,9 @@ pub struct ParseHandler<T> {
 
 impl<T> ParseHandler<T> {
 
-    pub fn new( error_msg: String ) -> Self {
+    pub fn new( error_msg: &'static str) -> Self {
         ParseHandler {
-            error_msg: error_msg.clone(),
+            error_msg: error_msg,
             callbacks: Vec::new(),
         }
     }
@@ -90,7 +93,7 @@ impl<T> FnOnce<(&T,)> for ParseHandler<T> {
     extern "rust-call" fn call_once(self, args: (&T,)) -> ParseCallbackResult
     {
         let msg: &T = args.0;
-        run_callbacks!( &self.callbacks, msg, &self.error_msg)
+        run_callbacks!( &self.callbacks, msg, self.error_msg)
     }
 }
 
@@ -98,7 +101,7 @@ impl<T> FnMut<(&T,)> for ParseHandler<T> {
     extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> ParseCallbackResult
     {
         let msg: &T = args.0;
-        run_callbacks!( &self.callbacks, msg, &self.error_msg)
+        run_callbacks!( &self.callbacks, msg, self.error_msg)
     }
 }
 
@@ -106,7 +109,7 @@ impl<T> Fn<(&T,)> for ParseHandler<T> {
     extern "rust-call" fn call(&self, args: (&T,)) -> ParseCallbackResult
     {
         let msg: &T = args.0;
-        run_callbacks!( &self.callbacks, msg, &self.error_msg)
+        run_callbacks!( &self.callbacks, msg, self.error_msg)
     }
 }
 
@@ -123,7 +126,7 @@ mod parse_handler_unit_test {
     /// It tests if raw functions can be added as callback.
     #[test]
     pub fn test_parse_handler_raw_functions() {
-        let ph = ParseHandler::new( "Raw functions".to_string())
+        let ph = ParseHandler::new( "Raw functions")
             .add_callback( make_callback!( raw_func_1 ))
             .add_callback( make_callback!( raw_func_2 ))
             .add_callback( make_callback!( raw_func_1 ));
@@ -135,7 +138,7 @@ mod parse_handler_unit_test {
     /// It tests if closures can be added as callback.
     #[test]
     pub fn test_parse_handler_closure() {
-        let ph = ParseHandler::new( "Closures".to_string())
+        let ph = ParseHandler::new( "Closures")
             .add_callback( make_callback!( |_x: &i32| { Ok(()) }))
             .add_callback( make_callback!( |_x: &i32| { Ok(()) }));
 
@@ -146,7 +149,7 @@ mod parse_handler_unit_test {
     /// It tests if we can mix closures and functions.
     #[test]
     pub fn test_parse_handler_mix() {
-        let ph = ParseHandler::new( "Raw function and  Closure".to_string())
+        let ph = ParseHandler::new( "Raw function and  Closure")
             .add_callback( make_callback!( raw_func_1 ))
             .add_callback( make_callback!( raw_func_2 ))
             .add_callback( make_callback!( |_x: &i32| { Ok(()) }))
@@ -163,7 +166,7 @@ mod parse_handler_unit_test {
         let shd_counter_1 = shd_counter.clone();
         let shd_counter_2 = shd_counter.clone();
 
-        let ph = ParseHandler::new( "Complex Closure".to_string())
+        let ph = ParseHandler::new( "Complex Closure")
             .add_callback( make_callback!( move |_x: &i32| { 
                 *shd_counter_1.borrow_mut() += 1; 
                 Ok(()) }))

@@ -15,9 +15,9 @@ impl PacketHandler {
     pub fn new() -> Self {
         PacketHandler {
             direct_parser: ParseHandler::<PacketHandlerDirect>::new( 
-                    "Network Packet Direct Handler".to_string()), 
+                    "Network Packet Direct Handler"), 
             broadcast_parser: ParseHandler::<PacketHandlerBroadcast>::new(
-                    "Network Packet Broadcast Handler".to_string())
+                    "Network Packet Broadcast Handler")
         }
     }
 

@@ -21,21 +21,21 @@ impl RequestHandler {
     pub fn new() -> Self {
         RequestHandler {
             ping_handler: ParseHandler::<NetworkRequestEnum>::new(
-                    "Network request ping handler".to_string()),
+                    "Network request ping handler"),
             find_node_handler: ParseHandler::new(
-                    "Network request find node handler".to_string()),
+                    "Network request find node handler"),
             ban_node_handler: ParseHandler::new(
-                    "Network request ban node handler".to_string()),
+                    "Network request ban node handler"),
             unban_node_handler: ParseHandler::new(
-                    "Network request unban node handler".to_string()),
+                    "Network request unban node handler"),
             handshake_handler: ParseHandler::new(
-                    "Network request handshake handler".to_string()),
+                    "Network request handshake handler"),
             get_peers_handler: ParseHandler::new(
-                    "Network request get peers handler".to_string()),
+                    "Network request get peers handler"),
             join_network_handler: ParseHandler::new(
-                    "Network request join network handler".to_string()),
+                    "Network request join network handler"),
             leave_network_handler: ParseHandler::new(
-                    "Network request leave network handler".to_string()),
+                    "Network request leave network handler"),
         }
     }
 

@@ -16,11 +16,11 @@ impl MessageHandler {
 
         MessageHandler {
             request_parser : ParseHandler::<NetworkRequest>::new( 
-                    "Network Request Handler".to_string()),
+                    "Network Request Handler"),
             response_parser: ParseHandler::<NetworkResponse>::new( 
-                    "Network Response Handler".to_string()),
+                    "Network Response Handler"),
             packet_parser: ParseHandler::<NetworkPacket>::new( 
-                    "Network Package Handler".to_string()),
+                    "Network Package Handler"),
         }
     }
 

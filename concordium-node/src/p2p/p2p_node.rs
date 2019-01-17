@@ -17,8 +17,9 @@ use std::thread;
 
 use prometheus_exporter::{ PrometheusServer };
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
+use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, Buckets };
-use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, TOTAL_MESSAGES_SENT_COUNTER }; 
+use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList }; 
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
@@ -655,13 +656,14 @@ impl P2PNode {
                       self.get_listening_port())
     }
 
+    /*
     pub fn get_total_sent(&self) -> u64 {
         TOTAL_MESSAGES_SENT_COUNTER.get() as u64
     }
 
     pub fn get_total_received(&self) -> u64 {
         TOTAL_MESSAGES_SENT_COUNTER.get() as u64
-    }
+    }*/
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
         match self.tls_server.lock() {

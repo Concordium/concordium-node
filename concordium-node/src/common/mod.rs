@@ -1,3 +1,5 @@
+pub mod counter;
+
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::cmp::Ordering;
@@ -8,7 +10,6 @@ use time;
 use utils;
 
 use network::{ PROTOCOL_NODE_ID_LENGTH };
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum ConnectionType {

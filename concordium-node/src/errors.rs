@@ -43,6 +43,10 @@ error_chain! {
             description( "Message cannot be processed by a handler")
             display( "Message cannot be processed by a handler '{}'", t)
         }
+        FunctorRunningError(t: &'static str) {
+            description( "Functor got an error while running")
+            display( "Functor got an error while running: {}", t)
+        }
     }
     foreign_links {
         RustlsInternalError(TLSError);
