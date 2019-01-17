@@ -34,6 +34,7 @@ use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
+use p2p_client::stats_engine::StatsEngine;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -250,6 +251,8 @@ fn run() -> ResultExtWrapper<()> {
     let _desired_nodes_clone = conf.desired_nodes;
     let _test_runner_url = conf.test_runner_url.clone();
     let mut _baker_pkt_clone = baker.clone();
+    let _tps_test_enabled = conf.enable_tps_test;
+    let mut stats_engine = StatsEngine::new();
     let _guard_pkt = thread::spawn(move || {
                                        fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
                                                             msg: &[u8])
@@ -288,6 +291,10 @@ fn run() -> ResultExtWrapper<()> {
                                            if let Ok(full_msg) = pkt_out.recv() {
                                                match *full_msg.clone() {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
+                                                   if _tps_test_enabled {
+                                                       stats_engine.add_stat(msg.len() as u64);
+                                                       info!("Current TPS: {}", stats_engine.calculate_total_tps_average());
+                                                   }
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
@@ -523,25 +530,20 @@ fn run() -> ResultExtWrapper<()> {
             let test_messages = utils::get_tps_test_messages(_dir_clone);
             for message in test_messages {
                 let mut out_bytes = vec![];
-                match out_bytes.write_u16::<BigEndian>(0 as u16) {
-                    Ok(_) => {
-                        out_bytes.extend(message);
-                        match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
-                                                    _network_id,
-                                                    None,
-                                                    &out_bytes,
-                                                    false) {
-                                                          Ok(_) => {
-                                                              info!("Sent TPS test bytes of len {}",
-                                                                    out_bytes.len());
-                                                          }
-                                                          Err(_) => {
-                                                              error!("Couldn't broadcast block!")
-                                                          }
-                                                    }
-                    },
-                    Err(_) => error!("Can't write type to packet"),
-                }
+                out_bytes.extend(message);
+                match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
+                                            _network_id,
+                                            None,
+                                            &out_bytes,
+                                            false) {
+                                                  Ok(_) => {
+                                                      info!("Sent TPS test bytes of len {}",
+                                                            out_bytes.len());
+                                                  }
+                                                  Err(_) => {
+                                                      error!("Couldn't broadcast block!")
+                                                  }
+                                            }
             }
         });
     }
