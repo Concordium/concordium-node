@@ -12,7 +12,7 @@ mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::network::{NetworkMessage, NetworkPacket, NetworkRequest};
     use p2p_client::connection::{ P2PEvent, P2PNodeMode };
-    use p2p_client::p2p::*;
+    use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::proto::*;
     use p2p_client::rpc::RpcServerImpl;
     use std::sync::mpsc;

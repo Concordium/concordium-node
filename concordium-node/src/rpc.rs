@@ -1,6 +1,5 @@
 use common::{ConnectionType, P2PNodeId, P2PPeer};
 use network::{ NetworkMessage, NetworkPacket };
-
 use db::P2PDB;
 use errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
 use errors::*;
@@ -15,6 +14,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use atomic_counter::AtomicCounter;
+
+use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -166,7 +168,7 @@ impl P2P for RpcServerImpl {
                            sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(self.node.borrow_mut().get_total_received() as u64);
+            r.set_value( TOTAL_MESSAGES_RECEIVED_COUNTER.get() as u64);
             let f = sink.success(r)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -179,7 +181,7 @@ impl P2P for RpcServerImpl {
                        sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(self.node.borrow_mut().get_total_sent() as u64);
+            r.set_value( TOTAL_MESSAGES_SENT_COUNTER.get() as u64);
             let f = sink.success(r)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);

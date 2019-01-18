@@ -1,3 +1,5 @@
+pub mod counter;
+
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::cmp::Ordering;
