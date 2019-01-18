@@ -23,8 +23,9 @@ use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, B
 
 use connection::{ 
     P2PEvent, SeenMessagesList, P2PNodeMode, ConnClientSession, ConnServerSession, 
-    NetworkRequestSafeFn, ConnSession };
+    NetworkRequestSafeFn, NetworkResponseSafeFn, ConnSession };
 use connection::request_handler::{ RequestHandler };
+use connection::response_handler::{ ResponseHandler };
 use connection::message_handler::{ MessageHandler };
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
@@ -202,12 +203,33 @@ impl Connection {
             }))
     }
 
+    fn make_default_network_response_find_node_handler(&self) -> NetworkResponseSafeFn {
+        let own_id = self.own_id.clone();
+        let mode = self.mode.clone();
+        let last_seen = self.last_seen.clone();
+        let buckets = self.buckets.clone();
+
+        make_callback!( move |res: &NetworkResponse| {
+           default_network_response_find_node(
+               &own_id, mode, &last_seen, &buckets, res)
+        })
+    }
+
+    fn make_response_handler(&mut self) -> ResponseHandler {
+        ResponseHandler::new()
+            .add_find_node_callback( self.make_default_network_response_find_node_handler())
+    }
+
     fn make_message_handler(&mut self) -> MessageHandler {
         let request_handler = self.make_request_handler();
+        let response_handler = self.make_response_handler();
 
         MessageHandler::new()
             .add_request_callback( make_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req) }))
+            .add_response_callback(  make_callback!(
+                move |res: &NetworkResponse| { (response_handler)(res) }))
+
     }
 
     // =============================
@@ -696,19 +718,7 @@ impl Connection {
             }
             box NetworkMessage::NetworkResponse(ref x, _, _) => {
                 match x {
-                    NetworkResponse::FindNode(_, peers) => {
-                        debug!("Got response to FindNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        //Process the received node list
-                        let mut ref_buckets = self.buckets.write().unwrap();
-                        for peer in peers.iter() {
-                            ref_buckets.insert_into_bucket(peer, &self.own_id, vec![]);
-                        }
-                    }
+                    NetworkResponse::FindNode(_, _peers) => {}
                     NetworkResponse::Pong(_) => {
                         debug!("Got response for ping");
                         self.set_measured_ping();

@@ -1,10 +1,12 @@
 use std::sync::{ Arc, RwLock };
 use rustls::{ ServerSession, ClientSession, Session };
 
-use network::{ NetworkRequest };
+use network::{ NetworkRequest, NetworkResponse };
 use connection::parse_handler::{ ParseCallbackWrapper };
 
 type NetworkRequestSafeFn = ParseCallbackWrapper<NetworkRequest>;
+type NetworkResponseSafeFn = ParseCallbackWrapper<NetworkResponse>;
+
 type ConnServerSession = Option< Arc< RwLock< ServerSession > > >;
 type ConnClientSession = Option< Arc< RwLock< ClientSession > > >;
 type ConnSession = Option< Arc< RwLock<dyn Session > > >;
@@ -74,6 +76,7 @@ macro_rules! sessionAs {
 pub mod parse_handler;
 pub mod packet_handler;
 pub mod request_handler;
+pub mod response_handler;
 pub mod message_handler;
 
 mod p2p_node_mode;

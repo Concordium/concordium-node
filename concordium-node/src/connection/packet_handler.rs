@@ -50,28 +50,5 @@ impl PacketHandler {
     }
 }
 
-impl FnOnce<(&NetworkPacket,)> for PacketHandler {
-    type Output = ParseCallbackResult;
+impl_all_fns!( PacketHandler, NetworkPacket);
 
-    extern "rust-call" fn call_once(self, args: (&NetworkPacket,)) -> ParseCallbackResult
-    {
-        let msg = args.0;
-        self.process_message( msg)
-    }
-}
-
-impl FnMut<(&NetworkPacket,)> for PacketHandler {
-    extern "rust-call" fn call_mut(&mut self, args: (&NetworkPacket,)) -> ParseCallbackResult
-    {
-        let msg = args.0;
-        self.process_message( msg)
-    }
-}
-
-impl Fn<(&NetworkPacket,)> for PacketHandler {
-    extern "rust-call" fn call(&self, args: (&NetworkPacket,)) -> ParseCallbackResult
-    {
-        let msg = args.0;
-        self.process_message( msg)
-    }
-}
