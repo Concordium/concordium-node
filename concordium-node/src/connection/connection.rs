@@ -572,6 +572,16 @@ impl Connection {
                     NetworkRequest::Ping(_) => { }
                     NetworkRequest::FindNode(_, _x) => { }
                     NetworkRequest::BanNode(_, _) => {
+                        debug!("Got request for BanNode");
+                        if self.mode != P2PNodeMode::BootstrapperMode
+                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                        {
+                            self.update_last_seen();
+                        }
+                        match packet_queue.send(outer.clone()) {
+                            Ok(_) => {}
+                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
+                        };
                     }
                     NetworkRequest::UnbanNode(_, _) => {
                         debug!("Got request for UnbanNode");
