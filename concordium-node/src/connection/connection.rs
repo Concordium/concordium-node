@@ -157,12 +157,25 @@ impl Connection {
         })
     }
 
+    fn make_default_network_request_get_peers_handler(&self) -> NetworkRequestSafeFn {
+        let mode = self.mode.clone();
+        let last_seen = self.last_seen.clone();
+        let self_peer = self.get_self_peer();
+        let session = self.session().clone();
+        let buckets = self.buckets.clone();
+        let prom = self.prometheus_exporter.clone();
+
+        make_callback!( move |req: &NetworkRequest| {
+            default_network_request_get_peers(
+                &session, &self_peer, mode, &last_seen, &buckets, &prom, req)
+        })
+    }
+
     fn make_default_network_request_ban_node_handler(&self) -> NetworkRequestSafeFn {
         make_callback!( move |_req: &NetworkRequest| { 
             Ok(())
         })
     }
-
 
     fn make_request_handler(&mut self) -> RequestHandler {
 
@@ -170,15 +183,12 @@ impl Connection {
             .add_ping_callback( self.make_default_network_request_ping_handle())
             .add_find_node_callback( self.make_default_network_request_find_node_handle())
             .add_ban_node_callback( self.make_default_network_request_ban_node_handler())
+            .add_get_peers_callback( self.make_default_network_request_get_peers_handler())
             .add_unban_node_callback( make_callback!(
                 move | _req: &NetworkRequest| {
                     Ok(())
             }))
             .add_handshake_callback( make_callback!(
-                move | _req: &NetworkRequest| {
-                    Ok(())
-            }))
-            .add_get_peers_callback( make_callback!(
                 move | _req: &NetworkRequest| {
                     Ok(())
             }))
@@ -569,8 +579,9 @@ impl Connection {
         match *outer.clone() {
             box NetworkMessage::NetworkRequest(ref x, _, _) => {
                 match x {
-                    NetworkRequest::Ping(_) => { }
-                    NetworkRequest::FindNode(_, _x) => { }
+                    NetworkRequest::Ping(_)
+                    | NetworkRequest::FindNode(_, _)
+                    | NetworkRequest::GetPeers(_, _) => { }
                     NetworkRequest::BanNode(_, _) => {
                         debug!("Got request for BanNode");
                         if self.mode != P2PNodeMode::BootstrapperMode
@@ -648,25 +659,6 @@ impl Connection {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
-                    }
-                    NetworkRequest::GetPeers(ref sender, ref networks) => {
-                        debug!("Got request for GetPeers");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        let nodes = self.buckets.read().unwrap()
-                            .get_all_nodes(Some(&sender), networks);
-                        TOTAL_MESSAGES_SENT_COUNTER.inc();
-                        if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock()
-                                .unwrap()
-                                .pkt_sent_inc()
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        };
-                        self.serialize_bytes( &NetworkResponse::PeerList(self_peer, nodes).serialize()).unwrap();
                     }
                     NetworkRequest::JoinNetwork(sender, network) => {
                         self.add_networks(&vec![*network]);

@@ -91,3 +91,45 @@ pub fn default_network_request_find_node_handle(
     }
 }
 
+pub fn default_network_request_get_peers(
+    session_opt: &ConnSession,
+    self_peer: &P2PPeer,
+    mode: P2PNodeMode,
+    last_seen: & Rc< AtomicU64 >,
+    buckets: & Arc< RwLock< Buckets> >,
+    prometheus_exporter: & Option<Arc< Mutex< PrometheusServer>>>,
+    req: &NetworkRequest
+    ) -> ParseCallbackResult {
+
+    match req {
+        NetworkRequest::GetPeers(ref sender, ref networks) => {
+            debug!("Got request for GetPeers");
+
+            update_atomic_stamp!( mode, last_seen);
+            TOTAL_MESSAGES_SENT_COUNTER.inc();
+
+            let nodes = buckets.read()?
+                .get_all_nodes(Some(&sender), networks);
+
+            if let Some(ref prom) = prometheus_exporter {
+                prom.lock()?.pkt_sent_inc()?;
+            };
+
+            if let Some(ref session) = session_opt {
+                let peer_list_packet = &NetworkResponse::PeerList(self_peer.clone(), nodes)
+                        .serialize();
+                Ok( serialize_bytes( &session, peer_list_packet)?)
+            } else {
+                Err( ErrorWrapper::from_kind( 
+                        ErrorKindWrapper::MessageProcessError( 
+                            "Session is not found".to_string())))
+            }
+        },
+        _ => {
+            Err( ErrorWrapper::from_kind( 
+                ErrorKindWrapper::MessageProcessError( 
+                    "Get peers handler cannot handler this packet".to_string())))
+        }
+    }
+}
+
