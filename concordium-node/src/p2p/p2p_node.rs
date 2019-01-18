@@ -2,19 +2,25 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
+use errors::*;
+#[cfg(not(windows))]
+use get_if_addrs;
+#[cfg(windows)]
+use ipconfig;
+use prometheus_exporter::PrometheusServer;
+use rustls::{ Certificate, ClientConfig, NoClientAuth, PrivateKey, ServerConfig };
+
+use atomic_counter::{ AtomicCounter };
+use std::io::{ Error, ErrorKind };
 use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
 use std::time::{ Duration };
-use std::io::{ Error, ErrorKind };
-use atomic_counter::{ AtomicCounter };
-use rustls::{ Certificate, PrivateKey, NoClientAuth, ServerConfig, ClientConfig };
 use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
 use time::{ Timespec };
 use utils;
 use std::thread;
 
-use prometheus_exporter::{ PrometheusServer };
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, Buckets };
@@ -23,7 +29,6 @@ use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList };
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
 use p2p::peer_statistics::{ PeerStatistic };
-use errors::*;
 
 
 const SERVER: Token = Token(0);
@@ -611,6 +616,7 @@ impl P2PNode {
         }
     }
 
+    #[cfg(not(windows))]
     pub fn get_ip() -> Option<IpAddr> {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
         let mut ip: IpAddr = localhost.clone();
@@ -630,6 +636,37 @@ impl P2PNode {
                     //Ignore for now
                 }
             };
+        }
+
+        if ip == localhost {
+            None
+        } else {
+            Some(ip)
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn get_ip() -> Option<IpAddr> {
+        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
+        let mut ip: IpAddr = localhost.clone();
+
+        for adapter in ipconfig::get_adapters().unwrap() {
+            for ip_new in adapter.ip_addresses() {
+                match ip_new {
+                    V4(x) => {
+                        if !x.is_loopback()
+                        && !x.is_link_local()
+                        && !x.is_multicast()
+                        && !x.is_broadcast()
+                        {
+                            ip = IpAddr::V4(*x);
+                        }
+                    }
+                    V6(_) => {
+                        //Ignore for now
+                    }
+                };
+            }
         }
 
         if ip == localhost {

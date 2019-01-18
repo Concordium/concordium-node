@@ -16,6 +16,8 @@ curl -sSL https://get.haskellstack.org/ | sh
   ls ~/.stack/programs/x86_64-linux/
   ) 
 
+(mkdir -p ~/.stack/global-project/ && cp scripts/stack.yaml ~/.stack/global-project/stack.yaml)
+
 
 git clone https://github.com/KDE/heaptrack.git
 (cd heaptrack && patch src/track/heaptrack.sh.cmake ../scripts/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);

@@ -21,11 +21,10 @@ readme = "README.md"
 keywords = ["dns", "dnssec"]
 license = "BSD-3-Clause"
 repository = "https://github.com/andrewtj/rust-unbound"
-[dependencies.libc]
-version = "0.2"
+[dependencies]
+libc = "0.2"
+unbound-sys = { path = "unbound-sys-0.6.0" } 
 
-[dependencies.unbound-sys]
-version = "0.6"
 [build-dependencies.tempdir]
 version = "0.3.5"
 
