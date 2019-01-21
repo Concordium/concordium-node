@@ -163,15 +163,12 @@ fn default_network_request_join_network(
 
 pub fn default_network_response_find_node (
     own_id: &P2PNodeId,
-    mode: P2PNodeMode,
-    last_seen: & Rc< AtomicU64 >,
     buckets: & Arc< RwLock< Buckets> >,
     res: &NetworkResponse) -> ParseCallbackResult {
 
     match res {
         NetworkResponse::FindNode(_, ref peers) => {
             debug!("Got response to FindNode");
-            update_atomic_stamp!( mode, last_seen);
 
             //Process the received node list
             let mut ref_buckets = buckets.write()?;

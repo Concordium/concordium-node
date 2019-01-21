@@ -46,6 +46,7 @@ impl MessageHandler {
     }
 
     fn process_message(&self, msg: &NetworkMessage) -> ParseCallbackResult {
+
         match msg {
             NetworkMessage::NetworkRequest(ref nr, _, _) => {
                 (&self.request_parser)( nr)

@@ -22,9 +22,10 @@ use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, B
     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE };
 
 use connection::{ 
-    MessageHandler, MessageManager, RequestHandler, ResponseHandler,
+    MessageHandler, MessageManager, RequestHandler, ResponseHandler, PacketHandler,
     P2PEvent, SeenMessagesList, P2PNodeMode, ConnClientSession, ConnServerSession, 
-    NetworkRequestSafeFn, NetworkResponseSafeFn, ConnSession };
+    NetworkRequestSafeFn, NetworkResponseSafeFn, ConnSession, ParseCallbackResult,
+    ParseCallbackWrapper };
 
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
@@ -171,8 +172,12 @@ impl Connection {
         })
     }
 
-    fn make_default_network_request_ban_node_handler(&self) -> NetworkRequestSafeFn {
-        make_callback!( move |_req: &NetworkRequest| { 
+    fn make_update_last_seen_handler<T>(&self) -> ParseCallbackWrapper<T>{
+        let mode = self.mode.clone();
+        let last_seen = self.last_seen.clone();
+
+        make_callback!( move |_: &T| -> ParseCallbackResult { 
+            update_atomic_stamp!( mode, last_seen); 
             Ok(())
         })
     }
@@ -182,56 +187,55 @@ impl Connection {
         let mut rh = RequestHandler::new();
             rh.add_ping_callback( self.make_default_network_request_ping_handle())
             .add_find_node_callback( self.make_default_network_request_find_node_handle())
-            .add_ban_node_callback( self.make_default_network_request_ban_node_handler())
+            .add_ban_node_callback( self.make_update_last_seen_handler())
             .add_get_peers_callback( self.make_default_network_request_get_peers_handler())
-            .add_unban_node_callback( make_callback!(
-                move | _req: &NetworkRequest| {
-                    Ok(())
-            }))
+            .add_unban_node_callback( self.make_update_last_seen_handler())
             .add_handshake_callback( make_callback!(
                 move | _req: &NetworkRequest| {
                     Ok(())
             }))
-            .add_join_network_callback( make_callback!(
-                move | _req: &NetworkRequest| {
-                    Ok(())
-            }))
-            .add_leave_network_callback( make_callback!(
-                move | _req: &NetworkRequest| {
-                    Ok(())
-            }));
+            .add_join_network_callback( self.make_update_last_seen_handler())
+            .add_leave_network_callback( self.make_update_last_seen_handler());
 
         rh
     }
 
     fn make_default_network_response_find_node_handler(&self) -> NetworkResponseSafeFn {
         let own_id = self.own_id.clone();
-        let mode = self.mode.clone();
-        let last_seen = self.last_seen.clone();
         let buckets = self.buckets.clone();
 
         make_callback!( move |res: &NetworkResponse| {
            default_network_response_find_node(
-               &own_id, mode, &last_seen, &buckets, res)
+               &own_id, &buckets, res)
         })
     }
 
     fn make_response_handler(&mut self) -> ResponseHandler {
         let mut rh = ResponseHandler::new();
-        rh.add_find_node_callback( self.make_default_network_response_find_node_handler());
+
+        rh.add_callback( self.make_update_last_seen_handler())
+            .add_find_node_callback( self.make_default_network_response_find_node_handler());
 
         rh
+    }
+
+    fn make_packet_handler(&mut self) -> PacketHandler {
+        let handler = PacketHandler::new();
+        handler
     }
 
     fn make_message_handler(&mut self) {
         let request_handler = self.make_request_handler();
         let response_handler = self.make_response_handler();
+        let packet_handler = self.make_packet_handler();
 
         self.message_handler
             .add_request_callback( make_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req) }))
             .add_response_callback(  make_callback!(
-                move |res: &NetworkResponse| { (response_handler)(res) }));
+                move |res: &NetworkResponse| { (response_handler)(res) }))
+            .add_packet_callback( make_callback!(
+                move |pac: &NetworkPacket| { (packet_handler)(pac) }));
     }
 
     // =============================
@@ -605,31 +609,9 @@ impl Connection {
                 match x {
                     NetworkRequest::Ping(_)
                     | NetworkRequest::FindNode(_, _)
-                    | NetworkRequest::GetPeers(_, _) => { }
-                    NetworkRequest::BanNode(_, _) => {
-                        debug!("Got request for BanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        match packet_queue.send(outer.clone()) {
-                            Ok(_) => {}
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                        };
-                    }
-                    NetworkRequest::UnbanNode(_, _) => {
-                        debug!("Got request for UnbanNode");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
-                        match packet_queue.send(outer.clone()) {
-                            Ok(_) => {}
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                        };
-                    }
+                    | NetworkRequest::GetPeers(_, _)
+                    | NetworkRequest::BanNode(_, _)
+                    | NetworkRequest::UnbanNode(_, _) => { }
                     NetworkRequest::Handshake(sender, nets, _) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
@@ -694,11 +676,6 @@ impl Connection {
                             _ => {}
                         }
                         self.log_event(P2PEvent::JoinedNetwork(sender.clone(), *network));
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
                     }
                     NetworkRequest::LeaveNetwork(sender, ref network) => {
                         self.remove_network(network);
@@ -710,11 +687,6 @@ impl Connection {
                             _ => {}
                         }
                         self.log_event(P2PEvent::LeftNetwork(sender.clone(), *network));
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
                     }
                 }
             }
@@ -724,19 +696,10 @@ impl Connection {
                     NetworkResponse::Pong(_) => {
                         debug!("Got response for ping");
                         self.set_measured_ping();
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
                     }
                     NetworkResponse::PeerList(_, peers) => {
                         debug!("Got response to PeerList");
-                        if self.mode != P2PNodeMode::BootstrapperMode
-                           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                        {
-                            self.update_last_seen();
-                        }
+
                         //Process the received node list
                         let mut ref_buckets = self.buckets.write().unwrap();
                         for peer in peers.iter() {
@@ -750,7 +713,6 @@ impl Connection {
                     NetworkResponse::Handshake(peer, nets, _) => {
                         debug!("Got response to Handshake");
                         self.set_measured_handshake();
-                        self.update_last_seen();
                         self.add_networks(nets);
                         self.peer = Some(peer.clone());
                         let bucket_sender = P2PPeer::from(self.connection_type,

@@ -25,7 +25,8 @@ use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
 use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager, 
-    MessageHandler, RequestHandler, ResponseHandler, PacketHandler }; 
+    MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
+    NetworkRequestSafeFn }; 
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
@@ -230,17 +231,37 @@ impl P2PNode {
     }
 
     fn make_packet_handler(&self) -> PacketHandler {
-        let mut handler = PacketHandler::new();
+        let handler = PacketHandler::new();
         handler
     }
 
     fn make_response_handler(&self) -> ResponseHandler {
-        let mut handler = ResponseHandler::new();
+        let handler = ResponseHandler::new();
         handler
     }
 
+    fn make_requeue_handler(&self) -> NetworkRequestSafeFn {
+        let packet_queue = self.incoming_pkts.clone(); // : Sender<Arc<Box<NetworkMessage>>>,
+
+        Arc::new( Mutex::new( Box::new( move |req: &NetworkRequest| {
+            let cloned_req = req.clone();
+            packet_queue.send( Arc::new( Box::new( NetworkMessage::NetworkRequest( cloned_req, None, None))))
+                .map_err( |se| {
+                    ErrorWrapper::with_chain( 
+                        se, 
+                        ErrorKindWrapper::FunctorRunningError( "Couldn't send to packet queue"))
+                }) 
+        })))
+    }
+
     fn make_request_handler(&self) -> RequestHandler {
+        let requeue_handler = self.make_requeue_handler();
         let mut handler = RequestHandler::new();
+        
+        handler
+            .add_ban_node_callback( requeue_handler.clone())
+            .add_unban_node_callback( requeue_handler.clone());
+
         handler
     }
     

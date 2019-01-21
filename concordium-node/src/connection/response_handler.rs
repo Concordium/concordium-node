@@ -6,7 +6,9 @@ pub struct ResponseHandler {
     pub pong_handler: ParseHandler<NetworkResponse>,
     pub find_node_handler: ParseHandler<NetworkResponse>,
     pub peer_list_handler: ParseHandler<NetworkResponse>,
-    pub handshake_handler: ParseHandler<NetworkResponse>
+    pub handshake_handler: ParseHandler<NetworkResponse>,
+
+    pub main_handler: ParseHandler<NetworkResponse>
 }
 
 impl ResponseHandler {
@@ -19,12 +21,15 @@ impl ResponseHandler {
             peer_list_handler: ParseHandler::<NetworkResponse>::new(
                 "Network response peer list handler"),
             handshake_handler: ParseHandler::<NetworkResponse>::new(
-                "Network response handshake_handler")
+                "Network response handshake_handler"),
+            main_handler: ParseHandler::<NetworkResponse>::new(
+                "Main Network response handler")
         }
     }
 
     fn process_message(&self, msg: &NetworkResponse) -> ParseCallbackResult {
-        match msg {
+        let main_status = (self.main_handler)(msg); 
+        let spec_status = match msg {
             ref pong_inner_pkt @ NetworkResponse::Pong(_) => {
                 (&self.pong_handler)(pong_inner_pkt)
             },
@@ -37,9 +42,17 @@ impl ResponseHandler {
             ref handshake_inner_pkt @ NetworkResponse::Handshake(_, _, _) => {
                 (&self.handshake_handler)(handshake_inner_pkt)
             }
-        }
+        };
+
+        main_status.and( spec_status)
     }
 
+    pub fn add_callback(
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> &mut Self {
+        self.main_handler.add_callback( callback);
+        self
+    }
 
     pub fn add_pong_callback(
             &mut self, 

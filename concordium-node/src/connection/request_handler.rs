@@ -13,7 +13,9 @@ pub struct RequestHandler {
     pub handshake_handler: ParseHandler<NetworkRequestEnum>,
     pub get_peers_handler: ParseHandler<NetworkRequestEnum>,
     pub join_network_handler: ParseHandler<NetworkRequestEnum>,
-    pub leave_network_handler: ParseHandler<NetworkRequestEnum>
+    pub leave_network_handler: ParseHandler<NetworkRequestEnum>,
+
+    pub main_handler: ParseHandler<NetworkRequestEnum>
 }
 
 impl RequestHandler {
@@ -36,7 +38,16 @@ impl RequestHandler {
                     "Network request join network handler"),
             leave_network_handler: ParseHandler::new(
                     "Network request leave network handler"),
+            main_handler: ParseHandler::new(
+                    "Main Network request handler")
         }
+    }
+
+    pub fn add_callback(
+            &mut self,
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.main_handler.add_callback( callback);
+        self
     }
 
     pub fn add_ping_callback(
@@ -96,7 +107,9 @@ impl RequestHandler {
     }
 
     fn process_message(&self, msg: &NetworkRequest) -> ParseCallbackResult {
-        match msg {
+        let main_status = (&self.main_handler)(msg);
+
+        let spec_status = match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => { 
                 (&self.ping_handler)(ping_inner_pkt)
             },
@@ -121,7 +134,9 @@ impl RequestHandler {
             ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => { 
                 (&self.leave_network_handler)(leave_network_inner_pkt)
             }
-        }
+        };
+
+        main_status.and( spec_status)
     }
 
 }
