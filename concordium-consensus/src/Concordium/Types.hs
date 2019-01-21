@@ -5,7 +5,6 @@ import GHC.Generics
 import qualified Data.Map as Map
 import Data.Word
 import Data.ByteString
-import Data.ByteString.Builder
 import Data.Serialize.Put
 import Data.Serialize
 
@@ -36,6 +35,7 @@ type VoterSignKey = Sig.SignKey
 -- Using a floating point number for voter power may be a bad idea.
 type VoterPower = Double
 
+newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show)
 
 data Block = Block {
     blockSlot :: Slot,
@@ -67,7 +67,7 @@ serializeBlockBody sl bpt bid bpf bn lfpt bdata = do
     put bdata
 
 serializeBlock :: Block -> Put
-serializeBlock (Block {..}) = do
+serializeBlock Block{..} = do
     serializeBlockBody blockSlot blockPointer blockBaker blockProof blockNonce blockLastFinalized blockData
     put blockSignature
 
@@ -107,17 +107,18 @@ hashBlock :: Block -> BlockHash
 hashBlock = Hash.hashLazy . runPutLazy . serializeBlock
 
 data FinalizationProof = FinalizationProof
+    deriving (Eq, Ord)
 
 emptyFinalizationProof :: FinalizationProof
 emptyFinalizationProof = FinalizationProof
 
 
 data FinalizationRecord = FinalizationRecord {
-    finalizationIndex :: BlockHeight,
+    finalizationIndex :: FinalizationIndex,
     finalizationBlockPointer :: BlockHash,
     finalizationProof :: FinalizationProof,
     finalizationDelay :: BlockHeight
-}
+} deriving (Eq, Ord)
 
 data BakerInfo = BakerInfo {
     bakerElectionVerifyKey :: BakerElectionVerifyKey,

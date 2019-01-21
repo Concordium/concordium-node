@@ -29,17 +29,8 @@ instance KontrolMonad m => KontrolMonad (MaybeT m) where
     currentTimestamp = lift currentTimestamp
     timeUntilNextSlot = lift timeUntilNextSlot
 
-getBirkParameters :: (KontrolMonad m) => BlockHash -> m BirkParameters
-getBirkParameters _ = genesisBirkParameters <$> genesisData
-
-getGenesisTime :: (SkovMonad m) => m Timestamp
-getGenesisTime = genesisTime <$> genesisData
-
 getCurrentSlot :: (KontrolMonad m) => m Slot
 getCurrentSlot = do
         GenesisData{..} <- genesisData
         ct <- currentTimestamp
         return $ Slot ((ct - genesisTime) `div` genesisSlotDuration)
-
-getFinalizationParameters :: (KontrolMonad m) => BlockHeight -> m FinalizationParameters
-getFinalizationParameters _ = genesisFinalizationParameters <$> genesisData

@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 module Concordium.Skov.Monad where
 
-import Data.Word
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Data.Maybe
@@ -64,3 +63,12 @@ instance SkovMonad m => SkovMonad (MaybeT m) where
     getBlockHeight bh b = lift (getBlockHeight bh b)
     getCurrentHeight = lift getCurrentHeight
     getBlocksAtHeight = lift . getBlocksAtHeight
+
+getBirkParameters :: (SkovMonad m) => BlockHash -> m BirkParameters
+getBirkParameters _ = genesisBirkParameters <$> genesisData
+
+getGenesisTime :: (SkovMonad m) => m Timestamp
+getGenesisTime = genesisTime <$> genesisData
+
+getFinalizationParameters :: (SkovMonad m) => m FinalizationParameters
+getFinalizationParameters = genesisFinalizationParameters <$> genesisData

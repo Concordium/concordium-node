@@ -214,7 +214,7 @@ newCSSInstance totalWeight corruptWeight partyWeight = CSSInstance {..}
                 -- If there is a DoneReporting message awaiting this becoming justified, handle it
                 hdr <- unjustifiedDoneReporting . at (sp, c) . non Map.empty . at src <<.= Nothing
                 forM_ hdr $ handleDoneReporting src
-        receiveCSSMessage src sig (DoneReporting sawSet) = handleDoneReporting src (Map.toList sawSet)
+        receiveCSSMessage src _ (DoneReporting sawSet) = handleDoneReporting src (Map.toList sawSet)
         addManySaw :: party -> Choice -> m ()
         addManySaw party c = do
             oldMS <- manySaw . at party <<%= addChoice c
