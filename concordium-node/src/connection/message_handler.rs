@@ -87,8 +87,9 @@ mod message_handler_unit_test {
 
     #[test]
     pub fn test_message_handler_mix() {
-        let mh = MessageHandler::new()
-            .add_request_callback( make_callback!( request_handler_func_1))
+        let mut mh = MessageHandler::new();
+
+        mh.add_request_callback( make_callback!( request_handler_func_1))
             .add_request_callback( make_callback!( request_handler_func_2))
             .add_request_callback( make_callback!( |_| { Ok(()) })) 
             .add_response_callback( make_callback!( response_handler_func_1))
@@ -108,7 +109,7 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use connection::message_handler::{ MessageHandler };
-    use connection::packet_handler::{ PacketHandler, PacketHandlerDirect, PacketHandlerBroadcast };
+    use connection::packet_handler::{ PacketHandler };
     use connection::parse_handler::{ ParseCallbackResult };
     use common::{ ConnectionType, P2PPeer, P2PNodeId };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
@@ -162,12 +163,13 @@ mod integration_test {
     /// Creates message handler for testing.
     fn make_message_handler() -> MessageHandler {
         
-        let pkg_handler = PacketHandler::new()
-            .add_direct_callback( make_callback!( |_pd: &PacketHandlerDirect| {
+        let mut pkg_handler = PacketHandler::new();
+
+        pkg_handler.add_direct_callback( make_callback!( |_pd: &NetworkPacketEnum| {
                 NETWORK_PACKET_DIRECT_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
-            .add_broadcast_callback( make_callback!( |_pb: &PacketHandlerBroadcast| {
+            .add_broadcast_callback( make_callback!( |_pb: &NetworkPacketEnum| {
                 NETWORK_PACKET_BROADCAST_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }));

@@ -44,15 +44,14 @@ pub type ParseCallbackWrapper<T> = Arc< Mutex< Box< ParseCallback<T> > > >;
 /// let acc_1 = acc.clone();
 /// let acc_2 = acc.clone();
 ///
-/// let ph = ParseHandler::new( "Closures")
-///            .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| {
-///                *acc_1.borrow_mut() += x;
-///                Ok(()) 
-///            }))))
-///            .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| { 
-///                *acc_2.borrow_mut() *= x;
-///                Ok(()) 
-///            }))));
+/// let mut ph = ParseHandler::new( "Closures");
+///
+/// ph.add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| {
+///         *acc_1.borrow_mut() += x;
+///         Ok(()) }))))
+///     .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| { 
+///         *acc_2.borrow_mut() *= x;
+///         Ok(()) }))));
 ///
 /// let value = 42 as i32;
 /// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42 
@@ -63,7 +62,6 @@ pub type ParseCallbackWrapper<T> = Arc< Mutex< Box< ParseCallback<T> > > >;
 pub struct ParseHandler<T> {
     pub error_msg: &'static str,
     pub callbacks: Vec< ParseCallbackWrapper<T> >,
-    // pub context: HandlerContextWrapper
 }
 
 // unsafe impl<T> Send for ParseHandler<T> {}
@@ -126,8 +124,8 @@ mod parse_handler_unit_test {
     /// It tests if raw functions can be added as callback.
     #[test]
     pub fn test_parse_handler_raw_functions() {
-        let ph = ParseHandler::new( "Raw functions")
-            .add_callback( make_callback!( raw_func_1 ))
+        let mut ph = ParseHandler::new( "Raw functions");
+        ph.add_callback( make_callback!( raw_func_1 ))
             .add_callback( make_callback!( raw_func_2 ))
             .add_callback( make_callback!( raw_func_1 ));
 
@@ -138,8 +136,9 @@ mod parse_handler_unit_test {
     /// It tests if closures can be added as callback.
     #[test]
     pub fn test_parse_handler_closure() {
-        let ph = ParseHandler::new( "Closures")
-            .add_callback( make_callback!( |_x: &i32| { Ok(()) }))
+        let mut ph = ParseHandler::new( "Closures");
+
+        ph.add_callback( make_callback!( |_x: &i32| { Ok(()) }))
             .add_callback( make_callback!( |_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
@@ -149,8 +148,9 @@ mod parse_handler_unit_test {
     /// It tests if we can mix closures and functions.
     #[test]
     pub fn test_parse_handler_mix() {
-        let ph = ParseHandler::new( "Raw function and  Closure")
-            .add_callback( make_callback!( raw_func_1 ))
+        let mut ph = ParseHandler::new( "Raw function and  Closure");
+
+        ph.add_callback( make_callback!( raw_func_1 ))
             .add_callback( make_callback!( raw_func_2 ))
             .add_callback( make_callback!( |_x: &i32| { Ok(()) }))
             .add_callback( make_callback!( |_x: &i32| { Ok(()) }));
@@ -166,8 +166,9 @@ mod parse_handler_unit_test {
         let shd_counter_1 = shd_counter.clone();
         let shd_counter_2 = shd_counter.clone();
 
-        let ph = ParseHandler::new( "Complex Closure")
-            .add_callback( make_callback!( move |_x: &i32| { 
+        let mut ph = ParseHandler::new( "Complex Closure");
+
+        ph.add_callback( make_callback!( move |_x: &i32| { 
                 *shd_counter_1.borrow_mut() += 1; 
                 Ok(()) }))
             .add_callback( make_callback!( move |_: &i32| {
