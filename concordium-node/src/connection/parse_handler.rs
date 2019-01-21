@@ -81,7 +81,7 @@ impl<T> ParseHandler<T> {
     /// It adds new callback into this functor.
     /// 
     /// Callbacks are executed in the same order they were introduced.
-    pub fn add_callback(mut self, callback: ParseCallbackWrapper<T> ) -> Self 
+    pub fn add_callback(&mut self, callback: ParseCallbackWrapper<T> ) -> &mut Self 
     {
         self.callbacks.push( callback );
         self

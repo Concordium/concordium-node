@@ -22,16 +22,16 @@ impl PacketHandler {
     }
 
     pub fn add_direct_callback( 
-            mut self, 
-            callback: Arc< Mutex <Box< ParseCallback<PacketHandlerDirect> > > >) -> Self {
-        self.direct_parser = self.direct_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex <Box< ParseCallback<PacketHandlerDirect> > > >) -> &mut Self {
+        self.direct_parser.add_callback( callback);
         self
     }
     
     pub fn add_broadcast_callback( 
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<PacketHandlerBroadcast> > > >) -> Self {
-        self.broadcast_parser = self.broadcast_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<PacketHandlerBroadcast> > > >) -> &mut Self {
+        self.broadcast_parser.add_callback( callback);
         self
     }
    

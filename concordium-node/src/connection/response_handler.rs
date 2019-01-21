@@ -42,30 +42,30 @@ impl ResponseHandler {
 
 
     pub fn add_pong_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> Self {
-        self.pong_handler = self.pong_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> &mut Self {
+        self.pong_handler.add_callback( callback);
         self
     }
 
     pub fn add_find_node_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> Self {
-        self.find_node_handler = self.find_node_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> &mut Self {
+        self.find_node_handler.add_callback( callback);
         self
     }
 
     pub fn add_peer_list_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> Self {
-        self.peer_list_handler = self.peer_list_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> &mut Self {
+        self.peer_list_handler.add_callback( callback);
         self
     }
 
     pub fn add_handshake_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> Self {
-        self.handshake_handler = self.handshake_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse>>>>) -> &mut Self {
+        self.handshake_handler.add_callback( callback);
         self
     }
 }

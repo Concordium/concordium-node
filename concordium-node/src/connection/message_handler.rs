@@ -6,9 +6,9 @@ use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    request_parser: ParseHandler<NetworkRequest>,
-    response_parser: ParseHandler<NetworkResponse>,
-    packet_parser: ParseHandler<NetworkPacket>,
+    pub request_parser: ParseHandler<NetworkRequest>,
+    pub response_parser: ParseHandler<NetworkResponse>,
+    pub packet_parser: ParseHandler<NetworkPacket>,
 }
 
 impl MessageHandler {
@@ -25,23 +25,23 @@ impl MessageHandler {
     }
 
     pub fn add_request_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> Self {
-        self.request_parser = self.request_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> &mut Self {
+        self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> Self {
-        self.response_parser = self.response_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> &mut Self {
+        self.response_parser.add_callback( callback);
         self
     }
     
     pub fn add_packet_callback(
-            mut self, 
-            callback: Arc< Mutex< Box<ParseCallback<NetworkPacket> > > > ) -> Self {
-        self.packet_parser = self.packet_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box<ParseCallback<NetworkPacket> > > > ) -> &mut Self {
+        self.packet_parser.add_callback( callback);
         self
     }
 
@@ -64,6 +64,11 @@ impl MessageHandler {
 }
 
 impl_all_fns!( MessageHandler, NetworkMessage);
+
+pub trait MessageManager {
+    fn message_handler(&self) -> &MessageHandler;
+    fn mut_message_handler(&mut self) -> &mut MessageHandler;
+}
 
 #[cfg(test)]
 mod message_handler_unit_test {
@@ -166,8 +171,9 @@ mod integration_test {
                 Ok(())
             }));
 
-        let msg_handler = MessageHandler::new()
-            .add_request_callback( make_callback!( network_request_handler_1))
+        let mut msg_handler = MessageHandler::new();
+
+        msg_handler.add_request_callback( make_callback!( network_request_handler_1))
             .add_request_callback( make_callback!( network_request_handler_2))
             .add_request_callback( make_callback!( |_x: &NetworkRequest| { 
                 println!( 

@@ -22,11 +22,10 @@ use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, B
     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE };
 
 use connection::{ 
+    MessageHandler, MessageManager, RequestHandler, ResponseHandler,
     P2PEvent, SeenMessagesList, P2PNodeMode, ConnClientSession, ConnServerSession, 
     NetworkRequestSafeFn, NetworkResponseSafeFn, ConnSession };
-use connection::request_handler::{ RequestHandler };
-use connection::response_handler::{ ResponseHandler };
-use connection::message_handler::{ MessageHandler };
+
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
 
@@ -125,7 +124,7 @@ impl Connection {
                      message_handler: MessageHandler::new()
         };
 
-        lself.message_handler = lself.make_message_handler();
+        lself.make_message_handler();
         lself
     }
 
@@ -180,8 +179,8 @@ impl Connection {
 
     fn make_request_handler(&mut self) -> RequestHandler {
 
-        RequestHandler::new()
-            .add_ping_callback( self.make_default_network_request_ping_handle())
+        let mut rh = RequestHandler::new();
+            rh.add_ping_callback( self.make_default_network_request_ping_handle())
             .add_find_node_callback( self.make_default_network_request_find_node_handle())
             .add_ban_node_callback( self.make_default_network_request_ban_node_handler())
             .add_get_peers_callback( self.make_default_network_request_get_peers_handler())
@@ -200,7 +199,9 @@ impl Connection {
             .add_leave_network_callback( make_callback!(
                 move | _req: &NetworkRequest| {
                     Ok(())
-            }))
+            }));
+
+        rh
     }
 
     fn make_default_network_response_find_node_handler(&self) -> NetworkResponseSafeFn {
@@ -216,20 +217,21 @@ impl Connection {
     }
 
     fn make_response_handler(&mut self) -> ResponseHandler {
-        ResponseHandler::new()
-            .add_find_node_callback( self.make_default_network_response_find_node_handler())
+        let mut rh = ResponseHandler::new();
+        rh.add_find_node_callback( self.make_default_network_response_find_node_handler());
+
+        rh
     }
 
-    fn make_message_handler(&mut self) -> MessageHandler {
+    fn make_message_handler(&mut self) {
         let request_handler = self.make_request_handler();
         let response_handler = self.make_response_handler();
 
-        MessageHandler::new()
+        self.message_handler
             .add_request_callback( make_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req) }))
             .add_response_callback(  make_callback!(
-                move |res: &NetworkResponse| { (response_handler)(res) }))
-
+                move |res: &NetworkResponse| { (response_handler)(res) }));
     }
 
     // =============================
@@ -1061,5 +1063,15 @@ impl Connection {
             self.closing = true;
         }
         rc.chain_err(|| NetworkError("couldn't write TLS to socket".to_string()))
+    }
+}
+
+impl MessageManager for Connection {
+    fn message_handler(&self) -> &MessageHandler {
+        & self.message_handler
+    }
+
+    fn mut_message_handler(&mut self) -> &mut MessageHandler {
+        &mut self.message_handler
     }
 }

@@ -9,7 +9,9 @@ use webpki::{ DNSNameRef };
 
 use prometheus_exporter::PrometheusServer;
 
-use connection::{ Connection, P2PNodeMode, P2PEvent, SeenMessagesList }; 
+use connection::{ 
+    Connection, P2PNodeMode, P2PEvent, SeenMessagesList, MessageHandler, 
+    MessageManager }; 
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common;
 use p2p::unreachable_nodes::{ UnreachableNodes };
@@ -35,8 +37,8 @@ pub struct TlsServer {
     networks: Arc<Mutex<Vec<u16>>>,
     unreachable_nodes: UnreachableNodes,
     seen_messages: SeenMessagesList,
-    buckets: Arc< RwLock< Buckets > >
-    
+    buckets: Arc< RwLock< Buckets > >,
+    message_handler: MessageHandler    
 }
 
 impl TlsServer {
@@ -53,7 +55,7 @@ impl TlsServer {
            buckets: Arc< RwLock< Buckets > >
            )
            -> Self {
-        TlsServer { server,
+        let mut mself = TlsServer { server,
                     connections: HashMap::new(),
                     next_id: 2,
                     server_tls_config: server_cfg,
@@ -67,8 +69,12 @@ impl TlsServer {
                     networks: Arc::new(Mutex::new(networks)),
                     unreachable_nodes: UnreachableNodes::new(),
                     seen_messages: seen_messages, 
-                    buckets: buckets
-        }
+                    buckets: buckets,
+                    message_handler: MessageHandler::new()
+        };
+
+        mself.message_handler = mself.make_default_message_handler();
+        mself
     }
 
     pub fn log_event(&mut self, event: P2PEvent) {
@@ -141,23 +147,25 @@ impl TlsServer {
                 let token = Token(self.next_id);
                 self.next_id += 1;
 
-                self.connections.insert(token,
-                                        Connection::new(ConnectionType::Node,
-                                                        socket,
-                                                        token,
-                                                        Some(tls_session),
-                                                        None,
-                                                        false,
-                                                        self.own_id.clone(),
-                                                        self_id.clone(),
-                                                        addr.ip().clone(),
-                                                        addr.port().clone(),
-                                                        self.mode,
-                                                        self.prometheus_exporter.clone(),
-                                                        self.event_log.clone(),
-                                                        self.networks.clone(),
-                                                        self.seen_messages.clone(),
-                                                        self.buckets.clone()));
+                let mut conn = Connection::new(ConnectionType::Node,
+                                           socket,
+                                           token,
+                                           Some(tls_session),
+                                           None,
+                                           false,
+                                           self.own_id.clone(),
+                                           self_id.clone(),
+                                           addr.ip().clone(),
+                                           addr.port().clone(),
+                                           self.mode,
+                                           self.prometheus_exporter.clone(),
+                                           self.event_log.clone(),
+                                           self.networks.clone(),
+                                           self.seen_messages.clone(),
+                                           self.buckets.clone());
+                self.register_message_handlers( &mut conn);
+
+                self.connections.insert(token, conn);
                 self.connections[&token].register(poll)
             }
             Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
@@ -383,5 +391,35 @@ impl TlsServer {
         }
         Ok(())
     }
+
+    fn make_default_message_handler(&mut self) -> MessageHandler {
+        MessageHandler::new()
+    }
+
+    /// It adds all message handler callback to this connection.
+    fn register_message_handlers(&self, conn: &mut Connection) {
+        let ref mut mh = conn.mut_message_handler();
+
+        for callback in self.message_handler.packet_parser.callbacks.iter() {
+            mh.add_packet_callback( callback.clone());
+        }
+        
+        for callback in self.message_handler.response_parser.callbacks.iter() {
+            mh.add_response_callback( callback.clone());
+        }
+
+        for callback in self.message_handler.request_parser.callbacks.iter() {
+            mh.add_request_callback( callback.clone());
+        }
+    }
 }
 
+impl MessageManager for TlsServer {
+    fn message_handler(&self) -> &MessageHandler {
+        & self.message_handler
+    }
+
+    fn mut_message_handler(&mut self) -> &mut MessageHandler {
+        &mut self.message_handler
+    }
+}

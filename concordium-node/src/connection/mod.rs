@@ -91,3 +91,7 @@ pub use self::connection::Connection;
 pub use self::p2p_node_mode::P2PNodeMode;
 pub use self::p2p_event::P2PEvent;
 pub use self::seen_messages_list::SeenMessagesList;
+pub use self::message_handler::{ MessageHandler, MessageManager };
+pub use self::request_handler::{ RequestHandler };
+pub use self::response_handler::{ ResponseHandler };
+pub use self::packet_handler::{ PacketHandler };

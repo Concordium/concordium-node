@@ -134,7 +134,8 @@ pub fn default_network_request_get_peers(
 }
 
 /// TODO log_event and update target_network is pending
-pub fn default_network_request_join_network(
+/*
+fn default_network_request_join_network(
     self_peer: &P2PPeer,
     mode: P2PNodeMode,
     last_seen: & Rc< AtomicU64 >,
@@ -158,7 +159,7 @@ pub fn default_network_request_join_network(
     };
 
     Ok(())
-}
+}*/
 
 pub fn default_network_response_find_node (
     own_id: &P2PNodeId,
@@ -187,3 +188,14 @@ pub fn default_network_response_find_node (
         }
     }
 }
+
+/*
+pub fn default_network_response_pong (
+    mode: P2PNodeMode,
+    last_seen: & Rc< AtomicU64 >,
+    ) -> ParseCallbackResult {
+    debug!("Got response for ping");
+    self.set_measured_ping();
+
+    update_atomic_stamp!( mode, last_seen); 
+}*/
