@@ -123,9 +123,7 @@ processAwaitingLastFinalized = do
             skovBlocksAwaitingLastFinalized .= balf'
             -- This block is awaiting its last final block to be finalized.
             -- At this point, it should be or it never will.
-            parentStatus <- use (skovBlockTable . at (blockPointer (pbBlock pb)))
-            assert (isJust parentStatus) $
-                addBlock parentStatus pb
+            addBlock pb
             processAwaitingLastFinalized
 
 processFinalizationPool :: Monad m => StateT SkovData m ()
@@ -193,9 +191,9 @@ processFinalizationPool = do
                 Right frs' -> skovFinalizationPool . at nextFinIx . non [] .= frs'
             
 
-addBlock :: (Monad m) => Maybe BlockStatus -> PendingBlock -> StateT SkovData m ()
-addBlock parentStatus pb@(PendingBlock cbp block) = do
-    res <- runMaybeT (tryAddBlock parentStatus pb)
+addBlock :: (Monad m) => PendingBlock -> StateT SkovData m ()
+addBlock pb@(PendingBlock cbp block) = do
+    res <- runMaybeT (tryAddBlock pb)
     case res of
         Nothing -> blockArriveDead cbp
         Just False -> return () -- The block was not inserted
@@ -203,17 +201,17 @@ addBlock parentStatus pb@(PendingBlock cbp block) = do
             processFinalizationPool
             -- Handle any blocks that are waiting for this one
             mchildren <- skovPossiblyPendingTable . at cbp <<.= Nothing
-            forM_ mchildren $ \children -> do
-                status <- use (skovBlockTable . at cbp)
+            forM_ mchildren $ \children ->
                 forM_ children $ \childpb -> do
                     childStatus <- use (skovBlockTable . at (pbHash childpb))
-                    when (isNothing childStatus) $ addBlock status childpb
+                    when (isNothing childStatus) $ addBlock childpb
 
-tryAddBlock :: (Monad m) => Maybe BlockStatus -> PendingBlock -> MaybeT (StateT SkovData m) Bool
-tryAddBlock parentStatus pb@(PendingBlock cbp block) = do
+tryAddBlock :: (Monad m) => PendingBlock -> MaybeT (StateT SkovData m) Bool
+tryAddBlock pb@(PendingBlock cbp block) = do
         lfs <- use (to lastFinalizedSlot)
         -- The block must be later than the last finalized block
         guard $ lfs < blockSlot block
+        parentStatus <- use (skovBlockTable . at (blockPointer block))
         case parentStatus of
             Nothing -> do
                 skovPossiblyPendingTable . at parent . non [] %= (pb:)
@@ -304,11 +302,9 @@ instance Monad m => SkovMonad (StateT SkovData m) where
     storeBlock block0 = do
             let cbp = hashBlock block0
             oldBlock <- use (skovBlockTable . at cbp)
-            when (isNothing oldBlock) $ do
+            when (isNothing oldBlock) $
                 -- The block is new, so we have some work to do.
-                let parent = blockPointer block0
-                parentStatus <- use (skovBlockTable . at parent)
-                addBlock parentStatus (PendingBlock cbp block0)
+                addBlock (PendingBlock cbp block0)
             return cbp
     finalizeBlock finRec = do
             let thisFinIx = finalizationIndex finRec
