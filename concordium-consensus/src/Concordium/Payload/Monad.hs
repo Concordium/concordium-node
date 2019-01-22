@@ -11,6 +11,6 @@ class SkovMonad m => PayloadMonad m where
     -- 1. the block is not in the tree;
     -- 2. more than one transaction with the same nonce occurs in the chain;
     -- 3. the transactions of any block in the chain cannot be deserialized.
-    getTransactionsAtBlock :: BlockHash -> m (Maybe (Map.Map TransactionNonce Transaction))
-    getPendingTransactionsAtBlock :: BlockHash -> m (Maybe (Map.Map TransactionNonce Transaction))
+    getTransactionsAtBlock :: BlockPointer -> m (Maybe (Map.Map TransactionNonce Transaction))
+    getPendingTransactionsAtBlock :: BlockPointer -> m (Maybe (Map.Map TransactionNonce Transaction))
     addPendingTransaction :: Transaction -> m ()

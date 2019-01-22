@@ -9,7 +9,7 @@ import Concordium.Types
 
 class Monad m => SkovMonad m where
     -- |Look up a block in the table given its hash
-    resolveBlock :: BlockHash -> m (Maybe Block)
+    resolveBlock :: BlockHash -> m (Maybe BlockPointer)
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: Block -> m BlockHash
@@ -20,31 +20,16 @@ class Monad m => SkovMonad m where
     -- |Determine if a block has been finalized
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block
-    lastFinalizedBlock :: m FinalizationRecord
+    lastFinalizedBlock :: m BlockPointer
     genesisData :: m GenesisData
-    genesisBlockHash :: m BlockHash
-    genesisBlock :: m Block
-    genesisBlock = genesisBlockHash >>= (fmap fromJust . resolveBlock)
-    -- |Height of a block in its chain.  If the chain cannot be
-    -- traced to the genesis block, this returns 'Nothing'.
-    getBlockHeight :: BlockHash -> Block -> m (Maybe BlockHeight)
-    getBlockHeight = gcl 0
-        where
-            gcl n bh b = do
-                gbh <- genesisBlockHash
-                if bh == gbh then
-                    return (Just n)
-                else
-                    resolveBlock (blockPointer b) >>= \case
-                        Nothing -> return Nothing
-                        Just b' -> gcl (n+1) (blockPointer b) b'
+    genesisBlock :: m BlockPointer
     -- |Get the height of the highest blocks in the tree.
     -- Note: the genesis block has height 0
     getCurrentHeight :: m BlockHeight
     -- |Get the blocks in the branches of the tree grouped by descending height.
     -- That is the first element of the list is all of the blocks at 'getCurrentHeight',
     -- the next is those at @getCurrentHeight - 1@, etc.
-    branchesFromTop :: m [[BlockHash]]
+    branchesFromTop :: m [[BlockPointer]]
 
 instance SkovMonad m => SkovMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock
@@ -53,13 +38,11 @@ instance SkovMonad m => SkovMonad (MaybeT m) where
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
     genesisData = lift genesisData
-    genesisBlockHash = lift genesisBlockHash
     genesisBlock = lift genesisBlock
-    getBlockHeight bh b = lift (getBlockHeight bh b)
     getCurrentHeight = lift getCurrentHeight
     branchesFromTop = lift branchesFromTop
 
-getBirkParameters :: (SkovMonad m) => BlockHash -> m BirkParameters
+getBirkParameters :: (SkovMonad m) => Slot -> m BirkParameters
 getBirkParameters _ = genesisBirkParameters <$> genesisData
 
 getGenesisTime :: (SkovMonad m) => m Timestamp

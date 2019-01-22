@@ -25,7 +25,7 @@ data BakerIdentity = BakerIdentity {
 
 instance Serialize BakerIdentity where
 
-processInputs :: (PayloadMonad m) => BlockHash -> m (Maybe BlockData)
+processInputs :: (PayloadMonad m) => BlockPointer -> m (Maybe BlockData)
 processInputs bh = 
     fmap (fromTransactions . take 100 . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
 
@@ -33,13 +33,13 @@ bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (M
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     -- TODO: Should check that the best block is not already in this slot!
     bb <- bestBlockBefore slot
-    BirkParameters{..} <- getBirkParameters bb
+    BirkParameters{..} <- getBirkParameters slot
     electionProof <- MaybeT . pure $ do
         lotteryPower <- bakerLotteryPower <$> birkBakers ^? ix bakerId
         leaderElection birkLeadershipElectionNonce birkElectionDifficulty slot bakerElectionKey lotteryPower
     let nonce = computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
-    lastFinal <- finalizationBlockPointer <$> lastFinalizedBlock
+    lastFinal <- lastFinalizedBlock
     payload <- MaybeT $ processInputs bb
-    let block = signBlock bakerSignKey slot bb bakerId electionProof nonce lastFinal payload
+    let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) payload
     storeBlock block
     return block

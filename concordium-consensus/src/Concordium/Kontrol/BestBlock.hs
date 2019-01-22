@@ -8,17 +8,17 @@ import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 -- import Concordium.Kontrol.VerifyBlock
 
-blockLuck :: (KontrolMonad m) => BlockHash -> Block -> m Double
-blockLuck bh block = do
-        gbh <- genesisBlockHash
-        if bh == gbh then
+blockLuck :: (KontrolMonad m) => BlockPointer -> m Double
+blockLuck block = do
+        gb <- genesisBlock
+        if block == gb then
             return 1
         else do
-            params <- getBirkParameters bh
-            case birkBaker (blockBaker block) params of
+            params <- getBirkParameters (blockSlot (bpBlock block))
+            case birkBaker (blockBaker (bpBlock block)) params of
                 Nothing -> return 0 -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just baker ->
-                    return (electionLuck (birkElectionDifficulty params) (bakerLotteryPower baker) (blockProof block))
+                    return (electionLuck (birkElectionDifficulty params) (bakerLotteryPower baker) (blockProof (bpBlock block)))
 
 {-
 bestBlock :: forall m. (KontrolMonad m) => m BlockHash
@@ -59,26 +59,25 @@ bestBlock = getCurrentHeight >>= bb
                 return br
 -}
 
-bestBlockBefore :: forall m. (KontrolMonad m) => Slot -> m BlockHash
+bestBlockBefore :: forall m. (KontrolMonad m) => Slot -> m BlockPointer
 bestBlockBefore slotBound = branchesFromTop >>= bb
     where
-        bb [] = finalizationBlockPointer <$> lastFinalizedBlock
+        bb [] = lastFinalizedBlock
         bb (blocks : branches) = do
-            rblocks <- mapM (\bh -> (bh,) <$> resolveBlock bh) blocks
-            let filteredBlocks = [(bh, b) | (bh, Just b) <- rblocks, blockSlot b < slotBound]
+            let filteredBlocks = filter (\b -> blockSlot (bpBlock b) < slotBound) blocks
             bestBlock <- foldrM compareBlocks Nothing filteredBlocks
             case bestBlock of
                 Nothing -> bb branches
-                Just (bh, _, _) -> return bh
-        compareBlocks :: (BlockHash, Block) -> Maybe (BlockHash, Block, Maybe Double) -> m (Maybe (BlockHash, Block, Maybe Double))
-        compareBlocks (bh, b) Nothing = return $ Just (bh, b, Nothing)
-        compareBlocks (bh, b) best@(Just (bestbh, bestb, mbestLuck)) =
-            case compare (blockSlot bestb) (blockSlot b) of
-                LT -> return $ Just (bh, b, Nothing)
+                Just (bp, _) -> return bp
+        compareBlocks :: BlockPointer -> Maybe (BlockPointer, Maybe Double) -> m (Maybe (BlockPointer, Maybe Double))
+        compareBlocks bp Nothing = return $ Just (bp, Nothing)
+        compareBlocks contender best@(Just (bestb, mbestLuck)) =
+            case compare (blockSlot (bpBlock bestb)) (blockSlot (bpBlock contender)) of
+                LT -> return $ Just (contender, Nothing)
                 GT -> return best
                 EQ -> do
-                    luck <- blockLuck bh b
+                    luck <- blockLuck contender
                     bestLuck <- case mbestLuck of
                         Just l -> return l
-                        Nothing -> blockLuck bestbh bestb
-                    return $ Just $ if (bestLuck, bestbh) < (luck, bh) then (bh, b, Just luck) else (bestbh, bestb, Just bestLuck)
+                        Nothing -> blockLuck bestb
+                    return $ Just $ if (bestLuck, bpHash bestb) < (luck, bpHash contender) then (contender, Just luck) else (bestb, Just bestLuck)

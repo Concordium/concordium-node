@@ -7,6 +7,7 @@ import Data.Word
 import Data.ByteString
 import Data.Serialize.Put
 import Data.Serialize
+import Data.Hashable
 
 import qualified Concordium.Crypto.DummySignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -106,6 +107,24 @@ verifyBlockSignature kv Block{..} = Sig.verify kv bs blockSignature
 hashBlock :: Block -> BlockHash
 hashBlock = Hash.hashLazy . runPutLazy . serializeBlock
 
+data BlockPointer = BlockPointer {
+    bpHash :: !BlockHash,
+    bpBlock :: !Block,
+    bpParent :: BlockPointer,
+    bpLastFinalized :: BlockPointer,
+    bpHeight :: !BlockHeight
+}
+
+instance Eq BlockPointer where
+    bp1 == bp2 = bpHash bp1 == bpHash bp2
+
+instance Ord BlockPointer where
+    compare bp1 bp2 = compare (bpHash bp1) (bpHash bp2)
+
+instance Hashable BlockPointer where
+    hashWithSalt s = hashWithSalt s . bpHash
+    hash = hash . bpHash
+
 data FinalizationProof = FinalizationProof
     deriving (Eq, Ord)
 
@@ -173,3 +192,13 @@ makeGenesisBlock genData = Block {
     blockData = runPut $ put genData,
     blockSignature = Sig.emptySignature
 }
+
+makeGenesisBlockPointer :: GenesisData -> BlockPointer
+makeGenesisBlockPointer genData = theBlockPointer
+    where
+        theBlockPointer = BlockPointer {..}
+        bpBlock = makeGenesisBlock genData
+        bpHash = hashBlock bpBlock
+        bpParent = theBlockPointer
+        bpLastFinalized = theBlockPointer
+        bpHeight = 0
