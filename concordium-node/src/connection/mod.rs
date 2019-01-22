@@ -1,11 +1,12 @@
 use std::sync::{ Arc, RwLock };
 use rustls::{ ServerSession, ClientSession, Session };
 
-use network::{ NetworkRequest, NetworkResponse };
-use connection::parse_handler::{ ParseCallbackWrapper };
+use network::{ NetworkRequest, NetworkResponse, NetworkPacket };
+pub use self::parse_handler::{ ParseCallbackResult, ParseCallback, ParseCallbackWrapper, ParseHandler };
 
-type NetworkRequestSafeFn = ParseCallbackWrapper<NetworkRequest>;
-type NetworkResponseSafeFn = ParseCallbackWrapper<NetworkResponse>;
+pub type NetworkRequestSafeFn = ParseCallbackWrapper<NetworkRequest>;
+pub type NetworkResponseSafeFn = ParseCallbackWrapper<NetworkResponse>;
+pub type NetworkPacketSafeFn = ParseCallbackWrapper<NetworkPacket>;
 
 type ConnServerSession = Option< Arc< RwLock< ServerSession > > >;
 type ConnClientSession = Option< Arc< RwLock< ClientSession > > >;
@@ -91,3 +92,8 @@ pub use self::connection::Connection;
 pub use self::p2p_node_mode::P2PNodeMode;
 pub use self::p2p_event::P2PEvent;
 pub use self::seen_messages_list::SeenMessagesList;
+pub use self::message_handler::{ MessageHandler, MessageManager };
+pub use self::request_handler::{ RequestHandler };
+pub use self::response_handler::{ ResponseHandler };
+pub use self::packet_handler::{ PacketHandler };
+

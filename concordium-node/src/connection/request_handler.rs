@@ -13,7 +13,9 @@ pub struct RequestHandler {
     pub handshake_handler: ParseHandler<NetworkRequestEnum>,
     pub get_peers_handler: ParseHandler<NetworkRequestEnum>,
     pub join_network_handler: ParseHandler<NetworkRequestEnum>,
-    pub leave_network_handler: ParseHandler<NetworkRequestEnum>
+    pub leave_network_handler: ParseHandler<NetworkRequestEnum>,
+
+    pub main_handler: ParseHandler<NetworkRequestEnum>
 }
 
 impl RequestHandler {
@@ -36,67 +38,78 @@ impl RequestHandler {
                     "Network request join network handler"),
             leave_network_handler: ParseHandler::new(
                     "Network request leave network handler"),
+            main_handler: ParseHandler::new(
+                    "Main Network request handler")
         }
     }
 
+    pub fn add_callback(
+            &mut self,
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.main_handler.add_callback( callback);
+        self
+    }
+
     pub fn add_ping_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.ping_handler = self.ping_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.ping_handler.add_callback( callback);
         self
     }
 
     pub fn add_find_node_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.find_node_handler = self.find_node_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.find_node_handler.add_callback( callback);
         self
     }
 
     pub fn add_ban_node_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.ban_node_handler = self.ban_node_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.ban_node_handler.add_callback( callback);
         self
     }
 
     pub fn add_unban_node_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.unban_node_handler = self.unban_node_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.unban_node_handler.add_callback( callback);
         self
     }
 
     pub fn add_handshake_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.handshake_handler = self.handshake_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.handshake_handler.add_callback( callback);
         self
     }
 
     pub fn add_get_peers_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.get_peers_handler = self.get_peers_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.get_peers_handler.add_callback( callback);
         self
     }
  
     pub fn add_join_network_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.join_network_handler = self.join_network_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.join_network_handler.add_callback( callback);
         self
     }
     
     pub fn add_leave_network_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> Self {
-        self.leave_network_handler = self.leave_network_handler.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+        self.leave_network_handler.add_callback( callback);
         self
     }
 
     fn process_message(&self, msg: &NetworkRequest) -> ParseCallbackResult {
-        match msg {
+        let main_status = (&self.main_handler)(msg);
+
+        let spec_status = match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => { 
                 (&self.ping_handler)(ping_inner_pkt)
             },
@@ -121,7 +134,9 @@ impl RequestHandler {
             ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => { 
                 (&self.leave_network_handler)(leave_network_inner_pkt)
             }
-        }
+        };
+
+        main_status.and( spec_status)
     }
 
 }
@@ -144,8 +159,9 @@ mod request_handler_test {
     static BAN_NODE_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
     fn make_request_handler() -> RequestHandler {
-        RequestHandler::new()
-            .add_ping_callback( make_callback!( |_:&NetworkRequestEnum| {
+        let mut handler = RequestHandler::new();
+
+        handler.add_ping_callback( make_callback!( |_:&NetworkRequestEnum| {
                 PING_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
@@ -156,7 +172,9 @@ mod request_handler_test {
             .add_ban_node_callback( make_callback!( |_:&NetworkRequestEnum| {
                 BAN_NODE_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
-            }))
+            }));
+
+        handler
     }
 
     fn ut_1_data() -> Vec<NetworkRequestEnum> {

@@ -6,9 +6,9 @@ use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    request_parser: ParseHandler<NetworkRequest>,
-    response_parser: ParseHandler<NetworkResponse>,
-    packet_parser: ParseHandler<NetworkPacket>,
+    pub request_parser: ParseHandler<NetworkRequest>,
+    pub response_parser: ParseHandler<NetworkResponse>,
+    pub packet_parser: ParseHandler<NetworkPacket>,
 }
 
 impl MessageHandler {
@@ -25,27 +25,28 @@ impl MessageHandler {
     }
 
     pub fn add_request_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> Self {
-        self.request_parser = self.request_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> &mut Self {
+        self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
-            mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> Self {
-        self.response_parser = self.response_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> &mut Self {
+        self.response_parser.add_callback( callback);
         self
     }
     
     pub fn add_packet_callback(
-            mut self, 
-            callback: Arc< Mutex< Box<ParseCallback<NetworkPacket> > > > ) -> Self {
-        self.packet_parser = self.packet_parser.add_callback( callback);
+            &mut self, 
+            callback: Arc< Mutex< Box<ParseCallback<NetworkPacket> > > > ) -> &mut Self {
+        self.packet_parser.add_callback( callback);
         self
     }
 
     fn process_message(&self, msg: &NetworkMessage) -> ParseCallbackResult {
+
         match msg {
             NetworkMessage::NetworkRequest(ref nr, _, _) => {
                 (&self.request_parser)( nr)
@@ -65,6 +66,11 @@ impl MessageHandler {
 
 impl_all_fns!( MessageHandler, NetworkMessage);
 
+pub trait MessageManager {
+    fn message_handler(&self) -> &MessageHandler;
+    fn mut_message_handler(&mut self) -> &mut MessageHandler;
+}
+
 #[cfg(test)]
 mod message_handler_unit_test {
     use connection::message_handler::{ MessageHandler, ParseCallbackResult };
@@ -81,8 +87,9 @@ mod message_handler_unit_test {
 
     #[test]
     pub fn test_message_handler_mix() {
-        let mh = MessageHandler::new()
-            .add_request_callback( make_callback!( request_handler_func_1))
+        let mut mh = MessageHandler::new();
+
+        mh.add_request_callback( make_callback!( request_handler_func_1))
             .add_request_callback( make_callback!( request_handler_func_2))
             .add_request_callback( make_callback!( |_| { Ok(()) })) 
             .add_response_callback( make_callback!( response_handler_func_1))
@@ -102,7 +109,7 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use connection::message_handler::{ MessageHandler };
-    use connection::packet_handler::{ PacketHandler, PacketHandlerDirect, PacketHandlerBroadcast };
+    use connection::packet_handler::{ PacketHandler };
     use connection::parse_handler::{ ParseCallbackResult };
     use common::{ ConnectionType, P2PPeer, P2PNodeId };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
@@ -156,18 +163,20 @@ mod integration_test {
     /// Creates message handler for testing.
     fn make_message_handler() -> MessageHandler {
         
-        let pkg_handler = PacketHandler::new()
-            .add_direct_callback( make_callback!( |_pd: &PacketHandlerDirect| {
+        let mut pkg_handler = PacketHandler::new();
+
+        pkg_handler.add_direct_callback( make_callback!( |_pd: &NetworkPacketEnum| {
                 NETWORK_PACKET_DIRECT_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
-            .add_broadcast_callback( make_callback!( |_pb: &PacketHandlerBroadcast| {
+            .add_broadcast_callback( make_callback!( |_pb: &NetworkPacketEnum| {
                 NETWORK_PACKET_BROADCAST_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }));
 
-        let msg_handler = MessageHandler::new()
-            .add_request_callback( make_callback!( network_request_handler_1))
+        let mut msg_handler = MessageHandler::new();
+
+        msg_handler.add_request_callback( make_callback!( network_request_handler_1))
             .add_request_callback( make_callback!( network_request_handler_2))
             .add_request_callback( make_callback!( |_x: &NetworkRequest| { 
                 println!( 

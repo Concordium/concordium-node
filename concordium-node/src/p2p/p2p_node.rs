@@ -23,8 +23,10 @@ use std::thread;
 
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
-use network::{ NetworkMessage, NetworkPacket, NetworkRequest, Buckets };
-use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList }; 
+use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
+use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager, 
+    MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
+    NetworkRequestSafeFn }; 
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
@@ -51,6 +53,8 @@ pub struct P2PNode {
     external_port: u16,
     seen_messages: SeenMessagesList,
     minimum_per_bucket: usize,
+
+    message_handler: MessageHandler
 }
 
 unsafe impl Send for P2PNode {}
@@ -186,7 +190,8 @@ impl P2PNode {
                                      seen_messages.clone(),
                                      buckets.clone());
 
-        P2PNode { tls_server: Arc::new(Mutex::new(tlsserv)),
+        let mut mself = P2PNode { 
+                  tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),
                   id: _id,
                   buckets: buckets,
@@ -201,9 +206,65 @@ impl P2PNode {
                   external_port: own_peer_port,
                   mode: mode,
                   seen_messages: seen_messages,
-                  minimum_per_bucket: minimum_per_bucket, }
+                  minimum_per_bucket: minimum_per_bucket,
+                  message_handler: MessageHandler::new()
+        };
+        mself.add_default_message_handlers();
+        mself
     }
 
+    /// It adds default message handler at .
+    fn add_default_message_handlers(&mut self) {
+        let packet_handler = self.make_packet_handler();
+        let response_handler = self.make_response_handler();
+        let request_handler = self.make_request_handler();
+
+        self.message_handler
+            .add_packet_callback( Arc::new( Mutex::new( Box::new(
+                    move |pac: &NetworkPacket| { (packet_handler)(pac) }))))
+            .add_response_callback( Arc::new( Mutex::new( Box::new(
+                    move |res: &NetworkResponse| { (response_handler)(res) }))))
+            .add_request_callback( Arc::new( Mutex::new( Box::new(
+                    move |req: &NetworkRequest| { (request_handler)(req) }))));
+
+        self.register_message_handlers();
+    }
+
+    fn make_packet_handler(&self) -> PacketHandler {
+        let handler = PacketHandler::new();
+        handler
+    }
+
+    fn make_response_handler(&self) -> ResponseHandler {
+        let handler = ResponseHandler::new();
+        handler
+    }
+
+    fn make_requeue_handler(&self) -> NetworkRequestSafeFn {
+        let packet_queue = self.incoming_pkts.clone(); // : Sender<Arc<Box<NetworkMessage>>>,
+
+        Arc::new( Mutex::new( Box::new( move |req: &NetworkRequest| {
+            let cloned_req = req.clone();
+            packet_queue.send( Arc::new( Box::new( NetworkMessage::NetworkRequest( cloned_req, None, None))))
+                .map_err( |se| {
+                    ErrorWrapper::with_chain( 
+                        se, 
+                        ErrorKindWrapper::FunctorRunningError( "Couldn't send to packet queue"))
+                }) 
+        })))
+    }
+
+    fn make_request_handler(&self) -> RequestHandler {
+        let requeue_handler = self.make_requeue_handler();
+        let mut handler = RequestHandler::new();
+        
+        handler
+            .add_ban_node_callback( requeue_handler.clone())
+            .add_unban_node_callback( requeue_handler.clone());
+
+        handler
+    }
+    
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
         let mut self_clone = self.clone();
         thread::spawn(move || {
@@ -756,6 +817,35 @@ impl P2PNode {
         self.process_messages()?;
         Ok(())
     }
+    
+    /// It adds all message handler callback to this connection.
+    fn register_message_handlers(&self) {
+        if let Some(mut tls_server_lock) = self.tls_server.lock().ok() {
+
+            let ref mut mh = tls_server_lock.mut_message_handler();
+
+            for callback in self.message_handler.packet_parser.callbacks.iter() {
+                mh.add_packet_callback( callback.clone());
+            }
+
+            for callback in self.message_handler.response_parser.callbacks.iter() {
+                mh.add_response_callback( callback.clone());
+            }
+
+            for callback in self.message_handler.request_parser.callbacks.iter() {
+                mh.add_request_callback( callback.clone());
+            }
+        }
+    }
 }
 
+impl MessageManager for P2PNode {
+    fn message_handler(&self) -> &MessageHandler {
+        & self.message_handler
+    }
+
+    fn mut_message_handler(&mut self) -> &mut MessageHandler {
+        &mut self.message_handler
+    }
+}
 
