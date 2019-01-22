@@ -11,8 +11,6 @@ import Data.Foldable
 import Data.Maybe
 
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import qualified Data.HashSet as HS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -39,7 +37,6 @@ data SkovData = SkovData {
     _skovFinalizationList :: Seq.Seq FinalizationRecord,
     _skovFinalizationPool :: Map.Map FinalizationIndex [FinalizationRecord],
     _skovBranches :: Seq.Seq [BlockHash],
-    _skovValidatedBlocks :: HS.HashSet BlockHash,
     _skovGenesisData :: GenesisData,
     _skovGenesisBlock :: Block,
     _skovGenesisBlockHash :: BlockHash,
@@ -58,7 +55,6 @@ initialSkovData gd = SkovData {
             _skovFinalizationList = Seq.singleton gbfin,
             _skovFinalizationPool = Map.empty,
             _skovBranches = Seq.empty,
-            _skovValidatedBlocks = HS.singleton gbh,
             _skovGenesisData = gd,
             _skovGenesisBlock = gb,
             _skovGenesisBlockHash = gbh,
@@ -101,7 +97,9 @@ purgePending = do
         let purge ppq = case MPQ.minViewWithKey ppq of
                 Just ((sl, bh), ppq') ->
                     if sl <= lfSlot then do
-                        blockArriveDead bh
+                        blockStatus <- use (skovBlockStatus . at bh)
+                        when (isNothing blockStatus) $
+                            blockArriveDead bh
                         purge ppq'
                     else
                         return ppq
@@ -116,12 +114,13 @@ processAwaitingLastFinalized = do
     (MPQ.minViewWithKey <$> use skovBlocksAwaitingLastFinalized) >>= \case
         Nothing -> return ()
         Just ((h, bh), balf') -> when (h <= lastFinHeight) $ do
+            skovBlocksAwaitingLastFinalized .= balf'
             -- This block is awaiting its last final block to be finalized.
             -- At this point, it should be or it never will.
             Just block0 <- resolveBlock bh
             let parent = blockPointer block0
             parentStatus <- use (skovBlockStatus . at parent)
-            assert (not (isNothing parentStatus)) $
+            assert (isJust parentStatus) $
                 addBlock parentStatus block0 bh
             processAwaitingLastFinalized
 
@@ -132,15 +131,15 @@ processFinalizationPool = do
     case finPending of
         Nothing -> return ()
         Just frs -> do
-            bs <- use skovBlockStatus
+            blockStatus <- use skovBlockStatus
             lastFinRec <- use (to lastFinalizationRecord)
             finParams <- getFinalizationParameters
             let
-                Just (BlockFinalized lastFinHeight _) = bs ^. at (finalizationBlockPointer lastFinRec)
+                Just (BlockFinalized lastFinHeight _) = blockStatus ^. at (finalizationBlockPointer lastFinRec)
                 goodFin FinalizationRecord{..} =
                     -- FIXME: verify the finalizationProof
                     finalizationIndex == nextFinIx -- Should always be true
-                checkFin finRec lp = case bs ^. at (finalizationBlockPointer finRec) of
+                checkFin finRec lp = case blockStatus ^. at (finalizationBlockPointer finRec) of
                     -- If the block is not present, the finalization record is pending
                     Nothing -> (finRec :) <$> lp
                     -- If the block is alive and the finalization proof checks out,
@@ -173,19 +172,19 @@ processFinalizationPool = do
                     let
                         pruneBranches [] _ = return Seq.empty
                         pruneBranches _ Seq.Empty = return Seq.empty
-                        pruneBranches parents (bs Seq.:<| rest) = do
-                            bs' <- foldrM (\bp l ->
+                        pruneBranches parents (branches Seq.:<| rest) = do
+                            survivors <- foldrM (\bp l ->
                                 if hasLiveParent parents bp then
                                     return (bp:l)
                                 else do
                                     skovBlockStatus . at bp ?= BlockDead
                                     return l)
-                                [] bs
-                            rest' <- pruneBranches bs' rest
-                            return (bs' Seq.<| rest')
+                                [] branches
+                            rest' <- pruneBranches survivors rest
+                            return (survivors Seq.<| rest')
                         hasLiveParent parents bp = case HM.lookup bp blockTable of
                             Nothing -> error "Malformed SkovData - block not found in block table"
-                            Just (Block{blockPointer = parent}) -> parent `elem` parents
+                            Just Block{blockPointer = parent} -> parent `elem` parents
                     newBranches <- pruneBranches [finBlock] oldBranches
                     skovBranches .= newBranches
                     skovBranches .= Seq.drop pruneHeight oldBranches
@@ -205,7 +204,19 @@ addBlock parentStatus block bh = do
         Just False -> return () -- The block was not inserted
         Just True -> do
             processFinalizationPool
-    when (isNothing res) $ skovBlockStatus . at bh ?= BlockDead
+            -- Handle any blocks that are waiting for this one
+            mchildren <- skovPossiblyPendingTable . at bh <<.= Nothing
+            forM_ mchildren $ \children -> do
+                status <- use (skovBlockStatus . at bh)
+                forM_ children $ \childbh -> do
+                    childStatus <- use (skovBlockStatus . at childbh)
+                    when (isNothing childStatus) $ do
+                        Just childb <- resolveBlock childbh
+                        addBlock status childb childbh
+
+
+
+
 -- tryAddBlock :: Maybe BlockStatus -> Block -> BlockHash -> MaybeT m ()
 tryAddBlock :: (Monad m) => Maybe BlockStatus -> Block -> BlockHash -> MaybeT (StateT SkovData m) Bool
 tryAddBlock parentStatus block bh = do
@@ -240,11 +251,13 @@ tryAddBlock parentStatus block bh = do
                     -- (Blocks can be implicitly finalized when a descendent is finalized.)
                     guard $ finalizationBlockPointer finRec == lf
                     -- We need to know that the slot numbers of the last finalized blocks are ordered.
-                    -- Rather than check this directly, we'll check that their heights are ordered.
-                    -- This is sufficient, because blocks will only arrive in the tree, and finalization
-                    -- records accepted, if the slots are appropriately ordered.
-                    Just (BlockFinalized pFinHeight pFinRec) <- use $ skovBlockStatus . at (blockLastFinalized parentB)
-                    guard $ finalizationIndex finRec <= finalizationIndex pFinRec
+                    -- If the parent block is the genesis block then its last finalized pointer is not valid,
+                    -- and we skip the check.
+                    gbh <- genesisBlockHash
+                    unless (parent == gbh) $ do
+                        Just lfB <- use (skovBlockTable . at lf)
+                        Just plfB <- use (skovBlockTable . at (blockLastFinalized parentB))
+                        guard $ blockSlot plfB <= blockSlot lfB
                     bps@BirkParameters{..} <- getBirkParameters bh
                     BakerInfo{..} <- MaybeT $ pure $ birkBaker (blockBaker block) bps
                     -- Check the block proof
@@ -300,47 +313,6 @@ instance Monad m => SkovMonad (StateT SkovData m) where
                 parentStatus <- use (skovBlockStatus . at parent)
                 addBlock parentStatus block0 bh
             return bh
-
-                {-
-            -- --
-            parentStatus <- preuse (skovBlockStatus . ix (blockPointer block))
-            updateStatus parentStatus bh
-            return bh
-        where
-            updateStatus parentStatus bh = do
-                finList <- use skovFinalizationList
-                let finLen = fromIntegral $ Seq.length finList
-                oldStatus <- preuse (skovBlockStatus . ix bh)
-                case parentStatus of
-                    Just (BlockFinalized fr) -> let h = finalizationIndex fr in
-                        if h+1 < finLen && finalizationBlockPointer (finList `Seq.index` fromIntegral h) /= bh then
-                            arrive bh oldStatus BlockDead
-                        else do
-                            branches <- use skovBranches
-                            let branchLen = fromIntegral $ Seq.length branches
-                            if h - finLen < branchLen then
-                                skovBranches . ix (fromIntegral (h - finLen)) %= (bh:)
-                            else 
-                                assert (h - finLen == branchLen)
-                                    (skovBranches %= (Seq.|> [bh]))
-                            arrive bh oldStatus (BlockAlive (h+1))
-                    Just (BlockAlive h) -> do
-                        branches <- use skovBranches
-                        let branchLen = fromIntegral $ Seq.length branches
-                        if h - finLen < branchLen then
-                            skovBranches . ix (fromIntegral (h - finLen)) %= (bh:)
-                        else 
-                            assert (h - finLen == branchLen)
-                                (skovBranches %= (Seq.|> [bh]))
-                        arrive bh oldStatus (BlockAlive (h+1))
-                    Just BlockDead -> arrive bh oldStatus BlockDead
-                    Just (BlockAwaited l) -> skovBlockStatus . at (blockPointer block) ?= BlockAwaited (bh : l)
-                    Nothing -> skovBlockStatus . at (blockPointer block) ?= BlockAwaited [bh]
-            arrive bh oldStatus newStatus = do
-                skovBlockStatus . at bh ?= newStatus
-                case oldStatus of
-                    Just (BlockAwaited l) -> mapM_ (updateStatus (Just newStatus)) l
-                    _ -> return () -}
     finalizeBlock finRec = do
             let thisFinIx = finalizationIndex finRec
             nextFinIx <- FinalizationIndex . fromIntegral . Seq.length <$> use skovFinalizationList
@@ -350,41 +322,12 @@ instance Monad m => SkovMonad (StateT SkovData m) where
                      skovFinalizationPool . at thisFinIx . non [] %= (finRec:)
                      processFinalizationPool
                 GT -> skovFinalizationPool . at thisFinIx . non [] %= (finRec:)
-{-
-            let finBp = finalizationBlockPointer finRec
-            bt <- use skovBlockTable
-            skovFinalizationList %= (Seq.|> finRec)
-            skovBlockStatus . at finBp ?= BlockFinalized finRec
-            -- Now prune the dead blocks
-            (oldFirstBranches Seq.:<| oldBranches) <- use skovBranches
-            forM_ [b | b <- oldFirstBranches, b /= finBp] $
-                \bh -> skovBlockStatus . at bh ?= BlockDead
-            newBranches <- prune bt [finBp] oldBranches
-            skovBranches .= newBranches
-        where
-            prune bt [] _ = return Seq.empty
-            prune bt _ Seq.Empty = return Seq.empty
-            prune bt parents (bs Seq.:<| rest) = do
-                bs' <- foldrM (\bp l ->
-                    if hasLiveParent bt parents bp then
-                        return (bp : l)
-                    else do
-                        skovBlockStatus . at bp ?= BlockDead
-                        return l)
-                    [] bs
-                rest' <- prune bt bs' rest
-                return (bs' Seq.<| rest')
-            hasLiveParent bt parents bp = case HM.lookup bp bt of
-                Nothing -> error "Malformed SkovData - block not found in block table"
-                Just (Block{blockPointer = parent}) -> parent `elem` parents -}
     isFinalized bp = preuse (skovBlockStatus . ix bp) >>= \case
             Just (BlockFinalized _ _) -> return True
             _ -> return False
     lastFinalizedBlock = do
             (_ Seq.:|> lf) <- use skovFinalizationList
             return lf
-    addValidatedBlock bp = skovValidatedBlocks %= HS.insert bp
-    isValidated bp = HS.member bp <$> use skovValidatedBlocks
     genesisData = use skovGenesisData
     genesisBlockHash = use skovGenesisBlockHash
     genesisBlock = use skovGenesisBlock
@@ -393,19 +336,15 @@ instance Monad m => SkovMonad (StateT SkovData m) where
             Just (BlockAlive h) -> return (Just h)
             _ -> return Nothing
     getCurrentHeight = gets $ \skov -> lastFinalizedHeight skov + fromIntegral (Seq.length (_skovBranches skov)) - 1
-    getBlocksAtHeight height = gets $ \skov ->
-            let finLen = fromIntegral $ Seq.length (_skovFinalizationList skov) in
-            if height < finLen then
-                [finalizationBlockPointer $ _skovFinalizationList skov `Seq.index` (fromIntegral height)]
-            else
-                case _skovBranches skov Seq.!? fromIntegral (height - finLen) of
-                    Nothing -> []
-                    Just l -> l
+    branchesFromTop = revSeqToList <$> use skovBranches
+        where
+            revSeqToList Seq.Empty = []
+            revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 instance Monad m => PayloadMonad (StateT SkovData m) where
     addPendingTransaction tr@Transaction{..} = do
         isFin <- Map.member transactionNonce <$> use transactionsFinalized
-        unless isFin $ do
+        unless isFin $
             transactionsPending %= Map.insert transactionNonce tr
     getPendingTransactionsAtBlock bh = do
         pts <- use transactionsPending

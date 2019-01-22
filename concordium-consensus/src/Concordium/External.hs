@@ -5,13 +5,8 @@ import Foreign
 import Foreign.C
 import Control.Concurrent.Chan
 import Control.Concurrent
-import System.Random
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Map as Map
 import Data.Serialize
-
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
 
 import Concordium.Types
 import Concordium.Birk.Bake

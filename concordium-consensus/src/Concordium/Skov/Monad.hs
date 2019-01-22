@@ -21,10 +21,6 @@ class Monad m => SkovMonad m where
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block
     lastFinalizedBlock :: m FinalizationRecord
-    -- |Mark a block as validated
-    addValidatedBlock :: BlockHash -> m ()
-    -- |Determine if a block has been validated
-    isValidated :: BlockHash -> m Bool
     genesisData :: m GenesisData
     genesisBlockHash :: m BlockHash
     genesisBlock :: m Block
@@ -45,9 +41,10 @@ class Monad m => SkovMonad m where
     -- |Get the height of the highest blocks in the tree.
     -- Note: the genesis block has height 0
     getCurrentHeight :: m BlockHeight
-    -- |Get the blocks at a given height in the tree.
-    -- Note: the genesis block has height 0
-    getBlocksAtHeight :: BlockHeight -> m [BlockHash]
+    -- |Get the blocks in the branches of the tree grouped by descending height.
+    -- That is the first element of the list is all of the blocks at 'getCurrentHeight',
+    -- the next is those at @getCurrentHeight - 1@, etc.
+    branchesFromTop :: m [[BlockHash]]
 
 instance SkovMonad m => SkovMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock
@@ -55,14 +52,12 @@ instance SkovMonad m => SkovMonad (MaybeT m) where
     finalizeBlock = lift . finalizeBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
-    addValidatedBlock = lift . addValidatedBlock
-    isValidated = lift . isValidated
     genesisData = lift genesisData
     genesisBlockHash = lift genesisBlockHash
     genesisBlock = lift genesisBlock
     getBlockHeight bh b = lift (getBlockHeight bh b)
     getCurrentHeight = lift getCurrentHeight
-    getBlocksAtHeight = lift . getBlocksAtHeight
+    branchesFromTop = lift branchesFromTop
 
 getBirkParameters :: (SkovMonad m) => BlockHash -> m BirkParameters
 getBirkParameters _ = genesisBirkParameters <$> genesisData

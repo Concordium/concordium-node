@@ -13,7 +13,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.DummyVRF as VRF
 
 newtype Slot = Slot Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
-type BlockHash = ByteString
+type BlockHash = Hash.Hash
 type BakerId = Word64
 type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
@@ -46,7 +46,7 @@ data Block = Block {
     blockLastFinalized :: BlockHash,
     blockData :: BlockData,
     blockSignature :: BlockSignature
-}
+} deriving (Show)
 
 serializeBlockBody ::
     Slot
@@ -165,11 +165,11 @@ instance Serialize GenesisData where
 makeGenesisBlock :: GenesisData -> Block
 makeGenesisBlock genData = Block {
     blockSlot = 0,
-    blockPointer = empty,
+    blockPointer = Hash.Hash empty,
     blockBaker = 0,
     blockProof = VRF.emptyProof,
     blockNonce = (VRF.emptyHash, VRF.emptyProof),
-    blockLastFinalized = empty,
+    blockLastFinalized = Hash.Hash empty,
     blockData = runPut $ put genData,
     blockSignature = Sig.emptySignature
 }

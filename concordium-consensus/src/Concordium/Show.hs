@@ -12,11 +12,11 @@ showBSHex :: SBS.ByteString -> String
 showBSHex bs = unpack (toLazyByteString $ byteStringHex bs)
 
 showsBlock :: Block -> ShowS
-showsBlock block rest = showBSHex bh ++
+showsBlock block rest = show bh ++
         "[slot=" ++ show (blockSlot block) ++
-        "; pointer=" ++ showBSHex (blockPointer block) ++
+        "; pointer=" ++ show (blockPointer block) ++
         "; baker=" ++ show (blockBaker block) ++
-        "]\n" ++ foldr (\tr -> showsPrec 0 tr . ('\n':)) rest trs
+        "]\n" ++ foldr (\tr -> shows tr . ('\n':)) rest trs
     where
         bh = hashBlock block
         trs = if blockSlot block == 0 then [] else 

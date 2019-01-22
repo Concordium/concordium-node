@@ -77,8 +77,8 @@ main = do
     let loop = do
             block <- readChan monitorChan
             let bh = hashBlock block
-            putStrLn $ " n" ++ showBSHex bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
-            putStrLn $ " n" ++ showBSHex bh ++ " -> n" ++ showBSHex (blockPointer block) ++ ";"
+            putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
+            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
             --putStrLn (showsBlock block "")
             loop
     loop

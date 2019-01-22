@@ -30,8 +30,8 @@ data VerifyKey = VerifyKey ByteString
     deriving (Eq, Generic)
 instance Serialize VerifyKey where
 
-newtype Signature = Signature ByteString
-    deriving (Eq, Generic, Serialize)
+newtype Signature = Signature Hash.Hash
+    deriving (Eq, Generic, Serialize, Show)
 
 data KeyPair = KeyPair {
     signKey :: SignKey,
@@ -62,4 +62,4 @@ verify :: VerifyKey -> ByteString -> Signature -> Bool
 verify (VerifyKey key) doc sig = sig == mySign key doc
 
 emptySignature :: Signature
-emptySignature = Signature empty
+emptySignature = Signature (Hash.hash empty)

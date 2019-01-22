@@ -39,10 +39,10 @@ data PrivateKey = PrivateKey ByteString
 
 instance Serialize PrivateKey where
 
-newtype Hash = Hash ByteString
-    deriving (Eq, Generic, Serialize)
+newtype Hash = Hash Hash.Hash
+    deriving (Eq, Generic, Serialize, Show)
 
-newtype Proof = Proof ByteString
+newtype Proof = Proof Hash.Hash
     deriving (Eq, Generic, Serialize, Show)
 
 data KeyPair = KeyPair {
@@ -64,7 +64,7 @@ newKeypair = do
         return (PrivateKey key, PublicKey key)
 
 
-myHash :: ByteString -> ByteString -> ByteString
+myHash :: ByteString -> ByteString -> Hash.Hash
 myHash key doc = Hash.hashLazy $ toLazyByteString $ (stringUtf8 "SIGN") <> byteString key <> byteString doc
 
 hash :: PrivateKey -> ByteString -> Hash
@@ -88,19 +88,19 @@ verifyKey (PublicKey key) = BS.length key == 8
 -- 'Double' is only 53 bits, there is inevitably some loss.  This also means
 -- that the outcome 1 is not possible.
 hashToDouble :: Hash -> Double
-hashToDouble (Hash h) = case runGet getWord64be h of
+hashToDouble (Hash (Hash.Hash h)) = case runGet getWord64be h of
     Left e -> error e
     Right w -> encodeFloat (toInteger w) (-64)
 
 hashToInt :: Hash -> Int
-hashToInt (Hash h) = case runGet getInt64be h of
+hashToInt (Hash (Hash.Hash h)) = case runGet getInt64be h of
     Left e -> error e
     Right i -> fromIntegral i
 
 -- |An empty hash value (typically, not a valid hash)
 emptyHash :: Hash
-emptyHash = Hash empty
+emptyHash = Hash (Hash.hash empty)
 
 -- |An empty proof (typically, not a valid proof)
 emptyProof :: Proof
-emptyProof = Proof empty
+emptyProof = Proof (Hash.hash empty)
