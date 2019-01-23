@@ -1,5 +1,4 @@
 #![feature(box_syntax, box_patterns)]
-#![feature(alloc_system)]
 #![recursion_limit = "1024"]
 extern crate p2p_client;
 #[macro_use]
@@ -12,12 +11,11 @@ extern crate mio;
 extern crate timer;
 #[macro_use]
 extern crate error_chain;
-extern crate alloc_system;
 extern crate byteorder;
 extern crate consensus_sys;
 extern crate reqwest;
 
-use alloc_system::System;
+use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
