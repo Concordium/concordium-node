@@ -207,11 +207,31 @@ impl Connection {
         })
     }
 
+    /// It adds new peers into each `Connection::buckets`
+    fn make_default_network_response_peer_list_handler(&self) -> NetworkResponseSafeFn {
+        let buckets = self.buckets.clone();
+        let own_id = self.own_id.clone();
+
+        make_callback!( move |res: &NetworkResponse| {
+            match res {
+                NetworkResponse::PeerList( _, ref peers) => {
+                    let mut locked_buckets = buckets.write()?;
+                    for peer in peers.iter() {
+                        locked_buckets.insert_into_bucket( peer, &own_id, vec![]);
+                    }
+                },
+                _ => {}
+            };
+            Ok(())
+        })
+    }
+
     fn make_response_handler(&mut self) -> ResponseHandler {
         let mut rh = ResponseHandler::new();
 
         rh.add_callback( self.make_update_last_seen_handler())
-            .add_find_node_callback( self.make_default_network_response_find_node_handler());
+            .add_find_node_callback( self.make_default_network_response_find_node_handler())
+            .add_peer_list_callback( self.make_default_network_response_peer_list_handler());
 
         rh
     }
@@ -690,23 +710,11 @@ impl Connection {
             }
             box NetworkMessage::NetworkResponse(ref x, _, _) => {
                 match x {
-                    NetworkResponse::FindNode(_, _peers) => {}
+                    NetworkResponse::FindNode(_, _)
+                    | NetworkResponse::PeerList(_, _) => {},
                     NetworkResponse::Pong(_) => {
                         debug!("Got response for ping");
                         self.set_measured_ping();
-                    }
-                    NetworkResponse::PeerList(_, peers) => {
-                        debug!("Got response to PeerList");
-
-                        //Process the received node list
-                        let mut ref_buckets = self.buckets.write().unwrap();
-                        for peer in peers.iter() {
-                            ref_buckets.insert_into_bucket(peer, &self.own_id, vec![]);
-                        }
-                        match packet_queue.send(outer.clone()) {
-                            Ok(_) => {}
-                            Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                        };
                     }
                     NetworkResponse::Handshake(peer, nets, _) => {
                         debug!("Got response to Handshake");
