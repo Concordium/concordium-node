@@ -10,7 +10,7 @@ use webpki::{ DNSNameRef };
 use prometheus_exporter::PrometheusServer;
 
 use connection::{ 
-    Connection, P2PNodeMode, P2PEvent, SeenMessagesList, MessageHandler, 
+    Connection, P2PNodeMode, P2PEvent, MessageHandler, 
     MessageManager }; 
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common;
@@ -34,9 +34,8 @@ pub struct TlsServer {
     banned_peers: HashSet<P2PPeer>,
     mode: P2PNodeMode,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-    networks: Arc<Mutex<Vec<u16>>>,
+    pub networks: Arc<Mutex<Vec<u16>>>,
     unreachable_nodes: UnreachableNodes,
-    seen_messages: SeenMessagesList,
     buckets: Arc< RwLock< Buckets > >,
     message_handler: MessageHandler    
 }
@@ -51,7 +50,6 @@ impl TlsServer {
            mode: P2PNodeMode,
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            networks: Vec<u16>,
-           seen_messages: SeenMessagesList,
            buckets: Arc< RwLock< Buckets > >
            )
            -> Self {
@@ -68,12 +66,11 @@ impl TlsServer {
                     prometheus_exporter: prometheus_exporter,
                     networks: Arc::new(Mutex::new(networks)),
                     unreachable_nodes: UnreachableNodes::new(),
-                    seen_messages: seen_messages, 
                     buckets: buckets,
                     message_handler: MessageHandler::new()
         };
 
-        mself.message_handler = mself.make_default_message_handler();
+        mself.setup_default_message_handler();
         mself
     }
 
@@ -161,7 +158,6 @@ impl TlsServer {
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
                                            self.networks.clone(),
-                                           self.seen_messages.clone(),
                                            self.buckets.clone());
                 self.register_message_handlers( &mut conn);
 
@@ -219,7 +215,7 @@ impl TlsServer {
 
                 let token = Token(self.next_id);
 
-                let conn = Connection::new(connection_type,
+                let mut conn = Connection::new(connection_type,
                                            x,
                                            token,
                                            None,
@@ -233,10 +229,11 @@ impl TlsServer {
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
                                            self.networks.clone(),
-                                           self.seen_messages.clone(),
                                            self.buckets.clone());
 
+                self.register_message_handlers( &mut conn);
                 conn.register(poll)?;
+
                 self.next_id += 1;
                 self.connections.insert(token, conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
@@ -392,8 +389,8 @@ impl TlsServer {
         Ok(())
     }
 
-    fn make_default_message_handler(&mut self) -> MessageHandler {
-        MessageHandler::new()
+    /// It setups default message handler at TLSServer level.
+    fn setup_default_message_handler(&mut self) {
     }
 
     /// It adds all message handler callback to this connection.

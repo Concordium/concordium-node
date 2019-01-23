@@ -26,11 +26,12 @@ use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
 use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager, 
     MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
-    NetworkRequestSafeFn }; 
+    NetworkRequestSafeFn, NetworkPacketSafeFn }; 
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
 use p2p::peer_statistics::{ PeerStatistic };
+use p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message};
 
 
 const SERVER: Token = Token(0);
@@ -187,7 +188,6 @@ impl P2PNode {
                                      mode,
                                      prometheus_exporter.clone(),
                                      networks,
-                                     seen_messages.clone(),
                                      buckets.clone());
 
         let mut mself = P2PNode { 
@@ -220,18 +220,32 @@ impl P2PNode {
         let request_handler = self.make_request_handler();
 
         self.message_handler
-            .add_packet_callback( Arc::new( Mutex::new( Box::new(
-                    move |pac: &NetworkPacket| { (packet_handler)(pac) }))))
-            .add_response_callback( Arc::new( Mutex::new( Box::new(
-                    move |res: &NetworkResponse| { (response_handler)(res) }))))
-            .add_request_callback( Arc::new( Mutex::new( Box::new(
-                    move |req: &NetworkRequest| { (request_handler)(req) }))));
+            .add_packet_callback( make_callback!( 
+                    move |pac: &NetworkPacket| { (packet_handler)(pac) }))
+            .add_response_callback( make_callback!(
+                    move |res: &NetworkResponse| { (response_handler)(res) }))
+            .add_request_callback( make_callback!(
+                    move |req: &NetworkRequest| { (request_handler)(req) }));
 
         self.register_message_handlers();
     }
 
+    /// Default packet handler just forward valid messages.
+    fn make_default_network_packet_message_handler(&self) -> NetworkPacketSafeFn {
+        let seen_messages = self.seen_messages.clone();
+        let own_networks = self.tls_server.lock().unwrap().networks.clone();
+        let prometheus_exporter = self.prometheus_exporter.clone();
+        let packet_queue = self.incoming_pkts.clone();
+
+        make_callback!( move|pac: &NetworkPacket| {
+            forward_network_packet_message( &seen_messages, &prometheus_exporter, 
+                                                   &own_networks, &packet_queue, pac)
+        })
+    }
+
     fn make_packet_handler(&self) -> PacketHandler {
-        let handler = PacketHandler::new();
+        let mut handler = PacketHandler::new();
+        handler.add_callback( self.make_default_network_packet_message_handler());
         handler
     }
 
@@ -241,17 +255,11 @@ impl P2PNode {
     }
 
     fn make_requeue_handler(&self) -> NetworkRequestSafeFn {
-        let packet_queue = self.incoming_pkts.clone(); // : Sender<Arc<Box<NetworkMessage>>>,
+        let packet_queue = self.incoming_pkts.clone();
 
-        Arc::new( Mutex::new( Box::new( move |req: &NetworkRequest| {
-            let cloned_req = req.clone();
-            packet_queue.send( Arc::new( Box::new( NetworkMessage::NetworkRequest( cloned_req, None, None))))
-                .map_err( |se| {
-                    ErrorWrapper::with_chain( 
-                        se, 
-                        ErrorKindWrapper::FunctorRunningError( "Couldn't send to packet queue"))
-                }) 
-        })))
+        make_callback!( move |req: &NetworkRequest| {
+            forward_network_request( req, &packet_queue)
+        })
     }
 
     fn make_request_handler(&self) -> RequestHandler {

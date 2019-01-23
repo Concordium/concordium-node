@@ -61,6 +61,7 @@ pub fn get_dns_public_key() -> &'static str {
     ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY)
 }
 
+#[macro_use] pub mod connection;
 pub mod common;
 pub mod configuration;
 pub mod db;
@@ -70,8 +71,9 @@ pub mod prometheus_exporter;
 pub mod proto;
 pub mod rpc;
 pub mod utils;
-pub mod connection;
 pub mod network;
+
+
 
 cfg_if! {
     if #[cfg(not(debug_assertions))] {
