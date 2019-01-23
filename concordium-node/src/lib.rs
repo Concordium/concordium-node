@@ -73,8 +73,6 @@ pub mod rpc;
 pub mod utils;
 pub mod network;
 
-
-
 cfg_if! {
     if #[cfg(not(debug_assertions))] {
         pub fn setup_panics() { setup_panic!(); }
