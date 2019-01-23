@@ -15,6 +15,7 @@ extern crate byteorder;
 extern crate consensus_sys;
 extern crate reqwest;
 
+// Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;

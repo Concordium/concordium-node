@@ -11,6 +11,7 @@ extern crate chrono;
 extern crate env_logger;
 extern crate timer;
 
+// Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
