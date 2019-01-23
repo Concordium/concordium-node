@@ -35,10 +35,14 @@ resolver: lts-12.19
 #  - wai
 packages:
 - Concordium
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
 # extra-deps: []
+extra-deps:
+  - git: git@gitlab.com:Concordium/oak/oak-compiler.git
+    commit: 31baa9645fd1c9c074546523c656802a1be59ff5
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
