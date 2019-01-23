@@ -23,7 +23,7 @@ use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, B
 
 use connection::{ 
     MessageHandler, MessageManager, RequestHandler, ResponseHandler, PacketHandler,
-    P2PEvent, SeenMessagesList, P2PNodeMode, ConnClientSession, ConnServerSession, 
+    P2PEvent, P2PNodeMode, ConnClientSession, ConnServerSession, 
     NetworkRequestSafeFn, NetworkResponseSafeFn, ConnSession, ParseCallbackResult,
     ParseCallbackWrapper };
 
@@ -60,14 +60,13 @@ pub struct Connection {
     pub networks: Vec<u16>,
     event_log: Option<Sender<P2PEvent>>,
     pub own_networks: Arc<Mutex<Vec<u16>>>,
-    seen_messages: SeenMessagesList,
     sent_ping: Option<u64>,
     sent_handshake: Option<u64>,
     last_ping_sent: u64,
     last_latency_measured: Option<u64>,
 
     buckets: Arc< RwLock < Buckets > >,
-    message_handler: MessageHandler
+    pub message_handler: MessageHandler
 }
 
 impl Connection {
@@ -85,7 +84,6 @@ impl Connection {
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            event_log: Option<Sender<P2PEvent>>,
            own_networks: Arc<Mutex<Vec<u16>>>,
-           seen_messages: SeenMessagesList,
            buckets: Arc< RwLock< Buckets > >)
            -> Self {
         let curr_stamp = get_current_stamp();
@@ -116,7 +114,6 @@ impl Connection {
                      networks: vec![],
                      event_log: event_log,
                      own_networks: own_networks,
-                     seen_messages: seen_messages,
                      sent_ping: None,
                      sent_handshake: None,
                      last_latency_measured: None,
@@ -220,7 +217,8 @@ impl Connection {
     }
 
     fn make_packet_handler(&mut self) -> PacketHandler {
-        let handler = PacketHandler::new();
+        let mut handler = PacketHandler::new();
+        handler.add_callback( self.make_update_last_seen_handler());
         handler
     }
 
@@ -734,80 +732,7 @@ impl Connection {
                     }
                 }
             }
-            box NetworkMessage::NetworkPacket(ref x, _, _) => {
-                match x {
-                    NetworkPacket::DirectMessage(ref sender,
-                                                 ref msgid,
-                                                 _,
-                                                 ref network_id,
-                                                 ref msg) => {
-                        if !self.seen_messages.contains(msgid) {
-                            self.seen_messages.append(&msgid);
-                            if self.own_networks.lock().unwrap().contains(network_id) {
-                                if self.mode != P2PNodeMode::BootstrapperMode
-                                   && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                                {
-                                    self.update_last_seen();
-                                }
-                                debug!("Received direct message of size {}", msg.len());
-                                match packet_queue.send(outer.clone()) {
-                                    Ok(_) => {
-                                        self.seen_messages.append(&msgid);
-                                    }
-                                    Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                                };
-                            } else {
-                                if let Some(ref prom) = &self.prometheus_exporter {
-                                    prom.lock()
-                                        .unwrap()
-                                        .invalid_network_pkts_received_inc()
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
-                                };
-                            }
-                        } else {
-                            info!("Dropping duplicate direct packet {}/{}/{}",
-                                   sender.id().to_string(),
-                                   network_id,
-                                   msgid);
-                        }
-                    }
-                    NetworkPacket::BroadcastedMessage(ref sender,
-                                                      ref msgid,
-                                                      ref network_id,
-                                                      ref msg) => {
-                        if !self.seen_messages.contains(msgid) {
-                            if self.own_networks.lock().unwrap().contains(network_id) {
-                                if self.mode != P2PNodeMode::BootstrapperMode
-                                   && self.mode != P2PNodeMode::BootstrapperPrivateMode
-                                {
-                                    self.update_last_seen();
-                                }
-                                debug!("Received broadcast message of size {}", msg.len());
-                                match packet_queue.send(outer.clone()) {
-                                    Ok(_) => {
-                                        self.seen_messages.append(&msgid);
-                                    }
-                                    Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
-                                };
-                            } else {
-                                if let Some(ref prom) = &self.prometheus_exporter {
-                                    prom.lock()
-                                        .unwrap()
-                                        .invalid_network_pkts_received_inc()
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
-                                };
-                            }
-                        } else {
-                            info!("Dropping duplicate broadcast packet {}/{}/{}",
-                                   sender.id().to_string(),
-                                   network_id,
-                                   msgid);
-                        }
-                    }
-                }
-            }
+            box NetworkMessage::NetworkPacket(_, _, _) => {}
             box NetworkMessage::UnknownMessage => {
                 self.failed_pkts_inc();
                 debug!("Unknown message received!");
