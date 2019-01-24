@@ -11,7 +11,6 @@ import Data.Word
 import Control.Monad.State.Class
 import Control.Monad.RWS
 import Lens.Micro.Platform
-import System.Random
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
 import Data.Semigroup
@@ -78,8 +77,10 @@ data ABBAState party sig = ABBAState {
     _phaseStates :: Map Word (PhaseState party sig),
     _currentChoice :: Choice,
     _currentGrade :: Word8,
-    _weAreDoneParties :: Map party (Choice, sig),
-    _weAreDoneWeight :: Int
+    _topWeAreDone :: Map party sig,
+    _topWeAreDoneWeight :: Int,
+    _botWeAreDone :: Map party sig,
+    _botWeAreDoneWeight :: Int
 }
 makeLenses ''ABBAState
 
@@ -87,25 +88,35 @@ phaseState :: Word -> Lens' (ABBAState party sig) (PhaseState party sig)
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
     (\s t -> s & phaseStates . at p ?~ t)
 
+weAreDone :: Choice -> Lens' (ABBAState party sig) (Map party sig)
+weAreDone True = topWeAreDone
+weAreDone False = botWeAreDone
+
+weAreDoneWeight :: Choice -> Lens' (ABBAState party sig) Int
+weAreDoneWeight True = topWeAreDoneWeight
+weAreDoneWeight False = botWeAreDoneWeight
+
 initialABBAState :: Choice -> ABBAState party sig
 initialABBAState b = ABBAState {
     _currentPhase = 0,
     _phaseStates = Map.empty,
     _currentChoice = b,
     _currentGrade = 0,
-    _weAreDoneParties = Map.empty,
-    _weAreDoneWeight = 0
+    _topWeAreDone = Map.empty,
+    _topWeAreDoneWeight = 0,
+    _botWeAreDone = Map.empty,
+    _botWeAreDoneWeight = 0
 }
 
 class (MonadState (ABBAState party sig) m) => ABBAMonad party sig m where
     -- |Sign and broadcast an ABBA message to all parties, _including_ our own 'ABBAInstance'.
     sendABBAMessage :: ABBAMessage party -> m ()
-    -- |Determine the core set.
-    aBBAComplete :: Map party (Choice, sig) -> m ()
+    -- |Determine the result
+    aBBAComplete :: Choice -> Map party sig -> m ()
 
 data ABBAOutputEvent party sig
     = SendABBAMessage (ABBAMessage party)
-    | ABBAComplete (Map party (Choice, sig))
+    | ABBAComplete Choice (Map party sig)
 
 newtype ABBA party sig a = ABBA {
     runABBA' :: RWS () (Endo [ABBAOutputEvent party sig]) (ABBAState party sig) a
@@ -121,7 +132,7 @@ instance MonadState (ABBAState party sig) (ABBA party sig) where
 
 instance ABBAMonad party sig (ABBA party sig) where
     sendABBAMessage msg = ABBA $ tell $ Endo (SendABBAMessage msg :)
-    aBBAComplete cs = ABBA $ tell $ Endo (ABBAComplete  cs :)
+    aBBAComplete c sigs = ABBA $ tell $ Endo (ABBAComplete c sigs :)
 
 data ABBAInstance party sig m = ABBAInstance {
     justifyABBAChoice :: Choice -> m (),
@@ -205,8 +216,11 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
         receiveABBAMessage src sig (CSSDoneReporting phase m) =
             myLiftCSS phase (receiveCSSMessage src sig (DoneReporting m))
         receiveABBAMessage src sig (WeAreDone c) = do
-            alreadyDone <- weAreDoneParties . at src <<.= Just (c, sig)
-            when (isNothing alreadyDone) $ weAreDoneWeight += partyWeight src
+            alreadyDone <- weAreDone c . at src <<.= Just sig
+            when (isNothing alreadyDone) $ do
+                owadw <- weAreDoneWeight c <<%= (+ partyWeight src)
+                when (owadw + partyWeight src >= totalWeight - corruptWeight && owadw < totalWeight - corruptWeight) $
+                    use (weAreDone c) >>= aBBAComplete c
             -- TODO: Check when threshold is met, etc.
         beginABBA :: Choice -> m ()
         beginABBA c = do

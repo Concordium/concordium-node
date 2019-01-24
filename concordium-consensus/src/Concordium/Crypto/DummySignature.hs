@@ -27,7 +27,7 @@ data SignKey = SignKey ByteString
 instance Serialize SignKey where
 
 data VerifyKey = VerifyKey ByteString
-    deriving (Eq, Generic)
+    deriving (Eq, Ord, Generic)
 instance Serialize VerifyKey where
 
 newtype Signature = Signature Hash.Hash

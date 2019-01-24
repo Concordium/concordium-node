@@ -33,6 +33,7 @@ dependencies:
 - microlens-platform >=0.3
 - mtl >=2.2
 - pqueue >= 1.4.1
+- vector >= 0.12
 
 library:
   source-dirs: src
