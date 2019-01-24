@@ -5,6 +5,7 @@ use std::sync::mpsc::{ Sender };
 use std::sync::atomic::{ AtomicU64, Ordering };
 use std::net::{Shutdown, IpAddr };
 use std::rc::{ Rc };
+use std::cell::{ RefCell };
 use std::io::{ Error, ErrorKind, Cursor, Result };
 use atomic_counter::AtomicCounter;
 
@@ -60,10 +61,10 @@ pub struct Connection {
     pub networks: Vec<u16>,
     event_log: Option<Sender<P2PEvent>>,
     pub own_networks: Arc<Mutex<Vec<u16>>>,
-    sent_ping: Option<u64>,
+    sent_ping: Rc< RefCell<u64>>,
     sent_handshake: Option<u64>,
     last_ping_sent: u64,
-    last_latency_measured: Option<u64>,
+    last_latency_measured: Rc< RefCell<u64>>,
 
     buckets: Arc< RwLock < Buckets > >,
     pub message_handler: MessageHandler
@@ -114,9 +115,9 @@ impl Connection {
                      networks: vec![],
                      event_log: event_log,
                      own_networks: own_networks,
-                     sent_ping: None,
+                     sent_ping: Rc::new( RefCell::new( u64::max_value())),
                      sent_handshake: None,
-                     last_latency_measured: None,
+                     last_latency_measured: Rc::new( RefCell::new( u64::max_value())),
                      last_ping_sent: curr_stamp, 
                      buckets: buckets,
                      message_handler: MessageHandler::new()
@@ -207,6 +208,21 @@ impl Connection {
         })
     }
 
+    /// It updates `self.last_latency_measured` if `self.sent_ping` has been previously updated.
+    fn make_pong_latency_handler(&self) -> NetworkResponseSafeFn {
+        let sent_ping = self.sent_ping.clone();
+        let last_latency_measured = self.last_latency_measured.clone();
+
+        make_callback!( move |_| {
+            let ping: u64 = sent_ping.borrow().clone();
+            if ping != u64::max_value() {
+               *last_latency_measured.borrow_mut() = get_current_stamp() - ping;
+            }
+            
+            Ok(())
+        })
+    }
+
     /// It adds new peers into each `Connection::buckets`
     fn make_default_network_response_peer_list_handler(&self) -> NetworkResponseSafeFn {
         let buckets = self.buckets.clone();
@@ -231,6 +247,7 @@ impl Connection {
 
         rh.add_callback( self.make_update_last_seen_handler())
             .add_find_node_callback( self.make_default_network_response_find_node_handler())
+            .add_pong_callback( self.make_pong_latency_handler())
             .add_peer_list_callback( self.make_default_network_response_peer_list_handler());
 
         rh
@@ -259,29 +276,23 @@ impl Connection {
     // =============================
 
     pub fn get_last_latency_measured(&self) -> Option<u64> {
-        self.last_latency_measured.clone()
-    }
-
-    fn set_measured_ping(&mut self) {
-        if self.sent_ping.is_some() {
-            self.last_latency_measured =
-                Some(get_current_stamp() - self.sent_ping.unwrap());
-            self.sent_ping = None;
+        let latency : u64 = self.last_latency_measured.borrow().clone();
+        if latency != u64::max_value() {
+            Some( latency)
+        } else {
+            None
         }
     }
 
     fn set_measured_handshake(&mut self) {
         if self.sent_handshake.is_some() {
-            self.last_latency_measured =
-                Some(get_current_stamp() - self.sent_handshake.unwrap());
+            *self.last_latency_measured.borrow_mut() = get_current_stamp() - self.sent_handshake.unwrap();
             self.sent_handshake = None;
         }
     }
 
     pub fn set_measured_ping_sent(&mut self) {
-        if self.sent_ping.is_none() {
-            self.sent_ping = Some(get_current_stamp())
-        }
+        *self.sent_ping.borrow_mut() = get_current_stamp()
     }
 
     pub fn set_measured_handshake_sent(&mut self) {
@@ -711,11 +722,8 @@ impl Connection {
             box NetworkMessage::NetworkResponse(ref x, _, _) => {
                 match x {
                     NetworkResponse::FindNode(_, _)
+                    | NetworkResponse::Pong(_)
                     | NetworkResponse::PeerList(_, _) => {},
-                    NetworkResponse::Pong(_) => {
-                        debug!("Got response for ping");
-                        self.set_measured_ping();
-                    }
                     NetworkResponse::Handshake(peer, nets, _) => {
                         debug!("Got response to Handshake");
                         self.set_measured_handshake();
