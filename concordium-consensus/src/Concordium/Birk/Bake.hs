@@ -26,7 +26,7 @@ data BakerIdentity = BakerIdentity {
 instance Serialize BakerIdentity where
 
 processInputs :: (PayloadMonad m) => BlockPointer -> m (Maybe BlockData)
-processInputs bh = 
+processInputs bh =
     fmap (fromTransactions . take 100 . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
 
 bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
