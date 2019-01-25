@@ -31,7 +31,7 @@ import GHC.Generics
 import System.Random
 
 data PublicKey = PublicKey ByteString
-    deriving (Eq, Generic)
+    deriving (Eq, Ord, Generic)
 instance Serialize PublicKey where
 
 data PrivateKey = PrivateKey ByteString
