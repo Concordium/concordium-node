@@ -108,9 +108,9 @@ impl TlsServer {
     pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
         let mut ret = vec![];
         for (_, ref conn) in &self.connections {
-            match conn.peer {
+            match conn.peer() {
                 Some(ref x) => {
-                    if nids.len() == 0 || conn.networks.iter().any(|nid| nids.contains(nid)) {
+                    if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
                         ret.push(PeerStatistic::new(x.id().to_string(),
                                                     x.ip().clone(),
                                                     x.port(),
@@ -185,7 +185,7 @@ impl TlsServer {
             return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
         }
         for (_, ref conn) in &self.connections {
-            if let Some(ref peer) = conn.peer {
+            if let Some(ref peer) = conn.peer() {
                 if peer.ip() == ip && peer.port() == port {
                     return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
                 } else if let Some(ref new_peer_id) = peer_id {
@@ -267,7 +267,7 @@ impl TlsServer {
     pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
         let mut tok = Token(0);
         for (token, mut connection) in &self.connections {
-            match connection.peer {
+            match connection.peer() {
                 Some(ref x) => {
                     if x.id() == id {
                         tok = *token;
@@ -329,7 +329,7 @@ impl TlsServer {
         } else {
             for conn in self.connections.values_mut() {
                 if conn.last_seen() + 1200000 < common::get_current_stamp()
-                   && conn.connection_type == ConnectionType::Node
+                   && conn.connection_type() == ConnectionType::Node
                 {
                     conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
                 }
@@ -349,7 +349,7 @@ impl TlsServer {
         for closed in closed_ones {
             if let Some(ref prom) = &self.prometheus_exporter {
                 if let Some(ref peer) = self.connections.get(&closed) {
-                    if let Some(_) = peer.peer {
+                    if let Some(_) = peer.peer() {
                         prom.lock()?.peers_dec().map_err(|e| error!("{}", e)).ok();
                     };
                 };
@@ -361,7 +361,7 @@ impl TlsServer {
         //Kill banned connections
         for peer in &self.banned_peers {
             for conn in self.connections.values_mut() {
-                match conn.peer.clone() {
+                match conn.peer().clone() {
                     Some(ref p) => {
                         if p == peer {
                             conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();

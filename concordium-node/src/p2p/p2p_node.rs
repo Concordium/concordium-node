@@ -362,7 +362,7 @@ impl P2PNode {
     /// Connetion is valid for a broadcast if sender is not target and 
     /// and network_id is owned by connection.
     fn is_valid_connection_in_broadcast(&self, conn: &Connection, sender: &P2PPeer, network_id: &u16) -> bool {
-        if let Some(ref peer) = conn.peer {
+        if let Some(ref peer) = conn.peer() {
             if peer.id() != sender.id() {
                 return conn.own_networks.lock().unwrap().contains(network_id);
             }
@@ -420,7 +420,7 @@ impl P2PNode {
                                     match self.tls_server.lock()?.find_connection(receiver.clone()) {
                                         Some(ref mut conn) => {
                                             if conn.own_networks.lock().unwrap().contains(network_id) {
-                                                if let Some(ref peer) = conn.peer.clone() {
+                                                if let Some(ref peer) = conn.peer().clone() {
                                                     match conn.serialize_bytes( &inner_pkt.serialize()) {
                                                         Ok(_) => {
                                                             self.seen_messages.append(&msgid);
@@ -457,7 +457,7 @@ impl P2PNode {
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_, _), _, _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let Some(ref peer) = conn.peer.clone() {
+                                    if let Some(ref peer) = conn.peer().clone() {
                                         match conn.serialize_bytes( &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.pks_sent_inc()?;
@@ -474,7 +474,7 @@ impl P2PNode {
                                 {
                                     let mut tls_server = self.tls_server.lock()?;
                                     for (_, mut conn) in &mut tls_server.connections {
-                                        if let Some(ref peer) = conn.peer.clone() {
+                                        if let Some(ref peer) = conn.peer().clone() {
                                             match conn.serialize_bytes( &inner_pkt.serialize()) {
                                                 Ok(_) => {
                                                     self.pks_sent_inc()?;
@@ -495,7 +495,7 @@ impl P2PNode {
                                 {
                                     let mut tls_server = self.tls_server.lock()?;
                                     for (_, mut conn) in &mut tls_server.connections {
-                                        if let Some(ref peer) = conn.peer.clone() {
+                                        if let Some(ref peer) = conn.peer().clone() {
                                             match conn.serialize_bytes( &inner_pkt.serialize()) {
                                                 Ok(_) => {
                                                     self.pks_sent_inc()?;
@@ -516,7 +516,7 @@ impl P2PNode {
                                                                _,
                                                                _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let Some(ref peer) = conn.peer.clone() {
+                                    if let Some(ref peer) = conn.peer().clone() {
                                         match conn.serialize_bytes( &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.pks_sent_inc()?;
@@ -531,7 +531,7 @@ impl P2PNode {
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_,_), _, _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let Some(ref peer) = conn.peer.clone() {
+                                    if let Some(ref peer) = conn.peer().clone() {
                                         match conn.serialize_bytes( &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.pks_sent_inc()?;

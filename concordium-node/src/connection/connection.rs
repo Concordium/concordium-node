@@ -2,7 +2,6 @@ use bytes::{ BufMut, BytesMut };
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::sync::{ Arc, Mutex, RwLock };
 use std::sync::mpsc::{ Sender };
-use std::sync::atomic::{ AtomicU64, Ordering };
 use std::net::{Shutdown, IpAddr };
 use std::rc::{ Rc };
 use std::cell::{ RefCell };
@@ -10,7 +9,7 @@ use std::io::{ Error, ErrorKind, Cursor, Result };
 use atomic_counter::AtomicCounter;
 
 use mio::{ Poll, PollOpt, Ready, Token, Event, net::TcpStream };
-use rustls::{ ServerSession, ClientSession, Session };
+use rustls::{ ServerSession, ClientSession };
 use prometheus_exporter::{ PrometheusServer };
 
 use errors::{ ResultExtWrapper, ResultExt };
@@ -24,26 +23,30 @@ use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, B
 
 use connection::{ 
     MessageHandler, MessageManager, RequestHandler, ResponseHandler, PacketHandler,
-    P2PEvent, P2PNodeMode, ConnClientSession, ConnServerSession, 
-    NetworkRequestSafeFn, NetworkResponseSafeFn, ConnSession, ParseCallbackResult,
+    P2PEvent, P2PNodeMode, 
+    NetworkRequestSafeFn, NetworkResponseSafeFn, ParseCallbackResult,
     ParseCallbackWrapper };
 
+use connection::connection_private::{ ConnectionPrivate, ConnSession };
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
 
 pub const BOOTSTRAP_PEER_COUNT: usize = 100;
 
+macro_rules! handle_by_private {
+    ($dptr:expr, $message_type:ty, $fn: ident) => {{
+        let dptr_cloned = $dptr.clone();
+        make_callback!( move |m: $message_type| {
+            $fn( &dptr_cloned, m)
+        })
+    }}
+}
+
 pub struct Connection {
-    pub connection_type: ConnectionType,
     socket: TcpStream,
     token: Token,
     pub closing: bool,
     closed: bool,
-    tls_server_session: ConnServerSession,
-    tls_client_session: ConnClientSession,
-    initiated_by_me: bool,
-    own_id: P2PNodeId,
-    pub peer: Option<P2PPeer>,
     currently_read: u32,
     pkt_validated: bool,
     pkt_valid: bool,
@@ -52,21 +55,14 @@ pub struct Connection {
     peer_port: u16,
     expected_size: u32,
     pkt_buffer: Option<BytesMut>,
-    last_seen: Rc<AtomicU64>,
     self_peer: P2PPeer,
     messages_sent: u64,
     messages_received: u64,
-    mode: P2PNodeMode,
-    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-    pub networks: Vec<u16>,
-    event_log: Option<Sender<P2PEvent>>,
     pub own_networks: Arc<Mutex<Vec<u16>>>,
-    sent_ping: Rc< RefCell<u64>>,
-    sent_handshake: Option<u64>,
     last_ping_sent: u64,
-    last_latency_measured: Rc< RefCell<u64>>,
 
-    buckets: Arc< RwLock < Buckets > >,
+
+    dptr: Rc< RefCell< ConnectionPrivate >>,
     pub message_handler: MessageHandler
 }
 
@@ -87,43 +83,36 @@ impl Connection {
            own_networks: Arc<Mutex<Vec<u16>>>,
            buckets: Arc< RwLock< Buckets > >)
            -> Self {
+
         let curr_stamp = get_current_stamp();
-        let mut lself = Connection { connection_type,
+        let priv_conn = Rc::new( RefCell::new( ConnectionPrivate::new(
+                connection_type, mode, own_id, buckets,
+                initiated_by_me, tls_server_session, tls_client_session,
+                prometheus_exporter, event_log)));
+
+        let mut lself = Connection {
                      socket: socket,
                      token,
                      closing: false,
                      closed: false,
-                     tls_server_session: if let Some(s) = tls_server_session { Some(Arc::new( RwLock::new(s)))} else { None },
-                     tls_client_session: if let Some(c) = tls_client_session { Some(Arc::new( RwLock::new(c)))} else { None },
-                     initiated_by_me,
-                     own_id,
-                     peer: None,
                      currently_read: 0,
                      expected_size: 0,
                      pkt_buffer: None,
-                     last_seen: Rc::new( AtomicU64::new( curr_stamp)),
                      self_peer: self_peer,
                      messages_received: 0,
                      messages_sent: 0,
                      peer_ip: peer_ip,
                      peer_port: peer_port,
-                     mode: mode,
                      pkt_validated: false,
                      pkt_valid: false,
                      failed_pkts: 0,
-                     prometheus_exporter: prometheus_exporter,
-                     networks: vec![],
-                     event_log: event_log,
                      own_networks: own_networks,
-                     sent_ping: Rc::new( RefCell::new( u64::max_value())),
-                     sent_handshake: None,
-                     last_latency_measured: Rc::new( RefCell::new( u64::max_value())),
-                     last_ping_sent: curr_stamp, 
-                     buckets: buckets,
+                     last_ping_sent: curr_stamp,
+                     dptr: priv_conn,
                      message_handler: MessageHandler::new()
         };
 
-        lself.make_message_handler();
+        lself.setup_message_handler();
         lself
     }
 
@@ -131,51 +120,26 @@ impl Connection {
     // ============================
     
     fn make_default_network_request_ping_handle(&mut self) -> NetworkRequestSafeFn {
-        let mode = self.mode.clone();
-        let last_seen = self.last_seen.clone();
-        let prom = self.prometheus_exporter.clone();
-        let self_peer = self.get_self_peer();
-        let session = self.session().clone();
-
-        make_callback!( move |_req: &NetworkRequest| { 
-            default_network_request_ping_handle(
-                &session, &self_peer, mode, &last_seen, &prom)
-        })
+        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_ping_handle)
     }
 
     fn make_default_network_request_find_node_handle(&self) -> NetworkRequestSafeFn {
-        let mode = self.mode.clone();
-        let last_seen = self.last_seen.clone();
-        let self_peer = self.get_self_peer();
-        let session = self.session().clone();
-        let buckets = self.buckets.clone();
-
-        make_callback!( move |req: &NetworkRequest| { 
-            default_network_request_find_node_handle(
-                    &session, &self_peer, mode, &last_seen, &buckets, req)
-        })
+        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_find_node_handle)
     }
 
     fn make_default_network_request_get_peers_handler(&self) -> NetworkRequestSafeFn {
-        let mode = self.mode.clone();
-        let last_seen = self.last_seen.clone();
-        let self_peer = self.get_self_peer();
-        let session = self.session().clone();
-        let buckets = self.buckets.clone();
-        let prom = self.prometheus_exporter.clone();
+        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_get_peers)
+    }
 
-        make_callback!( move |req: &NetworkRequest| {
-            default_network_request_get_peers(
-                &session, &self_peer, mode, &last_seen, &buckets, &prom, req)
-        })
+    fn make_default_network_request_join_handler(&self) -> NetworkRequestSafeFn {
+        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_join_network)
     }
 
     fn make_update_last_seen_handler<T>(&self) -> ParseCallbackWrapper<T>{
-        let mode = self.mode.clone();
-        let last_seen = self.last_seen.clone();
+        let priv_conn = self.dptr.clone();
 
         make_callback!( move |_: &T| -> ParseCallbackResult { 
-            update_atomic_stamp!( mode, last_seen); 
+            priv_conn.borrow_mut().update_last_seen();
             Ok(())
         })
     }
@@ -183,7 +147,7 @@ impl Connection {
     fn make_request_handler(&mut self) -> RequestHandler {
 
         let mut rh = RequestHandler::new();
-            rh.add_ping_callback( self.make_default_network_request_ping_handle())
+            rh.add_ping_callback( handle_by_private!(self.dptr, &NetworkRequest, default_network_request_ping_handle))
             .add_find_node_callback( self.make_default_network_request_find_node_handle())
             .add_ban_node_callback( self.make_update_last_seen_handler())
             .add_get_peers_callback( self.make_default_network_request_get_peers_handler())
@@ -193,53 +157,28 @@ impl Connection {
                     Ok(())
             }))
             .add_join_network_callback( self.make_update_last_seen_handler())
+            .add_join_network_callback( self.make_default_network_request_join_handler())
             .add_leave_network_callback( self.make_update_last_seen_handler());
 
         rh
     }
 
     fn make_default_network_response_find_node_handler(&self) -> NetworkResponseSafeFn {
-        let own_id = self.own_id.clone();
-        let buckets = self.buckets.clone();
-
-        make_callback!( move |res: &NetworkResponse| {
-           default_network_response_find_node(
-               &own_id, &buckets, res)
-        })
+        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_find_node)
     }
 
     /// It updates `self.last_latency_measured` if `self.sent_ping` has been previously updated.
     fn make_pong_latency_handler(&self) -> NetworkResponseSafeFn {
-        let sent_ping = self.sent_ping.clone();
-        let last_latency_measured = self.last_latency_measured.clone();
-
-        make_callback!( move |_| {
-            let ping: u64 = sent_ping.borrow().clone();
-            if ping != u64::max_value() {
-               *last_latency_measured.borrow_mut() = get_current_stamp() - ping;
-            }
-            
-            Ok(())
-        })
+        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_pong)
     }
 
     /// It adds new peers into each `Connection::buckets`
     fn make_default_network_response_peer_list_handler(&self) -> NetworkResponseSafeFn {
-        let buckets = self.buckets.clone();
-        let own_id = self.own_id.clone();
+        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_peer_list)
+    }
 
-        make_callback!( move |res: &NetworkResponse| {
-            match res {
-                NetworkResponse::PeerList( _, ref peers) => {
-                    let mut locked_buckets = buckets.write()?;
-                    for peer in peers.iter() {
-                        locked_buckets.insert_into_bucket( peer, &own_id, vec![]);
-                    }
-                },
-                _ => {}
-            };
-            Ok(())
-        })
+    fn make_default_network_response_handshake_handler(&self) -> NetworkResponseSafeFn {
+        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_handshake)
     }
 
     fn make_response_handler(&mut self) -> ResponseHandler {
@@ -248,6 +187,7 @@ impl Connection {
         rh.add_callback( self.make_update_last_seen_handler())
             .add_find_node_callback( self.make_default_network_response_find_node_handler())
             .add_pong_callback( self.make_pong_latency_handler())
+            .add_handshake_callback( self.make_default_network_response_handshake_handler())
             .add_peer_list_callback( self.make_default_network_response_peer_list_handler());
 
         rh
@@ -259,7 +199,7 @@ impl Connection {
         handler
     }
 
-    fn make_message_handler(&mut self) {
+    fn setup_message_handler(&mut self) {
         let request_handler = self.make_request_handler();
         let response_handler = self.make_response_handler();
         let packet_handler = self.make_packet_handler();
@@ -274,9 +214,13 @@ impl Connection {
     }
 
     // =============================
+    
+    pub fn session(&self) -> ConnSession {
+        self.dptr.borrow().session()
+    }
 
     pub fn get_last_latency_measured(&self) -> Option<u64> {
-        let latency : u64 = self.last_latency_measured.borrow().clone();
+        let latency : u64 = self.dptr.borrow().last_latency_measured;
         if latency != u64::max_value() {
             Some( latency)
         } else {
@@ -285,24 +229,24 @@ impl Connection {
     }
 
     fn set_measured_handshake(&mut self) {
-        if self.sent_handshake.is_some() {
-            *self.last_latency_measured.borrow_mut() = get_current_stamp() - self.sent_handshake.unwrap();
-            self.sent_handshake = None;
+        let mut pself = self.dptr.borrow_mut();
+
+        if pself.sent_handshake != u64::max_value() {
+            pself.last_latency_measured = get_current_stamp() - pself.sent_handshake;
+            pself.sent_handshake = u64::max_value();
         }
     }
 
     pub fn set_measured_ping_sent(&mut self) {
-        *self.sent_ping.borrow_mut() = get_current_stamp()
+        self.dptr.borrow_mut().sent_ping = get_current_stamp()
     }
 
     pub fn set_measured_handshake_sent(&mut self) {
-        if self.sent_handshake.is_none() {
-            self.sent_handshake = Some(get_current_stamp())
-        }
+        self.dptr.borrow_mut().sent_handshake = get_current_stamp()
     }
 
-    fn log_event(&mut self, event: P2PEvent) {
-        match self.event_log {
+    /*fn log_event(&mut self, event: P2PEvent) {
+        match self.event_log() {
             Some(ref mut x) => {
                 match x.send(event) {
                     Ok(_) => {}
@@ -311,7 +255,7 @@ impl Connection {
             }
             _ => {}
         }
-    }
+    }*/
 
     pub fn get_last_ping_sent(&self) -> u64 {
         self.last_ping_sent
@@ -330,23 +274,15 @@ impl Connection {
     }
 
     fn update_last_seen(&mut self) {
-        self.last_seen.store( get_current_stamp(), Ordering::Relaxed);
+        self.dptr.borrow_mut().update_last_seen();
     }
 
     pub fn last_seen(&self) -> u64 {
-        self.last_seen.load( Ordering::Relaxed)
-    }
-
-    fn add_networks(&mut self, networks: &Vec<u16>) {
-        for ele in networks {
-            if !self.networks.contains(ele) {
-                self.networks.push(*ele);
-            }
-        }
+        self.dptr.borrow().last_seen()
     }
 
     fn remove_network(&mut self, network: &u16) {
-        self.networks.retain(|x| x != network);
+        self.dptr.borrow_mut().networks.retain(|x| x != network);
     }
 
     fn append_buffer(&mut self, new_data: &[u8]) {
@@ -366,7 +302,7 @@ impl Connection {
     }
 
     fn get_peer(&self) -> Option<P2PPeer> {
-        self.peer.clone()
+        self.dptr.borrow().peer.clone()
     }
 
     pub fn get_messages_received(&self) -> u64 {
@@ -597,10 +533,6 @@ impl Connection {
         }
     }
 
-    fn session(&self) -> ConnSession {
-       sessionAs!( self, Session)
-    }
-
     fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
         if let Some(ref session) = self.session() {
             if let Some(ref mut locked_session) = session.write().ok() {
@@ -621,7 +553,7 @@ impl Connection {
         let self_peer = self.get_self_peer().clone();
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
-        if let Some(ref prom) = &self.prometheus_exporter {
+        if let Some(ref prom) = &self.prometheus_exporter() {
             prom.lock()
                 .unwrap()
                 .pkt_received_inc()
@@ -640,7 +572,8 @@ impl Connection {
                     | NetworkRequest::FindNode(_, _)
                     | NetworkRequest::GetPeers(_, _)
                     | NetworkRequest::BanNode(_, _)
-                    | NetworkRequest::UnbanNode(_, _) => { }
+                    | NetworkRequest::UnbanNode(_, _)
+                    | NetworkRequest::JoinNetwork(_, _) => { }
                     NetworkRequest::Handshake(sender, nets, _) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
@@ -653,35 +586,37 @@ impl Connection {
                                         &NetworkRequest::Ping(self_peer.clone()).serialize()).unwrap();
                         TOTAL_MESSAGES_SENT_COUNTER.add(2);
                         self.set_measured_ping_sent();
-                        self.add_networks(nets);
-                        self.peer = Some(sender.clone());
-                        if self.mode == P2PNodeMode::BootstrapperPrivateMode
-                           || self.mode == P2PNodeMode::NormalPrivateMode
+                        self.dptr.borrow_mut().add_networks(nets);
+                        self.set_peer( sender.clone());
+                        let buckets = self.buckets();
+
+                        if self.mode() == P2PNodeMode::BootstrapperPrivateMode
+                           || self.mode() == P2PNodeMode::NormalPrivateMode
                         {
-                            self.buckets.write().unwrap()
-                                .insert_into_bucket(sender, &self.own_id, nets.clone());
+                            buckets.write().unwrap()
+                                .insert_into_bucket(sender, &self.own_id(), nets.clone());
                         } else if sender.ip().is_global()
                                   && !sender.ip().is_multicast()
                                   && !sender.ip().is_documentation()
                         {
-                            self.buckets.write().unwrap()
-                                .insert_into_bucket(sender, &self.own_id, nets.clone());
+                            buckets.write().unwrap()
+                                .insert_into_bucket(sender, &self.own_id(), nets.clone());
                         }
-                        if let Some(ref prom) = &self.prometheus_exporter {
+                        if let Some(ref prom) = &self.prometheus_exporter() {
                             let mut _prom = prom.lock().unwrap();
                             _prom.peers_inc().map_err(|e| error!("{}", e)).ok();
                             _prom.pkt_sent_inc_by(2).map_err(|e| error!("{}", e)).ok();
                         };
-                        if self.mode == P2PNodeMode::BootstrapperMode
-                           || self.mode == P2PNodeMode::BootstrapperPrivateMode
+                        if self.mode() == P2PNodeMode::BootstrapperMode
+                           || self.mode() == P2PNodeMode::BootstrapperPrivateMode
                         {
                             debug!("Running in bootstrapper mode, so instantly sending peers {} random peers",
                                    BOOTSTRAP_PEER_COUNT);
-                            let random_nodes = self.buckets.read().unwrap()
+                            let random_nodes = buckets.read().unwrap()
                                 .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets);
                             self.serialize_bytes( &NetworkResponse::PeerList(
                                     self_peer, random_nodes).serialize()).unwrap();
-                            if let Some(ref prom) = &self.prometheus_exporter {
+                            if let Some(ref prom) = &self.prometheus_exporter() {
                                 prom.lock()
                                     .unwrap()
                                     .pkt_sent_inc()
@@ -695,71 +630,33 @@ impl Connection {
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
                     }
-                    NetworkRequest::JoinNetwork(sender, network) => {
-                        self.add_networks(&vec![*network]);
-                        match self.get_peer() {
-                            Some(peer) => {
-                                self.buckets.write().unwrap().
-                                    update_network_ids(&peer, self.networks.clone());
-                            }
-                            _ => {}
-                        }
-                        self.log_event(P2PEvent::JoinedNetwork(sender.clone(), *network));
-                    }
-                    NetworkRequest::LeaveNetwork(sender, ref network) => {
+                    NetworkRequest::LeaveNetwork(_sender, ref network) => {
                         self.remove_network(network);
                         match self.get_peer() {
                             Some(peer) => {
-                                self.buckets.write().unwrap()
-                                    .update_network_ids(&peer, self.networks.clone());
+                                let buckets = self.buckets();
+                                buckets.write().unwrap()
+                                    .update_network_ids(&peer, self.networks());
                             }
                             _ => {}
                         }
-                        self.log_event(P2PEvent::LeftNetwork(sender.clone(), *network));
+                        // self.log_event(P2PEvent::LeftNetwork(sender.clone(), *network));
                     }
                 }
             }
-            box NetworkMessage::NetworkResponse(ref x, _, _) => {
-                match x {
-                    NetworkResponse::FindNode(_, _)
-                    | NetworkResponse::Pong(_)
-                    | NetworkResponse::PeerList(_, _) => {},
-                    NetworkResponse::Handshake(peer, nets, _) => {
-                        debug!("Got response to Handshake");
-                        self.set_measured_handshake();
-                        self.add_networks(nets);
-                        self.peer = Some(peer.clone());
-                        let bucket_sender = P2PPeer::from(self.connection_type,
-                                                          peer.id().clone(),
-                                                          peer.ip().clone(),
-                                                          peer.port());
-                        self.buckets.write().unwrap()
-                            .insert_into_bucket(&bucket_sender, &self.own_id, nets.clone());
-                        if let Some(ref prom) = &self.prometheus_exporter {
-                            prom.lock()
-                                .unwrap()
-                                .peers_inc()
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        };
-                        for ele in nets {
-                            self.log_event(P2PEvent::JoinedNetwork(peer.clone(), *ele));
-                        }
-                    }
-                }
-            }
-            box NetworkMessage::NetworkPacket(_, _, _) => {}
+            box NetworkMessage::NetworkResponse( _, _, _)
+            | box NetworkMessage::NetworkPacket(_, _, _) => {}
             box NetworkMessage::UnknownMessage => {
                 self.failed_pkts_inc();
                 debug!("Unknown message received!");
-                if self.mode != P2PNodeMode::BootstrapperMode
-                   && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                if self.mode() != P2PNodeMode::BootstrapperMode
+                   && self.mode() != P2PNodeMode::BootstrapperPrivateMode
                 {
                     self.update_last_seen();
                 }
                 trace!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
-                if let Some(ref prom) = &self.prometheus_exporter {
+                if let Some(ref prom) = &self.prometheus_exporter() {
                     prom.lock()
                         .unwrap()
                         .unknown_pkts_received_inc()
@@ -770,14 +667,14 @@ impl Connection {
             box NetworkMessage::InvalidMessage => {
                 self.failed_pkts_inc();
                 debug!("Invalid message received!");
-                if self.mode != P2PNodeMode::BootstrapperMode
-                   && self.mode != P2PNodeMode::BootstrapperPrivateMode
+                if self.mode() != P2PNodeMode::BootstrapperMode
+                   && self.mode() != P2PNodeMode::BootstrapperPrivateMode
                 {
                     self.update_last_seen();
                 }
                 trace!("Contents were: {:?}",
                        String::from_utf8(buf.to_vec()).unwrap());
-                if let Some(ref prom) = &self.prometheus_exporter {
+                if let Some(ref prom) = &self.prometheus_exporter() {
                     prom.lock()
                         .unwrap()
                         .invalid_pkts_received_inc()
@@ -801,8 +698,8 @@ impl Connection {
             };
             match buff {
                 Some(ref bufdata) => {
-                    if self.mode == P2PNodeMode::BootstrapperMode
-                       || self.mode == P2PNodeMode::BootstrapperPrivateMode
+                    if self.mode() == P2PNodeMode::BootstrapperMode
+                       || self.mode() == P2PNodeMode::BootstrapperPrivateMode
                     {
                         let msg_num = String::from_utf8(bufdata.to_vec()).unwrap();
                         if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
@@ -966,6 +863,38 @@ impl Connection {
             self.closing = true;
         }
         rc.chain_err(|| NetworkError("couldn't write TLS to socket".to_string()))
+    }
+
+    pub fn prometheus_exporter(&self) -> Option<Arc<Mutex<PrometheusServer>>> {
+        self.dptr.borrow().prometheus_exporter.clone()
+    }
+
+    pub fn mode(&self) -> P2PNodeMode {
+        self.dptr.borrow().mode
+    }
+
+    pub fn buckets(&self) -> Arc< RwLock< Buckets >> {
+        self.dptr.borrow().buckets.clone()
+    }
+
+    pub fn own_id(&self) -> P2PNodeId {
+        self.dptr.borrow().own_id.clone()
+    }
+
+    pub fn peer(&self) -> Option<P2PPeer> {
+        self.dptr.borrow().peer.clone()
+    }
+
+    pub fn set_peer(&mut self, peer: P2PPeer) {
+        self.dptr.borrow_mut().peer = Some(peer);
+    }
+
+    pub fn networks(&self) -> Vec<u16> {
+        self.dptr.borrow().networks.clone()
+    }
+
+    pub fn connection_type(&self) -> ConnectionType {
+        self.dptr.borrow().connection_type
     }
 }
 
