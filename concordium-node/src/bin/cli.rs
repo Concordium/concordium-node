@@ -252,7 +252,7 @@ fn run() -> ResultExtWrapper<()> {
     let _test_runner_url = conf.test_runner_url.clone();
     let mut _baker_pkt_clone = baker.clone();
     let _tps_test_enabled = conf.enable_tps_test;
-    let mut stats_engine = StatsEngine::new();
+    let mut stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
     let _guard_pkt = thread::spawn(move || {
                                        fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
                                                             msg: &[u8])

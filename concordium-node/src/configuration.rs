@@ -160,6 +160,10 @@ pub struct CliConfig {
     pub tps_test_recv_id: Option<String>,
     #[structopt(long = "tps-test-data-dir", help = "Directory containing files to perform TPS test independent of other layers")]
     pub tps_test_data_dir: Option<String>,
+    #[structopt(long = "tps-stats-save-amount",
+                help = "Amount of stats to save for TPS statistics",
+                default_value = "10000")]
+    pub tps_stats_save_amount: u64,
 }
 
 pub fn parse_cli_config() -> CliConfig {
