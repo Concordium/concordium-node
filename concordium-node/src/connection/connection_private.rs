@@ -21,7 +21,7 @@ pub struct ConnectionPrivate {
     pub peer: Option<P2PPeer>,
     pub networks: Vec<u16>,
     pub buckets: Arc< RwLock< Buckets > >,
- 
+
     // Session
     initiated_by_me: bool,
     tls_server_session: ConnServerSession,
@@ -94,7 +94,7 @@ impl ConnectionPrivate {
     }
 
     pub fn update_last_seen(&mut self) {
-        if self.mode != P2PNodeMode::BootstrapperMode 
+        if self.mode != P2PNodeMode::BootstrapperMode
             && self.mode != P2PNodeMode::BootstrapperPrivateMode {
             self.last_seen.store( get_current_stamp(), Ordering::Relaxed);
         }
@@ -103,13 +103,17 @@ impl ConnectionPrivate {
     pub fn last_seen(&self) -> u64 {
         self.last_seen.load( Ordering::Relaxed)
     }
-    
+
     pub fn add_networks(&mut self, networks: &Vec<u16>) {
         for ele in networks {
             if !self.networks.contains(ele) {
                 self.networks.push(*ele);
             }
         }
+    }
+
+    pub fn remove_network(&mut self, network: &u16) {
+        self.networks.retain(|x| x != network);
     }
 }
 

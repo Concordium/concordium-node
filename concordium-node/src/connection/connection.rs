@@ -18,13 +18,12 @@ use error_chain::ChainedError;
 
 use common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
 use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
-use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets, 
+use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets,
     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE };
 
-use connection::{ 
+use connection::{
     MessageHandler, MessageManager, RequestHandler, ResponseHandler, PacketHandler,
-    P2PEvent, P2PNodeMode, 
-    NetworkRequestSafeFn, NetworkResponseSafeFn, ParseCallbackResult,
+    P2PEvent, P2PNodeMode, ParseCallbackResult,
     ParseCallbackWrapper };
 
 use connection::connection_private::{ ConnectionPrivate, ConnSession };
@@ -118,77 +117,63 @@ impl Connection {
 
     // Setup message handler
     // ============================
-    
-    fn make_default_network_request_ping_handle(&mut self) -> NetworkRequestSafeFn {
-        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_ping_handle)
-    }
-
-    fn make_default_network_request_find_node_handle(&self) -> NetworkRequestSafeFn {
-        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_find_node_handle)
-    }
-
-    fn make_default_network_request_get_peers_handler(&self) -> NetworkRequestSafeFn {
-        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_get_peers)
-    }
-
-    fn make_default_network_request_join_handler(&self) -> NetworkRequestSafeFn {
-        handle_by_private!( self.dptr, &NetworkRequest, default_network_request_join_network)
-    }
 
     fn make_update_last_seen_handler<T>(&self) -> ParseCallbackWrapper<T>{
         let priv_conn = self.dptr.clone();
 
-        make_callback!( move |_: &T| -> ParseCallbackResult { 
+        make_callback!( move |_: &T| -> ParseCallbackResult {
             priv_conn.borrow_mut().update_last_seen();
             Ok(())
         })
     }
 
     fn make_request_handler(&mut self) -> RequestHandler {
+        let update_last_seen_handler = self.make_update_last_seen_handler();
 
         let mut rh = RequestHandler::new();
-            rh.add_ping_callback( handle_by_private!(self.dptr, &NetworkRequest, default_network_request_ping_handle))
-            .add_find_node_callback( self.make_default_network_request_find_node_handle())
-            .add_ban_node_callback( self.make_update_last_seen_handler())
-            .add_get_peers_callback( self.make_default_network_request_get_peers_handler())
-            .add_unban_node_callback( self.make_update_last_seen_handler())
+        rh.add_ping_callback(
+                handle_by_private!( self.dptr, &NetworkRequest,
+                                    default_network_request_ping_handle))
+            .add_find_node_callback(
+                handle_by_private!( self.dptr, &NetworkRequest,
+                                    default_network_request_find_node_handle))
+            .add_get_peers_callback(
+                handle_by_private!( self.dptr, &NetworkRequest,
+                                    default_network_request_get_peers))
+            .add_join_network_callback(
+                handle_by_private!( self.dptr, &NetworkRequest,
+                                    default_network_request_join_network))
+            .add_leave_network_callback(
+                handle_by_private!( self.dptr, &NetworkRequest,
+                                    default_network_request_leave_network))
+            .add_ban_node_callback( update_last_seen_handler.clone())
+            .add_unban_node_callback( update_last_seen_handler.clone())
+            .add_join_network_callback( update_last_seen_handler.clone())
+            .add_leave_network_callback( update_last_seen_handler.clone())
             .add_handshake_callback( make_callback!(
                 move | _req: &NetworkRequest| {
                     Ok(())
-            }))
-            .add_join_network_callback( self.make_update_last_seen_handler())
-            .add_join_network_callback( self.make_default_network_request_join_handler())
-            .add_leave_network_callback( self.make_update_last_seen_handler());
+            }));
 
         rh
-    }
-
-    fn make_default_network_response_find_node_handler(&self) -> NetworkResponseSafeFn {
-        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_find_node)
-    }
-
-    /// It updates `self.last_latency_measured` if `self.sent_ping` has been previously updated.
-    fn make_pong_latency_handler(&self) -> NetworkResponseSafeFn {
-        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_pong)
-    }
-
-    /// It adds new peers into each `Connection::buckets`
-    fn make_default_network_response_peer_list_handler(&self) -> NetworkResponseSafeFn {
-        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_peer_list)
-    }
-
-    fn make_default_network_response_handshake_handler(&self) -> NetworkResponseSafeFn {
-        handle_by_private!( self.dptr, &NetworkResponse, default_network_response_handshake)
     }
 
     fn make_response_handler(&mut self) -> ResponseHandler {
         let mut rh = ResponseHandler::new();
 
         rh.add_callback( self.make_update_last_seen_handler())
-            .add_find_node_callback( self.make_default_network_response_find_node_handler())
-            .add_pong_callback( self.make_pong_latency_handler())
-            .add_handshake_callback( self.make_default_network_response_handshake_handler())
-            .add_peer_list_callback( self.make_default_network_response_peer_list_handler());
+            .add_find_node_callback(
+                handle_by_private!( self.dptr, &NetworkResponse,
+                                    default_network_response_find_node))
+            .add_pong_callback(
+                handle_by_private!( self.dptr, &NetworkResponse,
+                                    default_network_response_pong))
+            .add_handshake_callback(
+                handle_by_private!( self.dptr, &NetworkResponse,
+                                    default_network_response_handshake))
+            .add_peer_list_callback(
+                handle_by_private!( self.dptr, &NetworkResponse,
+                                    default_network_response_peer_list));
 
         rh
     }
@@ -214,7 +199,7 @@ impl Connection {
     }
 
     // =============================
-    
+
     pub fn session(&self) -> ConnSession {
         self.dptr.borrow().session()
     }
@@ -228,7 +213,8 @@ impl Connection {
         }
     }
 
-    fn set_measured_handshake(&mut self) {
+    /*
+     fn set_measured_handshake(&mut self) {
         let mut pself = self.dptr.borrow_mut();
 
         if pself.sent_handshake != u64::max_value() {
@@ -236,6 +222,7 @@ impl Connection {
             pself.sent_handshake = u64::max_value();
         }
     }
+     */
 
     pub fn set_measured_ping_sent(&mut self) {
         self.dptr.borrow_mut().sent_ping = get_current_stamp()
@@ -279,10 +266,6 @@ impl Connection {
 
     pub fn last_seen(&self) -> u64 {
         self.dptr.borrow().last_seen()
-    }
-
-    fn remove_network(&mut self, network: &u16) {
-        self.dptr.borrow_mut().networks.retain(|x| x != network);
     }
 
     fn append_buffer(&mut self, new_data: &[u8]) {
@@ -452,7 +435,7 @@ impl Connection {
         } else {
             Err(Error::new( ErrorKind::Other, "Session is empty"))
         };
-        
+
         if rc.is_err() {
             let err = &rc.unwrap_err();
 
@@ -510,7 +493,7 @@ impl Connection {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
-        let rc = 
+        let rc =
             if let Some(ref session) = self.session() {
                 if let Some(ref mut locked_session) = session.write().ok() {
                     locked_session.read_to_end(&mut buf)
@@ -573,7 +556,8 @@ impl Connection {
                     | NetworkRequest::GetPeers(_, _)
                     | NetworkRequest::BanNode(_, _)
                     | NetworkRequest::UnbanNode(_, _)
-                    | NetworkRequest::JoinNetwork(_, _) => { }
+                    | NetworkRequest::JoinNetwork(_, _)
+                    | NetworkRequest::LeaveNetwork(_, _) => {},
                     NetworkRequest::Handshake(sender, nets, _) => {
                         debug!("Got request for Handshake");
                         self.update_last_seen();
@@ -629,18 +613,6 @@ impl Connection {
                             Ok(_) => {}
                             Err(e) => error!("Couldn't send to packet_queue, {:?}", e),
                         };
-                    }
-                    NetworkRequest::LeaveNetwork(_sender, ref network) => {
-                        self.remove_network(network);
-                        match self.get_peer() {
-                            Some(peer) => {
-                                let buckets = self.buckets();
-                                buckets.write().unwrap()
-                                    .update_network_ids(&peer, self.networks());
-                            }
-                            _ => {}
-                        }
-                        // self.log_event(P2PEvent::LeftNetwork(sender.clone(), *network));
                     }
                 }
             }
@@ -788,7 +760,7 @@ impl Connection {
             }
         }
     }
-    
+
     pub fn serialize_bytes(&mut self, pkt: &[u8]) -> ResultExtWrapper<()> {
         trace!("Serializing data to connection {} bytes", pkt.len());
         let mut size_vec = Vec::with_capacity(4);
@@ -822,16 +794,16 @@ impl Connection {
 
     #[cfg(not(target_os = "windows"))]
     fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
-         
+
         let rc = if let Some(ref session) = self.session() {
             if let Some(ref mut locked_session) = session.write().ok() {
                 let mut wr = WriteVAdapter::new(&mut self.socket);
                 locked_session.writev_tls( &mut wr)
-            } else { 
-                Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!()))) 
+            } else {
+                Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
             }
-        } else { 
-            Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!()))) 
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
         };
 
         if rc.is_err() {

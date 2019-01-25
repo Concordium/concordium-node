@@ -23,15 +23,15 @@ fn serialize_bytes( session: &Arc< RwLock<dyn Session>>, pkt: &[u8]) -> ParseCal
 
     // Write 4bytes size + pkt into session.
     let mut locked_session = session.write()?;
-    locked_session.write_all( &size_vec[..])?; 
+    locked_session.write_all( &size_vec[..])?;
     locked_session.write_all( pkt)?;
 
     Ok(())
 }
 
 fn make_msg_error( e:&'static str) -> ErrorWrapper {
-    ErrorWrapper::from_kind( 
-            ErrorKindWrapper::MessageProcessError( 
+    ErrorWrapper::from_kind(
+            ErrorKindWrapper::MessageProcessError(
                     e.to_string()))
 }
 
@@ -50,9 +50,9 @@ fn make_fn_error_peer() -> ErrorWrapper {
 }
 
 
-/// Default `NetworkRequest::Ping` handler. 
-/// It responds with a pong packet. 
-pub fn default_network_request_ping_handle( 
+/// Default `NetworkRequest::Ping` handler.
+/// It responds with a pong packet.
+pub fn default_network_request_ping_handle(
         priv_conn: &Rc< RefCell< ConnectionPrivate >>,
         _req: &NetworkRequest) -> ParseCallbackResult {
 
@@ -83,7 +83,7 @@ pub fn default_network_request_find_node_handle(
     match req {
         NetworkRequest::FindNode(_, node_id) => {
             priv_conn.borrow_mut().update_last_seen();
-   
+
             //Return list of nodes
             let priv_conn_borrow = priv_conn.borrow();
             let ref session = priv_conn_borrow.session()
@@ -127,7 +127,7 @@ pub fn default_network_request_get_peers(
                     .ok_or_else( || make_fn_error_peer())?;
             let peer_list_packet = &NetworkResponse::PeerList(peer, nodes)
                     .serialize();
-            
+
             Ok( serialize_bytes( &session, peer_list_packet)?)
         },
         _ => {
@@ -190,11 +190,26 @@ pub fn default_network_response_peer_list(
 fn log_as_joined_network(
         event_log: &Option<Sender<P2PEvent>>,
         peer: &P2PPeer,
-        networks: &Vec<u16>) {
+        networks: &Vec<u16>) -> ResultExtWrapper<()> {
     if let Some(ref log) = event_log {
         for ele in networks.iter() {
-            log.send( P2PEvent::JoinedNetwork(peer.clone(), *ele));
+            log.send( P2PEvent::JoinedNetwork(peer.clone(), *ele))
+                .map_err(|e| ErrorWrapper::with_chain( e, ErrorKindWrapper::FunctorRunningError(
+                            "Join Network Event cannot be sent to log")))?;
         }
+    }
+    Ok(())
+}
+
+fn log_as_leave_network(
+        event_log: &Option<Sender<P2PEvent>>,
+        sender: &P2PPeer,
+        network: u16) -> ResultExtWrapper<()> {
+    if let Some(ref log) = event_log {
+        log.send( P2PEvent::LeftNetwork( sender.clone(), network))
+            .map_err( |e| ErrorWrapper::with_chain( e, ErrorKindWrapper::FunctorRunningError( "Left Network Event cannot be sent to log")))
+    } else {
+        Ok(())
     }
 }
 
@@ -225,7 +240,7 @@ pub fn default_network_response_handshake(
                 prom.lock()?.peers_inc()?;
             };
 
-            log_as_joined_network( &priv_conn_borrow.event_log, &rpeer, &nets); 
+            log_as_joined_network( &priv_conn_borrow.event_log, &rpeer, &nets)?;
         },
         _ => {}
     };
@@ -240,7 +255,7 @@ pub fn default_network_request_join_network(
         NetworkRequest::JoinNetwork( ref _sender, ref network) => {
             let networks = vec![*network];
             priv_conn.borrow_mut().add_networks(&networks);
-          
+
             let priv_conn_borrow = priv_conn.borrow();
             let peer = priv_conn_borrow.peer.clone()
                 .ok_or_else( || make_fn_error_peer())?;
@@ -249,11 +264,33 @@ pub fn default_network_request_join_network(
             priv_conn_borrow.buckets.write()?
                 .update_network_ids(&peer, priv_conn_networks);
 
-            log_as_joined_network( &priv_conn_borrow.event_log, &peer,  &networks);
+            log_as_joined_network( &priv_conn_borrow.event_log, &peer,  &networks)?;
         },
         _ => {}
     };
 
+    Ok(())
+}
+
+pub fn default_network_request_leave_network(
+        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        req: &NetworkRequest) -> ParseCallbackResult {
+
+    match req {
+        NetworkRequest::LeaveNetwork( sender, network) => {
+            priv_conn.borrow_mut().remove_network( network);
+
+            let priv_conn_borrow = priv_conn.borrow();
+            let peer = priv_conn_borrow.peer.clone()
+                .ok_or_else( || make_fn_error_peer())?;
+
+            priv_conn_borrow.buckets.write()?
+                .update_network_ids( &peer, priv_conn_borrow.networks.clone());
+
+            log_as_leave_network( &priv_conn_borrow.event_log, &sender, *network)?;
+        },
+        _ => {}
+    };
     Ok(())
 }
 
