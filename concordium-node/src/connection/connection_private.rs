@@ -18,8 +18,10 @@ pub struct ConnectionPrivate {
     pub connection_type: ConnectionType,
     pub own_id: P2PNodeId,
     pub mode: P2PNodeMode,
+    pub self_peer: P2PPeer,
     pub peer: Option<P2PPeer>,
     pub networks: Vec<u16>,
+    pub own_networks: Arc<Mutex<Vec<u16>>>,
     pub buckets: Arc< RwLock< Buckets > >,
 
     // Session
@@ -29,6 +31,7 @@ pub struct ConnectionPrivate {
 
     // Stats
     last_seen: AtomicU64,
+    pub failed_pkts: u32,
     pub prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
     pub event_log: Option<Sender<P2PEvent>>,
 
@@ -43,6 +46,8 @@ impl ConnectionPrivate {
             connection_type: ConnectionType,
             mode: P2PNodeMode,
             own_id: P2PNodeId,
+            self_peer: P2PPeer,
+            own_networks: Arc< Mutex< Vec<u16>>>,
             buckets: Arc< RwLock< Buckets > >,
             initiated_by_me: bool,
             tls_server_session: Option< ServerSession>,
@@ -59,8 +64,10 @@ impl ConnectionPrivate {
             connection_type: connection_type,
             mode: mode,
             own_id: own_id,
+            self_peer: self_peer,
             peer: None,
             networks: vec![],
+            own_networks: own_networks,
             buckets: buckets,
 
             initiated_by_me: initiated_by_me,
@@ -68,6 +75,7 @@ impl ConnectionPrivate {
             tls_client_session: cli_session,
 
             last_seen: AtomicU64::new( get_current_stamp()),
+            failed_pkts: 0 as u32,
             prometheus_exporter: prometheus_exporter,
             event_log: event_log,
 
@@ -114,6 +122,10 @@ impl ConnectionPrivate {
 
     pub fn remove_network(&mut self, network: &u16) {
         self.networks.retain(|x| x != network);
+    }
+
+    pub fn set_measured_ping_sent(&mut self) {
+        self.sent_ping = get_current_stamp()
     }
 }
 

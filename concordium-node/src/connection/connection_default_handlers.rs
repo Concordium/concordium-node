@@ -10,11 +10,13 @@ use rustls::{ Session };
 use common::{ P2PPeer, get_current_stamp };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkRequest, NetworkResponse };
-use connection::{ P2PEvent };
+use connection::{ P2PEvent, P2PNodeMode };
 use connection::parse_handler::{ ParseCallbackResult };
 use connection::connection_private::{ ConnectionPrivate };
 
 use errors::*;
+
+const BOOTSTRAP_PEER_COUNT: usize = 100;
 
 fn serialize_bytes( session: &Arc< RwLock<dyn Session>>, pkt: &[u8]) -> ParseCallbackResult {
     // Write size of pkt into 4 bytes vector.
@@ -49,6 +51,9 @@ fn make_fn_error_peer() -> ErrorWrapper {
     make_fn_err( "Peer not found")
 }
 
+fn make_fn_error_prometheus() -> ErrorWrapper {
+    make_fn_err( "Prometheus has faild")
+}
 
 /// Default `NetworkRequest::Ping` handler.
 /// It responds with a pong packet.
@@ -293,4 +298,176 @@ pub fn default_network_request_leave_network(
     };
     Ok(())
 }
+
+fn send_handshake_and_ping(
+        priv_conn: &Rc< RefCell< ConnectionPrivate>>
+    ) -> ParseCallbackResult {
+
+    let priv_conn_borrow = priv_conn.borrow();
+    let ref session = priv_conn_borrow.session()
+        .ok_or_else( || make_fn_error_session())?;
+    let self_peer = & priv_conn_borrow.self_peer;
+    let my_nets = priv_conn_borrow.own_networks.lock()?.clone();
+
+    serialize_bytes(
+        session,
+        &NetworkResponse::Handshake(
+            self_peer.clone(),
+            my_nets,
+            vec![]).serialize())?;
+
+    serialize_bytes(
+        session,
+        &NetworkRequest::Ping(
+            self_peer.clone()).serialize())?;
+
+    TOTAL_MESSAGES_SENT_COUNTER.add(2);
+    Ok(())
+}
+
+fn send_peer_list(
+        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        sender: &P2PPeer,
+        nets: &Vec<u16>
+    ) -> ParseCallbackResult {
+
+    debug!(
+        "Running in bootstrapper mode, so instantly sending peers {} random peers",
+        BOOTSTRAP_PEER_COUNT);
+
+    let priv_conn_borrow = priv_conn.borrow();
+    let random_nodes = priv_conn_borrow.buckets.read()?
+        .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets);
+
+    let self_peer = & priv_conn_borrow.self_peer;
+    let session = priv_conn_borrow.session()
+        .ok_or_else( || make_fn_error_session())?;
+    serialize_bytes(
+        &session,
+        &NetworkResponse::PeerList( self_peer.clone(), random_nodes).serialize())?;
+
+    if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+        prom.lock()?.pkt_sent_inc()
+            .map_err(|_| make_fn_error_prometheus())?;
+    };
+
+    TOTAL_MESSAGES_SENT_COUNTER.inc();
+
+    Ok(())
+}
+
+fn update_buckets(
+        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        sender: &P2PPeer,
+        nets: &Vec<u16>,
+        valid_mode: bool
+    ) -> ParseCallbackResult {
+
+    let priv_conn_borrow = priv_conn.borrow();
+    let own_id = & priv_conn_borrow.own_id;
+    let buckets = & priv_conn_borrow.buckets;
+    let sender_ip = sender.ip();
+
+    if valid_mode {
+        buckets.write()?
+                .insert_into_bucket( sender, &own_id, nets.clone());
+    } else if sender_ip.is_global()
+            && !sender_ip.is_multicast()
+            && !sender_ip.is_documentation() {
+        buckets.write()?
+                .insert_into_bucket( sender, &own_id, nets.clone());
+    }
+
+    let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
+    if let Some(ref prom) = prometheus_exporter {
+        let mut locked_prom = prom.lock()?;
+        locked_prom.peers_inc()
+            .map_err(|_| make_fn_error_prometheus())?;
+        locked_prom.pkt_sent_inc_by(2)
+            .map_err(|_| make_fn_error_prometheus())?;
+    };
+
+    Ok(())
+}
+
+fn is_valid_mode(
+    priv_conn: &Rc< RefCell< ConnectionPrivate>> ) -> bool {
+    let mode = priv_conn.borrow().mode;
+
+    mode == P2PNodeMode::BootstrapperPrivateMode
+    || mode == P2PNodeMode::NormalPrivateMode
+}
+
+pub fn default_network_request_handshake(
+        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        req: &NetworkRequest) -> ParseCallbackResult {
+    match req {
+        NetworkRequest::Handshake(sender, nets, _) => {
+            debug!("Got request for Handshake");
+
+            send_handshake_and_ping( priv_conn)?;
+
+            {
+                let mut priv_conn_mut = priv_conn.borrow_mut();
+                priv_conn_mut.update_last_seen();
+                priv_conn_mut.set_measured_ping_sent();
+                priv_conn_mut.add_networks(nets);
+                priv_conn_mut.peer = Some( sender.clone());
+            }
+
+            let valid_mode: bool = is_valid_mode( priv_conn);
+            update_buckets( priv_conn, sender, nets, valid_mode)?;
+
+            if valid_mode {
+                send_peer_list( priv_conn, sender, nets)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+pub fn default_unknown_message(
+        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        _: &()) -> ParseCallbackResult {
+
+    debug!("Unknown message received!");
+
+    {
+        let mut priv_conn_mut = priv_conn.borrow_mut();
+
+        priv_conn_mut.failed_pkts += 1;
+        priv_conn_mut.update_last_seen();
+    }
+
+    // TODO It will need access to buf.
+    // trace!("Contents were: {:?}",
+    //        String::from_utf8(buf.to_vec()).unwrap());
+
+    if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
+        prom.lock()?.unknown_pkts_received_inc()?;
+    }
+    Ok(())
+}
+
+pub fn default_invalid_message(
+         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        _: &()) -> ParseCallbackResult {
+    {
+        let mut priv_conn_mut = priv_conn.borrow_mut();
+
+        priv_conn_mut.failed_pkts += 1;
+        priv_conn_mut.update_last_seen();
+    }
+
+    // trace!("Contents were: {:?}",
+    //        String::from_utf8(buf.to_vec()).unwrap());
+
+    if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
+        prom.lock()?.invalid_pkts_received_inc()?;
+    }
+
+    Ok(())
+}
+
 
