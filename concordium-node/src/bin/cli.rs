@@ -6,7 +6,10 @@ extern crate log;
 extern crate bytes;
 extern crate chrono;
 extern crate env_logger;
-extern crate grpcio;
+#[cfg(unix)]
+extern crate grpciounix as grpcio;
+#[cfg(windows)]
+extern crate grpciowin as grpcio;
 extern crate mio;
 extern crate timer;
 #[macro_use]
