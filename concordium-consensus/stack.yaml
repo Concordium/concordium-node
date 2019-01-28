@@ -42,7 +42,7 @@ packages:
 # extra-deps: []
 extra-deps:
   - git: git@gitlab.com:Concordium/oak/oak-compiler.git
-    commit: efc0a6ea51bc4483c520cfb2e37aa2fc11237a7a
+    commit: aa3904ab5ee7fa5a22037873d0b970c8cbbc60d0
   - language-glsl-0.3.0
 
 # Override default flag values for local packages and extra-deps
