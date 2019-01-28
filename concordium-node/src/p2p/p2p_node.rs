@@ -24,15 +24,14 @@ use std::thread;
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
-use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager, 
+use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager,
     MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
-    NetworkRequestSafeFn, NetworkPacketSafeFn }; 
+    NetworkRequestSafeFn, NetworkPacketSafeFn };
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
 use p2p::peer_statistics::{ PeerStatistic };
-use p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message};
-
+use p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message };
 
 const SERVER: Token = Token(0);
 
@@ -190,7 +189,7 @@ impl P2PNode {
                                      networks,
                                      buckets.clone());
 
-        let mut mself = P2PNode { 
+        let mut mself = P2PNode {
                   tls_server: Arc::new(Mutex::new(tlsserv)),
                   poll: Arc::new(Mutex::new(poll)),
                   id: _id,
@@ -220,7 +219,7 @@ impl P2PNode {
         let request_handler = self.make_request_handler();
 
         self.message_handler
-            .add_packet_callback( make_callback!( 
+            .add_packet_callback( make_callback!(
                     move |pac: &NetworkPacket| { (packet_handler)(pac) }))
             .add_response_callback( make_callback!(
                     move |res: &NetworkResponse| { (response_handler)(res) }))
@@ -238,7 +237,7 @@ impl P2PNode {
         let packet_queue = self.incoming_pkts.clone();
 
         make_callback!( move|pac: &NetworkPacket| {
-            forward_network_packet_message( &seen_messages, &prometheus_exporter, 
+            forward_network_packet_message( &seen_messages, &prometheus_exporter,
                                                    &own_networks, &packet_queue, pac)
         })
     }
@@ -250,8 +249,7 @@ impl P2PNode {
     }
 
     fn make_response_handler(&self) -> ResponseHandler {
-        let handler = ResponseHandler::new();
-        handler
+        ResponseHandler::new()
     }
 
     fn make_requeue_handler(&self) -> NetworkRequestSafeFn {
@@ -265,14 +263,15 @@ impl P2PNode {
     fn make_request_handler(&self) -> RequestHandler {
         let requeue_handler = self.make_requeue_handler();
         let mut handler = RequestHandler::new();
-        
+
         handler
             .add_ban_node_callback( requeue_handler.clone())
-            .add_unban_node_callback( requeue_handler.clone());
+            .add_unban_node_callback( requeue_handler.clone())
+            .add_handshake_callback( requeue_handler.clone());
 
         handler
     }
-    
+
     pub fn spawn(&mut self) -> thread::JoinHandle<()> {
         let mut self_clone = self.clone();
         thread::spawn(move || {
@@ -349,12 +348,13 @@ impl P2PNode {
         (time::get_time() - self.start_time).num_milliseconds()
     }
 
-    /// Connetion is valid for a broadcast if sender is not target and 
+    /// Connetion is valid for a broadcast if sender is not target and
     /// and network_id is owned by connection.
     fn is_valid_connection_in_broadcast(&self, conn: &Connection, sender: &P2PPeer, network_id: &u16) -> bool {
-        if let Some(ref peer) = conn.peer {
+        if let Some(ref peer) = conn.peer() {
             if peer.id() != sender.id() {
-                return conn.own_networks.lock().unwrap().contains(network_id);
+                let own_networks = conn.own_networks();
+                return own_networks.lock().unwrap().contains(network_id);
             }
         }
         false
@@ -363,8 +363,8 @@ impl P2PNode {
     fn process_broadcasted_message(&self, sender: &P2PPeer, msgid: &String,  network_id: &u16, data: &Vec<u8> ) -> ResultExtWrapper<()> {
         self.tls_server.lock()?
             .connections.values_mut()
-            .filter( |conn| { 
-                self.is_valid_connection_in_broadcast( conn, sender, network_id) 
+            .filter( |conn| {
+                self.is_valid_connection_in_broadcast( conn, sender, network_id)
             })
         .fold( Ok(()), |status, ref mut conn| {
             conn.serialize_bytes( data)
@@ -409,8 +409,9 @@ impl P2PNode {
                                 if let NetworkPacket::DirectMessage(_, msgid, receiver, network_id,  _) = inner_pkt {
                                     match self.tls_server.lock()?.find_connection(receiver.clone()) {
                                         Some(ref mut conn) => {
-                                            if conn.own_networks.lock().unwrap().contains(network_id) {
-                                                if let Some(ref peer) = conn.peer.clone() {
+                                            let own_networks = conn.own_networks();
+                                            if own_networks.lock().unwrap().contains(network_id) {
+                                                if let Some(ref peer) = conn.peer().clone() {
                                                     match conn.serialize_bytes( &inner_pkt.serialize()) {
                                                         Ok(_) => {
                                                             self.seen_messages.append(&msgid);
@@ -447,7 +448,7 @@ impl P2PNode {
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_, _), _, _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let Some(ref peer) = conn.peer.clone() {
+                                    if let Some(ref peer) = conn.peer().clone() {
                                         match conn.serialize_bytes( &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.pks_sent_inc()?;
@@ -464,7 +465,7 @@ impl P2PNode {
                                 {
                                     let mut tls_server = self.tls_server.lock()?;
                                     for (_, mut conn) in &mut tls_server.connections {
-                                        if let Some(ref peer) = conn.peer.clone() {
+                                        if let Some(ref peer) = conn.peer().clone() {
                                             match conn.serialize_bytes( &inner_pkt.serialize()) {
                                                 Ok(_) => {
                                                     self.pks_sent_inc()?;
@@ -485,7 +486,7 @@ impl P2PNode {
                                 {
                                     let mut tls_server = self.tls_server.lock()?;
                                     for (_, mut conn) in &mut tls_server.connections {
-                                        if let Some(ref peer) = conn.peer.clone() {
+                                        if let Some(ref peer) = conn.peer().clone() {
                                             match conn.serialize_bytes( &inner_pkt.serialize()) {
                                                 Ok(_) => {
                                                     self.pks_sent_inc()?;
@@ -506,7 +507,7 @@ impl P2PNode {
                                                                _,
                                                                _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let Some(ref peer) = conn.peer.clone() {
+                                    if let Some(ref peer) = conn.peer().clone() {
                                         match conn.serialize_bytes( &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.pks_sent_inc()?;
@@ -521,7 +522,7 @@ impl P2PNode {
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_,_), _, _) => {
                                 for (_, mut conn) in &mut self.tls_server.lock()?.connections {
-                                    if let Some(ref peer) = conn.peer.clone() {
+                                    if let Some(ref peer) = conn.peer().clone() {
                                         match conn.serialize_bytes( &inner_pkt.serialize()) {
                                             Ok(_) => {
                                                 self.pks_sent_inc()?;
@@ -825,7 +826,7 @@ impl P2PNode {
         self.process_messages()?;
         Ok(())
     }
-    
+
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self) {
         if let Some(mut tls_server_lock) = self.tls_server.lock().ok() {

@@ -1,16 +1,9 @@
-use std::sync::{ Arc, RwLock };
-use rustls::{ ServerSession, ClientSession, Session };
-
 use network::{ NetworkRequest, NetworkResponse, NetworkPacket };
 pub use self::parse_handler::{ ParseCallbackResult, ParseCallback, ParseCallbackWrapper, ParseHandler };
 
 pub type NetworkRequestSafeFn = ParseCallbackWrapper<NetworkRequest>;
 pub type NetworkResponseSafeFn = ParseCallbackWrapper<NetworkResponse>;
 pub type NetworkPacketSafeFn = ParseCallbackWrapper<NetworkPacket>;
-
-type ConnServerSession = Option< Arc< RwLock< ServerSession > > >;
-type ConnClientSession = Option< Arc< RwLock< ClientSession > > >;
-type ConnSession = Option< Arc< RwLock<dyn Session > > >;
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
@@ -48,32 +41,6 @@ macro_rules! impl_all_fns {
     }
 }
 
-macro_rules! update_atomic_stamp {
-    ($mode:ident, $stamp:ident) => {
-        if $mode != P2PNodeMode::BootstrapperMode && $mode != P2PNodeMode::BootstrapperPrivateMode {
-            $stamp.store( get_current_stamp(), Ordering::Relaxed);
-        }
-    }
-}
-
-macro_rules! sessionAs {
-    ($mself:ident, $t:ty) => {
-        if $mself.initiated_by_me {
-            if let Some(ref cli_session) = $mself.tls_client_session {
-                Some( Arc::clone(&cli_session) as Arc< RwLock< $t > >)
-            } else {
-                None
-            }
-        } else {
-            if let Some(ref srv_session) = $mself.tls_server_session {
-                Some( Arc::clone(&srv_session) as Arc< RwLock< $t > >)
-            } else {
-                None
-            }
-        }
-    }
-}
-
 pub mod parse_handler;
 pub mod packet_handler;
 pub mod request_handler;
@@ -86,6 +53,7 @@ mod seen_messages_list;
 mod writev_adapter;
 
 mod connection_default_handlers;
+mod connection_private;
 pub mod connection;
 
 pub use self::connection::Connection;

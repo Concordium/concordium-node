@@ -1,6 +1,6 @@
 use std::sync::{ Arc, Mutex };
 
-use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult };
+use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult, ParseCallbackWrapper };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 
 /// It is a handler for `NetworkMessage`.
@@ -9,39 +9,59 @@ pub struct MessageHandler {
     pub request_parser: ParseHandler<NetworkRequest>,
     pub response_parser: ParseHandler<NetworkResponse>,
     pub packet_parser: ParseHandler<NetworkPacket>,
+    pub unknow_parser: ParseHandler<()>,
+    pub invalid_parser: ParseHandler<()>,
 }
 
 impl MessageHandler {
     pub fn new() -> Self {
 
         MessageHandler {
-            request_parser : ParseHandler::<NetworkRequest>::new( 
+            request_parser : ParseHandler::<NetworkRequest>::new(
                     "Network Request Handler"),
-            response_parser: ParseHandler::<NetworkResponse>::new( 
+            response_parser: ParseHandler::<NetworkResponse>::new(
                     "Network Response Handler"),
-            packet_parser: ParseHandler::<NetworkPacket>::new( 
+            packet_parser: ParseHandler::<NetworkPacket>::new(
                     "Network Package Handler"),
+            unknow_parser: ParseHandler::new(
+                    "Unknown Packet Handler"),
+            invalid_parser: ParseHandler::new(
+                    "Invalid Packet Handler")
         }
     }
 
     pub fn add_request_callback(
-            &mut self, 
+            &mut self,
             callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> &mut Self {
         self.request_parser.add_callback( callback);
         self
     }
 
     pub fn add_response_callback(
-            &mut self, 
+            &mut self,
             callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> &mut Self {
         self.response_parser.add_callback( callback);
         self
     }
-    
+
     pub fn add_packet_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box<ParseCallback<NetworkPacket> > > > ) -> &mut Self {
+            &mut self,
+            callback: ParseCallbackWrapper<NetworkPacket> ) -> &mut Self {
         self.packet_parser.add_callback( callback);
+        self
+    }
+
+    pub fn add_unknow_callback(
+            &mut self,
+            callback: ParseCallbackWrapper<()> ) -> &mut Self {
+        self.unknow_parser.add_callback( callback);
+        self
+    }
+
+    pub fn add_invalid_callback(
+            &mut self,
+            callback: ParseCallbackWrapper<()> ) -> &mut Self {
+        self.invalid_parser.add_callback( callback);
         self
     }
 
@@ -56,9 +76,12 @@ impl MessageHandler {
             },
             NetworkMessage::NetworkPacket(ref np, _, _) => {
                 (&self.packet_parser)( np)
-            }
-            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
-                Ok(())
+            },
+            NetworkMessage::UnknownMessage => {
+                (&self.unknow_parser)( &())
+            },
+            NetworkMessage::InvalidMessage => {
+                (&self.invalid_parser)( &())
             }
         }
     }
@@ -75,7 +98,7 @@ pub trait MessageManager {
 mod message_handler_unit_test {
     use connection::message_handler::{ MessageHandler, ParseCallbackResult };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
-    
+
     use common::{ ConnectionType, P2PPeer };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::{ Arc, Mutex };
@@ -91,7 +114,7 @@ mod message_handler_unit_test {
 
         mh.add_request_callback( make_callback!( request_handler_func_1))
             .add_request_callback( make_callback!( request_handler_func_2))
-            .add_request_callback( make_callback!( |_| { Ok(()) })) 
+            .add_request_callback( make_callback!( |_| { Ok(()) }))
             .add_response_callback( make_callback!( response_handler_func_1))
             .add_response_callback( make_callback!( response_handler_func_1))
             .add_packet_callback( make_callback!( |_| { Ok(()) }))
@@ -136,8 +159,8 @@ mod integration_test {
             NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer.clone()), Some(100), Some(42)),
             NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer.clone()), None, None),
             NetworkMessage::NetworkResponse( NetworkResponse::Pong( p2p_peer.clone()), None, None),
-            NetworkMessage::NetworkPacket( 
-                NetworkPacketEnum::BroadcastedMessage( p2p_peer.clone(), "MSG-ID-1".to_string(), 
+            NetworkMessage::NetworkPacket(
+                NetworkPacketEnum::BroadcastedMessage( p2p_peer.clone(), "MSG-ID-1".to_string(),
                         100 as u16, inner_msg.clone()),
                 None, None),
             NetworkMessage::NetworkPacket(
@@ -162,7 +185,7 @@ mod integration_test {
 
     /// Creates message handler for testing.
     fn make_message_handler() -> MessageHandler {
-        
+
         let mut pkg_handler = PacketHandler::new();
 
         pkg_handler.add_direct_callback( make_callback!( |_pd: &NetworkPacketEnum| {
@@ -178,14 +201,14 @@ mod integration_test {
 
         msg_handler.add_request_callback( make_callback!( network_request_handler_1))
             .add_request_callback( make_callback!( network_request_handler_2))
-            .add_request_callback( make_callback!( |_x: &NetworkRequest| { 
-                println!( 
-                    "Network Request {}", 
-                    NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed)); 
-                Ok(()) 
+            .add_request_callback( make_callback!( |_x: &NetworkRequest| {
+                println!(
+                    "Network Request {}",
+                    NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed));
+                Ok(())
             }))
-            .add_response_callback( make_callback!( |_x: &NetworkResponse| { 
-                NETWORK_RESPONSE_COUNTER.fetch_add( 1, Ordering::SeqCst); 
+            .add_response_callback( make_callback!( |_x: &NetworkResponse| {
+                NETWORK_RESPONSE_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
             .add_packet_callback( make_callback!( move |p: &NetworkPacketEnum| {
@@ -193,7 +216,7 @@ mod integration_test {
                 (pkg_handler)(p)
             }));
 
-        msg_handler 
+        msg_handler
     }
 
 
@@ -214,7 +237,7 @@ mod integration_test {
         for message in network_request_handler_data() {
             let _status = (&mh)( &message);
         }
-        
+
         assert_eq!( NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 4);
         assert_eq!( NETWORK_RESPONSE_COUNTER.load(Ordering::Relaxed), 2);
         assert_eq!( NETWORK_PACKET_COUNTER.load(Ordering::Relaxed), 4);
