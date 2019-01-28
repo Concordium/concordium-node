@@ -55,10 +55,6 @@ initialFreezeState = FreezeState Map.empty Set.empty 0 0 Map.empty Set.empty 0 S
 
 -- | 'FreezeMonad' is implemented by a client that wishes to use the Freeze protocol
 class (MonadState (FreezeState val party) m) => FreezeMonad val party m where
-    -- |Register and action to perform when a given candidate becomes justified.
-    -- If the candidate is already justified, then the action is perfomed
-    -- immediately.
-    awaitCandidate :: val -> m () -> m ()
     -- |Broadcast a 'FreezeMessage' to all parties.  It is not necessary for the
     -- messages to be sent back to the 'FreezeInstance', but should not be harmful
     -- either.
@@ -70,11 +66,13 @@ class (MonadState (FreezeState val party) m) => FreezeMonad val party m where
 
 
 data FreezeInstance val party m = FreezeInstance {
-    -- |Propose a candidate value.  The value must already be a candidate.
+    -- |Propose a candidate value.  The value must already be a candidate (i.e. 
+    -- 'justifyCandidate' should have been called for this value).
     -- This should only be called once per instance.  If it is called more than once,
     -- or if it is called after receiving a proposal from our own party, only the first
     -- proposal is considered, and subsequent proposals are not broadcast.
     propose :: val -> m (),
+    justifyCandidate :: val -> m (),
     freezeMessage :: party -> FreezeMessage val -> m ()
 }
 
@@ -96,30 +94,35 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
         -- Add a proposal.
         addProposal party value = when (partyWeight party > 0) $ whenAddToSet party proposers $
             use (proposals . at value) >>= \case
-                Nothing -> do
-                    proposals . at value ?= (False, partyWeight party, Set.singleton party)
-                    awaitCandidate value $ do
-                        Just (False, weight, parties) <- use (proposals . at value)
-                        proposals . at value ?= (True, weight, parties)
-                        newTotalProposals <- totalProposals <%= (weight +)
-                        currJProps <- distinctJustifiedProposals <%= (1+)
-                        when (weight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
-                        when (currJProps == 2) $ justifyVote Nothing
-                        when (newTotalProposals >= totalWeight - corruptWeight) doVote
+                Nothing -> proposals . at value ?= (False, partyWeight party, Set.singleton party)
                 Just (isCandidate, oldWeight, parties) -> do
                     let newWeight = partyWeight party + oldWeight
                     proposals . at value ?= (isCandidate, newWeight, Set.insert party parties)
                     when isCandidate $ do
                         newTotalProposals <- totalProposals <%= (partyWeight party +)
+                        when (oldWeight == 0) $ do
+                            currJProps <- distinctJustifiedProposals <%= (1+)
+                            when (currJProps == 2) $ justifyVote Nothing
                         when (newWeight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                         when (newTotalProposals >= totalWeight - corruptWeight) doVote
+        justifyCandidate value = use (proposals . at value) >>= \case
+            Nothing -> proposals . at value ?= (True, 0, Set.empty)
+            Just (False, weight, parties) -> do
+                proposals . at value ?= (True, weight, parties)
+                when (weight > 0) $ do
+                    newTotalProposals <- totalProposals <%= (weight +)
+                    currJProps <- distinctJustifiedProposals <%= (1+)
+                    when (weight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
+                    when (currJProps == 2) $ justifyVote Nothing
+                    when (newTotalProposals >= totalWeight - corruptWeight) doVote
+            Just (True, _, _) -> return ()
         justifyVote vote =
             use (votes . at vote) >>= \case
                 Nothing -> votes . at vote ?= (True, 0, Set.empty)
                 Just (False, weight, parties) -> do
                     votes . at vote ?= (True, weight, parties)
                     newTotalVotes <- totalVotes <%= (weight +)
-                    -- TODO: Record when a decision becomes justified
+                    -- Record when a decision becomes justified
                     when (weight > corruptWeight) $ justifyDecision vote
                     when (newTotalVotes >= totalWeight - corruptWeight) doFinish
                 Just (True, _, _) -> return () 
@@ -132,7 +135,7 @@ newFreezeInstance totalWeight corruptWeight partyWeight me = FreezeInstance {..}
                 Just (True, weight, parties) -> do
                     votes . at vote ?= (True, partyWeight party + weight, Set.insert party parties)
                     newTotalVotes <- totalVotes <%= (partyWeight party +)
-                    -- TODO: Record when a decision becomes justified
+                    -- Record when a decision becomes justified
                     when (partyWeight party + weight > corruptWeight) $ justifyDecision vote
                     when (newTotalVotes >= totalWeight - corruptWeight) doFinish
         justifyDecision decision = whenAddToSet decision justifiedDecisions $ decisionJustified decision

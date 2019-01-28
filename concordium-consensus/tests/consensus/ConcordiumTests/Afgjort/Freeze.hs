@@ -33,7 +33,7 @@ invariantFreezeState' totalWeight corruptWeight partyWeight fs = do
     checkBinary (==) vers (_voters fs) "==" "computed set of voters" "given set"
     voteOK
     where
-        propAcc (aps, jps, prs, djps, po) v (vd, wt, pts) = (aps + wt, if vd then jps + wt else jps, prs `Set.union` pts, if vd then djps + 1 else djps,
+        propAcc (aps, jps, prs, djps, po) v (vd, wt, pts) = (aps + wt, if vd then jps + wt else jps, prs `Set.union` pts, if vd && wt > 0 then djps + 1 else djps,
                                                         po >> checkBinary (==) wt (sum (partyWeight <$> Set.toList pts)) "==" ("given proposal weight for " ++ show v) "calculated proposal weight"
                                                         >> checkBinary (\s1 s2 -> Set.null (Set.intersection s1 s2)) prs pts "disjoint from" "already proposed parties" ("parties proposing " ++ show v)
                                                         )
@@ -62,17 +62,17 @@ data FreezeOutput val
     | FOJustifiedDecision (Maybe val)
     deriving (Eq, Ord, Show)
 
-type FreezeTState val party m = (Map.Map val (Maybe (FreezeT val party m ())), FreezeState val party)
+-- type FreezeTState val party m = (Map.Map val (Maybe (FreezeT val party m ())), FreezeState val party)
 type FreezeTContext party = (Int, Int, party -> Int)
 
 newtype FreezeT val party m a = FreezeT {
-    runFreezeT :: RWST (FreezeTContext party) [Either (FreezeOutput val) (FreezeState val party)] (FreezeTState val party m) m a
+    runFreezeT :: RWST (FreezeTContext party) [Either (FreezeOutput val) (FreezeState val party)] (FreezeState val party) m a
 } deriving (Functor, Applicative, Monad)
 
 instance (Monad m) => (MonadState (FreezeState val party) (FreezeT val party m)) where
-    get = snd <$> FreezeT get
-    put v = FreezeT (state (\(a, _) -> ((), (a,v))))
-    state f = FreezeT (state (\(a, v) -> let (r, v') = f v in (r, (a, v'))))
+    get = FreezeT get
+    put = FreezeT . put
+    state = FreezeT . state
 
 {-
 assertInvariant :: (Monad m, Ord val, Ord party) => FreezeT val party m ()
@@ -84,38 +84,27 @@ assertInvariant = FreezeT $ do
 
 tellState :: Monad m => FreezeT val party m ()
 tellState = FreezeT $ do
-    state <- use _2
-    tell [Right state]
+    st <- get
+    tell [Right st]
 
 instance (Monad m, Ord val, Ord party) => FreezeMonad val party (FreezeT val party m) where
-    awaitCandidate v x = (FreezeT $ do
-        candWait <- use (_1 . at v)
-        case candWait of
-            Nothing -> (_1 . at v) ?= Just x
-            (Just Nothing) -> runFreezeT x
-            (Just (Just a)) -> (_1 . at v) ?= Just (a >> x))
     broadcastFreezeMessage m = FreezeT (tell [Left $ FOMessage m])
     frozen v = FreezeT (tell [Left $ FOComplete v])
     decisionJustified v = FreezeT (tell [Left $ FOJustifiedDecision v])
 
-notifyCandidate :: (Monad m, Ord val, Ord party) => val -> FreezeT val party m ()
-notifyCandidate val = FreezeT $ do
-        waiters <- (_1 . at val) <<.= Just Nothing
-        case waiters of
-            Just (Just a) -> runFreezeT a
-            _ -> return ()
-
-doFreezeT :: (Monad m, Ord val, Ord party) => FreezeTContext party -> FreezeTState val party m -> FreezeT val party m a -> m (a, FreezeTState val party m, [Either (FreezeOutput val) (FreezeState val party)])
+doFreezeT :: (Monad m, Ord val, Ord party) => FreezeTContext party -> FreezeState val party -> FreezeT val party m a -> m (a, FreezeState val party, [Either (FreezeOutput val) (FreezeState val party)])
 doFreezeT context state a = runRWST (runFreezeT (a >>= \r -> tellState >> return r)) context state
  
 runFreezeSequence :: forall val party. (Ord val, Ord party) => FreezeTContext party -> party -> [FreezeInput party val] -> [Either (FreezeInput party val) (Either (FreezeOutput val) (FreezeState val party))]
-runFreezeSequence ctx@(totalWeight, corruptWeight, partyWeight) me ins = go (Map.empty, initialFreezeState) ins
+runFreezeSequence ctx@(totalWeight, corruptWeight, partyWeight) me ins = go initialFreezeState ins
     where
         fi :: FreezeInstance val party (FreezeT val party Identity)
         fi = newFreezeInstance totalWeight corruptWeight partyWeight me
+        go :: FreezeState val party -> [FreezeInput party val] -> [Either (FreezeInput party val) (Either (FreezeOutput val) (FreezeState val party))]
         go st [] = []
         go st (e : es) = let (_, st', out) = runIdentity (doFreezeT ctx st (exec e)) in (Left e) : (Right <$> out) ++ go st' es
-        exec (FICandidate v) = notifyCandidate v
+        exec :: FreezeInput party val -> FreezeT val party Identity ()
+        exec (FICandidate v) = justifyCandidate fi v
         exec (FIRequestProposal v) = propose fi v
         exec (FIProposal p v) = freezeMessage fi p (Proposal v)
         exec (FIVote p v) = freezeMessage fi p (Vote v)
