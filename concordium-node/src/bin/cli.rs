@@ -23,7 +23,7 @@ static A: System = System;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use consensus_sys::consensus;
 use env_logger::{Builder, Env};
-use p2p_client::common::{ ConnectionType };
+use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
@@ -33,6 +33,7 @@ use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
+use p2p_client::stats_engine::StatsEngine;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -249,6 +250,8 @@ fn run() -> ResultExtWrapper<()> {
     let _desired_nodes_clone = conf.desired_nodes;
     let _test_runner_url = conf.test_runner_url.clone();
     let mut _baker_pkt_clone = baker.clone();
+    let _tps_test_enabled = conf.enable_tps_test;
+    let mut stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
     let _guard_pkt = thread::spawn(move || {
                                        fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
                                                             msg: &[u8])
@@ -287,6 +290,10 @@ fn run() -> ResultExtWrapper<()> {
                                            if let Ok(full_msg) = pkt_out.recv() {
                                                match *full_msg.clone() {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
+                                                   if _tps_test_enabled {
+                                                       stats_engine.add_stat(msg.len() as u64);
+                                                       info!("Current TPS: {}", stats_engine.calculate_total_tps_average());
+                                                   }
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }
@@ -509,6 +516,35 @@ fn run() -> ResultExtWrapper<()> {
                               }
                           }
                       });
+    }
+
+    //TPS test
+
+    if let Some(ref tps_test_recv_id) = conf.tps_test_recv_id {
+        let mut _id_clone = tps_test_recv_id.clone();
+        let mut _dir_clone = conf.tps_test_data_dir.clone();
+        let mut _node_ref = node.clone();
+        let _network_id = conf.network_ids.first().unwrap().clone();
+        thread::spawn(move || {
+            let test_messages = utils::get_tps_test_messages(_dir_clone);
+            for message in test_messages {
+                let mut out_bytes = vec![];
+                out_bytes.extend(message);
+                match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
+                                            _network_id,
+                                            None,
+                                            &out_bytes,
+                                            false) {
+                                                  Ok(_) => {
+                                                      info!("Sent TPS test bytes of len {}",
+                                                            out_bytes.len());
+                                                  }
+                                                  Err(_) => {
+                                                      error!("Couldn't broadcast block!")
+                                                  }
+                                            }
+            }
+        });
     }
 
     _node_th.join().unwrap();

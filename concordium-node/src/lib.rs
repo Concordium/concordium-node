@@ -72,6 +72,7 @@ pub mod proto;
 pub mod rpc;
 pub mod utils;
 pub mod network;
+pub mod stats_engine;
 
 cfg_if! {
     if #[cfg(not(debug_assertions))] {

@@ -13,7 +13,4 @@ git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
 
 scripts/build-base-docker.sh
 scripts/build-build-docker.sh $1
-scripts/build-bootstrapper-docker.sh $1
-scripts/build-basic-docker.sh $1
-scripts/build-ipdiscovery-docker.sh $1
-scripts/build-testrunner-docker.sh $1
+scripts/build-universal-docker.sh $1

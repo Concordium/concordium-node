@@ -6,6 +6,7 @@ COPY ./scripts/start-bootstrapper.sh ./start-bootstrapper.sh
 COPY ./scripts/start-ipdiscovery.sh ./start-ipdiscovery.sh
 COPY ./scripts/start-node.sh ./start-node.sh
 COPY ./scripts/start-testrunner.sh ./start-testrunner.sh
+COPY ./scripts/gen_data.sh ./gen_data.sh
 RUN pacman -Sy &&\
     pacman -Syyu --noconfirm && \
     pacman -S protobuf openssl-1.0 cmake go clang git libtool rustup make m4 pkgconf openssl autoconf automake ldns file which boost zstd patch libunwind libdwarf elfutils unbound --noconfirm && \
