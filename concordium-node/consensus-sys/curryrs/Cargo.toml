@@ -15,13 +15,13 @@ build = "build.rs"
 # These are needed for the Haskell source code
 # but are dead weight for the Rust Package
 exclude = [
-    "/rtest",
-    "/haskell-tests",
-    "/Setup.hs",
-    "/stack.yaml",
-    "/curryrs.cabal",
-    "/Makefile",
-    "/htest"
+    "rtest",
+    "haskell-tests",
+    "Setup.hs",
+    "stack.yaml",
+    "curryrs.cabal",
+    "Makefile",
+    "htest"
 ]
 
 [workspace]

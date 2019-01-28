@@ -71,12 +71,12 @@ vecio = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
-grpciowin          = { version = "0.4.0", default-features = false, features = ["protobuf-codec"], path = "grpc-rs-0.4.0", package = "grpcio" } 
+grpciowin          = { package = 'grpcio', version = "0.4.0", default-features = false, features = ["protobuf-codec"], path = "grpc-rs-0.4.0" } 
 grpc            = "0.5.0"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5.3" }
-grpciounix         = { version = "0.4.0", default-features = false, features = ["protobuf-codec"], package = "grpcio"} 
+grpciounix         = { package = 'grpcio', version = "0.4.0", default-features = false, features = ["protobuf-codec"] } 
 grpc            = "0.5.0"
 
 [dependencies.prometheus]
