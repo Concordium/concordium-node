@@ -30,7 +30,8 @@ use connection::connection_private::{ ConnectionPrivate, ConnSession };
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
 
-
+/// This macro clones `dptr` and moves it into callback closure.
+/// That closure is just a call to `fn` Fn.
 macro_rules! handle_by_private {
     ($dptr:expr, $message_type:ty, $fn: ident) => {{
         let dptr_cloned = $dptr.clone();
@@ -57,6 +58,9 @@ pub struct Connection {
     last_ping_sent: u64,
 
 
+    /// It stores internal info used in handles. In this way,
+    /// handler's function will only need two arguments: this shared object, and
+    /// the message which is going to be processed.
     dptr: Rc< RefCell< ConnectionPrivate >>,
     pub message_handler: MessageHandler
 }
@@ -209,17 +213,6 @@ impl Connection {
         }
     }
 
-    /*
-     fn set_measured_handshake(&mut self) {
-        let mut pself = self.dptr.borrow_mut();
-
-        if pself.sent_handshake != u64::max_value() {
-            pself.last_latency_measured = get_current_stamp() - pself.sent_handshake;
-            pself.sent_handshake = u64::max_value();
-        }
-    }
-     */
-
     pub fn set_measured_handshake_sent(&mut self) {
         self.dptr.borrow_mut().sent_handshake = get_current_stamp()
     }
@@ -227,7 +220,6 @@ impl Connection {
     pub fn set_measured_ping_sent(&mut self) {
         self.dptr.borrow_mut().set_measured_ping_sent();
     }
-
 
     pub fn get_last_ping_sent(&self) -> u64 {
         self.last_ping_sent
@@ -506,6 +498,7 @@ impl Connection {
         }
     }
 
+    /// It decodes message from `buf` and processes it using its message handlers.
     fn process_complete_packet(&mut self, buf: &[u8]) {
         let outer = Arc::new(box NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf));
         self.messages_received += 1;

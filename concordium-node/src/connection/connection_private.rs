@@ -13,7 +13,11 @@ pub type ConnServerSession = Option< Arc< RwLock< ServerSession > > >;
 pub type ConnClientSession = Option< Arc< RwLock< ClientSession > > >;
 pub type ConnSession = Option< Arc< RwLock<dyn Session > > >;
 
-
+/// It is just a helper struct to facilitate sharing information with
+/// message handlers, which are set up from _inside_ `Connection`.
+/// In this way, all closures only need two arguments:
+///     - This structure as a shared object, like `Rc< RefCell<...>>`
+///     - The input message.
 pub struct ConnectionPrivate {
     pub connection_type: ConnectionType,
     pub own_id: P2PNodeId,
@@ -85,6 +89,9 @@ impl ConnectionPrivate {
         }
     }
 
+    /// It returns the `Client Session` if connection has been initiated by me.
+    /// Otherwise, it will return its `Server Session`.
+    /// Both kind of session could be `None`.
     pub fn session(&self) -> ConnSession {
         if self.initiated_by_me {
             if let Some(ref cli_session) = self.tls_client_session {

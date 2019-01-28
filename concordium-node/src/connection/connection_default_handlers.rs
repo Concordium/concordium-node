@@ -164,6 +164,7 @@ pub fn default_network_response_find_node (
     }
 }
 
+/// It measures network latency.
 pub fn default_network_response_pong(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         _res: &NetworkResponse) -> ParseCallbackResult {
@@ -176,6 +177,7 @@ pub fn default_network_response_pong(
     Ok(())
 }
 
+/// It inserts new peers into buckets.
 pub fn default_network_response_peer_list(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkResponse) -> ParseCallbackResult {
@@ -192,6 +194,7 @@ pub fn default_network_response_peer_list(
     Ok(())
 }
 
+/// Log when it has been joined to a network.
 fn log_as_joined_network(
         event_log: &Option<Sender<P2PEvent>>,
         peer: &P2PPeer,
@@ -206,6 +209,7 @@ fn log_as_joined_network(
     Ok(())
 }
 
+/// Log when it has been removed from a network.
 fn log_as_leave_network(
         event_log: &Option<Sender<P2PEvent>>,
         sender: &P2PPeer,
@@ -218,6 +222,11 @@ fn log_as_leave_network(
     }
 }
 
+/// In handshake:
+///     - Add network
+///     - Store target peer info and allocates buckets for this connection.
+///     - Statistics: Export to Prometheus
+///     - Log: Join to network
 pub fn default_network_response_handshake(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkResponse) -> ParseCallbackResult {
@@ -252,6 +261,7 @@ pub fn default_network_response_handshake(
     Ok(())
 }
 
+/// It adds new network and update its buckets.
 pub fn default_network_request_join_network(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkRequest) -> ParseCallbackResult {
@@ -277,6 +287,7 @@ pub fn default_network_request_join_network(
     Ok(())
 }
 
+/// It removes that network from its owns and update buckets.
 pub fn default_network_request_leave_network(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest) -> ParseCallbackResult {
@@ -299,6 +310,7 @@ pub fn default_network_request_leave_network(
     Ok(())
 }
 
+/// It sends handshake message and a ping message.
 fn send_handshake_and_ping(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>
     ) -> ParseCallbackResult {
@@ -325,6 +337,7 @@ fn send_handshake_and_ping(
     Ok(())
 }
 
+/// It sends its peer list.
 fn send_peer_list(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         sender: &P2PPeer,
@@ -390,6 +403,7 @@ fn update_buckets(
     Ok(())
 }
 
+/// Node is valid if its mode is `NormalPrivateMode` or `BootstrapperPrivateMode`.
 fn is_valid_mode(
     priv_conn: &Rc< RefCell< ConnectionPrivate>> ) -> bool {
     let mode = priv_conn.borrow().mode;
@@ -398,6 +412,10 @@ fn is_valid_mode(
     || mode == P2PNodeMode::NormalPrivateMode
 }
 
+/// On a handshake request:
+///     - It replies with a handshake response and a ping.
+///     - It adds the new network, and updates its buckets.
+///     - Finally, it sends its peer list.
 pub fn default_network_request_handshake(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest) -> ParseCallbackResult {
@@ -427,6 +445,7 @@ pub fn default_network_request_handshake(
     Ok(())
 }
 
+/// Unknown messages only updates statistic information.
 pub fn default_unknown_message(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         _: &()) -> ParseCallbackResult {
@@ -450,6 +469,7 @@ pub fn default_unknown_message(
     Ok(())
 }
 
+/// Invalid messages only updates statistic information.
 pub fn default_invalid_message(
          priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         _: &()) -> ParseCallbackResult {
@@ -469,5 +489,4 @@ pub fn default_invalid_message(
 
     Ok(())
 }
-
 
