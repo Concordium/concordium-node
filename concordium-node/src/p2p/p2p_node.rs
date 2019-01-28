@@ -25,14 +25,13 @@ use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
 use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager,
-    MessageHandler, RequestHandler, ResponseHandler, PacketHandler, ParseCallbackResult,
-    NetworkRequestSafeFn, NetworkPacketSafeFn, NetworkResponseSafeFn };
+    MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
+    NetworkRequestSafeFn, NetworkPacketSafeFn };
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
 use p2p::peer_statistics::{ PeerStatistic };
-use p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message,
-    forward_network_response };
+use p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message };
 
 const SERVER: Token = Token(0);
 
@@ -249,19 +248,8 @@ impl P2PNode {
         handler
     }
 
-    fn make_response_forward(&self) -> NetworkResponseSafeFn {
-        let queue = self.incoming_pkts.clone();
-
-        make_callback!( move |res: &NetworkResponse| -> ParseCallbackResult {
-            forward_network_response( res, &queue)
-        })
-    }
-
     fn make_response_handler(&self) -> ResponseHandler {
-        let mut handler = ResponseHandler::new();
-        handler.add_peer_list_callback( self.make_response_forward());
-
-        handler
+        ResponseHandler::new()
     }
 
     fn make_requeue_handler(&self) -> NetworkRequestSafeFn {
