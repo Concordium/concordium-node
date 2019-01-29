@@ -675,19 +675,14 @@ impl Connection {
 
     #[cfg(target_os = "windows")]
     fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
-        let rc = match self.initiated_by_me {
-            true => {
-                match self.tls_client_session {
-                    Some(ref mut x) => x.write_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
+        let rc = if let Some(ref session) = self.session() {
+            if let Some(ref mut locked_session) = session.write().ok() {
+                locked_session.write_tls( &mut self.socket)
+            } else {
+                Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
             }
-            false => {
-                match self.tls_server_session {
-                    Some(ref mut x) => x.write_tls(&mut self.socket),
-                    None => Err(Error::new(ErrorKind::Other, "Couldn't find session!")),
-                }
-            }
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
         };
 
         if rc.is_err() {
