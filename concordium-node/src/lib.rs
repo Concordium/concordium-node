@@ -20,9 +20,9 @@ extern crate log;
 extern crate app_dirs;
 extern crate env_logger;
 extern crate futures;
-#[cfg(unix)]
+#[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 extern crate hex;
 extern crate iron;
