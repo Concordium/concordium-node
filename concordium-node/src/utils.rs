@@ -159,7 +159,7 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> 
     }
 }
 
-#[cfg((target_os = "windows")]
+#[cfg(target_os = "windows")]
 pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
     if resolvers.len() > 0 {
         resolvers.clone()
