@@ -1,0 +1,11 @@
+[package]
+name = "rtest"
+version = "0.1.0"
+authors = ["Michael Gattozzi <mgattozzi@gmail.com>"]
+
+[lib]
+name = "rtest"
+crate-type = ['staticlib']
+
+[dependencies]
+curryrs = { path=".." }

@@ -4,7 +4,10 @@ extern crate mio;
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
-extern crate grpcio;
+#[cfg(unix)]
+extern crate grpciounix as grpcio;
+#[cfg(windows)]
+extern crate grpciowin as grpcio;
 
 #[cfg(test)]
 mod tests {

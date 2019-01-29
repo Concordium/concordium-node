@@ -18,3 +18,5 @@ dist
 *.so
 .cabal-sandbox
 cabal.sandbox.config
+HSdll.dll
+libHSdll.dll

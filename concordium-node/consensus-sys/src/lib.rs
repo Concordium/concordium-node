@@ -1,6 +1,9 @@
 #![feature(box_syntax, box_patterns)]
 #![allow(dead_code)]
-extern crate curryrs;
+#[cfg(unix)]
+extern crate curryrsunix as curryrs;
+#[cfg(windows)]
+extern crate curryrswin as curryrs;
 extern crate libc;
 #[macro_use]
 extern crate lazy_static;
