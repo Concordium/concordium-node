@@ -33,8 +33,8 @@ processInputs bh = do
   case pending of
     Nothing -> return Nothing
     -- FIXME: The next line will silently drop transactions which have failed (second argument of the return)
-    Just pendingts -> do (ts, _, _) <- makeBlock (bpState bh) pendingts
-                         return . Just . fromTransactions . map fst $ ts
+    Just pendingts -> let (ts, _, _) = makeBlock pendingts (bpState bh)
+                      in return . Just . fromTransactions . map fst $ ts
       
     -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
 

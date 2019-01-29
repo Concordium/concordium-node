@@ -22,6 +22,8 @@ import Concordium.Skov.Monad
 import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 
+import qualified Scheduler as Sch
+
 data BlockStatus =
     BlockAlive !BlockPointer
     | BlockDead
@@ -114,7 +116,7 @@ purgePending = do
         ppq' <- purge ppq
         skovPossiblyPendingQueue .= ppq'
 
-processAwaitingLastFinalized :: MonadIO m => StateT SkovData m ()
+processAwaitingLastFinalized :: Monad m => StateT SkovData m ()
 processAwaitingLastFinalized = do
     lastFinHeight <- use (to lastFinalizedHeight)
     (MPQ.minViewWithKey <$> use skovBlocksAwaitingLastFinalized) >>= \case
@@ -126,7 +128,7 @@ processAwaitingLastFinalized = do
             addBlock pb
             processAwaitingLastFinalized
 
-processFinalizationPool :: MonadIO m => StateT SkovData m ()
+processFinalizationPool :: Monad m => StateT SkovData m ()
 processFinalizationPool = do
     nextFinIx <- FinalizationIndex . fromIntegral . Seq.length <$> use skovFinalizationList
     finPending <- use (skovFinalizationPool . at nextFinIx)
@@ -191,7 +193,7 @@ processFinalizationPool = do
                 Right frs' -> skovFinalizationPool . at nextFinIx . non [] .= frs'
             
 
-addBlock :: MonadIO m => PendingBlock -> StateT SkovData m ()
+addBlock :: Monad m => PendingBlock -> StateT SkovData m ()
 addBlock pb@(PendingBlock cbp block) = do
     res <- runMaybeT (tryAddBlock pb)
     case res of
@@ -206,7 +208,7 @@ addBlock pb@(PendingBlock cbp block) = do
                     childStatus <- use (skovBlockTable . at (pbHash childpb))
                     when (isNothing childStatus) $ addBlock childpb
 
-tryAddBlock :: MonadIO m => PendingBlock -> MaybeT (StateT SkovData m) Bool
+tryAddBlock :: Monad m => PendingBlock -> MaybeT (StateT SkovData m) Bool
 tryAddBlock pb@(PendingBlock cbp block) = do
         lfs <- use (to lastFinalizedSlot)
         -- The block must be later than the last finalized block
@@ -273,11 +275,10 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                     -- try to decode the block data into a list of transactions
                     case toTransactions (blockData block) of
                       Nothing -> mzero
-                      Just ts -> do
-                        ret <- executeBlock (bpState parentP) ts
-                        case ret of
-                          Left _ -> mzero
-                          Right (_, gs) -> do
+                      Just ts ->
+                        case executeBlock ts (bpState parentP) of
+                          Sch.BlockInvalid _ -> mzero
+                          Sch.BlockSuccess _ gs -> do
                             let blockP = BlockPointer {
                                   bpHash = cbp,
                                   bpBlock = block,
@@ -307,7 +308,7 @@ tryAddBlock pb@(PendingBlock cbp block) = do
 -- When adding a block that is at height in the finalization list, check if it's already there; if not, it should be dead.
 -- Height 0 is the genesis block
 
-instance MonadIO m => SkovMonad (StateT SkovData m) where
+instance Monad m => SkovMonad (StateT SkovData m) where
     {-# INLINE resolveBlock #-}
     resolveBlock cbp = use (skovBlockTable . at cbp) <&> \case
                         Just (BlockAlive bp) -> Just bp
@@ -341,7 +342,7 @@ instance MonadIO m => SkovMonad (StateT SkovData m) where
             revSeqToList Seq.Empty = []
             revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
-instance MonadIO m => PayloadMonad (StateT SkovData m) where
+instance Monad m => PayloadMonad (StateT SkovData m) where
     addPendingTransaction tr@Transaction{..} = do
         isFin <- Map.member transactionNonce <$> use transactionsFinalized
         unless isFin $

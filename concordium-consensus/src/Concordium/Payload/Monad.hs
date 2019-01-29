@@ -8,7 +8,7 @@ import Concordium.Payload.Transaction
 
 import Control.Monad.IO.Class
 
-class (MonadIO m, SkovMonad m) => PayloadMonad m where
+class SkovMonad m => PayloadMonad m where
     -- |Get the transactions for a block.  Can return 'Nothing' if any of the following hold:
     -- 1. the block is not in the tree;
     -- 2. more than one transaction with the same nonce occurs in the chain;

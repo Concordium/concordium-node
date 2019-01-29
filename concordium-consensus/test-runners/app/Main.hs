@@ -21,20 +21,21 @@ import Concordium.Show
 import Data.Map(Map)
 import qualified Data.Map as Map
 
-import Interpreter.CallContract as I
-
 import Data.List(intercalate)
 
+import Init(update)
+import Interpreter(lState, instances)
+import Scheduler(BlockResult(BlockSuccess))
+
+import Data.Maybe(fromJust)
 
 transactions :: StdGen -> [Transaction]
 transactions gen = trs 0 (randoms gen)
     where
-      
-        trs n (a : b : c : d : f : g : rs) =
-          (Transaction (TransactionNonce a b c d) (Metadata (mkSender n)) (Update (mkAddress f) (mkMessage g))) : trs (n+1) rs
+        trs n (a : b : c : d : f : g : rs) = let (meta, payload) = update f (g `mod` 10)
+                                             in (Transaction (TransactionNonce a b c d) meta payload) : trs (n+1) rs
         mkSender n = BS.pack $ "Sender: " ++ show n
         mkAddress n = BS.pack $ show (n `mod` 2)
-        mkMessage n = if n `mod` 9 == 0 then Decrement else Increment
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
@@ -70,7 +71,8 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re l [] = []
 
-gsToString = intercalate "\\l" . map (\(i, s) -> "(" ++ BS.unpack i ++ ", " ++ show s ++ ")") . Map.toList . instances
+gsToString gs = let keys = map (\n -> (n, lState $ fromJust (Map.lookup ("Tid-" ++ show n) (instances gs)))) $ enumFromTo 0 9
+                in intercalate "\\l" . map show $ keys
 
 main :: IO ()
 main = do
@@ -90,14 +92,14 @@ main = do
         return (cin, cout)) bis
     monitorChan <- newChan
     mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
-    let iState = initState 5
+    let iState = initState 10
     let loop gsMap = do
             block <- readChan monitorChan
             let bh = hashBlock block
             case toTransactions (blockData block) of
               Just ts -> let gs = Map.findWithDefault iState (blockPointer block) gsMap
-                         in executeBlock gs ts >>= \case
-                              Right (_, gs') -> do
+                         in case executeBlock ts gs of
+                              BlockSuccess _ gs' -> do
                                 putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\\l" ++ gsToString gs' ++ "\\l\"];"
                                 putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                                 -- putStrLn (showsBlock block "")
