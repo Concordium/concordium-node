@@ -1,8 +1,7 @@
 use std::env;
 
 fn main() {
-    let target_os = env::var("CARGO_CFG_TARGET_OS");
-    match target_os.as_ref().map(|x| &**x) {
+    match env::var("CARGO_CFG_TARGET_OS").as_ref().map(|x| &**x) {
         Ok("windows") => {
             // Copy HSdll.dll.a to HSdll.dll in build directory for now
             println!("cargo:rustc-link-search=native=.");

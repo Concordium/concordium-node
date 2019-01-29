@@ -63,7 +63,7 @@ fn link_ghc_libs() -> io::Result<()> {
 	};
 
 	// Depending on build target apply sly hack to properly locate ghc elements
-	let path_to_use = match target_os.as_ref().map(|x| &**x) {
+	let path_to_use = match env::var("CARGO_CFG_TARGET_OS").as_ref().map(|x| &**x) {
 		Ok("windows") => Path::new("/workdir/consensus-sys/"),
 		_ => Path::new(&ghc(builder, "--print-libdir")),
 	};
