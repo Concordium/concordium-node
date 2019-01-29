@@ -41,7 +41,7 @@ packages:
 # (e.g., acme-missiles-0.3)
 # extra-deps: []
 extra-deps:
-  - git@gitlab.com:Concordium/oak/oak-compiler.git
+  - git: git@gitlab.com:Concordium/oak/oak-compiler.git
     commit: 4bceb0beabb890eb682f32a53af0ab6a8b2ae41c
   - language-glsl-0.3.0
 
