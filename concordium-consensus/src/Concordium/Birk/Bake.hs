@@ -26,8 +26,17 @@ data BakerIdentity = BakerIdentity {
 instance Serialize BakerIdentity where
 
 processInputs :: (PayloadMonad m) => BlockPointer -> m (Maybe BlockData)
-processInputs bh =
-    fmap (fromTransactions . take 100 . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
+processInputs bh = do
+  -- find transactions to add to block
+  -- execute block from initial state in block pointer
+  pending <- fmap (map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
+  case pending of
+    Nothing -> return Nothing
+    -- FIXME: The next line will silently drop transactions which have failed (second argument of the return)
+    Just pendingts -> do (ts, _, _) <- makeBlock (bpState bh) pendingts
+                         return . Just . fromTransactions . map fst $ ts
+      
+    -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
 
 bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do

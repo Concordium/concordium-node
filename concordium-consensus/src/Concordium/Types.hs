@@ -13,6 +13,8 @@ import qualified Concordium.Crypto.DummySignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.DummyVRF as VRF
 
+import Concordium.Payload.Transaction(GlobalState, initState)
+
 newtype Slot = Slot Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 type BlockHash = Hash.Hash
 type BakerId = Word64
@@ -112,7 +114,8 @@ data BlockPointer = BlockPointer {
     bpBlock :: !Block,
     bpParent :: BlockPointer,
     bpLastFinalized :: BlockPointer,
-    bpHeight :: !BlockHeight
+    bpHeight :: !BlockHeight,
+    bpState :: !GlobalState
 }
 
 instance Eq BlockPointer where
@@ -202,3 +205,4 @@ makeGenesisBlockPointer genData = theBlockPointer
         bpParent = theBlockPointer
         bpLastFinalized = theBlockPointer
         bpHeight = 0
+        bpState = initState 10

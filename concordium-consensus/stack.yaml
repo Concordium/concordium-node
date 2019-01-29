@@ -41,8 +41,8 @@ packages:
 # (e.g., acme-missiles-0.3)
 # extra-deps: []
 extra-deps:
-  - git: git@gitlab.com:Concordium/oak/oak-compiler.git
-    commit: aa3904ab5ee7fa5a22037873d0b970c8cbbc60d0
+  - git@gitlab.com:Concordium/oak/oak-compiler.git
+    commit: 4bceb0beabb890eb682f32a53af0ab6a8b2ae41c
   - language-glsl-0.3.0
 
 # Override default flag values for local packages and extra-deps

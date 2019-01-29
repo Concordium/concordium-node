@@ -1,7 +1,7 @@
 {
     "type": "application",
     "source-directories": [
-        "/Users/tomdavies/Code/oak-compiler/demos/IncDec/src"
+        "smart-contracts/IncDec/src"
     ],
     "elm-version": "0.19.0",
     "dependencies": {

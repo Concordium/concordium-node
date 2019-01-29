@@ -123,7 +123,10 @@ receiveTransaction :: StablePtr BakerRunner -> Word64 -> Word64 -> Word64 -> Wor
 receiveTransaction bptr n0 n1 n2 n3 tdata tlen = do
     BakerRunner cin _ <- deRefStablePtr bptr
     tbs <- BS.packCStringLen (tdata, fromIntegral tlen)
-    writeChan cin $ MsgTransactionReceived (Transaction (TransactionNonce n0 n1 n2 n3) tbs)
+    case decode tbs of
+      Left _ -> return ()
+      Right (meta, payload) ->
+        writeChan cin $ MsgTransactionReceived (Transaction (TransactionNonce n0 n1 n2 n3) meta payload)
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)

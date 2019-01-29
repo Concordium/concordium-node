@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 module Main where
 
 import Control.Concurrent
@@ -17,10 +18,23 @@ import Concordium.Types
 import Concordium.Runner
 import Concordium.Show
 
+import Data.Map(Map)
+import qualified Data.Map as Map
+
+import Interpreter.CallContract as I
+
+import Data.List(intercalate)
+
+
 transactions :: StdGen -> [Transaction]
 transactions gen = trs 0 (randoms gen)
     where
-        trs n (a : b : c : d : rs) = (Transaction (TransactionNonce a b c d) (BS.pack ("Transaction " ++ show n))) : trs (n+1) rs
+      
+        trs n (a : b : c : d : f : g : rs) =
+          (Transaction (TransactionNonce a b c d) (Metadata (mkSender n)) (Update (mkAddress f) (mkMessage g))) : trs (n+1) rs
+        mkSender n = BS.pack $ "Sender: " ++ show n
+        mkAddress n = BS.pack $ show (n `mod` 2)
+        mkMessage n = if n `mod` 9 == 0 then Decrement else Increment
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
@@ -56,6 +70,8 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re l [] = []
 
+gsToString = intercalate "\\l" . map (\(i, s) -> "(" ++ BS.unpack i ++ ", " ++ show s ++ ")") . Map.toList . instances
+
 main :: IO ()
 main = do
     let n = 10
@@ -74,15 +90,16 @@ main = do
         return (cin, cout)) bis
     monitorChan <- newChan
     mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
-    let loop = do
+    let iState = initState 5
+    let loop gsMap = do
             block <- readChan monitorChan
             let bh = hashBlock block
-            putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
-            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
-            --putStrLn (showsBlock block "")
-            loop
-    loop
-
-
-    
-
+            case toTransactions (blockData block) of
+              Just ts -> let gs = Map.findWithDefault iState (blockPointer block) gsMap
+                         in executeBlock gs ts >>= \case
+                              Right (_, gs') -> do
+                                putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\\l" ++ gsToString gs' ++ "\\l\"];"
+                                putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                                -- putStrLn (showsBlock block "")
+                                loop (Map.insert bh gs' gsMap)
+    loop Map.empty
