@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings, DeriveGeneric #-}
 {- |Asynchronous Binary Byzantine Agreement algorithm -}
 module Concordium.Afgjort.ABBA where
 
@@ -14,6 +14,8 @@ import Lens.Micro.Platform
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
 import Data.Semigroup
+import GHC.Generics (Generic)
+import Data.Serialize (Serialize)
 
 import qualified Concordium.Crypto.DummyVRF as VRF
 import qualified Concordium.Crypto.SHA256 as H
@@ -23,7 +25,9 @@ data Ticket = Ticket {
     ticketValue :: H.Hash,
     ticketIndex :: Word32,
     ticketProof :: VRF.Proof
-} deriving (Eq, Show)
+} deriving (Eq, Show, Generic)
+instance Serialize Ticket
+-- FIXME: replace default serialization
 
 calculateTicketValue :: Word32 -> VRF.Proof -> H.Hash
 calculateTicketValue ind pf =  H.hashLazy $ Ser.runPutLazy $ Ser.put (VRF.proofToHash pf) >> Ser.put ind
@@ -50,7 +54,9 @@ data ABBAMessage party
     | CSSSeen Word party Choice
     | CSSDoneReporting Word (Map party Choice)
     | WeAreDone Choice
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
+instance (Ord party, Serialize party) => Serialize (ABBAMessage party)
+-- FIXME: replace default serialization
 
 data PhaseState party sig = PhaseState {
     _lotteryTickets :: Map (H.Hash, party) Ticket,
@@ -75,7 +81,6 @@ initialPhaseState = PhaseState {
 data ABBAState party sig = ABBAState {
     _currentPhase :: Word,
     _phaseStates :: Map Word (PhaseState party sig),
-    _currentChoice :: Choice,
     _currentGrade :: Word8,
     _topWeAreDone :: Map party sig,
     _topWeAreDoneWeight :: Int,
@@ -96,11 +101,10 @@ weAreDoneWeight :: Choice -> Lens' (ABBAState party sig) Int
 weAreDoneWeight True = topWeAreDoneWeight
 weAreDoneWeight False = botWeAreDoneWeight
 
-initialABBAState :: Choice -> ABBAState party sig
-initialABBAState b = ABBAState {
+initialABBAState :: ABBAState party sig
+initialABBAState = ABBAState {
     _currentPhase = 0,
     _phaseStates = Map.empty,
-    _currentChoice = b,
     _currentGrade = 0,
     _topWeAreDone = Map.empty,
     _topWeAreDoneWeight = 0,
@@ -184,7 +188,7 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
                 oldGrade <- currentGrade <<.= newGrade
                 when (newGrade == 2 && oldGrade /= 2) $
                     sendABBAMessage (WeAreDone nextBit)
-                currentChoice .= nextBit
+                -- currentChoice .= nextBit
                 currentPhase .= phase + 1
                 sendABBAMessage (Justified (phase+1) nextBit (myTicket (phase+1)))
             where

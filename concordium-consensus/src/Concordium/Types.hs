@@ -20,7 +20,7 @@ type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
 type BlockNonce = (VRF.Hash, VRF.Proof)
 type BlockData = ByteString
-newtype BlockHeight = BlockHeight Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show)
+newtype BlockHeight = BlockHeight Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 type LeadershipElectionNonce = ByteString
 type BakerSignVerifyKey = Sig.VerifyKey
@@ -36,7 +36,7 @@ type VoterSignKey = Sig.SignKey
 -- Using a floating point number for voter power may be a bad idea.
 type VoterPower = Double
 
-newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show)
+newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 data Block = Block {
     blockSlot :: Slot,
