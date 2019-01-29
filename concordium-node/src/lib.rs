@@ -5,7 +5,7 @@ extern crate error_chain;
 extern crate structopt;
 extern crate byteorder;
 extern crate bytes;
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
 extern crate hacl_star;
 extern crate libc;
@@ -47,7 +47,7 @@ extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
 extern crate dns;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 extern crate ipconfig;
 extern crate resolv_conf;
 extern crate semver;

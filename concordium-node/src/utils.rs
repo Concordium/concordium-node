@@ -3,7 +3,7 @@ use dns::dns;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use ipconfig::get_adapters;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
@@ -126,7 +126,7 @@ pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(not(target_os = "windows"))]
 pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
     if resolvers.len() > 0 {
         resolvers.clone()
@@ -159,7 +159,7 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> 
     }
 }
 
-#[cfg(windows)]
+#[cfg((target_os = "windows")]
 pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
     if resolvers.len() > 0 {
         resolvers.clone()

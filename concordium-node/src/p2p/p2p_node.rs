@@ -3,9 +3,9 @@ use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
 use errors::*;
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 use get_if_addrs;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use ipconfig;
 use prometheus_exporter::PrometheusServer;
 use rustls::{ Certificate, ClientConfig, NoClientAuth, PrivateKey, ServerConfig };
