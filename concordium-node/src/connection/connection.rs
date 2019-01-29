@@ -18,13 +18,13 @@ use error_chain::ChainedError;
 
 use common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
 use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER };
+use common::functor::{ AFunctorCW, FunctorResult };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets,
     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE };
 
 use connection::{
-    MessageHandler, MessageManager, RequestHandler, ResponseHandler, PacketHandler,
-    P2PEvent, P2PNodeMode, ParseCallbackResult,
-    ParseCallbackWrapper };
+    MessageManager, MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
+    P2PEvent, P2PNodeMode };
 
 use connection::connection_private::{ ConnectionPrivate, ConnSession };
 use connection::writev_adapter::{ WriteVAdapter };
@@ -35,7 +35,7 @@ use connection::connection_default_handlers::*;
 macro_rules! handle_by_private {
     ($dptr:expr, $message_type:ty, $fn: ident) => {{
         let dptr_cloned = $dptr.clone();
-        make_callback!( move |m: $message_type| {
+        make_atomic_callback!( move |m: $message_type| {
             $fn( &dptr_cloned, m)
         })
     }}
@@ -115,10 +115,10 @@ impl Connection {
     // Setup message handler
     // ============================
 
-    fn make_update_last_seen_handler<T>(&self) -> ParseCallbackWrapper<T>{
+    fn make_update_last_seen_handler<T>(&self) -> AFunctorCW<T>{
         let priv_conn = self.dptr.clone();
 
-        make_callback!( move |_: &T| -> ParseCallbackResult {
+        make_atomic_callback!( move |_: &T| -> FunctorResult {
             priv_conn.borrow_mut().update_last_seen();
             Ok(())
         })
@@ -186,11 +186,11 @@ impl Connection {
         let packet_handler = self.make_packet_handler();
 
         self.message_handler
-            .add_request_callback( make_callback!(
+            .add_request_callback( make_atomic_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req) }))
-            .add_response_callback(  make_callback!(
+            .add_response_callback(  make_atomic_callback!(
                 move |res: &NetworkResponse| { (response_handler)(res) }))
-            .add_packet_callback( make_callback!(
+            .add_packet_callback( make_atomic_callback!(
                 move |pac: &NetworkPacket| { (packet_handler)(pac) }))
             .add_unknow_callback(
                 handle_by_private!( self.dptr, &(), default_unknown_message))

@@ -9,16 +9,16 @@ use rustls::{ Session };
 
 use common::{ P2PPeer, get_current_stamp };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
+use common::functor::{ FunctorResult };
 use network::{ NetworkRequest, NetworkResponse };
 use connection::{ P2PEvent, P2PNodeMode };
-use connection::parse_handler::{ ParseCallbackResult };
 use connection::connection_private::{ ConnectionPrivate };
 
 use errors::*;
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
-fn serialize_bytes( session: &Arc< RwLock<dyn Session>>, pkt: &[u8]) -> ParseCallbackResult {
+fn serialize_bytes( session: &Arc< RwLock<dyn Session>>, pkt: &[u8]) -> FunctorResult {
     // Write size of pkt into 4 bytes vector.
     let mut size_vec = Vec::with_capacity(4);
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
@@ -59,7 +59,7 @@ fn make_fn_error_prometheus() -> ErrorWrapper {
 /// It responds with a pong packet.
 pub fn default_network_request_ping_handle(
         priv_conn: &Rc< RefCell< ConnectionPrivate >>,
-        _req: &NetworkRequest) -> ParseCallbackResult {
+        _req: &NetworkRequest) -> FunctorResult {
 
     priv_conn.borrow_mut().update_last_seen();
     TOTAL_MESSAGES_SENT_COUNTER.inc();
@@ -83,7 +83,7 @@ pub fn default_network_request_ping_handle(
 pub fn default_network_request_find_node_handle(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest
-    ) -> ParseCallbackResult {
+    ) -> FunctorResult {
 
     match req {
         NetworkRequest::FindNode(_, node_id) => {
@@ -109,7 +109,7 @@ pub fn default_network_request_find_node_handle(
 
 pub fn default_network_request_get_peers(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        req: &NetworkRequest) -> ParseCallbackResult {
+        req: &NetworkRequest) -> FunctorResult {
 
     match req {
         NetworkRequest::GetPeers(ref sender, ref networks) => {
@@ -143,7 +143,7 @@ pub fn default_network_request_get_peers(
 
 pub fn default_network_response_find_node (
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        res: &NetworkResponse) -> ParseCallbackResult {
+        res: &NetworkResponse) -> FunctorResult {
 
     match res {
         NetworkResponse::FindNode(_, ref peers) => {
@@ -167,7 +167,7 @@ pub fn default_network_response_find_node (
 /// It measures network latency.
 pub fn default_network_response_pong(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        _res: &NetworkResponse) -> ParseCallbackResult {
+        _res: &NetworkResponse) -> FunctorResult {
 
     let ping: u64 = priv_conn.borrow().sent_ping.clone();
     if ping != u64::max_value() {
@@ -180,7 +180,7 @@ pub fn default_network_response_pong(
 /// It inserts new peers into buckets.
 pub fn default_network_response_peer_list(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        res: &NetworkResponse) -> ParseCallbackResult {
+        res: &NetworkResponse) -> FunctorResult {
     match res {
         NetworkResponse::PeerList( _, ref peers) => {
             let priv_conn_borrow = priv_conn.borrow();
@@ -229,7 +229,7 @@ fn log_as_leave_network(
 ///     - Log: Join to network
 pub fn default_network_response_handshake(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        res: &NetworkResponse) -> ParseCallbackResult {
+        res: &NetworkResponse) -> FunctorResult {
 
     match res {
         NetworkResponse::Handshake(ref rpeer, ref nets, _) => {
@@ -264,7 +264,7 @@ pub fn default_network_response_handshake(
 /// It adds new network and update its buckets.
 pub fn default_network_request_join_network(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        res: &NetworkRequest) -> ParseCallbackResult {
+        res: &NetworkRequest) -> FunctorResult {
 
     match res {
         NetworkRequest::JoinNetwork( ref _sender, ref network) => {
@@ -290,7 +290,7 @@ pub fn default_network_request_join_network(
 /// It removes that network from its owns and update buckets.
 pub fn default_network_request_leave_network(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        req: &NetworkRequest) -> ParseCallbackResult {
+        req: &NetworkRequest) -> FunctorResult {
 
     match req {
         NetworkRequest::LeaveNetwork( sender, network) => {
@@ -313,7 +313,7 @@ pub fn default_network_request_leave_network(
 /// It sends handshake message and a ping message.
 fn send_handshake_and_ping(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>
-    ) -> ParseCallbackResult {
+    ) -> FunctorResult {
 
     let priv_conn_borrow = priv_conn.borrow();
     let ref session = priv_conn_borrow.session()
@@ -342,7 +342,7 @@ fn send_peer_list(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         sender: &P2PPeer,
         nets: &Vec<u16>
-    ) -> ParseCallbackResult {
+    ) -> FunctorResult {
 
     debug!(
         "Running in bootstrapper mode, so instantly sending peers {} random peers",
@@ -374,7 +374,7 @@ fn update_buckets(
         sender: &P2PPeer,
         nets: &Vec<u16>,
         valid_mode: bool
-    ) -> ParseCallbackResult {
+    ) -> FunctorResult {
 
     let priv_conn_borrow = priv_conn.borrow();
     let own_id = & priv_conn_borrow.own_id;
@@ -418,7 +418,7 @@ fn is_valid_mode(
 ///     - Finally, it sends its peer list.
 pub fn default_network_request_handshake(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        req: &NetworkRequest) -> ParseCallbackResult {
+        req: &NetworkRequest) -> FunctorResult {
     match req {
         NetworkRequest::Handshake(sender, nets, _) => {
             debug!("Got request for Handshake");
@@ -448,7 +448,7 @@ pub fn default_network_request_handshake(
 /// Unknown messages only updates statistic information.
 pub fn default_unknown_message(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        _: &()) -> ParseCallbackResult {
+        _: &()) -> FunctorResult {
 
     debug!("Unknown message received!");
 
@@ -472,7 +472,7 @@ pub fn default_unknown_message(
 /// Invalid messages only updates statistic information.
 pub fn default_invalid_message(
          priv_conn: &Rc< RefCell< ConnectionPrivate>>,
-        _: &()) -> ParseCallbackResult {
+        _: &()) -> FunctorResult {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();
 
