@@ -26,7 +26,8 @@ use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
 use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager,
     MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
-    NetworkRequestSafeFn, NetworkPacketSafeFn };
+    NetworkPacketCW, NetworkRequestCW
+    };
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
@@ -219,24 +220,24 @@ impl P2PNode {
         let request_handler = self.make_request_handler();
 
         self.message_handler
-            .add_packet_callback( make_callback!(
+            .add_packet_callback( make_atomic_callback!(
                     move |pac: &NetworkPacket| { (packet_handler)(pac) }))
-            .add_response_callback( make_callback!(
+            .add_response_callback( make_atomic_callback!(
                     move |res: &NetworkResponse| { (response_handler)(res) }))
-            .add_request_callback( make_callback!(
+            .add_request_callback( make_atomic_callback!(
                     move |req: &NetworkRequest| { (request_handler)(req) }));
 
         self.register_message_handlers();
     }
 
     /// Default packet handler just forward valid messages.
-    fn make_default_network_packet_message_handler(&self) -> NetworkPacketSafeFn {
+    fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
         let seen_messages = self.seen_messages.clone();
         let own_networks = self.tls_server.lock().unwrap().networks.clone();
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
 
-        make_callback!( move|pac: &NetworkPacket| {
+        make_atomic_callback!( move|pac: &NetworkPacket| {
             forward_network_packet_message( &seen_messages, &prometheus_exporter,
                                                    &own_networks, &packet_queue, pac)
         })
@@ -252,10 +253,10 @@ impl P2PNode {
         ResponseHandler::new()
     }
 
-    fn make_requeue_handler(&self) -> NetworkRequestSafeFn {
+    fn make_requeue_handler(&self) -> NetworkRequestCW {
         let packet_queue = self.incoming_pkts.clone();
 
-        make_callback!( move |req: &NetworkRequest| {
+        make_atomic_callback!( move |req: &NetworkRequest| {
             forward_network_request( req, &packet_queue)
         })
     }

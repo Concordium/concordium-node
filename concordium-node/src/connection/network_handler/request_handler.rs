@@ -1,122 +1,102 @@
-use std::sync::{ Arc, Mutex };
-
+use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 use network::{ NetworkRequest };
-use network::request::{ NetworkRequest as NetworkRequestEnum };
+use network::request::{ NetworkRequest as NRequest };
 
-use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult };
 
 pub struct RequestHandler {
-    pub ping_handler: ParseHandler<NetworkRequestEnum>,
-    pub find_node_handler: ParseHandler<NetworkRequestEnum>,
-    pub ban_node_handler: ParseHandler<NetworkRequestEnum>,
-    pub unban_node_handler: ParseHandler<NetworkRequestEnum>,
-    pub handshake_handler: ParseHandler<NetworkRequestEnum>,
-    pub get_peers_handler: ParseHandler<NetworkRequestEnum>,
-    pub join_network_handler: ParseHandler<NetworkRequestEnum>,
-    pub leave_network_handler: ParseHandler<NetworkRequestEnum>,
+    pub ping_handler: AFunctor<NRequest>,
+    pub find_node_handler: AFunctor<NRequest>,
+    pub ban_node_handler: AFunctor<NRequest>,
+    pub unban_node_handler: AFunctor<NRequest>,
+    pub handshake_handler: AFunctor<NRequest>,
+    pub get_peers_handler: AFunctor<NRequest>,
+    pub join_network_handler: AFunctor<NRequest>,
+    pub leave_network_handler: AFunctor<NRequest>,
 
-    pub main_handler: ParseHandler<NetworkRequestEnum>
+    pub main_handler: AFunctor<NRequest>
 }
 
 impl RequestHandler {
 
     pub fn new() -> Self {
         RequestHandler {
-            ping_handler: ParseHandler::<NetworkRequestEnum>::new(
+            ping_handler: AFunctor::<NRequest>::new(
                     "Network request ping handler"),
-            find_node_handler: ParseHandler::new(
+            find_node_handler: AFunctor::new(
                     "Network request find node handler"),
-            ban_node_handler: ParseHandler::new(
+            ban_node_handler: AFunctor::new(
                     "Network request ban node handler"),
-            unban_node_handler: ParseHandler::new(
+            unban_node_handler: AFunctor::new(
                     "Network request unban node handler"),
-            handshake_handler: ParseHandler::new(
+            handshake_handler: AFunctor::new(
                     "Network request handshake handler"),
-            get_peers_handler: ParseHandler::new(
+            get_peers_handler: AFunctor::new(
                     "Network request get peers handler"),
-            join_network_handler: ParseHandler::new(
+            join_network_handler: AFunctor::new(
                     "Network request join network handler"),
-            leave_network_handler: ParseHandler::new(
+            leave_network_handler: AFunctor::new(
                     "Network request leave network handler"),
-            main_handler: ParseHandler::new(
+            main_handler: AFunctor::new(
                     "Main Network request handler")
         }
     }
 
-    pub fn add_callback(
-            &mut self,
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.main_handler.add_callback( callback);
         self
     }
 
-    pub fn add_ping_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_ping_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.ping_handler.add_callback( callback);
         self
     }
 
-    pub fn add_find_node_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_find_node_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.find_node_handler.add_callback( callback);
         self
     }
 
-    pub fn add_ban_node_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_ban_node_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.ban_node_handler.add_callback( callback);
         self
     }
 
-    pub fn add_unban_node_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_unban_node_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.unban_node_handler.add_callback( callback);
         self
     }
 
-    pub fn add_handshake_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_handshake_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.handshake_handler.add_callback( callback);
         self
     }
 
-    pub fn add_get_peers_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+    pub fn add_get_peers_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.get_peers_handler.add_callback( callback);
         self
     }
- 
-    pub fn add_join_network_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+
+    pub fn add_join_network_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.join_network_handler.add_callback( callback);
         self
     }
-    
-    pub fn add_leave_network_callback(
-            &mut self, 
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequestEnum>>>>) -> &mut Self {
+
+    pub fn add_leave_network_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
         self.leave_network_handler.add_callback( callback);
         self
     }
 
-    fn process_message(&self, msg: &NetworkRequest) -> ParseCallbackResult {
+    fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
         let main_status = (&self.main_handler)(msg);
 
         let spec_status = match msg {
-            ref ping_inner_pkt @ NetworkRequest::Ping(_) => { 
+            ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
                 (&self.ping_handler)(ping_inner_pkt)
             },
-            ref find_inner_pkt @ NetworkRequest::FindNode(_, _) => { 
+            ref find_inner_pkt @ NetworkRequest::FindNode(_, _) => {
                 (&self.find_node_handler)(find_inner_pkt)
             },
-            ref ban_inner_pkt @ NetworkRequest::BanNode(_, _) => { 
+            ref ban_inner_pkt @ NetworkRequest::BanNode(_, _) => {
                 (&self.ban_node_handler)(ban_inner_pkt)
             },
             ref unban_inner_pkt @ NetworkRequest::UnbanNode(_, _) => {
@@ -131,24 +111,23 @@ impl RequestHandler {
             ref join_network_inner_pkt @ NetworkRequest::JoinNetwork(_, _) => {
                 (&self.join_network_handler)(join_network_inner_pkt)
             },
-            ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => { 
+            ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => {
                 (&self.leave_network_handler)(leave_network_inner_pkt)
             }
         };
 
         main_status.and( spec_status)
     }
-
 }
 
-impl_all_fns!( RequestHandler, NetworkRequestEnum);
+impl_all_fns!( RequestHandler, NRequest);
 
 
 #[cfg(test)]
 mod request_handler_test {
-    use connection::request_handler::{ RequestHandler };
+    use connection::{ RequestHandler };
     use common::{ ConnectionType, P2PPeer, P2PNodeId };
-    use network::request::{ NetworkRequest as NetworkRequestEnum };
+    use network::request::{ NetworkRequest as NRequest };
 
     use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };
@@ -161,15 +140,15 @@ mod request_handler_test {
     fn make_request_handler() -> RequestHandler {
         let mut handler = RequestHandler::new();
 
-        handler.add_ping_callback( make_callback!( |_:&NetworkRequestEnum| {
+        handler.add_ping_callback( make_atomic_callback!( |_:&NRequest| {
                 PING_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
-            .add_find_node_callback( make_callback!( |_:&NetworkRequestEnum| {
+            .add_find_node_callback( make_atomic_callback!( |_:&NRequest| {
                 FIND_NODE_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
-            .add_ban_node_callback( make_callback!( |_:&NetworkRequestEnum| {
+            .add_ban_node_callback( make_atomic_callback!( |_:&NRequest| {
                 BAN_NODE_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }));
@@ -177,15 +156,15 @@ mod request_handler_test {
         handler
     }
 
-    fn ut_1_data() -> Vec<NetworkRequestEnum> {
+    fn ut_1_data() -> Vec<NRequest> {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
         let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
         let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080);
 
         let data = vec![
-            NetworkRequestEnum::Ping( p2p_peer.clone()),
-            NetworkRequestEnum::FindNode( p2p_peer.clone(), node_id.clone()),
-            NetworkRequestEnum::BanNode( p2p_peer.clone(), p2p_peer.clone())
+            NRequest::Ping( p2p_peer.clone()),
+            NRequest::FindNode( p2p_peer.clone(), node_id.clone()),
+            NRequest::BanNode( p2p_peer.clone(), p2p_peer.clone())
         ];
         data
     }

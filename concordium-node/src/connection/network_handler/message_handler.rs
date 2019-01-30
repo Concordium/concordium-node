@@ -1,71 +1,65 @@
-use std::sync::{ Arc, Mutex };
-
-use connection::parse_handler::{ ParseHandler, ParseCallback, ParseCallbackResult, ParseCallbackWrapper };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
+use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
+
+pub type NetworkRequestCW = AFunctorCW<NetworkRequest>;
+pub type NetworkResponseCW = AFunctorCW<NetworkResponse>;
+pub type NetworkPacketCW = AFunctorCW<NetworkPacket>;
+pub type EmptyCW = AFunctorCW<()>;
+
 
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    pub request_parser: ParseHandler<NetworkRequest>,
-    pub response_parser: ParseHandler<NetworkResponse>,
-    pub packet_parser: ParseHandler<NetworkPacket>,
-    pub unknow_parser: ParseHandler<()>,
-    pub invalid_parser: ParseHandler<()>,
+    pub request_parser: AFunctor<NetworkRequest>,
+    pub response_parser: AFunctor<NetworkResponse>,
+    pub packet_parser: AFunctor<NetworkPacket>,
+    pub unknow_parser: AFunctor<()>,
+    pub invalid_parser: AFunctor<()>,
 }
 
 impl MessageHandler {
     pub fn new() -> Self {
 
         MessageHandler {
-            request_parser : ParseHandler::<NetworkRequest>::new(
+            request_parser : AFunctor::<NetworkRequest>::new(
                     "Network Request Handler"),
-            response_parser: ParseHandler::<NetworkResponse>::new(
+            response_parser: AFunctor::<NetworkResponse>::new(
                     "Network Response Handler"),
-            packet_parser: ParseHandler::<NetworkPacket>::new(
+            packet_parser: AFunctor::<NetworkPacket>::new(
                     "Network Package Handler"),
-            unknow_parser: ParseHandler::new(
+            unknow_parser: AFunctor::new(
                     "Unknown Packet Handler"),
-            invalid_parser: ParseHandler::new(
+            invalid_parser: AFunctor::new(
                     "Invalid Packet Handler")
         }
     }
 
-    pub fn add_request_callback(
-            &mut self,
-            callback: Arc< Mutex< Box< ParseCallback<NetworkRequest> > > > ) -> &mut Self {
+    pub fn add_request_callback( &mut self, callback: NetworkRequestCW) -> &mut Self {
         self.request_parser.add_callback( callback);
         self
     }
 
-    pub fn add_response_callback(
-            &mut self,
-            callback: Arc< Mutex< Box< ParseCallback<NetworkResponse> > > > ) -> &mut Self {
+    pub fn add_response_callback( &mut self, callback: NetworkResponseCW) -> &mut Self {
         self.response_parser.add_callback( callback);
         self
     }
 
-    pub fn add_packet_callback(
-            &mut self,
-            callback: ParseCallbackWrapper<NetworkPacket> ) -> &mut Self {
+    pub fn add_packet_callback( &mut self, callback: NetworkPacketCW) -> &mut Self {
         self.packet_parser.add_callback( callback);
         self
     }
 
-    pub fn add_unknow_callback(
-            &mut self,
-            callback: ParseCallbackWrapper<()> ) -> &mut Self {
+    pub fn add_unknow_callback( &mut self, callback: EmptyCW) -> &mut Self {
         self.unknow_parser.add_callback( callback);
         self
     }
 
-    pub fn add_invalid_callback(
-            &mut self,
-            callback: ParseCallbackWrapper<()> ) -> &mut Self {
+    pub fn add_invalid_callback( &mut self, callback: EmptyCW ) -> &mut Self {
         self.invalid_parser.add_callback( callback);
         self
     }
 
-    fn process_message(&self, msg: &NetworkMessage) -> ParseCallbackResult {
+    fn process_message(&self, msg: &NetworkMessage) -> FunctorResult {
 
         match msg {
             NetworkMessage::NetworkRequest(ref nr, _, _) => {
@@ -96,29 +90,30 @@ pub trait MessageManager {
 
 #[cfg(test)]
 mod message_handler_unit_test {
-    use connection::message_handler::{ MessageHandler, ParseCallbackResult };
+    use connection::{ MessageHandler };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
+    use common::functor::{ FunctorResult };
 
     use common::{ ConnectionType, P2PPeer };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::{ Arc, Mutex };
 
-    fn request_handler_func_1( _nr: &NetworkRequest) -> ParseCallbackResult { Ok(()) }
-    fn request_handler_func_2( _nr: &NetworkRequest) -> ParseCallbackResult { Ok(()) }
-    fn response_handler_func_1( _nr: &NetworkResponse) -> ParseCallbackResult { Ok(()) }
-    fn packet_handler_func_1( _np: &NetworkPacket) -> ParseCallbackResult { Ok(()) }
+    fn request_handler_func_1( _nr: &NetworkRequest) -> FunctorResult { Ok(()) }
+    fn request_handler_func_2( _nr: &NetworkRequest) -> FunctorResult { Ok(()) }
+    fn response_handler_func_1( _nr: &NetworkResponse) -> FunctorResult { Ok(()) }
+    fn packet_handler_func_1( _np: &NetworkPacket) -> FunctorResult { Ok(()) }
 
     #[test]
     pub fn test_message_handler_mix() {
         let mut mh = MessageHandler::new();
 
-        mh.add_request_callback( make_callback!( request_handler_func_1))
-            .add_request_callback( make_callback!( request_handler_func_2))
-            .add_request_callback( make_callback!( |_| { Ok(()) }))
-            .add_response_callback( make_callback!( response_handler_func_1))
-            .add_response_callback( make_callback!( response_handler_func_1))
-            .add_packet_callback( make_callback!( |_| { Ok(()) }))
-            .add_packet_callback( make_callback!( packet_handler_func_1));
+        mh.add_request_callback( make_atomic_callback!( request_handler_func_1))
+            .add_request_callback( make_atomic_callback!( request_handler_func_2))
+            .add_request_callback( make_atomic_callback!( |_| { Ok(()) }))
+            .add_response_callback( make_atomic_callback!( response_handler_func_1))
+            .add_response_callback( make_atomic_callback!( response_handler_func_1))
+            .add_packet_callback( make_atomic_callback!( |_| { Ok(()) }))
+            .add_packet_callback( make_atomic_callback!( packet_handler_func_1));
         let mh_arc = Arc::new( mh);
 
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
@@ -131,12 +126,11 @@ mod message_handler_unit_test {
 
 #[cfg(test)]
 mod integration_test {
-    use connection::message_handler::{ MessageHandler };
-    use connection::packet_handler::{ PacketHandler };
-    use connection::parse_handler::{ ParseCallbackResult };
+    use connection::{ MessageHandler,  PacketHandler };
     use common::{ ConnectionType, P2PPeer, P2PNodeId };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
     use network::packet::{ NetworkPacket as NetworkPacketEnum };
+    use common::functor::{ FunctorResult };
 
     use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };
@@ -173,12 +167,12 @@ mod integration_test {
     }
 
     /// Handler function for `NetworkRequest` elements that does nothing.
-    fn network_request_handler_1( _nr: &NetworkRequest) -> ParseCallbackResult {
+    fn network_request_handler_1( _nr: &NetworkRequest) -> FunctorResult {
         Ok(())
     }
 
     /// Handler function for `NetworkRequest` elements. It only increases its counter.
-    fn network_request_handler_2( _nr: &NetworkRequest) -> ParseCallbackResult {
+    fn network_request_handler_2( _nr: &NetworkRequest) -> FunctorResult {
         NETWORK_REQUEST_COUNTER.fetch_add( 1, Ordering::SeqCst);
         Ok(())
     }
@@ -188,30 +182,30 @@ mod integration_test {
 
         let mut pkg_handler = PacketHandler::new();
 
-        pkg_handler.add_direct_callback( make_callback!( |_pd: &NetworkPacketEnum| {
+        pkg_handler.add_direct_callback( make_atomic_callback!( |_pd: &NetworkPacketEnum| {
                 NETWORK_PACKET_DIRECT_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
-            .add_broadcast_callback( make_callback!( |_pb: &NetworkPacketEnum| {
+            .add_broadcast_callback( make_atomic_callback!( |_pb: &NetworkPacketEnum| {
                 NETWORK_PACKET_BROADCAST_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }));
 
         let mut msg_handler = MessageHandler::new();
 
-        msg_handler.add_request_callback( make_callback!( network_request_handler_1))
-            .add_request_callback( make_callback!( network_request_handler_2))
-            .add_request_callback( make_callback!( |_x: &NetworkRequest| {
+        msg_handler.add_request_callback( make_atomic_callback!( network_request_handler_1))
+            .add_request_callback( make_atomic_callback!( network_request_handler_2))
+            .add_request_callback( make_atomic_callback!( |_x: &NetworkRequest| {
                 println!(
                     "Network Request {}",
                     NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed));
                 Ok(())
             }))
-            .add_response_callback( make_callback!( |_x: &NetworkResponse| {
+            .add_response_callback( make_atomic_callback!( |_x: &NetworkResponse| {
                 NETWORK_RESPONSE_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 Ok(())
             }))
-            .add_packet_callback( make_callback!( move |p: &NetworkPacketEnum| {
+            .add_packet_callback( make_atomic_callback!( move |p: &NetworkPacketEnum| {
                 NETWORK_PACKET_COUNTER.fetch_add( 1, Ordering::SeqCst);
                 (pkg_handler)(p)
             }));

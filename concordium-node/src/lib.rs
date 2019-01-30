@@ -61,8 +61,8 @@ pub fn get_dns_public_key() -> &'static str {
     ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY)
 }
 
-#[macro_use] pub mod connection;
-pub mod common;
+#[macro_use] pub mod common;
+pub mod connection;
 pub mod configuration;
 pub mod db;
 pub mod errors;

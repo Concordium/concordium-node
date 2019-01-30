@@ -1,5 +1,7 @@
 pub mod counter;
 
+#[macro_use] pub mod functor;
+
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::cmp::Ordering;
@@ -232,7 +234,7 @@ pub fn get_current_stamp() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    
+
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 
 
