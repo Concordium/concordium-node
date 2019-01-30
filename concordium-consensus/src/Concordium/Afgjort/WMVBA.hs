@@ -1,10 +1,13 @@
-{-# LANGUAGE TemplateHaskell, ScopedTypeVariables, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GeneralizedNewtypeDeriving, LambdaCase, DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell, ScopedTypeVariables, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GeneralizedNewtypeDeriving, LambdaCase, TupleSections #-}
 module Concordium.Afgjort.WMVBA (
     WMVBAMessage(..),
+    putWMVBAMessage,
+    getWMVBAMessage,
     WMVBAState,
     initialWMVBAState,
     WMVBAInstance(WMVBAInstance),
     WMVBAMonad,
+    WMVBAOutputEvent(..),
     WMVBA,
     runWMVBA,
     justifyWMVBAInput,
@@ -19,8 +22,10 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.ByteString as BS
 import Data.Maybe
-import Data.Serialize (Serialize)
-import GHC.Generics
+import qualified Data.List as List
+import qualified Data.Serialize as S
+import Data.Serialize.Put
+import Data.Serialize.Get
 
 import qualified Concordium.Crypto.DummyVRF as VRF
 import Concordium.Afgjort.Freeze
@@ -30,9 +35,54 @@ data WMVBAMessage val party
     = WMVBAFreezeMessage (FreezeMessage val)
     | WMVBAABBAMessage (ABBAMessage party)
     | WMVBAWitnessCreatorMessage val
-    deriving (Generic)
-instance (Ord party, Serialize val, Serialize party) => Serialize (WMVBAMessage val party)
--- FIXME: replace default serialization
+
+putWMVBAMessage :: Putter val -> Putter party -> Putter (WMVBAMessage val party)
+putWMVBAMessage putVal putParty = enc
+    where
+        enc (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
+        enc (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
+        enc (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
+        enc (WMVBAABBAMessage (Justified phase False ticket)) = putWord8 3 >> putWord32be phase >> S.put ticket
+        enc (WMVBAABBAMessage (Justified phase True ticket)) = putWord8 4 >> putWord32be phase >> S.put ticket
+        enc (WMVBAABBAMessage (CSSSeen phase party False)) = putWord8 5 >> putWord32be phase >> putParty party
+        enc (WMVBAABBAMessage (CSSSeen phase party True)) = putWord8 6 >> putWord32be phase >> putParty party
+        enc (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 7 >> putWord32be phase >> putListOf putParty (fst <$> choseFalse) >> putListOf putParty (fst <$> choseTrue)
+            where
+                (choseTrue, choseFalse) = List.partition snd $ Map.toAscList choices
+        enc (WMVBAABBAMessage (WeAreDone False)) = putWord8 8
+        enc (WMVBAABBAMessage (WeAreDone True)) = putWord8 9
+        enc (WMVBAWitnessCreatorMessage val) = putWord8 10 >> putVal val
+
+getWMVBAMessage :: (Ord party) => Get val -> Get party -> Get (WMVBAMessage val party)
+getWMVBAMessage getVal getParty = getWord8 >>= \case
+        0 -> WMVBAFreezeMessage . Proposal <$> getVal
+        1 -> return $ WMVBAFreezeMessage (Vote Nothing)
+        2 -> WMVBAFreezeMessage . Vote . Just <$> getVal
+        3 -> do
+            phase <- getWord32be
+            ticket <- S.get
+            return $ WMVBAABBAMessage (Justified phase False ticket)
+        4 -> do
+            phase <- getWord32be
+            ticket <- S.get
+            return $ WMVBAABBAMessage (Justified phase True ticket)
+        5 -> do
+            phase <- getWord32be
+            party <- getParty
+            return $ WMVBAABBAMessage (CSSSeen phase party False)
+        6 -> do
+            phase <- getWord32be
+            party <- getParty
+            return $ WMVBAABBAMessage (CSSSeen phase party True)
+        7 -> do
+            phase <- getWord32be
+            choseFalse <- getListOf getParty
+            choseTrue <- getListOf getParty
+            return $ WMVBAABBAMessage $ CSSDoneReporting phase $ Map.fromList $ ((,False) <$> choseFalse) ++ ((,True) <$> choseTrue)
+        8 -> return (WMVBAABBAMessage (WeAreDone False))
+        9 -> return (WMVBAABBAMessage (WeAreDone True))
+        10 -> WMVBAWitnessCreatorMessage <$> getVal
+        _ -> fail "Incorrect message type"
 
 data OutcomeState val = OSAwaiting | OSFrozen val | OSABBASuccess | OSDone
 
@@ -138,7 +188,7 @@ liftABBA a = do
         handleEvents (SendABBAMessage msg : r) = do
             sendWMVBAMessage (WMVBAABBAMessage msg)
             handleEvents r
-        handleEvents (ABBAComplete c sigs : r) = do
+        handleEvents (ABBAComplete c _ : r) = do
             if c then
                 use justifiedDecision >>= \case
                     OSAwaiting -> justifiedDecision .= OSABBASuccess

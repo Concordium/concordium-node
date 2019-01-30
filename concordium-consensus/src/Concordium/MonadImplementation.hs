@@ -1,10 +1,11 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns, ScopedTypeVariables #-}
 module Concordium.MonadImplementation where
 
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State hiding (gets)
 import Control.Monad.Trans.Maybe
+import Control.Monad.State.Class
 import Control.Exception(assert)
 import Lens.Micro.Platform
 import Data.Foldable
@@ -45,10 +46,38 @@ data SkovData = SkovData {
     _skovBranches :: Seq.Seq [BlockPointer],
     _skovGenesisData :: GenesisData,
     _skovGenesisBlockPointer :: BlockPointer,
-    _transactionsFinalized :: Map.Map TransactionNonce Transaction,
-    _transactionsPending :: Map.Map TransactionNonce Transaction
+    _skovTransactionsFinalized :: Map.Map TransactionNonce Transaction,
+    _skovTransactionsPending :: Map.Map TransactionNonce Transaction
 }
 makeLenses ''SkovData
+
+class SkovLenses s where
+    skov :: Lens' s SkovData
+    blockTable :: Lens' s (HM.HashMap BlockHash BlockStatus)
+    blockTable = skov . skovBlockTable
+    possiblyPendingTable :: Lens' s (HM.HashMap BlockHash [PendingBlock])
+    possiblyPendingTable = skov . skovPossiblyPendingTable
+    possiblyPendingQueue :: Lens' s (MPQ.MinPQueue Slot (BlockHash, BlockHash))
+    possiblyPendingQueue = skov . skovPossiblyPendingQueue
+    blocksAwaitingLastFinalized :: Lens' s (MPQ.MinPQueue BlockHeight PendingBlock)
+    blocksAwaitingLastFinalized = skov . skovBlocksAwaitingLastFinalized
+    finalizationList :: Lens' s (Seq.Seq (FinalizationRecord, BlockPointer))
+    finalizationList = skov . skovFinalizationList
+    finalizationPool :: Lens' s (Map.Map FinalizationIndex [FinalizationRecord])
+    finalizationPool = skov . skovFinalizationPool
+    branches :: Lens' s (Seq.Seq [BlockPointer])
+    branches = skov . skovBranches
+    genesisData :: Lens' s GenesisData
+    genesisData = skov . skovGenesisData
+    genesisBlockPointer :: Lens' s BlockPointer
+    genesisBlockPointer = skov . skovGenesisBlockPointer
+    transactionsFinalized :: Lens' s (Map.Map TransactionNonce Transaction)
+    transactionsFinalized = skov . skovTransactionsFinalized
+    transactionsPending :: Lens' s (Map.Map TransactionNonce Transaction)
+    transactionsPending = skov . skovTransactionsPending
+
+instance SkovLenses SkovData where
+    skov = id
 
 initialSkovData :: GenesisData -> SkovData
 initialSkovData gd = SkovData {
@@ -61,8 +90,8 @@ initialSkovData gd = SkovData {
             _skovBranches = Seq.empty,
             _skovGenesisData = gd,
             _skovGenesisBlockPointer = gb,
-            _transactionsFinalized = Map.empty,
-            _transactionsPending = Map.empty
+            _skovTransactionsFinalized = Map.empty,
+            _skovTransactionsPending = Map.empty
         }
     where
         gb = makeGenesisBlockPointer gd
@@ -89,52 +118,52 @@ lastFinalizedSlot = blockSlot . bpBlock . lastFinalized
 -- been in the tree before, and now it never can be.  Any descendents of
 -- this block that have previously arrived cannot have been added to the
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
-blockArriveDead :: Monad m => BlockHash -> StateT SkovData m ()
+blockArriveDead :: (MonadState s m, SkovLenses s) => BlockHash -> m ()
 blockArriveDead cbp = do
-    skovBlockTable . at cbp ?= BlockDead
-    children <- fmap pbHash <$> use (skovPossiblyPendingTable . at cbp . non [])
+    blockTable . at cbp ?= BlockDead
+    children <- fmap pbHash <$> use (possiblyPendingTable . at cbp . non [])
     forM_ children blockArriveDead
 
 -- |Purge pending blocks with slot numbers predating the last finalized slot.
-purgePending :: Monad m => StateT SkovData m ()
+purgePending :: (MonadState s m, SkovLenses s) => m ()
 purgePending = do
-        lfSlot <- use (to lastFinalizedSlot)
+        lfSlot <- use (skov . to lastFinalizedSlot)
         let purge ppq = case MPQ.minViewWithKey ppq of
                 Just ((sl, (cbp, parenth)), ppq') ->
                     if sl <= lfSlot then do
-                        skovPossiblyPendingTable . at parenth . non [] %= filter ((/= cbp) . pbHash)
-                        blockStatus <- use (skovBlockTable . at cbp)
+                        possiblyPendingTable . at parenth . non [] %= filter ((/= cbp) . pbHash)
+                        blockStatus <- use (blockTable . at cbp)
                         when (isNothing blockStatus) $
                             blockArriveDead cbp
                         purge ppq'
                     else
                         return ppq
                 Nothing -> return ppq
-        ppq <- use skovPossiblyPendingQueue
+        ppq <- use possiblyPendingQueue
         ppq' <- purge ppq
-        skovPossiblyPendingQueue .= ppq'
+        possiblyPendingQueue .= ppq'
 
-processAwaitingLastFinalized :: Monad m => StateT SkovData m ()
+processAwaitingLastFinalized :: (MonadState s m, SkovLenses s, SkovMonad m) => m ()
 processAwaitingLastFinalized = do
-    lastFinHeight <- use (to lastFinalizedHeight)
-    (MPQ.minViewWithKey <$> use skovBlocksAwaitingLastFinalized) >>= \case
+    lastFinHeight <- use (skov . to lastFinalizedHeight)
+    (MPQ.minViewWithKey <$> use blocksAwaitingLastFinalized) >>= \case
         Nothing -> return ()
         Just ((h, pb), balf') -> when (h <= lastFinHeight) $ do
-            skovBlocksAwaitingLastFinalized .= balf'
+            blocksAwaitingLastFinalized .= balf'
             -- This block is awaiting its last final block to be finalized.
             -- At this point, it should be or it never will.
             addBlock pb
             processAwaitingLastFinalized
 
-processFinalizationPool :: Monad m => StateT SkovData m ()
+processFinalizationPool :: (MonadState s m, SkovLenses s, SkovMonad m) => m ()
 processFinalizationPool = do
-    nextFinIx <- FinalizationIndex . fromIntegral . Seq.length <$> use skovFinalizationList
-    finPending <- use (skovFinalizationPool . at nextFinIx)
+    nextFinIx <- FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
+    finPending <- use (finalizationPool . at nextFinIx)
     case finPending of
         Nothing -> return ()
         Just frs -> do
-            blockStatus <- use skovBlockTable
-            lastFinHeight <- use (to lastFinalizedHeight)
+            blockStatus <- use blockTable
+            lastFinHeight <- use (skov . to lastFinalizedHeight)
             finParams <- getFinalizationParameters
             let
                 goodFin FinalizationRecord{..} =
@@ -152,17 +181,17 @@ processFinalizationPool = do
             case foldr checkFin (Right []) frs of
                 -- We got a valid finalization proof, so progress finalization
                 Left (finRec, newFinBlock) -> do
-                    skovFinalizationPool . at nextFinIx .= Nothing
-                    skovFinalizationList %= (Seq.:|> (finRec, newFinBlock))
-                    oldBranches <- use skovBranches
+                    finalizationPool . at nextFinIx .= Nothing
+                    finalizationList %= (Seq.:|> (finRec, newFinBlock))
+                    oldBranches <- use branches
                     let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
                     let
                         pruneTrunk _ Seq.Empty = return ()
                         pruneTrunk keeper (brs Seq.:|> l) = do
                             forM_ l $ \bp -> if bp == keeper then
-                                                skovBlockTable . at (bpHash bp) ?= BlockFinalized bp finRec
+                                                blockTable . at (bpHash bp) ?= BlockFinalized bp finRec
                                             else
-                                                skovBlockTable . at (bpHash bp) ?= BlockDead
+                                                blockTable . at (bpHash bp) ?= BlockDead
                             pruneTrunk (bpParent keeper) brs
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
                     -- Prune the branches
@@ -170,29 +199,28 @@ processFinalizationPool = do
                     let
                         pruneBranches [] _ = return Seq.empty
                         pruneBranches _ Seq.Empty = return Seq.empty
-                        pruneBranches parents (branches Seq.:<| rest) = do
+                        pruneBranches parents (brs Seq.:<| rest) = do
                             survivors <- foldrM (\bp l ->
                                 if bpParent bp `elem` parents then
                                     return (bp:l)
                                 else do
-                                    skovBlockTable . at (bpHash bp) ?= BlockDead
+                                    blockTable . at (bpHash bp) ?= BlockDead
                                     return l)
-                                [] branches
+                                [] brs
                             rest' <- pruneBranches survivors rest
                             return (survivors Seq.<| rest')
-                    newBranches <- pruneBranches [newFinBlock] oldBranches
-                    skovBranches .= newBranches
-                    skovBranches .= Seq.drop pruneHeight oldBranches
+                    newBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
+                    branches .= newBranches
                     -- purge pending blocks with slot numbers predating the last finalized slot
                     purgePending
                     -- handle blocks in skovBlocksAwaitingLastFinalized
                     processAwaitingLastFinalized
                     processFinalizationPool
-                Right frs' -> skovFinalizationPool . at nextFinIx . non [] .= frs'
+                Right frs' -> finalizationPool . at nextFinIx . non [] .= frs'
             
 
-addBlock :: (Monad m) => PendingBlock -> StateT SkovData m ()
-addBlock pb@(PendingBlock cbp block) = do
+addBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> m ()
+addBlock pb@(PendingBlock cbp _) = do
     res <- runMaybeT (tryAddBlock pb)
     case res of
         Nothing -> blockArriveDead cbp
@@ -200,38 +228,39 @@ addBlock pb@(PendingBlock cbp block) = do
         Just True -> do
             processFinalizationPool
             -- Handle any blocks that are waiting for this one
-            mchildren <- skovPossiblyPendingTable . at cbp <<.= Nothing
+            mchildren <- possiblyPendingTable . at cbp <<.= Nothing
             forM_ mchildren $ \children ->
                 forM_ children $ \childpb -> do
-                    childStatus <- use (skovBlockTable . at (pbHash childpb))
+                    childStatus <- use (blockTable . at (pbHash childpb))
                     when (isNothing childStatus) $ addBlock childpb
 
-tryAddBlock :: (Monad m) => PendingBlock -> MaybeT (StateT SkovData m) Bool
+tryAddBlock :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> MaybeT m Bool
 tryAddBlock pb@(PendingBlock cbp block) = do
-        lfs <- use (to lastFinalizedSlot)
+        lfs <- use (skov . to lastFinalizedSlot)
         -- The block must be later than the last finalized block
         guard $ lfs < blockSlot block
-        parentStatus <- use (skovBlockTable . at (blockPointer block))
+        parentStatus <- use (blockTable . at (blockPointer block))
         case parentStatus of
             Nothing -> do
-                skovPossiblyPendingTable . at parent . non [] %= (pb:)
-                skovPossiblyPendingQueue %= MPQ.insert (blockSlot block) (cbp, blockPointer block)
+                possiblyPendingTable . at parent . non [] %= (pb:)
+                possiblyPendingQueue %= MPQ.insert (blockSlot block) (cbp, blockPointer block)
                 return False
             Just BlockDead -> mzero
             Just (BlockAlive parentP) -> tryAddLiveParent parentP
             Just (BlockFinalized parentP _) -> tryAddLiveParent parentP
     where
         parent = blockPointer block
+        tryAddLiveParent :: BlockPointer -> MaybeT m Bool
         tryAddLiveParent parentP = do -- Alive or finalized
             let lf = blockLastFinalized block
             -- Check that the blockSlot is beyond the parent slot
             guard $ blockSlot (bpBlock parentP) < blockSlot block
-            lfStatus <- use (skovBlockTable . at lf)
+            lfStatus <- use (blockTable . at lf)
             case lfStatus of
                 -- If the block's last finalized block is live, but not finalized yet,
                 -- add this block to the queue at the appropriate point
                 Just (BlockAlive lfBlockP) -> do
-                    skovBlocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
+                    blocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
                     return False
                 -- If the block's last finalized block is finalized, we can proceed with validation.
                 -- Together with the fact that the parent is alive, we know that the new node
@@ -243,7 +272,7 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                     -- We need to know that the slot numbers of the last finalized blocks are ordered.
                     -- If the parent block is the genesis block then its last finalized pointer is not valid,
                     -- and we skip the check.
-                    genB <- genesisBlock
+                    genB <- use genesisBlockPointer
                     unless (parentP == genB) $ guard $
                         blockSlot (bpBlock lfBlockP) <= blockSlot (bpBlock (bpLastFinalized parentP))
                     bps@BirkParameters{..} <- getBirkParameters (blockSlot block)
@@ -272,16 +301,16 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                         bpLastFinalized = lfBlockP,
                         bpHeight = height
                     }
-                    skovBlockTable . at cbp ?= BlockAlive blockP
-                    finHeight <- fromIntegral . Seq.length <$> use skovFinalizationList
-                    branches <- use skovBranches
-                    let branchLen = fromIntegral $ Seq.length branches
+                    blockTable . at cbp ?= BlockAlive blockP
+                    finHeight <- fromIntegral . Seq.length <$> use finalizationList
+                    brs <- use branches
+                    let branchLen = fromIntegral $ Seq.length brs
                     let heightIncreased = height - finHeight < branchLen
                     if heightIncreased then
-                        skovBranches . ix (fromIntegral (height - finHeight)) %= (blockP:)
+                        branches . ix (fromIntegral (height - finHeight)) %= (blockP:)
                     else
                         assert (height - finHeight == branchLen)
-                            skovBranches %= (Seq.|> [blockP])
+                            branches %= (Seq.|> [blockP])
                     return True
                 -- If the block's last finalized block is dead, then the block arrives dead.
                 -- If the block's last finalized block is pending then it can't be an ancestor,
@@ -293,39 +322,66 @@ tryAddBlock pb@(PendingBlock cbp block) = do
 -- When adding a block that is at height in the finalization list, check if it's already there; if not, it should be dead.
 -- Height 0 is the genesis block
 
+doResolveBlock :: (MonadState s m, SkovLenses s) => BlockHash -> m (Maybe BlockPointer)
+{-# INLINE doResolveBlock #-}
+doResolveBlock cbp = use (blockTable . at cbp) <&> \case
+        Just (BlockAlive bp) -> Just bp
+        Just (BlockFinalized bp _) -> Just bp
+        _ -> Nothing
+
+doStoreBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => Block -> m BlockHash
+{-# INLINE doStoreBlock #-}
+doStoreBlock block0 = do
+    let cbp = hashBlock block0
+    oldBlock <- use (blockTable . at cbp)
+    when (isNothing oldBlock) $
+        -- The block is new, so we have some work to do.
+        addBlock (PendingBlock cbp block0)
+    return cbp
+
+doFinalizeBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => FinalizationRecord -> m ()
+{-# INLINE doFinalizeBlock #-}
+doFinalizeBlock finRec = do
+    let thisFinIx = finalizationIndex finRec
+    nextFinIx <- FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
+    case compare thisFinIx nextFinIx of
+        LT -> return () -- Already finalized at that index
+        EQ -> do 
+                finalizationPool . at thisFinIx . non [] %= (finRec:)
+                processFinalizationPool
+        GT -> finalizationPool . at thisFinIx . non [] %= (finRec:)
+
+
 instance Monad m => SkovMonad (StateT SkovData m) where
     {-# INLINE resolveBlock #-}
-    resolveBlock cbp = use (skovBlockTable . at cbp) <&> \case
-                        Just (BlockAlive bp) -> Just bp
-                        Just (BlockFinalized bp _) -> Just bp
-                        _ -> Nothing
-    storeBlock block0 = do
-            let cbp = hashBlock block0
-            oldBlock <- use (skovBlockTable . at cbp)
-            when (isNothing oldBlock) $
-                -- The block is new, so we have some work to do.
-                addBlock (PendingBlock cbp block0)
-            return cbp
-    finalizeBlock finRec = do
-            let thisFinIx = finalizationIndex finRec
-            nextFinIx <- FinalizationIndex . fromIntegral . Seq.length <$> use skovFinalizationList
-            case compare thisFinIx nextFinIx of
-                LT -> return () -- Already finalized at that index
-                EQ -> do 
-                     skovFinalizationPool . at thisFinIx . non [] %= (finRec:)
-                     processFinalizationPool
-                GT -> skovFinalizationPool . at thisFinIx . non [] %= (finRec:)
-    isFinalized bp = preuse (skovBlockTable . ix bp) >>= \case
+    resolveBlock = doResolveBlock
+    storeBlock = doStoreBlock
+    finalizeBlock = doFinalizeBlock
+    isFinalized bp = preuse (blockTable . ix bp) >>= \case
             Just (BlockFinalized _ _) -> return True
             _ -> return False
     lastFinalizedBlock = use (to lastFinalized)
-    genesisData = use skovGenesisData
+    getGenesisData = use skovGenesisData
     genesisBlock = use skovGenesisBlockPointer
-    getCurrentHeight = gets $ \skov -> lastFinalizedHeight skov + fromIntegral (Seq.length (_skovBranches skov)) - 1
+    getCurrentHeight = gets $ \s -> lastFinalizedHeight s + fromIntegral (Seq.length (_skovBranches s)) - 1
     branchesFromTop = revSeqToList <$> use skovBranches
         where
             revSeqToList Seq.Empty = []
             revSeqToList (r Seq.:|> t) = t : revSeqToList r
+    getBlocksAtHeight h = do
+            lastFin <- lastFinalizedBlock
+            case compare h (bpHeight lastFin) of
+                EQ -> return [lastFin]
+                GT -> do
+                    brs <- use $ skovBranches
+                    case brs Seq.!? (fromIntegral $ h - bpHeight lastFin - 1) of
+                        Nothing -> return []
+                        Just bs -> return bs
+                LT -> return [findFrom (bpParent lastFin)] -- TODO: replace with more efficient search
+        where
+            findFrom bp
+                | bpHeight bp == h = bp
+                | otherwise = findFrom (bpParent bp)
 
 instance Monad m => PayloadMonad (StateT SkovData m) where
     addPendingTransaction tr@Transaction{..} = do

@@ -21,7 +21,7 @@ class SkovMonad m => KontrolMonad m where
     timeUntilNextSlot :: m NominalDiffTime
     default timeUntilNextSlot :: MonadIO m => m NominalDiffTime
     timeUntilNextSlot = do
-        gen <- genesisData
+        gen <- getGenesisData
         now <- liftIO $ getPOSIXTime
         return $ (now - (fromInteger $ toInteger (genesisTime gen))) `mod'` (fromInteger $ toInteger $ genesisSlotDuration gen)
 
@@ -31,6 +31,6 @@ instance KontrolMonad m => KontrolMonad (MaybeT m) where
 
 getCurrentSlot :: (KontrolMonad m) => m Slot
 getCurrentSlot = do
-        GenesisData{..} <- genesisData
+        GenesisData{..} <- getGenesisData
         ct <- currentTimestamp
         return $ Slot ((ct - genesisTime) `div` genesisSlotDuration)

@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, RecordWildCards, LambdaCase, FlexibleContexts, RankNTypes, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances, DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, RecordWildCards, LambdaCase, FlexibleContexts, RankNTypes, ScopedTypeVariables, GeneralizedNewtypeDeriving, FlexibleInstances #-}
 module Concordium.Afgjort.Freeze(
     FreezeMessage(..),
     FreezeState(..),
@@ -19,16 +19,12 @@ import qualified Data.Set as Set
 import Data.Set(Set)
 import Control.Monad.State.Class
 import Control.Monad.RWS
-import Control.Monad
 import Lens.Micro.Platform
-import GHC.Generics
-import Data.Serialize (Serialize)
 
 data FreezeMessage val
     = Proposal val
     | Vote (Maybe val)
-    deriving (Eq, Ord, Show, Generic)
-instance (Serialize val) => Serialize (FreezeMessage val)
+    deriving (Eq, Ord, Show)
 
 data FreezeState val party = FreezeState {
     -- |The proposals.  Each proposal is associated with a triple consisting of:

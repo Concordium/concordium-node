@@ -49,14 +49,14 @@ checkTicket lotteryid weight key Ticket{..} =
         VRF.verify key ("AL" <> lotteryid) ticketProof &&
         ticketValue == calculateTicketValue ticketIndex ticketProof
 
+type Phase = Word32
+
 data ABBAMessage party
-    = Justified Word Bool Ticket
-    | CSSSeen Word party Choice
-    | CSSDoneReporting Word (Map party Choice)
+    = Justified Phase Choice Ticket
+    | CSSSeen Phase party Choice
+    | CSSDoneReporting Phase (Map party Choice)
     | WeAreDone Choice
     deriving (Eq, Show, Generic)
-instance (Ord party, Serialize party) => Serialize (ABBAMessage party)
--- FIXME: replace default serialization
 
 data PhaseState party sig = PhaseState {
     _lotteryTickets :: Map (H.Hash, party) Ticket,
@@ -79,8 +79,8 @@ initialPhaseState = PhaseState {
 }
 
 data ABBAState party sig = ABBAState {
-    _currentPhase :: Word,
-    _phaseStates :: Map Word (PhaseState party sig),
+    _currentPhase :: Phase,
+    _phaseStates :: Map Phase (PhaseState party sig),
     _currentGrade :: Word8,
     _topWeAreDone :: Map party sig,
     _topWeAreDoneWeight :: Int,
@@ -89,7 +89,7 @@ data ABBAState party sig = ABBAState {
 }
 makeLenses ''ABBAState
 
-phaseState :: Word -> Lens' (ABBAState party sig) (PhaseState party sig)
+phaseState :: Phase -> Lens' (ABBAState party sig) (PhaseState party sig)
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
     (\s t -> s & phaseStates . at p ?~ t)
 
@@ -144,7 +144,7 @@ data ABBAInstance party sig m = ABBAInstance {
     beginABBA :: Choice -> m ()
 }
 
-liftCSS :: (ABBAMonad party sig m, Ord party) => Word -> CSS party sig a -> m (a, Maybe (CoreSet party sig))
+liftCSS :: (ABBAMonad party sig m, Ord party) => Phase -> CSS party sig a -> m (a, Maybe (CoreSet party sig))
 liftCSS phase a = do
         cssstate <- use (phaseState phase . phaseCSSState)
         let (r, cssstate', evs) = runCSS a cssstate
@@ -163,11 +163,11 @@ newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => BS.
 newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey = ABBAInstance {..}
     where
         CSSInstance{..} = newCSSInstance totalWeight corruptWeight partyWeight
-        myTicket :: Word -> Ticket
+        myTicket :: Phase -> Ticket
         myTicket phase = makeTicket (Ser.runPut $ Ser.put baid >> Ser.put phase) (partyWeight me) privateKey
         justifyABBAChoice :: Choice -> m ()
         justifyABBAChoice c = myLiftCSS 0 (justifyChoice c)
-        handleCoreSet :: Word -> CoreSet party sig -> m ()
+        handleCoreSet :: Phase -> CoreSet party sig -> m ()
         handleCoreSet phase cs = do
                 tkts <- filter (\((_,party),tkt) -> checkTicket baid (partyWeight party) (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
                 let (nextBit, newGrade) =
@@ -197,7 +197,7 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
                 csAll = Map.union (const True <$> csTop) (const False <$> csBot)
                 topWeight = sum $ partyWeight <$> Map.keys csTop
                 botWeight = sum $ partyWeight <$> Map.keys csBot
-        myLiftCSS :: Word -> CSS party sig a -> m a
+        myLiftCSS :: Phase -> CSS party sig a -> m a
         myLiftCSS p a = do
             (r, cs) <- liftCSS p a
             forM_ cs $ \cs' -> do

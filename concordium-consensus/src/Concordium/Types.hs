@@ -125,11 +125,11 @@ instance Hashable BlockPointer where
     hashWithSalt s = hashWithSalt s . bpHash
     hash = hash . bpHash
 
-data FinalizationProof = FinalizationProof
-    deriving (Eq, Ord)
+data FinalizationProof = FinalizationProof [(Word32, Sig.Signature)]
+    deriving (Eq)
 
 emptyFinalizationProof :: FinalizationProof
-emptyFinalizationProof = FinalizationProof
+emptyFinalizationProof = FinalizationProof []
 
 
 data FinalizationRecord = FinalizationRecord {
@@ -137,7 +137,7 @@ data FinalizationRecord = FinalizationRecord {
     finalizationBlockPointer :: BlockHash,
     finalizationProof :: FinalizationProof,
     finalizationDelay :: BlockHeight
-} deriving (Eq, Ord)
+} deriving (Eq)
 
 data BakerInfo = BakerInfo {
     bakerElectionVerifyKey :: BakerElectionVerifyKey,
