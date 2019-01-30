@@ -3,10 +3,18 @@ module Concordium.External where
 
 import Foreign
 import Foreign.C
+import Foreign.C.String
+import Foreign.Marshal.Alloc
+
 import Control.Concurrent.Chan
 import Control.Concurrent
 import qualified Data.ByteString.Char8 as BS
 import Data.Serialize
+import Data.IORef
+
+import qualified Data.Text.Lazy as LT
+import qualified Data.Aeson.Text as AE
+
 
 import Concordium.Types
 import Concordium.Birk.Bake
@@ -14,6 +22,7 @@ import Concordium.Payload.Transaction
 import Concordium.Runner
 import Concordium.Show
 
+import qualified Concordium.Getters as G
 import qualified Concordium.Startup as S
 
 -- Test functions
@@ -51,7 +60,8 @@ import qualified Concordium.Startup as S
 
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
-    bakerOutChan :: Chan OutMessage
+    bakerOutChan :: Chan OutMessage,
+    bakerBestBlock :: IORef G.BlockInfo
 }
 
 type CStringCallback = CString -> Int64 -> IO ()
@@ -93,20 +103,20 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk = do
     bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
     case (decode gdata, decode bdata) of
       (Right genData, Right bid) -> do
-        (cin, cout) <- makeRunner bid genData
+        (cin, cout, out) <- makeRunner bid genData
         forkIO $ outLoop cout (callBlockCallback bcbk)
-        newStablePtr (BakerRunner cin cout)
+        newStablePtr (BakerRunner cin cout out)
       _   -> ioError (userError $ "Error decoding serialized data.")
 
 stopBaker :: StablePtr BakerRunner -> IO ()
 stopBaker bptr = do
-    BakerRunner cin _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ <- deRefStablePtr bptr
     freeStablePtr bptr
     writeChan cin MsgShutdown
 
 receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveBlock bptr cstr l = do
-    BakerRunner cin _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ <- deRefStablePtr bptr
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet deserializeBlock blockBS of
         Left _ -> return ()
@@ -121,12 +131,21 @@ printBlock cstr l = do
 
 receiveTransaction :: StablePtr BakerRunner -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> IO ()
 receiveTransaction bptr n0 n1 n2 n3 tdata tlen = do
-    BakerRunner cin _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ <- deRefStablePtr bptr
     tbs <- BS.packCStringLen (tdata, fromIntegral tlen)
     case decode tbs of
       Left _ -> return ()
       Right (meta, payload) ->
         writeChan cin $ MsgTransactionReceived (Transaction (TransactionNonce n0 n1 n2 n3) meta payload)
+
+getBestBlockInfo :: StablePtr BakerRunner -> IO CString
+getBestBlockInfo bptr = do
+  blockInfo <- readIORef =<< bakerBestBlock <$> deRefStablePtr bptr
+  let outStr = LT.unpack . AE.encodeToLazyText $ blockInfo
+  newCString outStr
+
+freeCStr :: CString -> IO ()
+freeCStr = free
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
@@ -134,3 +153,5 @@ foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> IO ()
+foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
+foreign export ccall freeCStr :: CString -> IO ()

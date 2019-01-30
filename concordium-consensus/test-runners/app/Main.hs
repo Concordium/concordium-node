@@ -10,6 +10,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 
+import Data.String
+
 import qualified Concordium.Crypto.DummySignature as Sig
 import qualified Concordium.Crypto.DummyVRF as VRF
 import Concordium.Birk.Bake
@@ -24,7 +26,6 @@ import qualified Data.Map as Map
 import Interpreter.CallContract as I
 
 import Data.List(intercalate)
-
 
 transactions :: StdGen -> [Transaction]
 transactions gen = trs 0 (randoms gen)
@@ -85,12 +86,12 @@ main = do
     let gen = GenesisData now 1 bps fps
     trans <- transactions <$> newStdGen
     chans <- mapM (\(_, (_, bid)) -> do
-        (cin, cout) <- makeRunner bid gen
+        (cin, cout, out) <- makeRunner bid gen
         forkIO $ sendTransactions cin trans
-        return (cin, cout)) bis
+        return (cin, cout, out)) bis
     monitorChan <- newChan
-    mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
-    let iState = initState 5
+    mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
+    let iState = initState 2
     let loop gsMap = do
             block <- readChan monitorChan
             let bh = hashBlock block
@@ -100,6 +101,5 @@ main = do
                               Right (_, gs') -> do
                                 putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\\l" ++ gsToString gs' ++ "\\l\"];"
                                 putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
-                                -- putStrLn (showsBlock block "")
                                 loop (Map.insert bh gs' gsMap)
     loop Map.empty

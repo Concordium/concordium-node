@@ -205,4 +205,4 @@ makeGenesisBlockPointer genData = theBlockPointer
         bpParent = theBlockPointer
         bpLastFinalized = theBlockPointer
         bpHeight = 0
-        bpState = initState 10
+        bpState = initState 2

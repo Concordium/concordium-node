@@ -142,5 +142,6 @@ makeBlock gs msgs = do
 mkState :: Int -> I.State
 mkState = I.State . fromString . show
 
+initState :: Int -> GlobalState
 initState n = GlobalState { instances = Map.fromList . map (\i -> (pack (show i), mkState 0)) $ enumFromTo 0 (n-1)
                           }
