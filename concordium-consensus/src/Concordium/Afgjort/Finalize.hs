@@ -24,6 +24,9 @@ import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
 import Concordium.Kontrol.BestBlock
 
+import Data.List(intercalate)
+import Debug.Trace
+
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: Sig.SignKey,
     finMyVerifyKey :: Sig.VerifyKey,
@@ -37,6 +40,9 @@ data Party = Party {
     partySignKey :: Sig.VerifyKey,
     partyVRFKey :: VRF.PublicKey
 } deriving (Eq, Ord)
+
+instance Show Party where
+    show = show . partyIndex
 
 data FinalizationCommittee = FinalizationCommittee {
     parties :: Vector Party,
@@ -59,10 +65,8 @@ data FinalizationRound = FinalizationRound {
     roundWMVBA :: WMVBAState BlockHash Party Sig.Signature
 }
 
-data FinalizationStage
-    = StageNotParticipating
-    | StageInProgress (WMVBAState BlockHash Party Sig.Signature)
-    | StageComplete BlockHash
+instance Show FinalizationRound where
+    show FinalizationRound{..} = "roundInput: " ++ take 11 (show roundInput) ++ " roundDelta: " ++ show roundDelta
 
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: BlockHash,
@@ -161,6 +165,9 @@ data FinalizationState = FinalizationState {
 }
 makeLenses ''FinalizationState
 
+instance Show FinalizationState where
+    show FinalizationState{..} = "finIndex: " ++ show _finsIndex ++ " finHeight: " ++ show _finsHeight ++ " " ++ show _finsCurrentRound
+
 class FinalizationStateLenses s where
     finState :: Lens' s FinalizationState
     finSessionId :: Lens' s FinalizationSessionId
@@ -217,7 +224,7 @@ tryNominateBlock = do
                         | bpHeight bp == h = bp
                         | otherwise = findAtHeight (bpParent bp)
                     nomBlock = bpHash $ findAtHeight bBlock
-                finCurrentRound ?= r {roundInput = Just nomBlock}
+                trace ("Nominating: " ++ (take 6 $ show $ nomBlock)) $ finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
 newRound :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => BlockHeight -> Party -> m ()
@@ -244,7 +251,7 @@ newRound newDelta me = do
             }
             liftWMVBA $ do
                 -- Justify the blocks
-                forM_ justifiedInputs $ justifyWMVBAInput . bpHash
+                trace ("Justified inputs: " ++ intercalate "," (take 6 . show . bpHash <$> justifiedInputs)) $ forM_ justifiedInputs $ justifyWMVBAInput . bpHash
                 -- Receive the pending messages
                 forM_ pmsgs $ \(src0, pmsg) -> 
                     forM_ (toParty committee src0) $ \src ->

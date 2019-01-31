@@ -11,6 +11,7 @@ import Control.Exception(assert)
 import Lens.Micro.Platform
 import Data.Foldable
 import Data.Maybe
+import Data.List(intercalate)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -54,6 +55,10 @@ data SkovData = SkovData {
     _skovTransactionsPending :: Map.Map TransactionNonce Transaction
 }
 makeLenses ''SkovData
+
+instance Show SkovData where
+    show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . bpHash . snd <$> toList _skovFinalizationList) ++ "\n" ++
+        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash)) <$> toList _skovBranches)
 
 class SkovLenses s where
     skov :: Lens' s SkovData
@@ -246,6 +251,8 @@ addBlock sl@SkovListeners{..} pb@(PendingBlock cbp _) = do
                 forM_ children $ \childpb -> do
                     childStatus <- use (blockTable . at (pbHash childpb))
                     when (isNothing childStatus) $ addBlock sl childpb
+    s <- use skov
+    trace (show s) $ return ()
 
 tryAddBlock :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> MaybeT m (Maybe BlockPointer)
 tryAddBlock pb@(PendingBlock cbp block) = do
@@ -267,13 +274,13 @@ tryAddBlock pb@(PendingBlock cbp block) = do
         tryAddLiveParent parentP = do -- Alive or finalized
             let lf = blockLastFinalized block
             -- Check that the blockSlot is beyond the parent slot
-            guard $ blockSlot (bpBlock parentP) < blockSlot block
+            trace "Checking slot is past parent" $ guard $ blockSlot (bpBlock parentP) < blockSlot block
             lfStatus <- use (blockTable . at lf)
             case lfStatus of
                 -- If the block's last finalized block is live, but not finalized yet,
                 -- add this block to the queue at the appropriate point
                 Just (BlockAlive lfBlockP) -> do
-                    blocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
+                    trace "Last finalized not yet finalized" $ blocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
                     return Nothing
                 -- If the block's last finalized block is finalized, we can proceed with validation.
                 -- Together with the fact that the parent is alive, we know that the new node
@@ -281,13 +288,13 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                 Just (BlockFinalized lfBlockP finRec) -> do
                     -- The last finalized pointer must be to the block that was actually finalized.
                     -- (Blocks can be implicitly finalized when a descendent is finalized.)
-                    guard $ finalizationBlockPointer finRec == lf
+                    trace "Checking finalized block is target of finalization" $ guard $ finalizationBlockPointer finRec == lf
                     -- We need to know that the slot numbers of the last finalized blocks are ordered.
                     -- If the parent block is the genesis block then its last finalized pointer is not valid,
                     -- and we skip the check.
                     genB <- use genesisBlockPointer
                     unless (parentP == genB) $ guard $
-                        blockSlot (bpBlock lfBlockP) <= blockSlot (bpBlock (bpLastFinalized parentP))
+                        blockSlot (bpBlock lfBlockP) >= blockSlot (bpBlock (bpLastFinalized parentP))
                     bps@BirkParameters{..} <- getBirkParameters (blockSlot block)
                     BakerInfo{..} <- MaybeT $ pure $ birkBaker (blockBaker block) bps
                     -- Check the block proof
@@ -467,7 +474,10 @@ initialSkovFinalizationState finInst gen = SkovFinalizationState{..}
 sfsSkovListeners :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => SkovListeners m
 sfsSkovListeners = SkovListeners {
     onBlock = notifyBlockArrival,
-    onFinalize = notifyBlockFinalized
+    onFinalize = \fr bp -> do
+        notifyBlockFinalized fr bp
+        fs <- use finState
+        trace (show fs) $ return ()
 }
 
 instance Monad m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
