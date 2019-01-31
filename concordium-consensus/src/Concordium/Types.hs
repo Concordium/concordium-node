@@ -32,9 +32,10 @@ type ElectionDifficulty = Double
 
 type VoterId = Word64
 type VoterVerificationKey = Sig.VerifyKey
+type VoterVRFPublicKey = VRF.PublicKey
 type VoterSignKey = Sig.SignKey
 -- Using a floating point number for voter power may be a bad idea.
-type VoterPower = Double
+type VoterPower = Int
 
 newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
@@ -159,11 +160,12 @@ birkBaker bid bps = Map.lookup bid (birkBakers bps)
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
+    voterVRFKey :: VoterVRFPublicKey,
     voterPower :: VoterPower
 } deriving (Eq, Generic)
 instance Serialize VoterInfo where
 
-data FinalizationParameters = FinalizationParameters (Map.Map VoterId VoterInfo)
+data FinalizationParameters = FinalizationParameters [VoterInfo]
     deriving (Eq, Generic)
 instance Serialize FinalizationParameters where
 

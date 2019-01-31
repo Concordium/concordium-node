@@ -67,7 +67,7 @@ makeGenesisData ::
     -> IO ()
 makeGenesisData genTime nBakers cbkgen cbkbaker = do
     BS.useAsCStringLen (encode genData) $ \(cdata, clen) -> callCStringCallback cbkgen cdata (fromIntegral clen)
-    mapM_ (\bkr@(BakerIdentity bid _ _) -> BS.useAsCStringLen (encode bkr) $ \(cdata, clen) -> callCStringCallbackInstance cbkbaker (fromIntegral bid) cdata (fromIntegral clen)) bakersPrivate
+    mapM_ (\bkr@(BakerIdentity bid _ _ _ _) -> BS.useAsCStringLen (encode bkr) $ \(cdata, clen) -> callCStringCallbackInstance cbkbaker (fromIntegral bid) cdata (fromIntegral clen)) bakersPrivate
     where
         bakers = S.makeBakers (fromIntegral nBakers)
         genData = S.makeGenesisData genTime bakers

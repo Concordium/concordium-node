@@ -44,4 +44,4 @@ main = do
         bakersPrivate = map fst bakers
         gendata = makeGenesisData genTime bakers
     BS.writeFile genFile (encode gendata)
-    mapM_ (\bkr@(BakerIdentity bid _ _) -> BS.writeFile ("baker_" ++ show bid ++ ".bin") (encode bkr)) bakersPrivate
+    mapM_ (\bkr@(BakerIdentity bid _ _ _ _) -> BS.writeFile ("baker_" ++ show bid ++ ".bin") (encode bkr)) bakersPrivate

@@ -20,7 +20,9 @@ import Concordium.Payload.Transaction
 data BakerIdentity = BakerIdentity {
     bakerId :: BakerId,
     bakerSignKey :: BakerSignPrivateKey,
-    bakerElectionKey :: BakerElectionPrivateKey
+    bakerSignPublicKey :: BakerSignVerifyKey,
+    bakerElectionKey :: BakerElectionPrivateKey,
+    bakerElectionPublicKey :: BakerElectionVerifyKey
 } deriving (Eq, Generic)
 
 instance Serialize BakerIdentity where

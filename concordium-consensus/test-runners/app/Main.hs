@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections, LambdaCase #-}
 module Main where
 
 import Control.Concurrent
@@ -33,21 +33,34 @@ makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
         (esk, epk) <- VRF.newKeypair
         (ssk, spk) <- Sig.newKeypair
-        return (BakerInfo epk spk lot, BakerIdentity bid ssk esk)
+        return (BakerInfo epk spk lot, BakerIdentity bid ssk spk esk epk)
 
-relay :: Chan OutMessage -> Chan Block -> [Chan InMessage] -> IO ()
+relay :: Chan OutMessage -> Chan (Either Block FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp monitor outps = loop
     where
         loop = do
             msg <- readChan inp
             case msg of
                 MsgNewBlock block -> do
-                    writeChan monitor block
+                    writeChan monitor (Left block)
                     forM_ outps $ \outp -> forkIO $ do
                         r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgBlockReceived block)
+                MsgFinalization bs ->
+                    forM_ outps $ \outp -> forkIO $ do
+                        --r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        --threadDelay r
+                        --putStrLn $ "Delay: " ++ show r
+                        writeChan outp (MsgFinalizationReceived bs)
+                MsgFinalizationRecord fr -> do
+                    writeChan monitor (Right fr)
+                    forM_ outps $ \outp -> forkIO $ do
+                        --r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        --threadDelay r
+                        --putStrLn $ "Delay: " ++ show r
+                        writeChan outp (MsgFinalizationRecordReceived fr)
             loop
 
 removeEach :: [a] -> [(a,[a])]
@@ -64,7 +77,7 @@ main = do
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
     let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
-    let fps = FinalizationParameters (Map.empty)
+    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
     trans <- transactions <$> newStdGen
@@ -75,10 +88,14 @@ main = do
     monitorChan <- newChan
     mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
     let loop = do
-            block <- readChan monitorChan
-            let bh = hashBlock block
-            putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
-            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+            readChan monitorChan >>= \case
+                Left block -> do
+                    let bh = hashBlock block
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
+                Right fr ->
+                    putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
             --putStrLn (showsBlock block "")
             loop
     loop

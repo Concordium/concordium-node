@@ -16,7 +16,7 @@ makeBakers :: Word -> [(BakerIdentity,BakerInfo)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
         lot = 1.0 / fromIntegral nBakers
-        mbs gen bid = (BakerIdentity bid ssk esk, BakerInfo epk spk lot):mbs gen'' (bid+1)
+        mbs gen bid = (BakerIdentity bid ssk spk esk epk, BakerInfo epk spk lot):mbs gen'' (bid+1)
             where
                 (VRF.KeyPair esk epk, gen') = random gen
                 (Sig.KeyPair ssk spk, gen'') = random gen'
@@ -32,5 +32,5 @@ makeGenesisData genTime bakers = GenesisData genTime
     where
         bps = BirkParameters (BS.pack "LeadershipElectionNonce")
                              0.5 -- voting power
-                             (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _, binfo) <- bakers])
-        fps = FinalizationParameters Map.empty
+                             (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _ _ _, binfo) <- bakers])
+        fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _) <- bakers]
