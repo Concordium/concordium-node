@@ -10,13 +10,10 @@ _rust_rocksdb*
 tags
 path
 .vscode
+.so
 src/proto/concordium_p2p*.rs
 consensus
 .stack-work
 dist
-*.a
-*.so
 .cabal-sandbox
 cabal.sandbox.config
-HSdll.dll
-libHSdll.dll
