@@ -1,0 +1,24 @@
+[package]
+name = "benchmark"
+version = "0.1.0"
+publish = false
+
+[dependencies]
+grpcio = { path = ".." }
+grpcio-proto = { path = "../proto" }
+futures = "0.1"
+libc = "0.2"
+grpcio-sys = { path = "../grpc-sys" }
+rand = "0.3"
+tokio-timer = "0.1"
+clap = "2.23"
+log = "0.3"
+slog = "2.0"
+slog-async = "2.1"
+slog-stdlog = "3.0"
+slog-scope = "4.0"
+slog-term = "2.2"
+
+[[bin]]
+name = "qps_worker"
+path = "src/main.rs"
