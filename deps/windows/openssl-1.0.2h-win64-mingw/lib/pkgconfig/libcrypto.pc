@@ -1,12 +1,3 @@
-prefix=/usr/local
-exec_prefix=${prefix}
-libdir=${exec_prefix}/lib
-includedir=${prefix}/include
-
-Name: OpenSSL-libcrypto
-Description: OpenSSL cryptography library
-Version: 1.0.2h
-Requires: 
-Libs: -L${libdir} -lcrypto
-Libs.private: -Wl,--high-entropy-va -Wl,--image-base,0x151000000 -Wl,--nxcompat -Wl,--dynamicbase -lws2_32 -lgdi32 -lcrypt32
-Cflags: -I${includedir} 
+version https://git-lfs.github.com/spec/v1
+oid sha256:92bffebae21b69cd0ea5c0ff5d677be854a061f8150efc7fad6f5867a3aa98f1
+size 366
