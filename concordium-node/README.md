@@ -1,4 +1,12 @@
 # P2P Layer implementation in Rust
+This repository uses git lfs for storing binary dependencies. Therefore the git lfs extension needs to be installed.
+Installation instructions can be found here: https://git-lfs.github.com/
+
+After installing the extension set it up using
+`git lfs install`
+
+Proceed as normally with git
+
 
 ## Dependencies to build the project
 * Rust (nightly)
