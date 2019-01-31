@@ -128,14 +128,14 @@ printBlock cstr l = do
         Left _ -> putStrLn "<Bad Block>"
         Right block -> putStrLn $ showsBlock block ""
 
-receiveTransaction :: StablePtr BakerRunner -> CString -> IO ()
+receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
 receiveTransaction bptr tdata = do
     BakerRunner cin _ _ <- deRefStablePtr bptr
     tbs <- BS.packCString tdata
     case Get.txOutToTransaction =<< (AE.decodeStrict tbs) of
-      Nothing -> return ()
+      Nothing -> return 1
       Just tx ->
-        writeChan cin $ MsgTransactionReceived tx
+        writeChan cin (MsgTransactionReceived tx) >> return 0
 
 getBestBlockInfo :: StablePtr BakerRunner -> IO CString
 getBestBlockInfo bptr = do
@@ -151,6 +151,6 @@ foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPt
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
-foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO ()
+foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
 foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
