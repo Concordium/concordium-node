@@ -5,6 +5,7 @@
 
 cp scripts/CXXFeatureCheck.cmake deps/windows/grpc-rs-0.4.0/grpc-sys/grpc/third_party/benchmark/cmake/
 cp scripts/CMakeLists.txt deps/windows/grpc-rs-0.4.0/grpc-sys/grpc/
+cp deps/windows/{HSdll.dll,libHSdll.dll} .
 
 (mkdir -p ~/.stack/global-project/ && cp scripts/stack.yaml ~/.stack/global-project/stack.yaml)
 
