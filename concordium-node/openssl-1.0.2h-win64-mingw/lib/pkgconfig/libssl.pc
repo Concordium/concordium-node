@@ -1,0 +1,12 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: OpenSSL-libssl
+Description: Secure Sockets Layer and cryptography libraries
+Version: 1.0.2h
+Requires.private: libcrypto
+Libs: -L${libdir} -lssl
+Libs.private: -Wl,--high-entropy-va -Wl,--image-base,0x151000000 -Wl,--nxcompat -Wl,--dynamicbase -lws2_32 -lgdi32 -lcrypt32
+Cflags: -I${includedir} 
