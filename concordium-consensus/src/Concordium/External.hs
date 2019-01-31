@@ -3,8 +3,6 @@ module Concordium.External where
 
 import Foreign
 import Foreign.C
-import Foreign.C.String
-import Foreign.Marshal.Alloc
 
 import Control.Concurrent.Chan
 import Control.Concurrent
@@ -13,7 +11,8 @@ import Data.Serialize
 import Data.IORef
 
 import qualified Data.Text.Lazy as LT
-import qualified Data.Aeson.Text as AE
+import qualified Data.Aeson.Text as AET
+import qualified Data.Aeson as AE
 
 
 import Concordium.Types
@@ -22,7 +21,7 @@ import Concordium.Payload.Transaction
 import Concordium.Runner
 import Concordium.Show
 
-import qualified Concordium.Getters as G
+import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
 
 -- Test functions
@@ -61,7 +60,7 @@ import qualified Concordium.Startup as S
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
     bakerOutChan :: Chan OutMessage,
-    bakerBestBlock :: IORef G.BlockInfo
+    bakerBestBlock :: IORef Get.BlockInfo
 }
 
 type CStringCallback = CString -> Int64 -> IO ()
@@ -129,19 +128,19 @@ printBlock cstr l = do
         Left _ -> putStrLn "<Bad Block>"
         Right block -> putStrLn $ showsBlock block ""
 
-receiveTransaction :: StablePtr BakerRunner -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> IO ()
-receiveTransaction bptr n0 n1 n2 n3 tdata tlen = do
+receiveTransaction :: StablePtr BakerRunner -> CString -> IO ()
+receiveTransaction bptr tdata = do
     BakerRunner cin _ _ <- deRefStablePtr bptr
-    tbs <- BS.packCStringLen (tdata, fromIntegral tlen)
-    case decode tbs of
-      Left _ -> return ()
-      Right (meta, payload) ->
-        writeChan cin $ MsgTransactionReceived (Transaction (TransactionNonce n0 n1 n2 n3) meta payload)
+    tbs <- BS.packCString tdata
+    case Get.txOutToTransaction =<< (AE.decodeStrict tbs) of
+      Nothing -> return ()
+      Just tx ->
+        writeChan cin $ MsgTransactionReceived tx
 
 getBestBlockInfo :: StablePtr BakerRunner -> IO CString
 getBestBlockInfo bptr = do
   blockInfo <- readIORef =<< bakerBestBlock <$> deRefStablePtr bptr
-  let outStr = LT.unpack . AE.encodeToLazyText $ blockInfo
+  let outStr = LT.unpack . AET.encodeToLazyText $ blockInfo
   newCString outStr
 
 freeCStr :: CString -> IO ()
@@ -152,6 +151,6 @@ foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPt
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
-foreign export ccall receiveTransaction :: StablePtr BakerRunner -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> IO ()
+foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO ()
 foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
