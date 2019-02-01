@@ -45,6 +45,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
+use std::{ str };
 
 quick_main!(run);
 
@@ -216,17 +217,6 @@ fn run() -> ResultExtWrapper<()> {
         error!("Failed to persist own node id");
     }
 
-    let mut rpc_serv: Option<RpcServerImpl> = None;
-    if !conf.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(),
-                                          Some(db.clone()),
-                                          conf.rpc_server_addr.clone(),
-                                          conf.rpc_server_port,
-                                          conf.rpc_server_token.clone());
-        serv.start_server()?;
-        rpc_serv = Some(serv);
-    }
-
     let mut baker = if conf.baker_id.is_some() {
         info!("Starting up baker thread");
         consensus::ConsensusContainer::start_haskell();
@@ -244,6 +234,18 @@ fn run() -> ResultExtWrapper<()> {
     } else {
         None
     };
+
+    let mut rpc_serv: Option<RpcServerImpl> = None;
+    if !conf.no_rpc_server {
+        let mut serv = RpcServerImpl::new(node.clone(),
+                                          Some(db.clone()),
+                                          baker.clone(),
+                                          conf.rpc_server_addr.clone(),
+                                          conf.rpc_server_port,
+                                          conf.rpc_server_token.clone());
+        serv.start_server()?;
+        rpc_serv = Some(serv);
+    }
 
     let mut _node_self_clone = node.clone();
 
@@ -274,9 +276,9 @@ fn run() -> ResultExtWrapper<()> {
                                                                     }
                                                                 }
                                                                 1 => {
-                                                                    match consensus::Transaction::deserialize(&msg[2..]) {
-                                                                        Some(tx) => {
-                                                                            baker.send_transaction(&tx);
+                                                                    match str::from_utf8(&msg[2..]) {
+                                                                        Ok(tx) => {
+                                                                            baker.send_transaction(&tx.to_string());
                                                                             info!("Sent transaction to baker");
                                                                         }
                                                                         _ => error!("Could'nt deserialize transaction, can't move forward with the message"),
