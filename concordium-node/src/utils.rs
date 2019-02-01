@@ -3,8 +3,6 @@ use dns::dns;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
-#[cfg(target_os = "windows")]
-use ipconfig::get_adapters;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
 use openssl::ec::{EcGroup, EcKey};
@@ -16,12 +14,15 @@ use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use rand::OsRng;
 use reqwest;
+#[cfg(not(target_os = "windows"))]
 use resolv_conf::Config as ResolverConfig;
 use serde_json;
 use serde_json::Value;
+#[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Error;
+#[cfg(not(target_os = "windows"))]
 use std::io::Read;
 use std::net::IpAddr;
 use std::str;
@@ -160,13 +161,13 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> 
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
+pub fn get_resolvers(_resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
     if resolvers.len() > 0 {
         resolvers.clone()
     } else {
         let adapters = match ipconfig::get_adapters() {
             Ok(x) => x,
-            Err(e) => panic!("Couldn't get adapters. Bailing out!"),
+            Err(_e) => panic!("Couldn't get adapters. Bailing out!"),
         };
         let mut name_servers = vec![];
         for dns_server in adapters.iter()
