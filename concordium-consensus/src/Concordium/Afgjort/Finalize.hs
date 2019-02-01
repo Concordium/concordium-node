@@ -227,37 +227,44 @@ tryNominateBlock = do
                 trace ("Nominating: " ++ (take 6 $ show $ nomBlock)) $ finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
+nextRound :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => FinalizationIndex -> BlockHeight -> m ()
+nextRound oldFinIndex oldDelta = do
+    curFinIndex <- use finIndex
+    when (curFinIndex == oldFinIndex) $ do
+        oldRound <- use finCurrentRound
+        forM_ oldRound $ \r ->
+            when (roundDelta r == oldDelta) $ do
+                newRound (2 * oldDelta) (roundMe r)
+
+
 newRound :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
-    oldRound <- use finCurrentRound
-    forM_ oldRound $ \r ->
-        when (newDelta > roundDelta r) $ do
-            finCurrentRound ?= FinalizationRound {
-                roundInput = Nothing,
-                roundDelta = newDelta,
-                roundMe = me,
-                roundWMVBA = initialWMVBAState
-            }
-            justifiedInputs <- getBlocksAtHeight =<< use finHeight
-            finIx <- use finIndex
-            pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <<.= []
-            committee <- use finCommittee
-            sessId <- use finSessionId
-            let msgHdr src = FinalizationMessageHeader {
-                msgSessionId = sessId,
-                msgFinalizationIndex = finIx,
-                msgDelta = newDelta,
-                msgSenderIndex = src
-            }
-            liftWMVBA $ do
-                -- Justify the blocks
-                trace ("Justified inputs: " ++ intercalate "," (take 6 . show . bpHash <$> justifiedInputs)) $ forM_ justifiedInputs $ justifyWMVBAInput . bpHash
-                -- Receive the pending messages
-                forM_ pmsgs $ \(src0, pmsg) -> 
-                    forM_ (toParty committee src0) $ \src ->
-                        forM_ (decodeCheckMessage committee (msgHdr src0) pmsg) $ \msg ->
-                            receiveWMVBAMessage src (msgSignature msg) (msgBody msg)
-            tryNominateBlock
+        finCurrentRound ?= FinalizationRound {
+            roundInput = Nothing,
+            roundDelta = newDelta,
+            roundMe = me,
+            roundWMVBA = initialWMVBAState
+        }
+        justifiedInputs <- getBlocksAtHeight =<< use finHeight
+        finIx <- use finIndex
+        pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <<.= []
+        committee <- use finCommittee
+        sessId <- use finSessionId
+        let msgHdr src = FinalizationMessageHeader {
+            msgSessionId = sessId,
+            msgFinalizationIndex = finIx,
+            msgDelta = newDelta,
+            msgSenderIndex = src
+        }
+        liftWMVBA $ do
+            -- Justify the blocks
+            trace ("Justified inputs: " ++ intercalate "," (take 6 . show . bpHash <$> justifiedInputs)) $ forM_ justifiedInputs $ justifyWMVBAInput . bpHash
+            -- Receive the pending messages
+            forM_ pmsgs $ \(src0, pmsg) -> 
+                forM_ (toParty committee src0) $ \src ->
+                    forM_ (decodeCheckMessage committee (msgHdr src0) pmsg) $ \msg ->
+                        receiveWMVBAMessage src (msgSignature msg) (msgBody msg)
+        tryNominateBlock
 
 
 handleWMVBAOutputEvents :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => [WMVBAOutputEvent BlockHash Party Sig.Signature] -> m ()
@@ -279,9 +286,9 @@ handleWMVBAOutputEvents evs = do
                     broadcastFinalizationMessage msg
                     -- We manually loop back messages here
                     receiveFinalizationMessage msg
-                handleEv (WMVBAComplete Nothing) = do
+                handleEv (WMVBAComplete Nothing) =
                     -- Round failed, so start a new one
-                    newRound (2 * roundDelta) roundMe
+                    nextRound _finsIndex roundDelta
                 handleEv (WMVBAComplete (Just (finBlock, sigs))) = do
                     let finRec = FinalizationRecord {
                         finalizationIndex = _finsIndex,

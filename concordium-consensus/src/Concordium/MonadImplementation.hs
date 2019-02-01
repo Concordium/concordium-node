@@ -322,14 +322,14 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                         bpHeight = height
                     }
                     blockTable . at cbp ?= BlockAlive blockP
-                    finHght <- fromIntegral . Seq.length <$> use finalizationList
+                    finHght <- use (skov . to lastFinalizedHeight)
                     brs <- use branches
                     let branchLen = fromIntegral $ Seq.length brs
-                    let heightIncreased = height - finHght < branchLen
-                    if heightIncreased then
-                        branches . ix (fromIntegral (height - finHght)) %= (blockP:)
+                    let insertIndex = height - finHght - 1
+                    if insertIndex < branchLen then
+                        branches . ix (fromIntegral insertIndex) %= (blockP:)
                     else
-                        assert (height - finHght == branchLen)
+                        assert (insertIndex == branchLen)
                             branches %= (Seq.|> [blockP])
                     return (Just blockP)
                 -- If the block's last finalized block is dead, then the block arrives dead.
