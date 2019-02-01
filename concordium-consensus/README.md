@@ -13,4 +13,4 @@ then the interpreter will pollute the $ROOT directory with temporary files.
 ## Set ELM_HOME ##
 
 The interpreter will create a global cache in $ELM_HOME .
-If $ELM_HOME is not set then, at least on linux, it will default to $HOME/.elm .
+If ELM_HOME is not set then, at least on linux, it will default to $HOME/.elm .
