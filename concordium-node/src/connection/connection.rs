@@ -27,6 +27,7 @@ use connection::{
     P2PEvent, P2PNodeMode };
 
 use connection::connection_private::{ ConnectionPrivate, ConnSession };
+#[cfg(not(target_os = "windows"))]
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
 
