@@ -6,7 +6,10 @@ extern crate log;
 extern crate bytes;
 extern crate chrono;
 extern crate env_logger;
-extern crate grpcio;
+#[cfg(not(target_os = "windows"))]
+extern crate grpciounix as grpcio;
+#[cfg(target_os = "windows")]
+extern crate grpciowin as grpcio;
 extern crate mio;
 extern crate timer;
 #[macro_use]

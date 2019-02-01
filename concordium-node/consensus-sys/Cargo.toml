@@ -20,7 +20,12 @@ libc = "0.2"
 log = "0.4"
 lazy_static = "1.1.0"
 byteorder = "1"
-curryrs = { version = "^0.2.0", features = ["threaded"] }
+
+[target.'cfg(windows)'.dependencies]
+curryrswin = { path = "../deps/windows/curryrs", features = ["threaded"], package = "curryrs" }
+
+[target.'cfg(unix)'.dependencies]
+curryrsunix = { version = "^0.2.0", features = ["threaded"], package  = "curryrs" }
 
 [build-dependencies]
 bindgen = "0.43.1"

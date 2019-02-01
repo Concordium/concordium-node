@@ -1,5 +1,0 @@
-fn main() {
-    // Copy HSdll.dll.a to HSdll.dll in build directory for now
-    println!("cargo:rustc-link-search=native=.");
-    println!("cargo:rustc-link-lib=dylib=HSdll");
-}

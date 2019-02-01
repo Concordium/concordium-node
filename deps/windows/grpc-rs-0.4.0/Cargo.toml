@@ -1,0 +1,66 @@
+[package]
+name = "grpcio"
+version = "0.4.0"
+authors = ["The TiKV Project Developers"]
+license = "Apache-2.0"
+keywords = ["grpc", "protobuf", "rpc", "tls", "http2"]
+repository = "https://github.com/pingcap/grpc-rs"
+readme = "README.md"
+homepage = "https://github.com/pingcap/grpc-rs"
+documentation = "https://docs.rs/grpcio"
+description = "The rust language implementation of gRPC, base on the gRPC c core library."
+categories = ["asynchronous", "network-programming"]
+autoexamples = false
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+grpcio-sys = { path = "grpc-sys", version = "0.4.0" }
+libc = "0.2"
+futures = "^0.1.15"
+protobuf = { version = "~2.0", optional = true }
+log = "0.4"
+
+[workspace]
+members = ["proto", "benchmark", "compiler", "interop"]
+
+[features]
+default = ["protobuf-codec", "secure"]
+protobuf-codec = ["protobuf"]
+secure = ["grpcio-sys/secure"]
+
+[[example]]
+name = "route_guide_client"
+path = "examples/route_guide/client.rs"
+
+[[example]]
+name = "route_guide_server"
+path = "examples/route_guide/server.rs"
+
+[[example]]
+name = "greeter_client"
+path = "examples/hello_world/client.rs"
+
+[[example]]
+name = "greeter_server"
+path = "examples/hello_world/server.rs"
+
+[dev-dependencies]
+serde_json = "1.0"
+serde = "1.0"
+serde_derive = "1.0"
+grpcio-proto = { path = "proto", version = "0.4.0" }
+rand = "0.4"
+slog = "2.0"
+slog-async = "2.1"
+slog-stdlog = "3.0"
+slog-scope = "4.0"
+slog-term = "2.2"
+
+[profile.release]
+debug = true
+
+[badges]
+travis-ci = { repository = "pingcap/grpc-rs" }
+appveyor = { repository = "busyjay/grpc-rs" }

@@ -2,11 +2,10 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-#[macro_use]
 extern crate structopt;
 extern crate byteorder;
 extern crate bytes;
-#[cfg(not(windows))]
+#[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
 extern crate hacl_star;
 extern crate libc;
@@ -21,7 +20,10 @@ extern crate log;
 extern crate app_dirs;
 extern crate env_logger;
 extern crate futures;
-extern crate grpcio;
+#[cfg(not(target_os = "windows"))]
+extern crate grpciounix as grpcio;
+#[cfg(target_os = "windows")]
+extern crate grpciowin as grpcio;
 extern crate hex;
 extern crate iron;
 extern crate openssl;
@@ -45,7 +47,7 @@ extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
 extern crate dns;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 extern crate ipconfig;
 extern crate resolv_conf;
 extern crate semver;
@@ -65,7 +67,9 @@ pub fn get_dns_public_key() -> &'static str {
 pub mod connection;
 pub mod configuration;
 pub mod db;
-pub mod errors;
+// Due to massive changes in std, and possible change away from the error_chain crate,
+// we'll ignore deprecated warnings in this for now.
+#[allow(deprecated)] pub mod errors;
 pub mod p2p;
 pub mod prometheus_exporter;
 pub mod proto;
