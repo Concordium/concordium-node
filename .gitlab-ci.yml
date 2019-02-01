@@ -10,6 +10,5 @@ test:cargo:
   - rustc --version && cargo --version
   - stack exec -- ghc --print-libdir
   - ( cd dns && cargo test --all --verbose )
-  - ( cd ldns-sys && cargo test --all --verbose )
   - ( cd consensus-sys && cargo test --all --verbose )
   - cargo test --all --verbose -- --test-threads=1
