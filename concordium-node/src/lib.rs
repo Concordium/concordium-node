@@ -52,6 +52,7 @@ extern crate ipconfig;
 extern crate resolv_conf;
 extern crate semver;
 extern crate vecio;
+extern crate consensus_sys;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

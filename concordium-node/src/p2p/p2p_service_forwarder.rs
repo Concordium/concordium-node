@@ -2,7 +2,7 @@ use std::sync::{ Arc, RwLock };
 use proto::{
     SendMessageRequest, PeerConnectRequest, SuccessResponse, Empty, NumberResponse, 
     StringResponse, PeerStatsResponse, PeerListResponse, P2PNetworkMessage,
-    PeerElement, NetworkChangeRequest
+    PeerElement, NetworkChangeRequest, PoCSendTransactionMessage, BestBlockInfoMessage,
 };
 use proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
@@ -114,6 +114,20 @@ impl P2P for P2PServiceForwarder {
 
     fn leave_network(&self, ctx: ::grpcio::RpcContext, req: NetworkChangeRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, leave_network, ctx, req, sink);
+    }
+
+    fn get_best_block_info(&self, 
+        ctx: ::grpcio::RpcContext,
+        req: Empty,
+        sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
+            forward_to_targets!( self.targets, get_best_block_info, ctx, req, sink);
+    }
+
+    fn po_c_send_transaction(&self, 
+                  ctx: ::grpcio::RpcContext,
+                  req: PoCSendTransactionMessage,
+                  sink: ::grpcio::UnarySink<SuccessResponse>) {
+        forward_to_targets!( self.targets, po_c_send_transaction, ctx, req, sink);
     }
 }
 

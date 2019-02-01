@@ -8,8 +8,8 @@ fi
 # Foreign temporary dependency, potentially a smarter way?
 rm -rf consensus
 git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
-# Lock to specific commit in git to avoid issues with linking
-( cd consensus && git checkout 24a7053e1459be0bfec6a6fdcb13ebaaa5949b78 )
+# Locked to oak-integration for PoC due to build issues on Windows with master currently.
+( cd consensus && git checkout oak-integration )
 
 scripts/build-base-docker.sh
 scripts/build-build-docker.sh $1

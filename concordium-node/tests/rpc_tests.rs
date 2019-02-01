@@ -93,6 +93,7 @@ mod tests {
                                        });
 
         let mut rpc_serv = RpcServerImpl::new(node.clone(),
+                                                None,
                                               None,
                                               "127.0.0.1".to_string(),
                                               10002,
@@ -189,6 +190,7 @@ mod tests {
                                        });
 
         let mut rpc_serv = RpcServerImpl::new(node.clone(),
+                                                None,
                                               None,
                                               "127.0.0.1".to_string(),
                                               10001,

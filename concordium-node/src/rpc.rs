@@ -14,8 +14,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
-
+use consensus_sys::consensus::ConsensusContainer;
 use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
 
 #[derive(Clone)]
@@ -28,11 +29,13 @@ pub struct RpcServerImpl {
     subscription_queue_out: RefCell<Option<Arc<Mutex<mpsc::Receiver<Box<NetworkMessage>>>>>>,
     subscription_queue_in: RefCell<Option<mpsc::Sender<Box<NetworkMessage>>>>,
     db: Option<P2PDB>,
+    consensus: Option<ConsensusContainer>,
 }
 
 impl RpcServerImpl {
     pub fn new(node: P2PNode,
                db: Option<P2PDB>,
+               consensus: Option<ConsensusContainer>,
                listen_addr: String,
                listen_port: u16,
                access_token: String)
@@ -44,7 +47,8 @@ impl RpcServerImpl {
                         server: None,
                         subscription_queue_out: RefCell::new(None),
                         subscription_queue_in: RefCell::new(None),
-                        db: db, }
+                        db: db,
+                        consensus:  consensus.clone(),}
     }
 
     pub fn queue_message(&self, msg: &NetworkMessage) -> ResultExtWrapper<()> {
@@ -468,6 +472,64 @@ impl P2P for RpcServerImpl {
             ctx.spawn(f);
         });
     }
+
+    fn po_c_send_transaction(&self, 
+                  ctx: ::grpcio::RpcContext,
+                  req: PoCSendTransactionMessage,
+                  sink: ::grpcio::UnarySink<SuccessResponse>) {
+        authenticate!(ctx, req, sink, &self.access_token, {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            if let Some(ref consensus) = self.consensus {
+                if consensus.send_transaction(&req.get_message_content().to_string()) == 0 as i64 {
+                    let mut out_bytes = vec![];
+                    match out_bytes.write_u16::<BigEndian>(1 as u16) {
+                        Ok(_) => {
+                            out_bytes.extend(req.get_message_content().as_bytes());
+                            match self.node.borrow_mut().send_message(None, req.get_network_id() as u16, None, &out_bytes , true)  {
+                                Ok(_) => {
+                                    info!("Transmitted transaction to network");
+                                }
+                                Err(_) => {
+                                    error!("Couldn't transmit transaction to network");
+                                }
+                            }
+                        }
+                        _ => r.set_value(false),
+                    }
+                } else {
+                    r.set_value(false);
+                }
+            }
+            let f = sink.success(r)
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        } );
+    }
+
+    fn get_best_block_info(&self, 
+        ctx: ::grpcio::RpcContext,
+        req: Empty,
+        sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                if let Some(ref consensus) = self.consensus {
+                    match consensus.get_best_block_info() {
+                        Some(ref res) => {
+                            let mut r: BestBlockInfoMessage = BestBlockInfoMessage::new();
+                            r.set_best_block_info(res.clone());
+                            let f = sink.success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        _ => {
+                            let f = sink.fail(
+                                    ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                    }
+                }
+            });
+        }
 
     fn unban_node(&self,
                   ctx: ::grpcio::RpcContext,

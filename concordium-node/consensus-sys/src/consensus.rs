@@ -2,7 +2,8 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::boxed::Box;
 use std::collections::HashMap;
-use std::ffi::CString;
+use std::ffi::{CString,CStr};
+use std::os::raw::c_char;
 use std::io::Cursor;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -26,12 +27,7 @@ extern "C" {
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(baker: *mut baker_runner, block_data: *const u8, data_length: i64);
     pub fn receiveTransaction(baker: *mut baker_runner,
-                              n0: u64,
-                              n1: u64,
-                              n2: u64,
-                              n3: u64,
-                              transaction_data: *const u8,
-                              data_length: i64);
+                              tx: *const u8) -> i64;
     pub fn stopBaker(baker: *mut baker_runner);
     pub fn makeGenesisData(genesis_time: u64,
                            num_bakers: u64,
@@ -39,6 +35,8 @@ extern "C" {
                            baker_private_data_callback: extern "C" fn(baker_id: i64,
                                          data: *const u8,
                                          data_length: i64));
+    pub fn freeCStr( hstring: *const c_char);
+    pub fn getBestBlockInfo(baker: *mut baker_runner) -> *const c_char;
 }
 
 #[derive(Clone)]
@@ -84,18 +82,22 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_transaction(&self, data: &Transaction) {
+    pub fn send_transaction(&self, data: &String) -> i64{
         unsafe {
             let baker = &*self.runner.lock().unwrap();
-            let len = data.data().len();
-            let c_string = CString::from_vec_unchecked(data.data().to_vec());
+            let c_string = CString::new(data.as_str()).unwrap();
             receiveTransaction(*baker,
-                               data.n0(),
-                               data.n1(),
-                               data.n2(),
-                               data.n3(),
-                               c_string.as_ptr() as *const u8,
-                               len as i64);
+                               c_string.as_ptr() as *const u8) 
+        }
+    }
+
+    pub fn get_best_block_info(&self) -> String {
+        unsafe {
+            let baker = &*self.runner.lock().unwrap();
+            let c_string = getBestBlockInfo(*baker);
+            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
+            freeCStr(c_string);
+            r
         }
     }
 }
@@ -198,10 +200,18 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn send_transaction(&self, tx: &Transaction) {
-        for (_, baker) in &*self.bakers.lock().unwrap() {
-            baker.send_transaction(&tx);
+    pub fn send_transaction(&self, tx: &String)  -> i64{
+        if let Some(baker) = self.bakers.lock().unwrap().values_mut().next() {
+            return baker.send_transaction(&tx);
         }
+        -1
+    }
+
+    pub fn get_best_block_info(&self) -> Option<String> {
+        if let Some(baker) = self.bakers.lock().unwrap().values_mut().next() {
+            return Some(baker.get_best_block_info());
+        }
+        None
     }
 
     pub fn generate_data(genesis_time: u64,
@@ -464,117 +474,6 @@ impl Block {
     }
 }
 
-#[derive(Debug)]
-pub struct Transaction {
-    n0: u64,
-    n1: u64,
-    n2: u64,
-    n3: u64,
-    data: Vec<u8>,
-}
-
-impl Transaction {
-    pub fn new(n0: u64, n1: u64, n2: u64, n3: u64, data: &[u8]) -> Self {
-        Transaction { n0: n0,
-                      n1: n1,
-                      n2: n2,
-                      n3: n3,
-                      data: data.to_vec(), }
-    }
-
-    pub fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 40 {
-            return None;
-        }
-        let mut curr_pos = 0;
-        let mut n0_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let n0 = match n0_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        let mut n1_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let n1 = match n1_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        let mut n2_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let n2 = match n2_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        let mut n3_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let n3 = match n3_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        let mut data_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let data_size = match data_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + data_size as usize) {
-            return None;
-        }
-        let bytes = &data[curr_pos..(curr_pos + data_size as usize)];
-        Some(Transaction { n0: n0,
-                           n1: n1,
-                           n2: n2,
-                           n3: n3,
-                           data: bytes.to_vec(), })
-    }
-
-    pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
-        let mut out: Vec<u8> = vec![];
-        match out.write_u64::<BigEndian>(self.n0) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write n0"),
-        }
-        match out.write_u64::<BigEndian>(self.n1) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write n1"),
-        }
-        match out.write_u64::<BigEndian>(self.n2) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write n2"),
-        }
-        match out.write_u64::<BigEndian>(self.n3) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write n3"),
-        }
-        match out.write_u64::<BigEndian>(self.data.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of data"),
-        }
-        out.extend(&self.data);
-        Ok(out)
-    }
-
-    pub fn n0(&self) -> u64 {
-        self.n0
-    }
-
-    pub fn n1(&self) -> u64 {
-        self.n1
-    }
-
-    pub fn n2(&self) -> u64 {
-        self.n2
-    }
-
-    pub fn n3(&self) -> u64 {
-        self.n3
-    }
-
-    pub fn data(&self) -> &Vec<u8> {
-        &self.data
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use consensus::*;
@@ -671,25 +570,6 @@ mod tests {
         assert_eq!(expected_out, Block::serialize(&block).unwrap());
     }
 
-    #[test]
-    pub fn serialization_serialize_deserialize_transaction_000() {
-        let tx = Transaction::new(100, 200, 300, 400, &[61, 187, 166]);
-        match tx.serialize() {
-            Ok(bytes) => {
-                if let Some(tx_des) = Transaction::deserialize(&bytes) {
-                    assert_eq!(tx.n0(), tx_des.n0());
-                    assert_eq!(tx.n1(), tx_des.n1());
-                    assert_eq!(tx.n2(), tx_des.n2());
-                    assert_eq!(tx.n3(), tx_des.n3());
-                    assert_eq!(tx.data(), tx_des.data());
-                } else {
-                    panic!("Couldn't deserialize");
-                }
-            }
-            Err(_) => panic!("Couldn't serialize"),
-        }
-    }
-
     macro_rules! bakers_test {
         ($genesis_time: expr, $num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
@@ -704,18 +584,38 @@ mod tests {
             }
             for i in 0..$blocks_num {
                 match &consensus_container.out_queue()
-                                          .recv_timeout(Duration::from_millis(240_000))
+                                          .recv_timeout(Duration::from_millis(400_000))
                 {
                     Ok(msg) => {
-                        println!("Got a proper message back {:?}", msg);
                         &consensus_container.send_block(msg);
                     }
                     _ => panic!(format!("No message at {}!", i)),
                 }
             }
+            match &consensus_container.get_best_block_info() {
+                Some(ref best_block) => {
+                    assert!(best_block.contains("globalState"));
+                }
+                _ => panic!("Didn't get best block back!"),
+            }
             for i in 0..$num_bakers {
                 &consensus_container.stop_baker(i);
             }
+        };
+    }
+
+    macro_rules! baker_test_tx {
+        ($genesis_time: expr, $retval: expr, $data: expr) => {
+            let (genesis_data, private_data) =
+                match ConsensusContainer::generate_data($genesis_time, 1) {
+                    Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                    _ => panic!("Couldn't read haskell data"),
+                };
+            let mut consensus_container = ConsensusContainer::new(genesis_data);
+            &consensus_container.start_baker(0,
+                                                 private_data.get(&(0 as i64)).unwrap().to_vec());
+            assert_eq!(consensus_container.send_transaction($data), $retval as i64);
+            &consensus_container.stop_baker(0);
         };
     }
 
@@ -725,6 +625,8 @@ mod tests {
         ConsensusContainer::start_haskell();
         bakers_test!(0, 5, 10);
         bakers_test!(0, 10, 5);
+        baker_test_tx!(0, 0, &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Increment\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".to_string());
+        baker_test_tx!(0, 1, &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Incorrect\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".to_string());
         ConsensusContainer::stop_haskell();
     }
 }

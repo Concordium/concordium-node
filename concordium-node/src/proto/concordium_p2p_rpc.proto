@@ -69,8 +69,17 @@ message P2PNetworkMessage {
   };
 }
 
+message PoCSendTransactionMessage {
+  uint32 network_id = 1;
+  string message_content = 2;
+}
+
 message NetworkChangeRequest {
   google.protobuf.Int32Value network_id = 1;
+}
+
+message  BestBlockInfoMessage {
+  string best_block_info = 1;
 }
 
 message Empty {}
@@ -91,4 +100,6 @@ service P2P {
   rpc UnbanNode(PeerElement) returns (SuccessResponse) {}
   rpc JoinNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
   rpc LeaveNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
+  rpc PoCSendTransaction(PoCSendTransactionMessage) returns (SuccessResponse) {}
+  rpc GetBestBlockInfo(Empty) returns (BestBlockInfoMessage) {}
 }
