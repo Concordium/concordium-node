@@ -360,7 +360,7 @@ notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader 
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
-        finHeight .= bpHeight bp + finalizationDelay
+        finHeight .= bpHeight bp + finalizationDelay + ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do

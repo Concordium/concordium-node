@@ -13,53 +13,24 @@ import Control.Monad.RWS
 import Lens.Micro.Platform
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
-import Data.Semigroup
 import GHC.Generics (Generic)
-import Data.Serialize (Serialize)
 
 import qualified Concordium.Crypto.DummyVRF as VRF
-import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 
-data Ticket = Ticket {
-    ticketValue :: H.Hash,
-    ticketIndex :: Word32,
-    ticketProof :: VRF.Proof
-} deriving (Eq, Show, Generic)
-instance Serialize Ticket
--- FIXME: replace default serialization
-
-calculateTicketValue :: Word32 -> VRF.Proof -> H.Hash
-calculateTicketValue ind pf =  H.hashLazy $ Ser.runPutLazy $ Ser.put (VRF.proofToHash pf) >> Ser.put ind
-
--- |Generate a ticket for a lottery
-makeTicket :: BS.ByteString -- ^Lottery identifier
-            -> Int          -- ^Party weight, must be strictly positive
-            -> VRF.PrivateKey   -- ^Private VRF key
-            -> Ticket
-makeTicket lotteryid weight privKey = Ticket val idx pf
-    where
-        pf = VRF.prove privKey ("AL" <> lotteryid)
-        Just (Max (val, idx)) = mconcat [Just (Max (calculateTicketValue ind pf, ind)) | ind <- [0..fromIntegral weight-1]]
-
-checkTicket :: BS.ByteString -> Int -> VRF.PublicKey -> Ticket -> Bool
-checkTicket lotteryid weight key Ticket{..} =
-        ticketIndex < fromIntegral weight &&
-        VRF.verifyKey key && -- TODO: possibly this is not necessary
-        VRF.verify key ("AL" <> lotteryid) ticketProof &&
-        ticketValue == calculateTicketValue ticketIndex ticketProof
 
 type Phase = Word32
 
 data ABBAMessage party
-    = Justified Phase Choice Ticket
+    = Justified Phase Choice TicketProof
     | CSSSeen Phase party Choice
     | CSSDoneReporting Phase (Map party Choice)
     | WeAreDone Choice
     deriving (Eq, Show, Generic)
 
 data PhaseState party sig = PhaseState {
-    _lotteryTickets :: Map (H.Hash, party) Ticket,
+    _lotteryTickets :: Map (Double, party) Ticket,
     _phaseCSSState :: CSSState party sig,
     _topInputWeight :: Maybe (Int, Set party),
     _botInputWeight :: Maybe (Int, Set party)
@@ -163,13 +134,13 @@ newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => BS.
 newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey = ABBAInstance {..}
     where
         CSSInstance{..} = newCSSInstance totalWeight corruptWeight partyWeight
-        myTicket :: Phase -> Ticket
-        myTicket phase = makeTicket (Ser.runPut $ Ser.put baid >> Ser.put phase) (partyWeight me) privateKey
+        myTicket :: Phase -> TicketProof
+        myTicket phase = makeTicketProof (Ser.runPut $ Ser.put baid >> Ser.put phase) privateKey
         justifyABBAChoice :: Choice -> m ()
         justifyABBAChoice c = myLiftCSS 0 (justifyChoice c)
         handleCoreSet :: Phase -> CoreSet party sig -> m ()
         handleCoreSet phase cs = do
-                tkts <- filter (\((_,party),tkt) -> checkTicket baid (partyWeight party) (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
+                tkts <- filter (\((_,party),tkt) -> checkTicket baid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
                 let (nextBit, newGrade) =
                         if Map.null csBot then
                             (True, 2)
@@ -205,8 +176,9 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
                 when (p == cp) $ handleCoreSet p cs'
             return r
         receiveABBAMessage :: party -> sig -> ABBAMessage party -> m ()
-        receiveABBAMessage src sig (Justified phase c ticket) = do
+        receiveABBAMessage src sig (Justified phase c ticketProof) = do
             myLiftCSS phase (receiveCSSMessage src sig (Input c))
+            let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
             phaseState phase . lotteryTickets . at (ticketValue ticket, src) ?= ticket
             inputw <- use $ phaseState phase . inputWeight c
             forM_ inputw $ \(w, ps) -> unless (src `Set.member` ps) $
