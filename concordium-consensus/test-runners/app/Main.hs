@@ -44,21 +44,24 @@ relay inp monitor outps = loop
                 MsgNewBlock block -> do
                     writeChan monitor (Left block)
                     forM_ outps $ \outp -> forkIO $ do
-                        r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgBlockReceived block)
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
-                        --r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
-                        --threadDelay r
+                        factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgFinalizationReceived bs)
                 MsgFinalizationRecord fr -> do
                     writeChan monitor (Right fr)
                     forM_ outps $ \outp -> forkIO $ do
-                        --r <- (`div` 10) . (^2) <$> randomRIO (0, 7800)
-                        --threadDelay r
+                        factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgFinalizationRecordReceived fr)
             loop

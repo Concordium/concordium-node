@@ -10,7 +10,6 @@ import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
-import Data.Serialize (Serialize)
 import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class
@@ -25,7 +24,6 @@ import Concordium.Afgjort.WMVBA
 import Concordium.Kontrol.BestBlock
 
 import Data.List(intercalate)
-import Debug.Trace
 
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: Sig.SignKey,
@@ -224,7 +222,7 @@ tryNominateBlock = do
                         | bpHeight bp == h = bp
                         | otherwise = findAtHeight (bpParent bp)
                     nomBlock = bpHash $ findAtHeight bBlock
-                trace ("Nominating: " ++ (take 6 $ show $ nomBlock)) $ finCurrentRound ?= r {roundInput = Just nomBlock}
+                finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
 nextRound :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => FinalizationIndex -> BlockHeight -> m ()
@@ -258,7 +256,7 @@ newRound newDelta me = do
         }
         liftWMVBA $ do
             -- Justify the blocks
-            trace ("Justified inputs: " ++ intercalate "," (take 6 . show . bpHash <$> justifiedInputs)) $ forM_ justifiedInputs $ justifyWMVBAInput . bpHash
+            forM_ justifiedInputs $ justifyWMVBAInput . bpHash
             -- Receive the pending messages
             forM_ pmsgs $ \(src0, pmsg) -> 
                 forM_ (toParty committee src0) $ \src ->
@@ -360,6 +358,8 @@ notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader 
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
+        -- TODO: The next finalization height is tweaked from the specification to give better
+        -- finalization lag.  This needs to be brought in line eventually.
         finHeight .= bpHeight bp + finalizationDelay + ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty

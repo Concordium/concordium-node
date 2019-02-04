@@ -45,6 +45,6 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     lastFinal <- lastFinalizedBlock
     payload <- MaybeT $ processInputs bb
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) payload
-    storeBlock block
+    _ <- storeBlock block
     return block
     

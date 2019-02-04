@@ -26,8 +26,6 @@ import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Afgjort.Finalize
 
-import Debug.Trace
-
 data BlockStatus =
     BlockAlive !BlockPointer
     | BlockDead
@@ -148,7 +146,7 @@ purgePending = do
                         possiblyPendingTable . at parenth . non [] %= filter ((/= cbp) . pbHash)
                         blockStatus <- use (blockTable . at cbp)
                         when (isNothing blockStatus) $
-                            trace ("purging pending: " ++ show cbp) $ blockArriveDead cbp
+                            blockArriveDead cbp
                         purge ppq'
                     else
                         return ppq
@@ -205,9 +203,9 @@ processFinalizationPool sl@SkovListeners{..} = do
                         pruneTrunk _ Seq.Empty = return ()
                         pruneTrunk keeper (brs Seq.:|> l) = do
                             forM_ l $ \bp -> if bp == keeper then
-                                                trace ("finalized: " ++ show (bpHash bp)) $ blockTable . at (bpHash bp) ?= BlockFinalized bp finRec
+                                                blockTable . at (bpHash bp) ?= BlockFinalized bp finRec
                                             else
-                                                trace ("dead (trunk): " ++ show (bpHash bp)) $ blockTable . at (bpHash bp) ?= BlockDead
+                                                blockTable . at (bpHash bp) ?= BlockDead
                             pruneTrunk (bpParent keeper) brs
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
                     -- Prune the branches
@@ -220,7 +218,7 @@ processFinalizationPool sl@SkovListeners{..} = do
                                 if bpParent bp `elem` parents then
                                     return (bp:l)
                                 else do
-                                    trace ("dead (branch): " ++ show (bpHash bp)) $ blockTable . at (bpHash bp) ?= BlockDead
+                                    blockTable . at (bpHash bp) ?= BlockDead
                                     return l)
                                 [] brs
                             rest' <- pruneBranches survivors rest
@@ -252,7 +250,7 @@ addBlock sl@SkovListeners{..} pb@(PendingBlock cbp _) = do
                     childStatus <- use (blockTable . at (pbHash childpb))
                     when (isNothing childStatus) $ addBlock sl childpb
     s <- use skov
-    trace (show s) $ return ()
+    return ()
 
 tryAddBlock :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> MaybeT m (Maybe BlockPointer)
 tryAddBlock pb@(PendingBlock cbp block) = do
@@ -261,11 +259,11 @@ tryAddBlock pb@(PendingBlock cbp block) = do
         guard $ lfs < blockSlot block
         parentStatus <- use (blockTable . at (blockPointer block))
         case parentStatus of
-            Nothing -> trace ("pending: " ++ show cbp) $ do
+            Nothing -> do
                 possiblyPendingTable . at parent . non [] %= (pb:)
                 possiblyPendingQueue %= MPQ.insert (blockSlot block) (cbp, blockPointer block)
                 return Nothing
-            Just BlockDead -> trace ("parent is dead: " ++ show cbp) $ mzero
+            Just BlockDead -> mzero
             Just (BlockAlive parentP) -> tryAddLiveParent parentP
             Just (BlockFinalized parentP _) -> tryAddLiveParent parentP
     where
@@ -274,13 +272,13 @@ tryAddBlock pb@(PendingBlock cbp block) = do
         tryAddLiveParent parentP = do -- Alive or finalized
             let lf = blockLastFinalized block
             -- Check that the blockSlot is beyond the parent slot
-            trace "Checking slot is past parent" $ guard $ blockSlot (bpBlock parentP) < blockSlot block
+            guard $ blockSlot (bpBlock parentP) < blockSlot block
             lfStatus <- use (blockTable . at lf)
             case lfStatus of
                 -- If the block's last finalized block is live, but not finalized yet,
                 -- add this block to the queue at the appropriate point
                 Just (BlockAlive lfBlockP) -> do
-                    trace "Last finalized not yet finalized" $ blocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
+                    blocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
                     return Nothing
                 -- If the block's last finalized block is finalized, we can proceed with validation.
                 -- Together with the fact that the parent is alive, we know that the new node
@@ -288,7 +286,7 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                 Just (BlockFinalized lfBlockP finRec) -> do
                     -- The last finalized pointer must be to the block that was actually finalized.
                     -- (Blocks can be implicitly finalized when a descendent is finalized.)
-                    trace "Checking finalized block is target of finalization" $ guard $ finalizationBlockPointer finRec == lf
+                    guard $ finalizationBlockPointer finRec == lf
                     -- We need to know that the slot numbers of the last finalized blocks are ordered.
                     -- If the parent block is the genesis block then its last finalized pointer is not valid,
                     -- and we skip the check.
@@ -335,7 +333,7 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                 -- If the block's last finalized block is dead, then the block arrives dead.
                 -- If the block's last finalized block is pending then it can't be an ancestor,
                 -- so the block is invalid and it arrives dead.
-                _ -> trace ("last finalized dead/missing: " ++ show cbp) $ mzero
+                _ -> mzero
     
 
 -- Tree consists of finalization list + branches
@@ -477,7 +475,7 @@ sfsSkovListeners = SkovListeners {
     onFinalize = \fr bp -> do
         notifyBlockFinalized fr bp
         fs <- use finState
-        trace (show fs) $ return ()
+        return ()
 }
 
 instance Monad m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
