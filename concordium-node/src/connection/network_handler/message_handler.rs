@@ -61,8 +61,6 @@ impl MessageHandler {
     }
 
     pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
-        debug!( "Begin Merge `MessageHandler`");
-
         for cb in other.packet_parser.callbacks().iter() {
             self.add_packet_callback( cb.clone());
         }
@@ -82,7 +80,6 @@ impl MessageHandler {
         for cb in other.invalid_parser.callbacks().iter() {
             self.add_invalid_callback( cb.clone());
         }
-        debug!( "End Merge `MessageHandler`");
         self
     }
 

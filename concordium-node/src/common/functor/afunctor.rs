@@ -4,8 +4,8 @@ use std::sync::atomic::{ AtomicUsize, ATOMIC_USIZE_INIT, Ordering };
 use common::functor::{ FunctorCallback, FunctorResult };
 use errors::{ ErrorWrapper, ErrorKindWrapper };
 
-// pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
-pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
+pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
+// pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -63,8 +63,8 @@ impl<T> AFunctor<T> {
     ///
     /// Callbacks are executed in the same order they were introduced.
     pub fn add_callback(&mut self, callback: AFunctorCW<T> ) -> &mut Self {
-        debug!( "# Functor '{}': Callback added from {}",
-                self.name, callback.0);
+        /*debug!( "# Functor '{}': Callback added from {}",
+                self.name, callback.0);*/
         self.callbacks.push( callback);
         self
     }
@@ -86,16 +86,16 @@ impl<T> AFunctor<T> {
 
 
         DEEP_COUNTER.fetch_add( 1, Ordering::SeqCst);
-        let indent = String::from_utf8( vec![ b'+'; DEEP_COUNTER.load(Ordering::SeqCst)]).unwrap();
+        // let indent = String::from_utf8( vec![ b'+'; DEEP_COUNTER.load(Ordering::SeqCst)]).unwrap();
 
         for i in 0..self.callbacks.len() {
-            // let cb = & self.callbacks[i];
-            let (fn_id, cb) = self.callbacks[i].clone();
+            let cb = & self.callbacks[i];
+            // let (fn_id, cb) = self.callbacks[i].clone();
             // Lock callback and run it
             let status_step = match cb.lock() {
                 Ok(locked_cb) => {
-                    debug!( "# {} Run atomic functor '{}' callback({}/{}) at {}",
-                            indent, self.name, fn_id, i+1, self.callbacks.len());
+                    /*debug!( "# {} Run atomic functor '{}' callback({}/{}) at {}",
+                            indent, self.name, fn_id, i+1, self.callbacks.len());*/
                     (locked_cb)( message)
                 },
                 Err(_) => {

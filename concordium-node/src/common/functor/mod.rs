@@ -4,8 +4,9 @@ use errors::{ ResultExtWrapper };
 #[macro_export]
 macro_rules! make_atomic_callback {
     ($callback:expr) => {
-        ( format!( "{}:{}",file!(), line!()),
-        Arc::new( Mutex::new( Box::new( $callback))))
+        // ( format!( "{}:{}",file!(), line!()),
+        Arc::new( Mutex::new( Box::new( $callback)))
+        // )
     }
 }
 
