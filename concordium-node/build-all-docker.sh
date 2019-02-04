@@ -9,7 +9,7 @@ fi
 rm -rf consensus
 git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
 # Locked to oak-integration for PoC due to build issues on Windows with master currently.
-( cd consensus && git checkout oak-integration )
+( cd consensus && git checkout oak-integration && ./setup-env.sh )
 
 scripts/build-base-docker.sh
 scripts/build-build-docker.sh $1
