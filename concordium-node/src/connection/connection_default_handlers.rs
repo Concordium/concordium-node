@@ -170,8 +170,10 @@ pub fn default_network_response_pong(
         _res: &NetworkResponse) -> FunctorResult {
 
     let ping: u64 = priv_conn.borrow().sent_ping.clone();
-    if ping != u64::max_value() {
-        priv_conn.borrow_mut().last_latency_measured = get_current_stamp() - ping;
+    let curr: u64 = get_current_stamp();
+
+    if curr >= ping {
+        priv_conn.borrow_mut().last_latency_measured = curr - ping;
     }
 
     Ok(())

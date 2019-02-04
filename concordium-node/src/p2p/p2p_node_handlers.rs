@@ -32,7 +32,12 @@ pub fn forward_network_request(
     let cloned_req = req.clone();
     let outer = Arc::new( box NetworkMessage::NetworkRequest( cloned_req, None, None));
 
-    packet_queue.send( outer).map_err( |e| { wrap_error!(e) })
+    match packet_queue.send( outer) {
+        Err(e) => warn!( "Network request cannot be forward by packet queue: {}", e.to_string()),
+        _ => {}
+    };
+
+    Ok(())
 }
 
 /// It forwards network packet message into `packet_queue` if message id has not been already

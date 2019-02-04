@@ -12,8 +12,6 @@ pub struct RequestHandler {
     pub get_peers_handler: AFunctor<NRequest>,
     pub join_network_handler: AFunctor<NRequest>,
     pub leave_network_handler: AFunctor<NRequest>,
-
-    pub main_handler: AFunctor<NRequest>
 }
 
 impl RequestHandler {
@@ -21,29 +19,22 @@ impl RequestHandler {
     pub fn new() -> Self {
         RequestHandler {
             ping_handler: AFunctor::<NRequest>::new(
-                    "Network request ping handler"),
+                    "Network::Request::Ping"),
             find_node_handler: AFunctor::new(
-                    "Network request find node handler"),
+                    "Network::Request::FindNode"),
             ban_node_handler: AFunctor::new(
-                    "Network request ban node handler"),
+                    "Network::Request::BanNode"),
             unban_node_handler: AFunctor::new(
-                    "Network request unban node handler"),
+                    "Network::Request::UnbanNode"),
             handshake_handler: AFunctor::new(
-                    "Network request handshake handler"),
+                    "Network::Request::Handshake"),
             get_peers_handler: AFunctor::new(
-                    "Network request get peers handler"),
+                    "Network::Request::GetPeers"),
             join_network_handler: AFunctor::new(
-                    "Network request join network handler"),
+                    "Network::Request::JoinNetwork"),
             leave_network_handler: AFunctor::new(
-                    "Network request leave network handler"),
-            main_handler: AFunctor::new(
-                    "Main Network request handler")
+                    "Network::Request::LeaveNetwork"),
         }
-    }
-
-    pub fn add_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
-        self.main_handler.add_callback( callback);
-        self
     }
 
     pub fn add_ping_callback( &mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
@@ -87,7 +78,6 @@ impl RequestHandler {
     }
 
     fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
-        let main_status = (&self.main_handler)(msg);
 
         let spec_status = match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
@@ -116,7 +106,7 @@ impl RequestHandler {
             }
         };
 
-        main_status.and( spec_status)
+        spec_status
     }
 }
 

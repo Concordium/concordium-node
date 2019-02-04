@@ -25,9 +25,7 @@ use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
 use connection::{ P2PEvent, P2PNodeMode, Connection, SeenMessagesList, MessageManager,
-    MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
-    NetworkPacketCW, NetworkRequestCW
-    };
+    MessageHandler, RequestHandler, ResponseHandler, NetworkPacketCW, NetworkRequestCW };
 
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
@@ -54,8 +52,6 @@ pub struct P2PNode {
     external_port: u16,
     seen_messages: SeenMessagesList,
     minimum_per_bucket: usize,
-
-    message_handler: MessageHandler
 }
 
 unsafe impl Send for P2PNode {}
@@ -207,7 +203,6 @@ impl P2PNode {
                   mode: mode,
                   seen_messages: seen_messages,
                   minimum_per_bucket: minimum_per_bucket,
-                  message_handler: MessageHandler::new()
         };
         mself.add_default_message_handlers();
         mself
@@ -215,19 +210,17 @@ impl P2PNode {
 
     /// It adds default message handler at .
     fn add_default_message_handlers(&mut self) {
-        let packet_handler = self.make_packet_handler();
         let response_handler = self.make_response_handler();
         let request_handler = self.make_request_handler();
+        let packet_handler = self.make_default_network_packet_message_handler();
 
-        self.message_handler
-            .add_packet_callback( make_atomic_callback!(
-                    move |pac: &NetworkPacket| { (packet_handler)(pac) }))
-            .add_response_callback( make_atomic_callback!(
+        let shared_mh = self.message_handler();
+        let mut locked_mh = shared_mh.write().unwrap();
+        locked_mh.add_packet_callback( packet_handler)
+                .add_response_callback( make_atomic_callback!(
                     move |res: &NetworkResponse| { (response_handler)(res) }))
-            .add_request_callback( make_atomic_callback!(
+                .add_request_callback( make_atomic_callback!(
                     move |req: &NetworkRequest| { (request_handler)(req) }));
-
-        self.register_message_handlers();
     }
 
     /// Default packet handler just forward valid messages.
@@ -241,12 +234,6 @@ impl P2PNode {
             forward_network_packet_message( &seen_messages, &prometheus_exporter,
                                                    &own_networks, &packet_queue, pac)
         })
-    }
-
-    fn make_packet_handler(&self) -> PacketHandler {
-        let mut handler = PacketHandler::new();
-        handler.add_callback( self.make_default_network_packet_message_handler());
-        handler
     }
 
     fn make_response_handler(&self) -> ResponseHandler {
@@ -800,13 +787,13 @@ impl P2PNode {
                             .map_err(|e| error!("{}", e))
                             .ok();
                     };
-                }
+                },
                 _ => {
                     trace!("Got data!");
                     tls_ref.conn_event(&mut poll_ref,
                                        &event,
                                        &self.incoming_pkts)
-                           .map_err(|e| error!("Error occured while parsing event '{}'", e))
+                           .map_err(|e| { error!( "Error occurred while parsing event: {}", e)})
                            .ok();
                 }
             }
@@ -827,35 +814,12 @@ impl P2PNode {
         self.process_messages()?;
         Ok(())
     }
-
-    /// It adds all message handler callback to this connection.
-    fn register_message_handlers(&self) {
-        if let Some(mut tls_server_lock) = self.tls_server.lock().ok() {
-
-            let ref mut mh = tls_server_lock.mut_message_handler();
-
-            for callback in self.message_handler.packet_parser.callbacks.iter() {
-                mh.add_packet_callback( callback.clone());
-            }
-
-            for callback in self.message_handler.response_parser.callbacks.iter() {
-                mh.add_response_callback( callback.clone());
-            }
-
-            for callback in self.message_handler.request_parser.callbacks.iter() {
-                mh.add_request_callback( callback.clone());
-            }
-        }
-    }
 }
 
 impl MessageManager for P2PNode {
-    fn message_handler(&self) -> &MessageHandler {
-        & self.message_handler
-    }
-
-    fn mut_message_handler(&mut self) -> &mut MessageHandler {
-        &mut self.message_handler
+    fn message_handler(&self) -> Arc< RwLock< MessageHandler>> {
+        self.tls_server.lock().unwrap()
+            .message_handler().clone()
     }
 }
 

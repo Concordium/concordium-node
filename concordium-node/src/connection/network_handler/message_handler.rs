@@ -1,3 +1,4 @@
+use std::sync::{ Arc, RwLock };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 
@@ -10,11 +11,11 @@ pub type EmptyCW = AFunctorCW<()>;
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    pub request_parser: AFunctor<NetworkRequest>,
-    pub response_parser: AFunctor<NetworkResponse>,
-    pub packet_parser: AFunctor<NetworkPacket>,
-    pub unknow_parser: AFunctor<()>,
-    pub invalid_parser: AFunctor<()>,
+    request_parser: AFunctor<NetworkRequest>,
+    response_parser: AFunctor<NetworkResponse>,
+    packet_parser: AFunctor<NetworkPacket>,
+    unknow_parser: AFunctor<()>,
+    invalid_parser: AFunctor<()>,
 }
 
 impl MessageHandler {
@@ -22,15 +23,15 @@ impl MessageHandler {
 
         MessageHandler {
             request_parser : AFunctor::<NetworkRequest>::new(
-                    "Network Request Handler"),
+                    "Network::Request"),
             response_parser: AFunctor::<NetworkResponse>::new(
-                    "Network Response Handler"),
+                    "Network::Response"),
             packet_parser: AFunctor::<NetworkPacket>::new(
-                    "Network Package Handler"),
+                    "Network::Package"),
             unknow_parser: AFunctor::new(
-                    "Unknown Packet Handler"),
+                    "Network::Unknown"),
             invalid_parser: AFunctor::new(
-                    "Invalid Packet Handler")
+                    "Network::Invalid")
         }
     }
 
@@ -59,6 +60,32 @@ impl MessageHandler {
         self
     }
 
+    pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
+        debug!( "Begin Merge `MessageHandler`");
+
+        for cb in other.packet_parser.callbacks().iter() {
+            self.add_packet_callback( cb.clone());
+        }
+
+        for cb in other.response_parser.callbacks().iter() {
+            self.add_response_callback( cb.clone());
+        }
+
+        for cb in other.request_parser.callbacks().iter() {
+            self.add_request_callback( cb.clone());
+        }
+
+        for cb in other.unknow_parser.callbacks().iter() {
+            self.add_unknow_callback( cb.clone());
+        }
+
+        for cb in other.invalid_parser.callbacks().iter() {
+            self.add_invalid_callback( cb.clone());
+        }
+        debug!( "End Merge `MessageHandler`");
+        self
+    }
+
     fn process_message(&self, msg: &NetworkMessage) -> FunctorResult {
 
         match msg {
@@ -79,13 +106,13 @@ impl MessageHandler {
             }
         }
     }
+
 }
 
 impl_all_fns!( MessageHandler, NetworkMessage);
 
 pub trait MessageManager {
-    fn message_handler(&self) -> &MessageHandler;
-    fn mut_message_handler(&mut self) -> &mut MessageHandler;
+    fn message_handler(&self) -> Arc< RwLock< MessageHandler>>;
 }
 
 #[cfg(test)]

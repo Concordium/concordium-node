@@ -6,29 +6,24 @@ pub struct ResponseHandler {
     pub find_node_handler: AFunctor<NetworkResponse>,
     pub peer_list_handler: AFunctor<NetworkResponse>,
     pub handshake_handler: AFunctor<NetworkResponse>,
-
-    pub main_handler: AFunctor<NetworkResponse>
 }
 
 impl ResponseHandler {
     pub fn new() -> Self {
         ResponseHandler {
             pong_handler: AFunctor::<NetworkResponse>::new(
-                "Network response pong handler"),
+                "Network::Response::Pong"),
             find_node_handler: AFunctor::<NetworkResponse>::new(
-                "Network response find node handler"),
+                "Network::Response::FindNode"),
             peer_list_handler: AFunctor::<NetworkResponse>::new(
-                "Network response peer list handler"),
+                "Network::Response::PeerList"),
             handshake_handler: AFunctor::<NetworkResponse>::new(
-                "Network response handshake_handler"),
-            main_handler: AFunctor::<NetworkResponse>::new(
-                "Main Network response handler")
+                "Network::Response::Handshake"),
         }
     }
 
     fn process_message(&self, msg: &NetworkResponse) -> FunctorResult {
-        let main_status = (self.main_handler)(msg);
-        let spec_status = match msg {
+        match msg {
             ref pong_inner_pkt @ NetworkResponse::Pong(_) => {
                 (&self.pong_handler)(pong_inner_pkt)
             },
@@ -41,14 +36,7 @@ impl ResponseHandler {
             ref handshake_inner_pkt @ NetworkResponse::Handshake(_, _, _) => {
                 (&self.handshake_handler)(handshake_inner_pkt)
             }
-        };
-
-        main_status.and( spec_status)
-    }
-
-    pub fn add_callback( &mut self, callback: AFunctorCW<NetworkResponse>) -> &mut Self {
-        self.main_handler.add_callback( callback);
-        self
+        }
     }
 
     pub fn add_pong_callback( &mut self, callback: AFunctorCW<NetworkResponse>) -> &mut Self {

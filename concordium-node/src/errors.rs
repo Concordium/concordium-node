@@ -62,3 +62,11 @@ impl<T> From<std::sync::PoisonError<T>> for ErrorWrapper {
         Self::from_kind(ErrorKindWrapper::LockingError(err.description().to_string()))
     }
 }
+
+impl<T> From<std::sync::mpsc::SendError<T>> for ErrorWrapper {
+    fn from( e: std::sync::mpsc::SendError<T>) -> Self {
+        Self::from_kind(
+            ErrorKindWrapper::MessageProcessError(
+                e.to_string()))
+    }
+}

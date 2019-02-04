@@ -9,9 +9,9 @@ use webpki::{ DNSNameRef };
 
 use prometheus_exporter::PrometheusServer;
 
-use connection::{ 
-    Connection, P2PNodeMode, P2PEvent, MessageHandler, 
-    MessageManager }; 
+use connection::{
+    Connection, P2PNodeMode, P2PEvent, MessageHandler,
+    MessageManager };
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use common;
 use p2p::unreachable_nodes::{ UnreachableNodes };
@@ -37,7 +37,8 @@ pub struct TlsServer {
     pub networks: Arc<Mutex<Vec<u16>>>,
     unreachable_nodes: UnreachableNodes,
     buckets: Arc< RwLock< Buckets > >,
-    message_handler: MessageHandler    
+
+    message_handler: Arc< RwLock< MessageHandler>>
 }
 
 impl TlsServer {
@@ -67,7 +68,7 @@ impl TlsServer {
                     networks: Arc::new(Mutex::new(networks)),
                     unreachable_nodes: UnreachableNodes::new(),
                     buckets: buckets,
-                    message_handler: MessageHandler::new()
+                    message_handler: Arc::new( RwLock::new( MessageHandler::new()))
         };
 
         mself.setup_default_message_handler();
@@ -205,7 +206,7 @@ impl TlsServer {
                         .map_err(|e| error!("{}", e))
                         .ok();
                 };
-                let tls_session = 
+                let tls_session =
                     ClientSession::new(&self.client_tls_config,
                                        match DNSNameRef::try_from_ascii_str(&"node.concordium.com")
                                        {
@@ -395,28 +396,13 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let ref mut mh = conn.mut_message_handler();
-
-        for callback in self.message_handler.packet_parser.callbacks.iter() {
-            mh.add_packet_callback( callback.clone());
-        }
-        
-        for callback in self.message_handler.response_parser.callbacks.iter() {
-            mh.add_response_callback( callback.clone());
-        }
-
-        for callback in self.message_handler.request_parser.callbacks.iter() {
-            mh.add_request_callback( callback.clone());
-        }
+        let mh = self.message_handler.read().unwrap();
+        conn.message_handler.merge( &mh);
     }
 }
 
 impl MessageManager for TlsServer {
-    fn message_handler(&self) -> &MessageHandler {
-        & self.message_handler
-    }
-
-    fn mut_message_handler(&mut self) -> &mut MessageHandler {
-        &mut self.message_handler
+    fn message_handler(&self) -> Arc< RwLock< MessageHandler>> {
+        self.message_handler.clone()
     }
 }

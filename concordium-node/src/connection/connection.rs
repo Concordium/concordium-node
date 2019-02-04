@@ -19,11 +19,11 @@ use error_chain::ChainedError;
 use common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
 use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER };
 use common::functor::{ AFunctorCW, FunctorResult };
-use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets,
+use network::{ NetworkMessage, NetworkRequest, NetworkResponse, Buckets,
     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE };
 
 use connection::{
-    MessageManager, MessageHandler, RequestHandler, ResponseHandler, PacketHandler,
+    MessageHandler, RequestHandler, ResponseHandler,
     P2PEvent, P2PNodeMode };
 
 use connection::connection_private::{ ConnectionPrivate, ConnSession };
@@ -157,8 +157,7 @@ impl Connection {
     fn make_response_handler(&mut self) -> ResponseHandler {
         let mut rh = ResponseHandler::new();
 
-        rh.add_callback( self.make_update_last_seen_handler())
-            .add_find_node_callback(
+        rh.add_find_node_callback(
                 handle_by_private!( self.dptr, &NetworkResponse,
                                     default_network_response_find_node))
             .add_pong_callback(
@@ -174,24 +173,19 @@ impl Connection {
         rh
     }
 
-    fn make_packet_handler(&mut self) -> PacketHandler {
-        let mut handler = PacketHandler::new();
-        handler.add_callback( self.make_update_last_seen_handler());
-        handler
-    }
-
     fn setup_message_handler(&mut self) {
         let request_handler = self.make_request_handler();
         let response_handler = self.make_response_handler();
-        let packet_handler = self.make_packet_handler();
+        let last_seen_response_handler = self.make_update_last_seen_handler();
+        let last_seen_packet_handler = self.make_update_last_seen_handler();
 
         self.message_handler
             .add_request_callback( make_atomic_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req) }))
             .add_response_callback(  make_atomic_callback!(
                 move |res: &NetworkResponse| { (response_handler)(res) }))
-            .add_packet_callback( make_atomic_callback!(
-                move |pac: &NetworkPacket| { (packet_handler)(pac) }))
+            .add_response_callback( last_seen_response_handler)
+            .add_packet_callback( last_seen_packet_handler)
             .add_unknow_callback(
                 handle_by_private!( self.dptr, &(), default_unknown_message))
             .add_invalid_callback(
@@ -731,15 +725,5 @@ impl Connection {
 
     pub fn own_networks(&self) -> Arc<Mutex<Vec<u16>>> {
         self.dptr.borrow().own_networks.clone()
-    }
-}
-
-impl MessageManager for Connection {
-    fn message_handler(&self) -> &MessageHandler {
-        & self.message_handler
-    }
-
-    fn mut_message_handler(&mut self) -> &mut MessageHandler {
-        &mut self.message_handler
     }
 }
