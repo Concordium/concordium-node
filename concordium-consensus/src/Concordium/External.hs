@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase #-}
 module Concordium.External where
 
 import Foreign
@@ -76,21 +76,27 @@ makeGenesisData ::
     -> IO ()
 makeGenesisData genTime nBakers cbkgen cbkbaker = do
     BS.useAsCStringLen (encode genData) $ \(cdata, clen) -> callCStringCallback cbkgen cdata (fromIntegral clen)
-    mapM_ (\bkr@(BakerIdentity bid _ _) -> BS.useAsCStringLen (encode bkr) $ \(cdata, clen) -> callCStringCallbackInstance cbkbaker (fromIntegral bid) cdata (fromIntegral clen)) bakersPrivate
+    mapM_ (\bkr@(BakerIdentity bid _ _ _ _) -> BS.useAsCStringLen (encode bkr) $ \(cdata, clen) -> callCStringCallbackInstance cbkbaker (fromIntegral bid) cdata (fromIntegral clen)) bakersPrivate
     where
         bakers = S.makeBakers (fromIntegral nBakers)
         genData = S.makeGenesisData genTime bakers
         bakersPrivate = map fst bakers
 
-type BlockCallback = CString -> Int64 -> IO ()
+type BlockCallback = Int64 -> CString -> Int64 -> IO ()
 
 foreign import ccall "dynamic" callBlockCallback :: FunPtr BlockCallback -> BlockCallback
 
 outLoop :: Chan OutMessage -> BlockCallback -> IO ()
 outLoop chan cbk = do
-    (MsgNewBlock block) <- readChan chan
-    let bbs = runPut (serializeBlock block)
-    BS.useAsCStringLen bbs $ \(cstr, l) -> cbk cstr (fromIntegral l)
+    readChan chan >>= \case
+        MsgNewBlock block -> do
+            let bbs = runPut (serializeBlock block)
+            BS.useAsCStringLen bbs $ \(cstr, l) -> cbk 0 cstr (fromIntegral l)
+        MsgFinalization finMsg -> do
+            BS.useAsCStringLen finMsg $ \(cstr, l) -> cbk 1 cstr (fromIntegral l)
+        MsgFinalizationRecord finRec -> do
+            let bs = runPut (put finRec)
+            BS.useAsCStringLen bs $ \(cstr, l) -> cbk 2 cstr (fromIntegral l)
     outLoop chan cbk
 
 startBaker :: 
@@ -121,6 +127,20 @@ receiveBlock bptr cstr l = do
         Left _ -> return ()
         Right block -> writeChan cin $ MsgBlockReceived block
 
+receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+receiveFinalization bptr cstr l = do
+    BakerRunner cin _ _ <- deRefStablePtr bptr
+    bs <- BS.packCStringLen (cstr, fromIntegral l)
+    writeChan cin $ MsgFinalizationReceived bs
+
+receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+receiveFinalizationRecord bptr cstr l = do
+    BakerRunner cin _ _ <- deRefStablePtr bptr
+    finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
+    case runGet get finRecBS of
+        Left _ -> return ()
+        Right finRec -> writeChan cin $ MsgFinalizationRecordReceived finRec
+
 printBlock :: CString -> Int64 -> IO ()
 printBlock cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
@@ -150,6 +170,8 @@ foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCal
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+foreign export ccall receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
 foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString

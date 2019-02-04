@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances, DeriveGeneric #-}
 -- |Core Set Selection algorithm
 module Concordium.Afgjort.CSS where
 
@@ -10,6 +10,8 @@ import Data.Maybe
 import Control.Monad.State.Class
 import Control.Monad.RWS
 import Lens.Micro.Platform
+import GHC.Generics (Generic)
+import Data.Serialize (Serialize)
 
 type Choice = Bool
 
@@ -24,8 +26,9 @@ data CSSMessage party
     = Input Choice
     | Seen party Choice
     | DoneReporting (Map party Choice) -- Possbly use list instead
-    deriving (Eq, Ord, Show)
-
+    deriving (Eq, Ord, Show, Generic)
+instance (Ord party, Serialize party) => Serialize (CSSMessage party)
+-- FIXME: replace derived serializer
 
 data CoreSet party sig = CoreSet {
     coreTop :: Maybe (Map party sig),

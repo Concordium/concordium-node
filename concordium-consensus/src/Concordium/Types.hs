@@ -22,7 +22,7 @@ type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
 type BlockNonce = (VRF.Hash, VRF.Proof)
 type BlockData = ByteString
-newtype BlockHeight = BlockHeight Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show)
+newtype BlockHeight = BlockHeight Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 type LeadershipElectionNonce = ByteString
 type BakerSignVerifyKey = Sig.VerifyKey
@@ -34,11 +34,12 @@ type ElectionDifficulty = Double
 
 type VoterId = Word64
 type VoterVerificationKey = Sig.VerifyKey
+type VoterVRFPublicKey = VRF.PublicKey
 type VoterSignKey = Sig.SignKey
 -- Using a floating point number for voter power may be a bad idea.
-type VoterPower = Double
+type VoterPower = Int
 
-newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show)
+newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 data Block = Block {
     blockSlot :: Slot,
@@ -128,11 +129,11 @@ instance Hashable BlockPointer where
     hashWithSalt s = hashWithSalt s . bpHash
     hash = hash . bpHash
 
-data FinalizationProof = FinalizationProof
-    deriving (Eq, Ord)
+data FinalizationProof = FinalizationProof [(Word32, Sig.Signature)]
+    deriving (Eq)
 
 emptyFinalizationProof :: FinalizationProof
-emptyFinalizationProof = FinalizationProof
+emptyFinalizationProof = FinalizationProof []
 
 
 data FinalizationRecord = FinalizationRecord {
@@ -140,7 +141,21 @@ data FinalizationRecord = FinalizationRecord {
     finalizationBlockPointer :: BlockHash,
     finalizationProof :: FinalizationProof,
     finalizationDelay :: BlockHeight
-} deriving (Eq, Ord)
+} deriving (Eq)
+instance Serialize FinalizationRecord where
+    put FinalizationRecord{..} = do
+        put finalizationIndex
+        put finalizationBlockPointer
+        let FinalizationProof sigs = finalizationProof
+        put sigs
+        put finalizationDelay
+    get = do
+        finalizationIndex <- get
+        finalizationBlockPointer <- get
+        sigs <- get
+        let finalizationProof = FinalizationProof sigs
+        finalizationDelay <- get
+        return $ FinalizationRecord{..}
 
 data BakerInfo = BakerInfo {
     bakerElectionVerifyKey :: BakerElectionVerifyKey,
@@ -162,11 +177,12 @@ birkBaker bid bps = Map.lookup bid (birkBakers bps)
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
+    voterVRFKey :: VoterVRFPublicKey,
     voterPower :: VoterPower
 } deriving (Eq, Generic)
 instance Serialize VoterInfo where
 
-data FinalizationParameters = FinalizationParameters (Map.Map VoterId VoterInfo)
+data FinalizationParameters = FinalizationParameters [VoterInfo]
     deriving (Eq, Generic)
 instance Serialize FinalizationParameters where
 

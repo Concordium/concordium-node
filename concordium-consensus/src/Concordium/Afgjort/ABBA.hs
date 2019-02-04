@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings, DeriveGeneric #-}
 {- |Asynchronous Binary Byzantine Agreement algorithm -}
 module Concordium.Afgjort.ABBA where
 
@@ -13,47 +13,24 @@ import Control.Monad.RWS
 import Lens.Micro.Platform
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
-import Data.Semigroup
+import GHC.Generics (Generic)
 
 import qualified Concordium.Crypto.DummyVRF as VRF
-import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 
-data Ticket = Ticket {
-    ticketValue :: H.Hash,
-    ticketIndex :: Word32,
-    ticketProof :: VRF.Proof
-} deriving (Eq, Show)
 
-calculateTicketValue :: Word32 -> VRF.Proof -> H.Hash
-calculateTicketValue ind pf =  H.hashLazy $ Ser.runPutLazy $ Ser.put (VRF.proofToHash pf) >> Ser.put ind
-
--- |Generate a ticket for a lottery
-makeTicket :: BS.ByteString -- ^Lottery identifier
-            -> Int          -- ^Party weight, must be strictly positive
-            -> VRF.PrivateKey   -- ^Private VRF key
-            -> Ticket
-makeTicket lotteryid weight privKey = Ticket val idx pf
-    where
-        pf = VRF.prove privKey ("AL" <> lotteryid)
-        Just (Max (val, idx)) = mconcat [Just (Max (calculateTicketValue ind pf, ind)) | ind <- [0..fromIntegral weight-1]]
-
-checkTicket :: BS.ByteString -> Int -> VRF.PublicKey -> Ticket -> Bool
-checkTicket lotteryid weight key Ticket{..} =
-        ticketIndex < fromIntegral weight &&
-        VRF.verifyKey key && -- TODO: possibly this is not necessary
-        VRF.verify key ("AL" <> lotteryid) ticketProof &&
-        ticketValue == calculateTicketValue ticketIndex ticketProof
+type Phase = Word32
 
 data ABBAMessage party
-    = Justified Word Bool Ticket
-    | CSSSeen Word party Choice
-    | CSSDoneReporting Word (Map party Choice)
+    = Justified Phase Choice TicketProof
+    | CSSSeen Phase party Choice
+    | CSSDoneReporting Phase (Map party Choice)
     | WeAreDone Choice
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
 
 data PhaseState party sig = PhaseState {
-    _lotteryTickets :: Map (H.Hash, party) Ticket,
+    _lotteryTickets :: Map (Double, party) Ticket,
     _phaseCSSState :: CSSState party sig,
     _topInputWeight :: Maybe (Int, Set party),
     _botInputWeight :: Maybe (Int, Set party)
@@ -73,9 +50,8 @@ initialPhaseState = PhaseState {
 }
 
 data ABBAState party sig = ABBAState {
-    _currentPhase :: Word,
-    _phaseStates :: Map Word (PhaseState party sig),
-    _currentChoice :: Choice,
+    _currentPhase :: Phase,
+    _phaseStates :: Map Phase (PhaseState party sig),
     _currentGrade :: Word8,
     _topWeAreDone :: Map party sig,
     _topWeAreDoneWeight :: Int,
@@ -84,7 +60,7 @@ data ABBAState party sig = ABBAState {
 }
 makeLenses ''ABBAState
 
-phaseState :: Word -> Lens' (ABBAState party sig) (PhaseState party sig)
+phaseState :: Phase -> Lens' (ABBAState party sig) (PhaseState party sig)
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
     (\s t -> s & phaseStates . at p ?~ t)
 
@@ -96,11 +72,10 @@ weAreDoneWeight :: Choice -> Lens' (ABBAState party sig) Int
 weAreDoneWeight True = topWeAreDoneWeight
 weAreDoneWeight False = botWeAreDoneWeight
 
-initialABBAState :: Choice -> ABBAState party sig
-initialABBAState b = ABBAState {
+initialABBAState :: ABBAState party sig
+initialABBAState = ABBAState {
     _currentPhase = 0,
     _phaseStates = Map.empty,
-    _currentChoice = b,
     _currentGrade = 0,
     _topWeAreDone = Map.empty,
     _topWeAreDoneWeight = 0,
@@ -140,7 +115,7 @@ data ABBAInstance party sig m = ABBAInstance {
     beginABBA :: Choice -> m ()
 }
 
-liftCSS :: (ABBAMonad party sig m, Ord party) => Word -> CSS party sig a -> m (a, Maybe (CoreSet party sig))
+liftCSS :: (ABBAMonad party sig m, Ord party) => Phase -> CSS party sig a -> m (a, Maybe (CoreSet party sig))
 liftCSS phase a = do
         cssstate <- use (phaseState phase . phaseCSSState)
         let (r, cssstate', evs) = runCSS a cssstate
@@ -159,13 +134,13 @@ newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => BS.
 newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey = ABBAInstance {..}
     where
         CSSInstance{..} = newCSSInstance totalWeight corruptWeight partyWeight
-        myTicket :: Word -> Ticket
-        myTicket phase = makeTicket (Ser.runPut $ Ser.put baid >> Ser.put phase) (partyWeight me) privateKey
+        myTicket :: Phase -> TicketProof
+        myTicket phase = makeTicketProof (Ser.runPut $ Ser.put baid >> Ser.put phase) privateKey
         justifyABBAChoice :: Choice -> m ()
         justifyABBAChoice c = myLiftCSS 0 (justifyChoice c)
-        handleCoreSet :: Word -> CoreSet party sig -> m ()
+        handleCoreSet :: Phase -> CoreSet party sig -> m ()
         handleCoreSet phase cs = do
-                tkts <- filter (\((_,party),tkt) -> checkTicket baid (partyWeight party) (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
+                tkts <- filter (\((_,party),tkt) -> checkTicket baid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
                 let (nextBit, newGrade) =
                         if Map.null csBot then
                             (True, 2)
@@ -184,7 +159,7 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
                 oldGrade <- currentGrade <<.= newGrade
                 when (newGrade == 2 && oldGrade /= 2) $
                     sendABBAMessage (WeAreDone nextBit)
-                currentChoice .= nextBit
+                -- currentChoice .= nextBit
                 currentPhase .= phase + 1
                 sendABBAMessage (Justified (phase+1) nextBit (myTicket (phase+1)))
             where
@@ -193,7 +168,7 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
                 csAll = Map.union (const True <$> csTop) (const False <$> csBot)
                 topWeight = sum $ partyWeight <$> Map.keys csTop
                 botWeight = sum $ partyWeight <$> Map.keys csBot
-        myLiftCSS :: Word -> CSS party sig a -> m a
+        myLiftCSS :: Phase -> CSS party sig a -> m a
         myLiftCSS p a = do
             (r, cs) <- liftCSS p a
             forM_ cs $ \cs' -> do
@@ -201,8 +176,9 @@ newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
                 when (p == cp) $ handleCoreSet p cs'
             return r
         receiveABBAMessage :: party -> sig -> ABBAMessage party -> m ()
-        receiveABBAMessage src sig (Justified phase c ticket) = do
+        receiveABBAMessage src sig (Justified phase c ticketProof) = do
             myLiftCSS phase (receiveCSSMessage src sig (Input c))
+            let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
             phaseState phase . lotteryTickets . at (ticketValue ticket, src) ?= ticket
             inputw <- use $ phaseState phase . inputWeight c
             forM_ inputw $ \(w, ps) -> unless (src `Set.member` ps) $
