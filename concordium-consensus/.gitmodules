@@ -1,0 +1,3 @@
+[submodule "oak-compiler"]
+	path = oak-compiler
+	url = git@gitlab.com:Concordium/oak/oak-compiler.git
