@@ -80,6 +80,7 @@ fn forward_network_packet_message_common(
         drop_message: &str
         ) -> FunctorResult {
 
+    debug!("### Forward Broadcast Message: msgid: {}", msg_id);
     if !seen_messages.contains(msg_id) {
         if own_networks.lock()?.contains(network_id) {
             debug!("Received direct message of size {}", msg.len());

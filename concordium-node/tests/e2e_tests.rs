@@ -13,7 +13,6 @@ mod tests {
     use atomic_counter::AtomicCounter;
     use atomic_counter::RelaxedCounter;
     use p2p_client::common::{ ConnectionType };
-    use p2p_client::common::functor::{ AFunctor };
     use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
     use p2p_client::connection::{ P2PEvent, P2PNodeMode, MessageManager };
     use p2p_client::p2p::p2p_node::{ P2PNode };
@@ -1031,45 +1030,36 @@ mod tests {
     fn make_node_at_port( port: u16, networks: &Vec<u16>) -> (P2PNode, mpsc::Receiver<()>)  {
         let (net_tx, _) = mpsc::channel();
         let (conn_wait_tx, conn_wait_rx) = mpsc::channel();
+        let port = 8888 + port as u16;
         let mut node = P2PNode::new(
-            None, Some("127.0.0.1".to_string()), 8888 + port as u16,
+            None, Some("127.0.0.1".to_string()), port,
             None, None, net_tx, None, P2PNodeMode::NormalPrivateMode, None,
             networks.clone(), 100);
 
-        let mut conn_waiter_fn = AFunctor::<NetworkRequest>::new( "Conn Waiter Fn");
-        conn_waiter_fn.add_callback(
+        let mh = node.message_handler();
+        mh.write().unwrap().add_request_callback(
             make_atomic_callback!( move |req: &NetworkRequest|{
-                debug!( "Running connection ready signal");
                 match req {
                     NetworkRequest::Handshake( _,_,_) => {
+                        debug!( "Handshake request on {}", port);
                         conn_wait_tx.send(())?;
                     },
                     _ => { }
                 };
 
                 Ok(())
-            }))
-            .add_callback(
-                make_atomic_callback!( move |_req: &NetworkRequest|{
-                    debug!( "Running connection ready signal 2");
-                    Ok(())
-            }))
-            .add_callback(
-                make_atomic_callback!( move |_req: &NetworkRequest|{
-                    debug!( "Running connection ready signal 2");
-                    Ok(())
-            }))
-            .add_callback(
-                make_atomic_callback!( move |_req: &NetworkRequest|{
-                    debug!( "Running connection ready signal 2");
-                    Ok(())
+        }))
+        .add_packet_callback(
+            make_atomic_callback!( move |pac: &NetworkPacket| {
+                match pac {
+                    NetworkPacket::BroadcastedMessage( ref peer, ref msgid, ref nid, ref msg) => {
+                        debug!( "Broadcast Message in {} from {}: msgId: {}, nid: {}, msg: {}",
+                                port, peer.port(), msgid, nid, String::from_utf8_lossy(msg));
+                    },
+                    _ => {}
+                };
+                Ok(())
         }));
-
-        let mh = node.message_handler();
-        mh.write().unwrap().add_request_callback(
-            make_atomic_callback!( move |req: &NetworkRequest|{
-                 (conn_waiter_fn)(req)
-            }));
 
         node.spawn();
         (node, conn_wait_rx)
@@ -1092,6 +1082,8 @@ mod tests {
 
     fn connect_nodes( src: &mut P2PNode, tgt: &P2PNode,
                       connected_rec: &mpsc::Receiver<()>) {
+
+        debug!( "### Trying to connect node {} to {}", src.get_listening_port(), tgt.get_listening_port());
         src.connect(
                 ConnectionType::Node, tgt.get_listening_ip(),
                 tgt.get_listening_port(), None)
@@ -1099,30 +1091,38 @@ mod tests {
 
         // Wait until connection is done.
         assert!( connected_rec.recv().is_ok());
+        debug!( "### Node {} connected to {}", src.get_listening_port(), tgt.get_listening_port());
     }
 
     /// It creates a network tree and tries to broadcast a message
     fn no_relay_broadcast_to_sender_on_tree_network(
             levels: usize,
+            min_node_per_level: usize,
             max_node_per_level: usize) {
         let network_id = 100 as u16;
         let networks = vec![network_id];
         let test_port_added = next_port_offset( levels * max_node_per_level);
         let mut rng = rand::thread_rng();
 
-        // 1. Create network.
+        // 1. Create network: all nodes, per level.
+        // At first level, only one node is generated.
         let mut nodes_per_level = Vec::with_capacity( levels);
-        let (node, _) = make_node_at_port(0, &networks);
+        let mut conn_waiters_per_level = Vec::with_capacity( levels);
+
+        let (node, conn_waiter) = make_node_at_port(0, &networks);
         nodes_per_level.push( vec![node]);
+        conn_waiters_per_level.push( vec![conn_waiter]);
 
         for level in 1..levels {
-            let count_nodes: usize = rng.gen_range( 1, max_node_per_level);
+            let count_nodes: usize = rng.gen_range( min_node_per_level, max_node_per_level);
+            debug!( "### Creating level {} with {} nodes", level, count_nodes);
             let (nodes, conn_waiters) =  make_nodes_from_port(
                     test_port_added + level as u16 * max_node_per_level as u16,
                     count_nodes,
                     &networks);
 
             nodes_per_level.push( nodes);
+            conn_waiters_per_level.push( conn_waiters);
 
             // Connect one to previous level.
             let root_previous_level_idx: usize = rng.gen_range( 0, nodes_per_level[level-1].len());
@@ -1131,29 +1131,42 @@ mod tests {
             let root_previous_level  = nodes_per_level[level-1][root_previous_level_idx].clone();
             {
                 let root_curr_level = &mut nodes_per_level[level][root_curr_level_idx];
-                let conn_waiter = &conn_waiters[root_curr_level_idx];
-                connect_nodes( root_curr_level, &root_previous_level, conn_waiter);
+                let conn_waiter_root_previous_level = &conn_waiters_per_level[level-1][root_previous_level_idx];
+                connect_nodes( root_curr_level, &root_previous_level, conn_waiter_root_previous_level);
             }
+            debug!( "### Connected to previous level");
 
             // Connect all nodes in that level to this.
-            let conn_waiter = &conn_waiters[root_curr_level_idx];
+            debug!( "### Begin Connect nodes in same level");
+            let conn_waiter_root_curr_level = &conn_waiters_per_level[level][root_curr_level_idx];
             for i in 0..count_nodes  {
                 if i != root_curr_level_idx {
                     connect_nodes(
                         &mut nodes_per_level[level][i],
                         &root_previous_level,
-                        conn_waiter);
+                        conn_waiter_root_curr_level);
                 }
             }
+            debug!( "### End Connect nodes in same level");
         }
+
+        let mut debug_level_str = String::new();
+        for level in 0.. levels {
+            for idx in 0..nodes_per_level[level].len() {
+                debug_level_str.push_str( format!( "{}, ", nodes_per_level[level][idx].get_listening_port()).as_str());
+            }
+            debug_level_str.push_str( "\n");
+        }
+        debug!("#### Network has been created with {} levels: {}", levels, debug_level_str);
 
         // 2. Custom packet handler.
         let (bcast_tx, bcast_rx) = mpsc::channel();
         {
-            let root = &mut nodes_per_level[0][0];
-            let mh = root.message_handler();
+            // let root = &nodes_per_level[0][0];
+            let mh = nodes_per_level[0][0].message_handler();
             mh.write().unwrap().add_packet_callback(
                 make_atomic_callback!( move |pac: &NetworkPacket| {
+                    debug!( "Root node is forwarding Packet to channel"); //, root.get_listening_port());
                     bcast_tx.send( pac.clone())
                         .map_err( |e| ErrorWrapper::with_chain( e,
                                 ErrorKindWrapper::FunctorRunningError("Packet cannot be sent into bcast_tx")))
@@ -1167,6 +1180,7 @@ mod tests {
             let src_node = &mut nodes_per_level[levels-1][src_idx];
             let src_node_id = Some(src_node.get_own_id());
 
+            debug!( "### Sending message from {} in broadcast", src_node.get_listening_port());
             src_node.send_message(
                 src_node_id, network_id, None,
                 &bcast_content.as_bytes().to_vec(), true)
@@ -1174,22 +1188,24 @@ mod tests {
                 .ok();
         }
 
-       // 4. Wait broadcast in root.
-       let bcast_msg = bcast_rx.recv_timeout( max_recv_timeout()).unwrap();
-       match bcast_msg {
-           NetworkPacket::BroadcastedMessage(ref _sender, ref _msgid, ref _nid, ref msg) => {
-               let str_msg = std::str::from_utf8( msg).unwrap();
+        // 4. Wait broadcast in root.
+        debug!( "### Waiting broadcast message");
+        let bcast_msg = bcast_rx.recv_timeout( max_recv_timeout()).unwrap();
+        debug!( "### Waiting broadcast message - finished");
+        match bcast_msg {
+            NetworkPacket::BroadcastedMessage(ref _sender, ref _msgid, ref _nid, ref msg) => {
+                let str_msg = std::str::from_utf8( msg).unwrap();
                 assert_eq!( str_msg, bcast_content);
-           },
-           _ => {
-               panic!( "Unexpected message");
-           }
-       }
+            },
+            _ => {
+                panic!( "Unexpected message");
+            }
+        }
     }
 
     #[test]
     pub fn e2e_005_no_relay_broadcast_to_sender_on_tree_network() {
         setup();
-        no_relay_broadcast_to_sender_on_tree_network( 3, 3);
+        no_relay_broadcast_to_sender_on_tree_network( 3, 1, 2);
     }
 }

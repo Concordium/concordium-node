@@ -1,9 +1,10 @@
 use std::sync::{ Arc, Mutex, RwLock };
 use std::net::{ IpAddr, SocketAddr };
+use std::rc::{ Rc };
+use std::cell::{ RefCell };
 use mio::net::{ TcpListener, TcpStream };
 use mio::{ Token, Poll, Event };
 use std::sync::mpsc::Sender;
-use std::collections::{ HashMap, HashSet };
 use rustls::{ ClientConfig, ServerConfig, ServerSession, ClientSession };
 use webpki::{ DNSNameRef };
 
@@ -13,32 +14,27 @@ use connection::{
     Connection, P2PNodeMode, P2PEvent, MessageHandler,
     MessageManager };
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
-use common;
-use p2p::unreachable_nodes::{ UnreachableNodes };
-use p2p::peer_statistics::{ PeerStatistic };
 use errors::*;
-use network::{ NetworkRequest, NetworkMessage, Buckets };
+use network::{ NetworkPacket, NetworkRequest, NetworkMessage, Buckets };
 
-const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
-const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
+use p2p::{ is_valid_connection_in_broadcast };
+use p2p::peer_statistics::{ PeerStatistic };
+use p2p::tls_server_private::{ TlsServerPrivate };
 
 pub struct TlsServer {
     server: TcpListener,
-    pub connections: HashMap<Token, Connection>,
     next_id: usize,
     server_tls_config: Arc<ServerConfig>,
     client_tls_config: Arc<ClientConfig>,
     own_id: P2PNodeId,
     event_log: Option<Sender<P2PEvent>>,
     self_peer: P2PPeer,
-    banned_peers: HashSet<P2PPeer>,
     mode: P2PNodeMode,
-    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-    pub networks: Arc<Mutex<Vec<u16>>>,
-    unreachable_nodes: UnreachableNodes,
     buckets: Arc< RwLock< Buckets > >,
+    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
 
-    message_handler: Arc< RwLock< MessageHandler>>
+    message_handler: Arc< RwLock< MessageHandler>>,
+    dptr: Rc< RefCell< TlsServerPrivate>>
 }
 
 impl TlsServer {
@@ -54,21 +50,23 @@ impl TlsServer {
            buckets: Arc< RwLock< Buckets > >
            )
            -> Self {
+        let mdptr = Rc::new( RefCell::new(
+                TlsServerPrivate::new(
+                    networks,
+                    prometheus_exporter.clone())));
+
         let mut mself = TlsServer { server,
-                    connections: HashMap::new(),
                     next_id: 2,
                     server_tls_config: server_cfg,
                     client_tls_config: client_cfg,
                     own_id,
                     event_log,
                     self_peer,
-                    banned_peers: HashSet::new(),
                     mode: mode,
                     prometheus_exporter: prometheus_exporter,
-                    networks: Arc::new(Mutex::new(networks)),
-                    unreachable_nodes: UnreachableNodes::new(),
                     buckets: buckets,
-                    message_handler: Arc::new( RwLock::new( MessageHandler::new()))
+                    message_handler: Arc::new( RwLock::new( MessageHandler::new())),
+                    dptr: mdptr
         };
 
         mself.setup_default_message_handler();
@@ -91,48 +89,36 @@ impl TlsServer {
         self.self_peer.clone()
     }
 
+    pub fn networks(&self) -> Arc< Mutex< Vec<u16>>> {
+        self.dptr.borrow().networks.clone()
+    }
+
     pub fn remove_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
-        self.networks.lock()?.retain(|x| x == network_id);
-        Ok(())
+        self.dptr.borrow_mut().remove_network( network_id)
     }
 
     pub fn add_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
-        {
-            let mut networks = self.networks.lock()?;
-            if !networks.contains(network_id) {
-                networks.push(*network_id)
-            }
-        }
-        Ok(())
+        self.dptr.borrow_mut().add_network( network_id)
+    }
+
+    pub fn is_unreachable(&self, ip: IpAddr, port: u16) -> bool {
+        self.dptr.borrow().unreachable_nodes.contains( ip, port)
+    }
+
+    pub fn add_unreachable(&mut self, ip: IpAddr, port: u16) -> bool {
+        self.dptr.borrow_mut().unreachable_nodes.insert( ip, port)
     }
 
     pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
-        let mut ret = vec![];
-        for (_, ref conn) in &self.connections {
-            match conn.peer() {
-                Some(ref x) => {
-                    if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
-                        ret.push(PeerStatistic::new(x.id().to_string(),
-                                                    x.ip().clone(),
-                                                    x.port(),
-                                                    conn.get_messages_sent(),
-                                                    conn.get_messages_received(),
-                                                    conn.get_last_latency_measured()));
-                    }
-                }
-                None => {}
-            }
-        }
-
-        ret
+        self.dptr.borrow().get_peer_stats( nids)
     }
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> bool {
-        self.banned_peers.insert(peer)
+        self.dptr.borrow_mut().ban_node( peer)
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) -> bool {
-        self.banned_peers.remove(&peer)
+    pub fn unban_node(&mut self, peer: &P2PPeer) -> bool {
+        self.dptr.borrow_mut().unban_node( peer)
     }
 
     pub fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> ResultExtWrapper<()> {
@@ -145,6 +131,7 @@ impl TlsServer {
                 let token = Token(self.next_id);
                 self.next_id += 1;
 
+                let networks = self.dptr.borrow().networks.clone();
                 let mut conn = Connection::new(ConnectionType::Node,
                                            socket,
                                            token,
@@ -158,13 +145,15 @@ impl TlsServer {
                                            self.mode,
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
-                                           self.networks.clone(),
+                                           networks,
                                            self.buckets.clone());
                 self.register_message_handlers( &mut conn);
 
-                self.connections.insert(token, conn);
-                self.connections[&token].register(poll)
-            }
+                let register_status = conn.register( poll);
+                self.dptr.borrow_mut().connections.insert(token, conn);
+
+                register_status
+            },
             Err(e) => Err(ErrorKindWrapper::InternalIOError(e).into()),
         }
     }
@@ -177,7 +166,7 @@ impl TlsServer {
                peer_id: Option<P2PNodeId>,
                self_id: &P2PPeer)
                -> ResultExtWrapper<()> {
-        if connection_type == ConnectionType::Node && self.unreachable_nodes.contains(ip, port) {
+        if connection_type == ConnectionType::Node && self.is_unreachable(ip, port) {
             error!("Node marked as unreachable, so not allowing the connection");
             return Err(ErrorKindWrapper::UnreachablePeerError("Peer marked as unreachable, won't try it".to_string()).into());
         }
@@ -185,7 +174,7 @@ impl TlsServer {
         if self_peer.ip() == ip && self_peer.port() == port {
             return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
         }
-        for (_, ref conn) in &self.connections {
+        for (_, ref conn) in &self.dptr.borrow().connections {
             if let Some(ref peer) = conn.peer() {
                 if peer.ip() == ip && peer.port() == port {
                     return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
@@ -216,6 +205,7 @@ impl TlsServer {
 
                 let token = Token(self.next_id);
 
+                let networks = self.dptr.borrow().networks.clone();
                 let mut conn = Connection::new(connection_type,
                                            x,
                                            token,
@@ -229,68 +219,35 @@ impl TlsServer {
                                            self.mode,
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
-                                           self.networks.clone(),
+                                           networks.clone(),
                                            self.buckets.clone());
 
                 self.register_message_handlers( &mut conn);
                 conn.register(poll)?;
 
                 self.next_id += 1;
-                self.connections.insert(token, conn);
+                self.dptr.borrow_mut().connections.insert(token, conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
                 debug!("Requesting handshake from new peer {}:{}",
                        ip.to_string(),
                        port);
                 let self_peer = self.get_self_peer().clone();
-                if let Some(ref mut conn) = self.connections.get_mut(&token) {
+                if let Some(ref mut conn) = self.dptr.borrow_mut().connections.get_mut(&token) {
                     conn.serialize_bytes(
-                                    &NetworkRequest::Handshake(self_peer,
-                                                               self.networks
-                                                                   .lock()
-                                                                   .unwrap()
-                                                                   .clone(),
-                                                               vec![]).serialize())?;
+                        &NetworkRequest::Handshake(self_peer,
+                            networks.lock()?.clone(),
+                            vec![]).serialize())?;
                     conn.set_measured_handshake_sent();
                 }
                 Ok(())
             }
             Err(e) => {
                 if connection_type == ConnectionType::Node
-                   && !self.unreachable_nodes.insert(ip, port)
+                   && !self.add_unreachable(ip, port)
                 {
                     error!("Can't insert unreachable peer!");
                 }
                 Err(ErrorKindWrapper::InternalIOError(e).into())
-            }
-        }
-    }
-
-    pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
-        let mut tok = Token(0);
-        for (token, mut connection) in &self.connections {
-            match connection.peer() {
-                Some(ref x) => {
-                    if x.id() == id {
-                        tok = *token;
-                    } else {
-                        break;
-                    }
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-
-        if tok == Token(0) {
-            None
-        } else {
-            match self.connections.get_mut(&tok) {
-                Some(x) => Some(x),
-                None => {
-                    error!("Couldn't get connections mutable");
-                    None
-                }
             }
         }
     }
@@ -300,98 +257,54 @@ impl TlsServer {
                   event: &Event,
                   packet_queue: &Sender<Arc<Box<NetworkMessage>>>)
                   -> ResultExtWrapper<()> {
-        let token = event.token();
-        if self.connections.contains_key(&token) {
-            match self.connections.get_mut(&token) {
-                Some(x) => x.ready(poll, event, &packet_queue)
-                            .map_err(|e| error!("Error while performing ready() check on connection '{}'", e))
-                            .ok(),
-                None => {
-                    return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into())
-                }
-            };
-
-            if self.connections[&token].is_closed() {
-                self.connections.remove(&token);
-            }
-        }
-        Ok(())
+        self.dptr.borrow_mut().conn_event( poll, event, packet_queue)
     }
 
-    pub fn cleanup_connections(&mut self, mut poll: &mut Poll) -> ResultExtWrapper<()> {
-        if self.mode == P2PNodeMode::BootstrapperMode
-           || self.mode == P2PNodeMode::BootstrapperPrivateMode
-        {
-            for conn in self.connections.values_mut() {
-                if conn.last_seen() + 300000 < common::get_current_stamp() {
-                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
-                }
-            }
-        } else {
-            for conn in self.connections.values_mut() {
-                if conn.last_seen() + 1200000 < common::get_current_stamp()
-                   && conn.connection_type() == ConnectionType::Node
-                {
-                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
-                }
-                if conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED {
-                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
-                }
-            }
-            self.unreachable_nodes
-                .cleanup(common::get_current_stamp() - MAX_UNREACHABLE_MARK_TIME);
-        }
-
-        let closed_ones: Vec<_> = self.connections
-                                      .iter()
-                                      .filter(|&(_, &ref v)| v.closing)
-                                      .map(|(k, _)| k.clone())
-                                      .collect();
-        for closed in closed_ones {
-            if let Some(ref prom) = &self.prometheus_exporter {
-                if let Some(ref peer) = self.connections.get(&closed) {
-                    if let Some(_) = peer.peer() {
-                        prom.lock()?.peers_dec().map_err(|e| error!("{}", e)).ok();
-                    };
-                };
-            };
-
-            self.connections.remove(&closed);
-        }
-
-        //Kill banned connections
-        for peer in &self.banned_peers {
-            for conn in self.connections.values_mut() {
-                match conn.peer().clone() {
-                    Some(ref p) => {
-                        if p == peer {
-                            conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
-                        }
-                    }
-                    None => {}
-                }
-            }
-        }
-        Ok(())
+    pub fn cleanup_connections(&self, poll: &mut Poll)
+            -> ResultExtWrapper<()> {
+        self.dptr.borrow_mut().cleanup_connections( self.mode, poll)
     }
 
-    pub fn liveness_check(&mut self) -> ResultExtWrapper<()> {
-        for conn in self.connections.values_mut() {
-            if conn.last_seen() + 120000 < common::get_current_stamp()
-               || conn.get_last_ping_sent() + 300000 < common::get_current_stamp()
-            {
-                let self_peer = conn.get_self_peer().clone();
-                conn.serialize_bytes( &NetworkRequest::Ping(self_peer).serialize()).map_err(|e| error!("{}", e))
-                                                                                   .ok();
-                conn.set_measured_ping_sent();
-                conn.set_last_ping_sent();
-            }
-        }
-        Ok(())
+    pub fn liveness_check(&self) -> ResultExtWrapper<()> {
+        self.dptr.borrow_mut().liveness_check()
+    }
+
+    pub fn send_over_all_connections( &self,
+            data: &Vec<u8>,
+            filter_conn: &Fn( &Connection) -> bool,
+            send_status: &Fn( &Connection, ResultExtWrapper<()>))
+    {
+        self.dptr.borrow_mut()
+            .send_over_all_connections( data, filter_conn, send_status)
     }
 
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {
+        let dptr = self.dptr.clone();
+
+        let mh = self.message_handler();
+        mh.write().unwrap()
+            .add_packet_callback( make_atomic_callback!( move |pac: &NetworkPacket|{
+
+            match pac {
+                NetworkPacket::BroadcastedMessage( ref sender, ref msgid, ref network_id, ref msg) => {
+                    let data = NetworkPacket::BroadcastedMessage( sender.clone(), msgid.clone(),
+                                                                  network_id.clone(), msg.clone())
+                        .serialize();
+                    let filter = |conn: &Connection| {
+                        is_valid_connection_in_broadcast( conn, sender, network_id)
+                    };
+                    let no_sent_status = |_conn: &Connection, _status: ResultExtWrapper<()>| {};
+
+
+                    dptr.borrow_mut().send_over_all_connections( &data, &filter, &no_sent_status);
+                },
+                _ => {}
+            };
+
+            Ok(())
+        }));
+
     }
 
     /// It adds all message handler callback to this connection.
@@ -399,6 +312,7 @@ impl TlsServer {
         let mh = self.message_handler.read().unwrap();
         conn.message_handler.merge( &mh);
     }
+
 }
 
 impl MessageManager for TlsServer {

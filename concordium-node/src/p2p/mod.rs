@@ -1,3 +1,4 @@
+pub mod tls_server_private;
 pub mod tls_server;
 pub mod unreachable_nodes;
 pub mod no_certificate_verification;
@@ -10,6 +11,24 @@ pub use self::p2p_service_forwarder::*;
 
 pub use self::p2p_node::P2PNode;
 
+use super::connection::{ Connection };
+use super::common::{ P2PPeer };
+
+/// Connetion is valid for a broadcast if sender is not target and
+/// and network_id is owned by connection.
+pub fn is_valid_connection_in_broadcast(
+    conn: &Connection,
+    sender: &P2PPeer,
+    network_id: &u16) -> bool {
+
+    if let Some(ref peer) = conn.peer() {
+        if peer.id() != sender.id() {
+            let own_networks = conn.own_networks();
+            return own_networks.lock().unwrap().contains(network_id);
+        }
+    }
+    false
+}
 
 #[cfg(test)]
 mod tests {
