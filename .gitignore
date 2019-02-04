@@ -12,9 +12,10 @@ path
 .vscode
 .so
 src/proto/concordium_p2p*.rs
-consensus
 .stack-work
 dist
 .cabal-sandbox
 cabal.sandbox.config
 workdir
+consensus/
+oak-compiler/

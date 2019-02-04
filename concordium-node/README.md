@@ -20,7 +20,7 @@ Proceed as normally with git
 * Stack
 
 ## Setting up basic local build environment
-Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), checkout the [consensus](https://gitlab.com/Concordium/consensus)  module's oak-integration branch, and copy prototype/workdir recursively to the project root (this is currently needed to run smart contracts for the PoC).
+Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), checkout the [consensus](https://gitlab.com/Concordium/consensus)  module's oak-integration branch, run setup-env.sh, and copy prototype/workdir recursively to the project root (this is currently needed to run smart contracts for the PoC).
 
 ## Running the library as a binary (usable via RPC)
 `cargo run -- --debug --private-mode`
