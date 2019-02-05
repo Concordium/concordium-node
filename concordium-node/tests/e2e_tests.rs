@@ -1114,7 +1114,15 @@ mod tests {
         debug!( "### Node {} connected to {}", src.get_listening_port(), tgt.get_listening_port());
     }
 
-    /// It creates a network tree and tries to broadcast a message
+    /// It creates a network tree and tries to broadcast a message. Only one node
+    /// is connected to upper level. In this way, we force to forward broadcast
+    /// messages between nodes which are not *directly* connected.
+    ///
+    /// # Arguments
+    /// * `levels` - Number of levels for network. It should be greater than 1.
+    /// * `min_node_per_level` - Minimum number of nodes per level.
+    /// * `max_node_per_level` - Maximum number of nodes per level. This upper
+    ///     bound is exclusive.
     fn no_relay_broadcast_to_sender_on_tree_network(
             levels: usize,
             min_node_per_level: usize,
@@ -1233,19 +1241,31 @@ mod tests {
         }
     }
 
+    /// It creates a linear network structure of 3 levels, using just one node per level.
+    /// Network for this test is:
+    ///     (Node 1) <--- (Node 2) <--- (Node 3).
+    /// Test sends a broadcast message from `Node 3`, and it double-checks that
+    /// `Node 1` will receive that message.
+    ///
     #[test]
     pub fn e2e_005_001_no_relay_broadcast_to_sender_on_linear_network() {
         setup();
         no_relay_broadcast_to_sender_on_tree_network( 3, 1, 2);
     }
 
+
+    /// It creates a tree network structure of 3 levels, using between 2 and 3 nodes
+    /// per level.
     #[test]
     pub fn e2e_005_002_no_relay_broadcast_to_sender_on_tree_network() {
         setup();
         no_relay_broadcast_to_sender_on_tree_network( 3, 2, 4);
     }
 
+    /// It create a *complex* network structure of 5 levels, using between 4 and 9 nodes
+    /// per level.
     #[test]
+    #[ignore]
     pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() {
         setup();
         no_relay_broadcast_to_sender_on_tree_network( 5, 4, 10);
