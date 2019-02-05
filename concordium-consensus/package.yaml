@@ -49,7 +49,7 @@ library:
   when:
     - condition: os(windows)
       then:
-        ghc-options: -static
+        ghc-options: -static lib.def
       else:
         ghc-options: -dynamic
 

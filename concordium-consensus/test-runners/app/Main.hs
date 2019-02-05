@@ -108,7 +108,7 @@ main = do
     monitorChan <- newChan
     mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
     let iState = initState 2
-    let loop gsMap = do
+    let loop = do
             readChan monitorChan >>= \case
                 Left block -> do
                     let bh = hashBlock block
