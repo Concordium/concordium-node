@@ -230,10 +230,11 @@ impl P2PNode {
         let own_networks = self.tls_server.lock().unwrap().networks().clone();
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
+        let send_queue = self.send_queue.clone();
 
         make_atomic_callback!( move|pac: &NetworkPacket| {
             forward_network_packet_message( &seen_messages, &prometheus_exporter,
-                                                   &own_networks, &packet_queue, pac)
+                                                   &own_networks, &send_queue, &packet_queue, pac)
         })
     }
 
@@ -747,4 +748,3 @@ fn is_conn_peer_id( conn: &Connection, id: &P2PNodeId) -> bool {
         false
     }
 }
-

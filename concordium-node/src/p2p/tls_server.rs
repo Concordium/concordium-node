@@ -280,7 +280,7 @@ impl TlsServer {
 
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {
-        let dptr = self.dptr.clone();
+        /*let dptr = self.dptr.clone();
 
         let mh = self.message_handler();
         mh.write().unwrap()
@@ -304,7 +304,7 @@ impl TlsServer {
 
             Ok(())
         }));
-
+        */
     }
 
     /// It adds all message handler callback to this connection.

@@ -1,11 +1,16 @@
 use std::sync::{ Arc, Mutex };
+
+#[cfg(p2p_afunctor_dbg)]
 use std::sync::atomic::{ AtomicUsize, ATOMIC_USIZE_INIT, Ordering };
 
 use common::functor::{ FunctorCallback, FunctorResult };
 use errors::{ ErrorWrapper, ErrorKindWrapper };
 
+#[cfg(not(p2p_afunctor_dbg))]
 pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
-// pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
+
+#[cfg(p2p_afunctor_dbg)]
+pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -47,6 +52,7 @@ pub struct AFunctor<T> {
 unsafe impl<T> Send for AFunctor<T> {}
 unsafe impl<T> Sync for AFunctor<T> {}
 
+#[cfg(p2p_afunctor_dbg)]
 static DEEP_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
 
@@ -63,8 +69,9 @@ impl<T> AFunctor<T> {
     ///
     /// Callbacks are executed in the same order they were introduced.
     pub fn add_callback(&mut self, callback: AFunctorCW<T> ) -> &mut Self {
-        /*debug!( "# Functor '{}': Callback added from {}",
-                self.name, callback.0);*/
+        #[cfg(p2p_afunctor_dbg)]
+        debug!( "# Functor '{}': Callback added from {}", self.name, callback.0);
+
         self.callbacks.push( callback);
         self
     }
@@ -73,29 +80,28 @@ impl<T> AFunctor<T> {
         &self.callbacks
     }
 
-    /*pub fn and<'a, P: FnMut<&'a T> >(&mut self, other: P ) -> &mut Self {
-        self.callbacks.push( Arc::new( Mutex::new( Box::new(
-                move |m: &T| { other.call_mut(m) }))));
-        self
-    }*/
-
-
     fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
     {
         let mut status = Ok(());
 
-
+        #[cfg(p2p_afunctor_dbg)]
         DEEP_COUNTER.fetch_add( 1, Ordering::SeqCst);
-        // let indent = String::from_utf8( vec![ b'+'; DEEP_COUNTER.load(Ordering::SeqCst)]).unwrap();
+        #[cfg(p2p_afunctor_dbg)]
+        let indent = String::from_utf8( vec![ b'+'; DEEP_COUNTER.load(Ordering::SeqCst)])
+                .unwrap();
 
         for i in 0..self.callbacks.len() {
+            #[cfg(not(p2p_afunctor_dbg))]
             let cb = & self.callbacks[i];
-            // let (fn_id, cb) = self.callbacks[i].clone();
+            #[cfg(p2p_afunctor_dbg)]
+            let (fn_id, cb) = self.callbacks[i].clone();
+
             // Lock callback and run it
             let status_step = match cb.lock() {
                 Ok(locked_cb) => {
-                    /*debug!( "# {} Run atomic functor '{}' callback({}/{}) at {}",
-                            indent, self.name, fn_id, i+1, self.callbacks.len());*/
+                    #[cfg(p2p_afunctor_dbg)]
+                    debug!( "# {} Run afunctor '{}' callback({}/{}) at {}",
+                             indent, self.name, fn_id, i+1, self.callbacks.len());
                     (locked_cb)( message)
                 },
                 Err(_) => {
@@ -119,6 +125,8 @@ impl<T> AFunctor<T> {
                 }
             };
         }
+
+        #[cfg(p2p_afunctor_dbg)]
         DEEP_COUNTER.fetch_sub( 1, Ordering::SeqCst);
 
         status
@@ -225,5 +233,3 @@ mod afunctor_unit_test {
         assert_eq!( *shd_counter.borrow(), 2);
     }
 }
-
-

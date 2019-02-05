@@ -23,7 +23,6 @@ mod tests {
     use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
     use std::{thread, time};
     use rand::{ Rng };
-    use std::io::Write;
 
     static INIT: Once = ONCE_INIT;
     static PORT_OFFSET: AtomicUsize = ATOMIC_USIZE_INIT;
@@ -37,7 +36,12 @@ mod tests {
     /// It initializes the global logger with a `env_logger`, but just once.
     fn setup() {
         INIT.call_once( || {
-            // env_logger::init()
+            env_logger::init()
+        });
+
+        // @note It adds thread ID to each message.
+        /*
+        INIT.call_once( || {
             let mut builder = env_logger::Builder::from_default_env();
             builder.format(
                 |buf, record| {
@@ -46,6 +50,7 @@ mod tests {
                 })
                 .init();
         });
+        */
     }
 
     /// It returns next port available and it ensures that next `slot_size` ports will be
@@ -1109,7 +1114,20 @@ mod tests {
         let mut nodes_per_level = Vec::with_capacity( levels);
         let mut conn_waiters_per_level = Vec::with_capacity( levels);
 
+        // 1.1. Root node adds callback for receive last broadcast packet.
         let (node, conn_waiter) = make_node_at_port(0, &networks);
+        let (bcast_tx, bcast_rx) = mpsc::channel();
+        {
+            let mh = node.message_handler();
+            mh.write().unwrap().add_packet_callback(
+                make_atomic_callback!( move |pac: &NetworkPacket| {
+                    debug!( "Root node is forwarding Packet to channel"); //, root.get_listening_port());
+                    bcast_tx.send( pac.clone())
+                        .map_err( |e| ErrorWrapper::with_chain( e,
+                                ErrorKindWrapper::FunctorRunningError("Packet cannot be sent into bcast_tx")))
+                }));
+        }
+
         nodes_per_level.push( vec![node]);
         conn_waiters_per_level.push( vec![conn_waiter]);
 
@@ -1152,26 +1170,13 @@ mod tests {
 
         let mut debug_level_str = String::new();
         for level in 0.. levels {
+            debug_level_str.push_str( format!( "\n\t[{}]: ", level).as_str());
             for idx in 0..nodes_per_level[level].len() {
                 debug_level_str.push_str( format!( "{}, ", nodes_per_level[level][idx].get_listening_port()).as_str());
             }
-            debug_level_str.push_str( "\n");
         }
         debug!("#### Network has been created with {} levels: {}", levels, debug_level_str);
 
-        // 2. Custom packet handler.
-        let (bcast_tx, bcast_rx) = mpsc::channel();
-        {
-            // let root = &nodes_per_level[0][0];
-            let mh = nodes_per_level[0][0].message_handler();
-            mh.write().unwrap().add_packet_callback(
-                make_atomic_callback!( move |pac: &NetworkPacket| {
-                    debug!( "Root node is forwarding Packet to channel"); //, root.get_listening_port());
-                    bcast_tx.send( pac.clone())
-                        .map_err( |e| ErrorWrapper::with_chain( e,
-                                ErrorKindWrapper::FunctorRunningError("Packet cannot be sent into bcast_tx")))
-                }));
-        }
 
         // 3. Select random node in last level and send a broadcast
         let bcast_content = "Hello from last level node";
@@ -1204,8 +1209,15 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_005_no_relay_broadcast_to_sender_on_tree_network() {
+    pub fn e2e_005_001_no_relay_broadcast_to_sender_on_linear_network() {
         setup();
         no_relay_broadcast_to_sender_on_tree_network( 3, 1, 2);
+    }
+
+    #[test]
+    #[ignore]
+    pub fn e2e_005_002_no_relay_broadcast_to_sender_on_tree_network() {
+        setup();
+        no_relay_broadcast_to_sender_on_tree_network( 3, 2, 4);
     }
 }
