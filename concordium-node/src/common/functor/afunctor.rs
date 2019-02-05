@@ -27,12 +27,12 @@ pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
 ///
 /// let mut ph = AFunctor::new( "Closures");
 ///
-/// ph.add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| {
+/// ph.add_callback( ( String::new(), Arc::new( Mutex::new( Box::new( move |x: &i32| {
 ///         *acc_1.borrow_mut() += x;
-///         Ok(()) }))))
-///     .add_callback( Arc::new( Mutex::new( Box::new( move |x: &i32| {
+///         Ok(()) })))))
+///     .add_callback( ( String::new(), Arc::new( Mutex::new( Box::new( move |x: &i32| {
 ///         *acc_2.borrow_mut() *= x;
-///         Ok(()) }))));
+///         Ok(()) })))));
 ///
 /// let value = 42 as i32;
 /// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42
