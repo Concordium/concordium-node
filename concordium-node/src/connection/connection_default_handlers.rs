@@ -72,7 +72,7 @@ pub fn default_network_request_ping_handle(
     // Make `Pong` response and send
     let ref session = priv_conn_borrow.session()
         .ok_or_else( || make_fn_error_session())?;
-    let peer = priv_conn_borrow.peer.clone()
+    let peer = priv_conn_borrow.peer().clone()
         .ok_or_else( || make_fn_error_peer())?;
     let pong_data = NetworkResponse::Pong(peer.clone()).serialize();
 
@@ -93,7 +93,7 @@ pub fn default_network_request_find_node_handle(
             let priv_conn_borrow = priv_conn.borrow();
             let ref session = priv_conn_borrow.session()
                 .ok_or_else( || make_fn_error_session())?;
-            let peer = priv_conn_borrow.peer.clone()
+            let peer = priv_conn_borrow.peer().clone()
                 .ok_or_else( || make_fn_error_peer())?;
             let nodes = priv_conn_borrow.buckets.read()?.closest_nodes(node_id);
             let response_data = NetworkResponse::FindNode( peer, nodes)
@@ -128,7 +128,7 @@ pub fn default_network_request_get_peers(
 
             let ref session = priv_conn_borrow.session()
                     .ok_or_else( || make_fn_error_session())?;
-            let peer = priv_conn_borrow.peer.clone()
+            let peer = priv_conn_borrow.peer().clone()
                     .ok_or_else( || make_fn_error_peer())?;
             let peer_list_packet = &NetworkResponse::PeerList(peer, nodes)
                     .serialize();
@@ -239,7 +239,7 @@ pub fn default_network_response_handshake(
                 let mut priv_conn_mut = priv_conn.borrow_mut();
                 priv_conn_mut.sent_handshake = get_current_stamp();
                 priv_conn_mut.add_networks( nets);
-                priv_conn_mut.peer = Some(rpeer.clone());
+                priv_conn_mut.set_peer( rpeer.clone());
             }
 
             let priv_conn_borrow = priv_conn.borrow();
@@ -274,7 +274,7 @@ pub fn default_network_request_join_network(
             priv_conn.borrow_mut().add_networks(&networks);
 
             let priv_conn_borrow = priv_conn.borrow();
-            let peer = priv_conn_borrow.peer.clone()
+            let peer = priv_conn_borrow.peer().clone()
                 .ok_or_else( || make_fn_error_peer())?;
             let priv_conn_networks = priv_conn_borrow.networks.clone();
 
@@ -299,7 +299,7 @@ pub fn default_network_request_leave_network(
             priv_conn.borrow_mut().remove_network( network);
 
             let priv_conn_borrow = priv_conn.borrow();
-            let peer = priv_conn_borrow.peer.clone()
+            let peer = priv_conn_borrow.peer().clone()
                 .ok_or_else( || make_fn_error_peer())?;
 
             priv_conn_borrow.buckets.write()?
@@ -425,14 +425,18 @@ pub fn default_network_request_handshake(
         NetworkRequest::Handshake(sender, nets, _) => {
             debug!("Got request for Handshake");
 
-            send_handshake_and_ping( priv_conn)?;
+            // Setup peer and networks before send Handshake.
+            {
+                let mut priv_conn_mut = priv_conn.borrow_mut();
+                priv_conn_mut.add_networks(nets);
+                priv_conn_mut.set_peer( sender.clone());
 
+            }
+            send_handshake_and_ping( priv_conn)?;
             {
                 let mut priv_conn_mut = priv_conn.borrow_mut();
                 priv_conn_mut.update_last_seen();
                 priv_conn_mut.set_measured_ping_sent();
-                priv_conn_mut.add_networks(nets);
-                priv_conn_mut.peer = Some( sender.clone());
             }
 
             let valid_mode: bool = is_valid_mode( priv_conn);

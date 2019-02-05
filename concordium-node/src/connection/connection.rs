@@ -252,7 +252,7 @@ impl Connection {
     }
 
     fn get_peer(&self) -> Option<P2PPeer> {
-        self.dptr.borrow().peer.clone()
+        self.dptr.borrow().peer().clone()
     }
 
     pub fn get_messages_received(&self) -> u64 {
@@ -708,11 +708,11 @@ impl Connection {
     }
 
     pub fn peer(&self) -> Option<P2PPeer> {
-        self.dptr.borrow().peer.clone()
+        self.dptr.borrow().peer().clone()
     }
 
     pub fn set_peer(&mut self, peer: P2PPeer) {
-        self.dptr.borrow_mut().peer = Some(peer);
+        self.dptr.borrow_mut().set_peer( peer);
     }
 
     pub fn networks(&self) -> Vec<u16> {

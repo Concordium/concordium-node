@@ -18,8 +18,6 @@ autobins = false
 [features]
 default = []
 valgrind = []
-# It enables debug info to p2p::common::afunctor.
-# p2p_afunctor_dbg = []
 
 [dependencies]
 libc = "0.2"

@@ -15,9 +15,8 @@ use connection::{
     MessageManager };
 use common::{ P2PNodeId, P2PPeer, ConnectionType };
 use errors::*;
-use network::{ NetworkPacket, NetworkRequest, NetworkMessage, Buckets };
+use network::{ NetworkRequest, NetworkMessage, Buckets };
 
-use p2p::{ is_valid_connection_in_broadcast };
 use p2p::peer_statistics::{ PeerStatistic };
 use p2p::tls_server_private::{ TlsServerPrivate };
 
