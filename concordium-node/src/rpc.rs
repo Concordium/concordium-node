@@ -488,9 +488,11 @@ impl P2P for RpcServerImpl {
                             match self.node.borrow_mut().send_message(None, req.get_network_id() as u16, None, &out_bytes , true)  {
                                 Ok(_) => {
                                     info!("Transmitted transaction to network");
+                                    r.set_value(true);
                                 }
                                 Err(_) => {
                                     error!("Couldn't transmit transaction to network");
+                                    r.set_value(false);
                                 }
                             }
                         }
