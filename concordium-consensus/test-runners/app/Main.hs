@@ -40,7 +40,7 @@ transactions gen = trs 0 (randoms gen)
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (50000, 150000)
+        r <- randomRIO (500000, 1500000)
         threadDelay r
         sendTransactions chan ts
 
@@ -91,11 +91,11 @@ gsToString = intercalate "\\l" . map (\(i, s) -> "(" ++ BS.unpack i ++ ", " ++ s
 
 main :: IO ()
 main = do
-    let n = 10
+    let n = 5
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
-    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
+    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.1
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
@@ -108,18 +108,21 @@ main = do
     monitorChan <- newChan
     mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
     let iState = initState 2
-    let loop = do
+    let loop gsMap = do
             readChan monitorChan >>= \case
                 Left block -> do
                     let bh = hashBlock block
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
+                    let (Just ts) = (toTransactions (blockData block))
+                    let gs = Map.findWithDefault iState (blockPointer block) gsMap
+                    Right (_, gs') <- executeBlock gs ts
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
-                Right fr ->
+                    loop (Map.insert bh gs' gsMap)
+                Right fr -> do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
-            --putStrLn (showsBlock block "")
-            loop
-    loop
+                    loop gsMap
+    loop Map.empty
 
 
     

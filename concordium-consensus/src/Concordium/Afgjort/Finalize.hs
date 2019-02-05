@@ -354,13 +354,14 @@ getMyParty = do
 
 
 -- |Called to notify the finalization routine when a new block is finalized.
+-- (NB: this should never be called with the genesis block.)
 notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => FinalizationRecord -> BlockPointer -> m ()
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
         -- TODO: The next finalization height is tweaked from the specification to give better
         -- finalization lag.  This needs to be brought in line eventually.
-        finHeight .= bpHeight bp + finalizationDelay + ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+        finHeight .= bpHeight bp + finalizationDelay + ((bpHeight bp - bpHeight (bpLastFinalized bp) - 1) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
