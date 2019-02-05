@@ -21,6 +21,7 @@ mod tests {
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex, Once, ONCE_INIT};
     use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+    use std::cell::{ RefCell };
     use std::{thread, time};
     use rand::{ Rng };
 
@@ -1071,14 +1072,14 @@ mod tests {
     }
 
     fn make_nodes_from_port( port: u16, count: usize, networks: &Vec<u16>)
-            -> (Vec<P2PNode>, Vec<mpsc::Receiver<()>>) {
+            -> (Vec< RefCell<P2PNode>>, Vec<mpsc::Receiver<()>>) {
         let mut nodes = Vec::with_capacity( count);
         let mut conn_waiters = Vec::with_capacity( count);
 
         for i in 0..count {
             let (node, conn_waiter) = make_node_at_port( port + i as u16, networks);
 
-            nodes.push( node);
+            nodes.push( RefCell::new(node));
             conn_waiters.push( conn_waiter);
         }
 
@@ -1128,7 +1129,7 @@ mod tests {
                 }));
         }
 
-        nodes_per_level.push( vec![node]);
+        nodes_per_level.push( vec![ RefCell::new(node)]);
         conn_waiters_per_level.push( vec![conn_waiter]);
 
         for level in 1..levels {
@@ -1148,21 +1149,24 @@ mod tests {
 
             let root_previous_level  = nodes_per_level[level-1][root_previous_level_idx].clone();
             {
-                let root_curr_level = &mut nodes_per_level[level][root_curr_level_idx];
+                let root_curr_level = &nodes_per_level[level][root_curr_level_idx];
                 let conn_waiter_root_previous_level = &conn_waiters_per_level[level-1][root_previous_level_idx];
-                connect_nodes( root_curr_level, &root_previous_level, conn_waiter_root_previous_level);
+                connect_nodes( &mut *root_curr_level.borrow_mut(),
+                               &*root_previous_level.borrow(),
+                               conn_waiter_root_previous_level);
             }
-            debug!( "### Connected to previous level");
+            debug!( "### Connected to previous level: Node[{}][{}] to Node[{}][{}]",
+                    level, root_curr_level_idx, level-1, root_previous_level_idx);
 
             // Connect all nodes in that level to this.
             debug!( "### Begin Connect nodes in same level");
-            let conn_waiter_root_curr_level = &conn_waiters_per_level[level][root_curr_level_idx];
             for i in 0..count_nodes  {
                 if i != root_curr_level_idx {
-                    connect_nodes(
-                        &mut nodes_per_level[level][i],
-                        &root_previous_level,
-                        conn_waiter_root_curr_level);
+                    let src_node = &nodes_per_level[level][i];
+                    let tgt_node = &nodes_per_level[level][root_curr_level_idx];
+                    connect_nodes( &mut *src_node.borrow_mut(),
+                                   &*tgt_node.borrow(),
+                                   &conn_waiters_per_level[level][root_curr_level_idx]);
                 }
             }
             debug!( "### End Connect nodes in same level");
@@ -1172,7 +1176,9 @@ mod tests {
         for level in 0.. levels {
             debug_level_str.push_str( format!( "\n\t[{}]: ", level).as_str());
             for idx in 0..nodes_per_level[level].len() {
-                debug_level_str.push_str( format!( "{}, ", nodes_per_level[level][idx].get_listening_port()).as_str());
+                debug_level_str.push_str(
+                    format!( "{}, ",
+                    nodes_per_level[level][idx].borrow().get_listening_port()).as_str());
             }
         }
         debug!("#### Network has been created with {} levels: {}", levels, debug_level_str);
@@ -1183,10 +1189,12 @@ mod tests {
         {
             let src_idx = rng.gen_range( 0, nodes_per_level[levels-1].len());
             let src_node = &mut nodes_per_level[levels-1][src_idx];
-            let src_node_id = Some(src_node.get_own_id());
+            let src_node_id = Some(src_node.borrow().get_own_id());
 
-            debug!( "### Sending message from {} in broadcast", src_node.get_listening_port());
-            src_node.send_message(
+            debug!( "### Sending message from {} in broadcast",
+                    src_node.borrow().get_listening_port());
+
+            src_node.borrow_mut().send_message(
                 src_node_id, network_id, None,
                 &bcast_content.as_bytes().to_vec(), true)
                 .map_err( |e| panic!(e))
