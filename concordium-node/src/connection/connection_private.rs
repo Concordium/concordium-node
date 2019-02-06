@@ -23,7 +23,7 @@ pub struct ConnectionPrivate {
     pub own_id: P2PNodeId,
     pub mode: P2PNodeMode,
     pub self_peer: P2PPeer,
-    pub peer: Option<P2PPeer>,
+    peer: Option<P2PPeer>,
     pub networks: Vec<u16>,
     pub own_networks: Arc<Mutex<Vec<u16>>>,
     pub buckets: Arc< RwLock< Buckets > >,
@@ -133,6 +133,14 @@ impl ConnectionPrivate {
 
     pub fn set_measured_ping_sent(&mut self) {
         self.sent_ping = get_current_stamp()
+    }
+
+    pub fn peer(&self) -> Option<P2PPeer> {
+        self.peer.clone()
+    }
+
+    pub fn set_peer(&mut self, p: P2PPeer) {
+        self.peer = Some(p);
     }
 }
 

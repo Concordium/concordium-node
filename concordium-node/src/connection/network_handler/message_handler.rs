@@ -1,3 +1,4 @@
+use std::sync::{ Arc, RwLock };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 
@@ -10,11 +11,11 @@ pub type EmptyCW = AFunctorCW<()>;
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    pub request_parser: AFunctor<NetworkRequest>,
-    pub response_parser: AFunctor<NetworkResponse>,
-    pub packet_parser: AFunctor<NetworkPacket>,
-    pub unknow_parser: AFunctor<()>,
-    pub invalid_parser: AFunctor<()>,
+    request_parser: AFunctor<NetworkRequest>,
+    response_parser: AFunctor<NetworkResponse>,
+    packet_parser: AFunctor<NetworkPacket>,
+    unknown_parser: AFunctor<()>,
+    invalid_parser: AFunctor<()>,
 }
 
 impl MessageHandler {
@@ -22,15 +23,15 @@ impl MessageHandler {
 
         MessageHandler {
             request_parser : AFunctor::<NetworkRequest>::new(
-                    "Network Request Handler"),
+                    "Network::Request"),
             response_parser: AFunctor::<NetworkResponse>::new(
-                    "Network Response Handler"),
+                    "Network::Response"),
             packet_parser: AFunctor::<NetworkPacket>::new(
-                    "Network Package Handler"),
-            unknow_parser: AFunctor::new(
-                    "Unknown Packet Handler"),
+                    "Network::Package"),
+            unknown_parser: AFunctor::new(
+                    "Network::Unknown"),
             invalid_parser: AFunctor::new(
-                    "Invalid Packet Handler")
+                    "Network::Invalid")
         }
     }
 
@@ -49,13 +50,37 @@ impl MessageHandler {
         self
     }
 
-    pub fn add_unknow_callback( &mut self, callback: EmptyCW) -> &mut Self {
-        self.unknow_parser.add_callback( callback);
+    pub fn add_unknown_callback( &mut self, callback: EmptyCW) -> &mut Self {
+        self.unknown_parser.add_callback( callback);
         self
     }
 
     pub fn add_invalid_callback( &mut self, callback: EmptyCW ) -> &mut Self {
         self.invalid_parser.add_callback( callback);
+        self
+    }
+
+    /// It merges into `this` all parsers from `other` `MessageHandler`.
+    pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
+        for cb in other.packet_parser.callbacks().iter() {
+            self.add_packet_callback( cb.clone());
+        }
+
+        for cb in other.response_parser.callbacks().iter() {
+            self.add_response_callback( cb.clone());
+        }
+
+        for cb in other.request_parser.callbacks().iter() {
+            self.add_request_callback( cb.clone());
+        }
+
+        for cb in other.unknown_parser.callbacks().iter() {
+            self.add_unknown_callback( cb.clone());
+        }
+
+        for cb in other.invalid_parser.callbacks().iter() {
+            self.add_invalid_callback( cb.clone());
+        }
         self
     }
 
@@ -72,20 +97,20 @@ impl MessageHandler {
                 (&self.packet_parser)( np)
             },
             NetworkMessage::UnknownMessage => {
-                (&self.unknow_parser)( &())
+                (&self.unknown_parser)( &())
             },
             NetworkMessage::InvalidMessage => {
                 (&self.invalid_parser)( &())
             }
         }
     }
+
 }
 
 impl_all_fns!( MessageHandler, NetworkMessage);
 
 pub trait MessageManager {
-    fn message_handler(&self) -> &MessageHandler;
-    fn mut_message_handler(&mut self) -> &mut MessageHandler;
+    fn message_handler(&self) -> Arc< RwLock< MessageHandler>>;
 }
 
 #[cfg(test)]

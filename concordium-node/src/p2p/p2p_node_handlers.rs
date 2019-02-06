@@ -1,5 +1,6 @@
 use std::sync::{ Arc, Mutex };
 use std::sync::mpsc::{ Sender };
+use std::collections::{ VecDeque };
 
 use common::{ P2PPeer };
 use common::functor::{ FunctorResult };
@@ -32,7 +33,12 @@ pub fn forward_network_request(
     let cloned_req = req.clone();
     let outer = Arc::new( box NetworkMessage::NetworkRequest( cloned_req, None, None));
 
-    packet_queue.send( outer).map_err( |e| { wrap_error!(e) })
+    match packet_queue.send( outer) {
+        Err(e) => warn!( "Network request cannot be forward by packet queue: {}", e.to_string()),
+        _ => {}
+    };
+
+    Ok(())
 }
 
 /// It forwards network packet message into `packet_queue` if message id has not been already
@@ -41,19 +47,20 @@ pub fn forward_network_packet_message(
         seen_messages: &SeenMessagesList,
         prometheus_exporter: &Option<Arc<Mutex<PrometheusServer>>>,
         own_networks: &Arc<Mutex<Vec<u16>>>,
+        send_queue: &Arc<Mutex<VecDeque<Arc<Box<NetworkMessage>>>>>,
         packet_queue: &Sender<Arc<Box<NetworkMessage>>>,
         pac: &NetworkPacket) -> FunctorResult {
 
     match pac {
         NetworkPacket::DirectMessage( ref sender, ref msg_id, _, ref network_id, ref msg) =>{
             forward_network_packet_message_common(
-                seen_messages, prometheus_exporter, own_networks, packet_queue,
+                seen_messages, prometheus_exporter, own_networks, send_queue, packet_queue,
                 pac, sender, msg_id, network_id, msg,
                 "Dropping duplicate direct packet")
         },
         NetworkPacket::BroadcastedMessage(ref sender, ref msg_id, ref network_id, ref msg) => {
             forward_network_packet_message_common(
-                seen_messages, prometheus_exporter, own_networks, packet_queue,
+                seen_messages, prometheus_exporter, own_networks, send_queue, packet_queue,
                 pac, sender, msg_id, network_id, msg,
                 "Dropping duplicate broadcast packet")
         }
@@ -66,6 +73,7 @@ fn forward_network_packet_message_common(
         seen_messages: &SeenMessagesList,
         prometheus_exporter: &Option<Arc<Mutex<PrometheusServer>>>,
         own_networks: &Arc<Mutex<Vec<u16>>>,
+        send_queue: &Arc<Mutex<VecDeque<Arc<Box<NetworkMessage>>>>>,
         packet_queue: &Sender<Arc<Box<NetworkMessage>>>,
         pac: &NetworkPacket,
         sender: &P2PPeer,
@@ -75,13 +83,18 @@ fn forward_network_packet_message_common(
         drop_message: &str
         ) -> FunctorResult {
 
+    debug!("### Forward Broadcast Message: msgid: {}", msg_id);
     if !seen_messages.contains(msg_id) {
         if own_networks.lock()?.contains(network_id) {
             debug!("Received direct message of size {}", msg.len());
             let outer = Arc::new( box NetworkMessage::NetworkPacket( pac.clone(), None, None));
 
-            packet_queue.send(outer).map_err( |e| { wrap_error!(e) })?;
             seen_messages.append(&msg_id);
+            send_queue.lock()?.push_back( outer.clone());
+
+            if let Err(e) = packet_queue.send(outer) {
+                warn!( "Forward network packet cannot be sent by incoming_pkts: {}", e.to_string());
+            }
         } else {
             if let Some(ref prom) = prometheus_exporter {
                 prom.lock()?.invalid_network_pkts_received_inc()
@@ -94,4 +107,3 @@ fn forward_network_packet_message_common(
 
     Ok(())
 }
-
