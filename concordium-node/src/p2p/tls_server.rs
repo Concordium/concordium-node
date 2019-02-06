@@ -100,10 +100,12 @@ impl TlsServer {
         self.dptr.borrow_mut().add_network( network_id)
     }
 
+    /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
     pub fn is_unreachable(&self, ip: IpAddr, port: u16) -> bool {
         self.dptr.borrow().unreachable_nodes.contains( ip, port)
     }
 
+    /// It adds the pair `ip`,`port` to its `unreachable_nodes` list.
     pub fn add_unreachable(&mut self, ip: IpAddr, port: u16) -> bool {
         self.dptr.borrow_mut().unreachable_nodes.insert( ip, port)
     }
@@ -268,6 +270,12 @@ impl TlsServer {
         self.dptr.borrow_mut().liveness_check()
     }
 
+    /// It sends `data` message over all filtered connections.
+    ///
+    /// # Arguments
+    /// * `data` - Raw message.
+    /// * `filter_conn` - It will send using all connection, where this function returns `true`.
+    /// * `send_status` - It will called after each sent, to notify the result of the operation.
     pub fn send_over_all_connections( &self,
             data: &Vec<u8>,
             filter_conn: &Fn( &Connection) -> bool,
@@ -279,31 +287,6 @@ impl TlsServer {
 
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {
-        /*let dptr = self.dptr.clone();
-
-        let mh = self.message_handler();
-        mh.write().unwrap()
-            .add_packet_callback( make_atomic_callback!( move |pac: &NetworkPacket|{
-
-            match pac {
-                NetworkPacket::BroadcastedMessage( ref sender, ref msgid, ref network_id, ref msg) => {
-                    let data = NetworkPacket::BroadcastedMessage( sender.clone(), msgid.clone(),
-                                                                  network_id.clone(), msg.clone())
-                        .serialize();
-                    let filter = |conn: &Connection| {
-                        is_valid_connection_in_broadcast( conn, sender, network_id)
-                    };
-                    let no_sent_status = |_conn: &Connection, _status: ResultExtWrapper<()>| {};
-
-
-                    dptr.borrow_mut().send_over_all_connections( &data, &filter, &no_sent_status);
-                },
-                _ => {}
-            };
-
-            Ok(())
-        }));
-        */
     }
 
     /// It adds all message handler callback to this connection.
@@ -311,7 +294,6 @@ impl TlsServer {
         let mh = self.message_handler.read().unwrap();
         conn.message_handler.merge( &mh);
     }
-
 }
 
 impl MessageManager for TlsServer {

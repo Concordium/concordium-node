@@ -140,7 +140,6 @@ impl ConnectionPrivate {
     }
 
     pub fn set_peer(&mut self, p: P2PPeer) {
-        debug!( "Connection {}:{} peer setup", p.ip(), p.port());
         self.peer = Some(p);
     }
 }

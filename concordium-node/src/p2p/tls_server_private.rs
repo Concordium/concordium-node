@@ -14,6 +14,9 @@ use p2p::unreachable_nodes::{ UnreachableNodes };
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
 
+/// This class allows to share some information between `TlsServer` and its handler.
+/// This concept is similar to `d-Pointer` of C++ but it is used just to facilitate information
+/// sharing.
 pub struct TlsServerPrivate {
     pub connections: HashMap<Token, Connection>,
     pub unreachable_nodes: UnreachableNodes,
@@ -35,19 +38,24 @@ impl TlsServerPrivate {
         }
     }
 
+    /// It adds new node to the banned peer list.
     pub fn ban_node(&mut self, peer: P2PPeer) -> bool {
         self.banned_peers.insert(peer)
     }
 
+    /// It remove a node from the banned peer list.
     pub fn unban_node(&mut self, peer: &P2PPeer) -> bool {
         self.banned_peers.remove(peer)
     }
 
+    /// It removes this server from `network_id` network.
+    /// *Note:* Network list is shared, and this will updated all other instances.
     pub fn remove_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
         self.networks.lock()?.retain(|x| x == network_id);
         Ok(())
     }
 
+    /// It adds this server to `network_id` network.
     pub fn add_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
         {
             let mut networks = self.networks.lock()?;
@@ -58,18 +66,22 @@ impl TlsServerPrivate {
         Ok(())
     }
 
+    /// It generates a peer statistic list for each connected peer which belongs to
+    /// any of networks in `nids`.
     pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
         let mut ret = vec![];
         for (_, ref conn) in &self.connections {
             match conn.peer() {
                 Some(ref x) => {
                     if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
-                        ret.push(PeerStatistic::new(x.id().to_string(),
-                        x.ip().clone(),
-                        x.port(),
-                        conn.get_messages_sent(),
-                        conn.get_messages_received(),
-                        conn.get_last_latency_measured()));
+                        ret.push(
+                            PeerStatistic::new(
+                                x.id().to_string(),
+                                x.ip().clone(),
+                                x.port(),
+                                conn.get_messages_sent(),
+                                conn.get_messages_received(),
+                                conn.get_last_latency_measured()));
                     }
                 }
                 None => {}
@@ -79,6 +91,7 @@ impl TlsServerPrivate {
         ret
     }
 
+    /// It find a connection by its `P2PNodeId`.
     pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
         let mut tok = Token(0);
         for (token, mut connection) in &self.connections {
@@ -208,7 +221,12 @@ impl TlsServerPrivate {
         Ok(())
     }
 
+    /// It sends `data` message over all filtered connections.
     ///
+    /// # Arguments
+    /// * `data` - Raw message.
+    /// * `filter_conn` - It will send using all connection, where this function returns `true`.
+    /// * `send_status` - It will called after each sent, to notify the result of the operation.
     pub fn send_over_all_connections( &mut self,
             data: &Vec<u8>,
             filter_conn: &Fn( &Connection) -> bool,

@@ -60,6 +60,7 @@ impl MessageHandler {
         self
     }
 
+    /// It merges into `this` all parsers from `other` `MessageHandler`.
     pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
         for cb in other.packet_parser.callbacks().iter() {
             self.add_packet_callback( cb.clone());

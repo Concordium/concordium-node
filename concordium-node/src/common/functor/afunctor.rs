@@ -72,6 +72,8 @@ impl<T> AFunctor<T> {
         &self.callbacks
     }
 
+    /// It executes each callback using `message` as its argument.
+    /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
     fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
     {
         let mut status = Ok(());
@@ -118,7 +120,6 @@ impl<T> AFunctor<T> {
         status
     }
 }
-
 
 impl<T> FnOnce<(&T,)> for AFunctor<T> {
     type Output = FunctorResult;

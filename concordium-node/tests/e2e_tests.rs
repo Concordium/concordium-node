@@ -74,12 +74,12 @@ mod tests {
 
     #[cfg( debug_assertions)]
     fn max_recv_timeout() -> std::time::Duration {
-        time::Duration::from_secs( 60 * 60) // 1 hour
+        time::Duration::from_secs( 5 * 60) // 5 minutes
     }
 
     #[cfg( not( debug_assertions))]
     fn max_recv_timeout() -> std::time::Duration {
-        time::Duration::from_secs( 60) // 1 minut
+        time::Duration::from_secs( 60) // 1 minutes
     }
 
 
@@ -1037,6 +1037,16 @@ mod tests {
         gather_agent.join().expect( "Gather agent has failed");
     }
 
+    /// It creates a new node at specific port and using `networks`, and *spawns* it.
+    /// It also register a couple of functors, with the following target.
+    /// * On `NetworkRequest::Handshake`, it will notify that connection is ready using
+    ///     a new `std::sync::mpsc::channel`.
+    /// * On `NetworkPacket::BroadcastedMessage`, it will just print a debug message about it.
+    ///
+    /// # Returns
+    /// It returns a tuple contains:
+    /// * New created `P2PNode`.
+    /// * Target `std::sync::mspc::Reciver` that will be notified once _handshake_ is done.
     fn make_node_at_port( port: u16, networks: &Vec<u16>) -> (P2PNode, mpsc::Receiver<()>)  {
         let (net_tx, _) = mpsc::channel();
         let (conn_wait_tx, conn_wait_rx) = mpsc::channel();
@@ -1050,21 +1060,10 @@ mod tests {
             make_atomic_callback!( move |req: &NetworkRequest|{
                 match req {
                     NetworkRequest::Handshake( _,_,_) => {
-                        debug!( "XXX Handshake request on {}", port);
+                        debug!( "Handshake request on {}", port);
                         conn_wait_tx.send(())?;
                     },
                     _ => { }
-                };
-
-                Ok(())
-        }))
-        .add_response_callback(
-            make_atomic_callback!( move |res: &NetworkResponse|{
-                match res {
-                    NetworkResponse::Handshake( _, _, _) => {
-                        debug!( "XXX Handshake response on {}", port);
-                    },
-                    _ => {}
                 };
 
                 Ok(())
@@ -1085,6 +1084,17 @@ mod tests {
         (node, conn_wait_rx)
     }
 
+    /// It makes a list of nodes using `make_node_at_port`.
+    ///
+    /// # Arguments
+    /// * `port` - Initial port. Each node will use the port `port` + `i` where `i` is `[0,
+    /// count)`.
+    /// * `count` - Number of nodes to be generated.
+    /// * `networks` - Networks added to new nodes.
+    ///
+    /// # Return
+    /// As `make_node_at_port`, this returns a tuple but it contains list of objects instead of
+    /// just one.
     fn make_nodes_from_port( port: u16, count: usize, networks: &Vec<u16>)
             -> (Vec< RefCell<P2PNode>>, Vec<mpsc::Receiver<()>>) {
         let mut nodes = Vec::with_capacity( count);
@@ -1100,10 +1110,11 @@ mod tests {
         (nodes, conn_waiters)
     }
 
+    /// It connects `src` node to `tgt` node, and it also *waits* until _handshake_ is notified
+    /// in `connected_rec`.
     fn connect_nodes( src: &mut P2PNode, tgt: &P2PNode,
                       connected_rec: &mpsc::Receiver<()>) {
 
-        debug!( "### Trying to connect node {} to {}", src.get_listening_port(), tgt.get_listening_port());
         src.connect(
                 ConnectionType::Node, tgt.get_listening_ip(),
                 tgt.get_listening_port(), None)
@@ -1111,7 +1122,7 @@ mod tests {
 
         // Wait until connection is done.
         assert!( connected_rec.recv().is_ok());
-        debug!( "### Node {} connected to {}", src.get_listening_port(), tgt.get_listening_port());
+        debug!( "Node {} connected to {}", src.get_listening_port(), tgt.get_listening_port());
     }
 
     /// It creates a network tree and tries to broadcast a message. Only one node
@@ -1144,7 +1155,7 @@ mod tests {
             let mh = node.message_handler();
             mh.write().unwrap().add_packet_callback(
                 make_atomic_callback!( move |pac: &NetworkPacket| {
-                    debug!( "Root node is forwarding Packet to channel"); //, root.get_listening_port());
+                    debug!( "Root node is forwarding Packet to channel");
                     bcast_tx.send( pac.clone())
                         .map_err( |e| ErrorWrapper::with_chain( e,
                                 ErrorKindWrapper::FunctorRunningError("Packet cannot be sent into bcast_tx")))
@@ -1154,9 +1165,11 @@ mod tests {
         nodes_per_level.push( vec![ RefCell::new(node)]);
         conn_waiters_per_level.push( vec![conn_waiter]);
 
+        // 1.2. Create each level
         for level in 1..levels {
+            // 1.2.1. Make nodes
             let count_nodes: usize = rng.gen_range( min_node_per_level, max_node_per_level);
-            debug!( "### Creating level {} with {} nodes", level, count_nodes);
+            debug!( "Creating level {} with {} nodes", level, count_nodes);
             let (nodes, conn_waiters) =  make_nodes_from_port(
                     test_port_added + (level * max_node_per_level) as u16,
                     count_nodes,
@@ -1165,7 +1178,7 @@ mod tests {
             nodes_per_level.push( nodes);
             conn_waiters_per_level.push( conn_waiters);
 
-            // Connect one to previous level.
+            // 1.2.2 Connect one to previous level.
             let root_previous_level_idx: usize = rng.gen_range( 0, nodes_per_level[level-1].len());
             let root_curr_level_idx: usize = rng.gen_range( 0, count_nodes);
 
@@ -1177,11 +1190,10 @@ mod tests {
                                &*root_previous_level.borrow(),
                                conn_waiter_root_previous_level);
             }
-            debug!( "### Connected to previous level: Node[{}][{}] to Node[{}][{}]",
+            debug!( "Connected to previous level: Node[{}][{}] to Node[{}][{}]",
                     level, root_curr_level_idx, level-1, root_previous_level_idx);
 
-            // Connect all nodes in that level to this.
-            debug!( "### Begin Connect nodes in same level");
+            // 1.2.3. Connect all nodes in that level to this.
             for i in 0..count_nodes  {
                 if i != root_curr_level_idx {
                     let src_node = &nodes_per_level[level][i];
@@ -1191,9 +1203,9 @@ mod tests {
                                    &conn_waiters_per_level[level][root_curr_level_idx]);
                 }
             }
-            debug!( "### End Connect nodes in same level");
         }
 
+        // 2. Log network structure into debug.
         let mut debug_level_str = String::new();
         for level in 0.. levels {
             debug_level_str.push_str( format!( "\n\t[{}]: ", level).as_str());
@@ -1203,19 +1215,19 @@ mod tests {
                     nodes_per_level[level][idx].borrow().get_listening_port()).as_str());
             }
         }
-        debug!("#### Network has been created with {} levels: {}", levels, debug_level_str);
+        debug!("Network has been created with {} levels: {}", levels, debug_level_str);
 
         let mut wait_loop = true;
         while wait_loop {
 
-            // 3. Select random node in last level and send a broadcast
+            // 3. Select random node in last level and send a broadcast.
             let bcast_content = "Hello from last level node";
             {
                 let src_idx = rng.gen_range( 0, nodes_per_level[levels-1].len());
                 let src_node = &mut nodes_per_level[levels-1][src_idx];
                 let src_node_id = Some(src_node.borrow().get_own_id());
 
-                debug!( "### Sending message from {} in broadcast",
+                debug!( "Send message from {} in broadcast",
                         src_node.borrow().get_listening_port());
 
                 src_node.borrow_mut().send_message(
@@ -1226,9 +1238,9 @@ mod tests {
             }
 
             // 4. Wait broadcast in root.
-            debug!( "### Waiting broadcast message");
+            debug!( "Waiting broadcast message");
             if let Ok(bcast_msg) = bcast_rx.recv_timeout( time::Duration::from_secs(2)) {
-                debug!( "### Waiting broadcast message - finished");
+                debug!( "Waiting broadcast message - finished");
                 match bcast_msg {
                     NetworkPacket::BroadcastedMessage(ref _sender, ref _msgid, ref _nid, ref msg) => {
                         let str_msg = std::str::from_utf8( msg).unwrap();
