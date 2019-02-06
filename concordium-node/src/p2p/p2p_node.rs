@@ -27,7 +27,6 @@ use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, B
 use connection::{ Connection, P2PEvent, P2PNodeMode, SeenMessagesList, MessageManager,
     MessageHandler, RequestHandler, ResponseHandler, NetworkPacketCW, NetworkRequestCW };
 
-use p2p::{ is_valid_connection_in_broadcast };
 use p2p::tls_server::{ TlsServer };
 use p2p::no_certificate_verification::{ NoCertificateVerification };
 use p2p::peer_statistics::{ PeerStatistic };
@@ -748,3 +747,21 @@ fn is_conn_peer_id( conn: &Connection, id: &P2PNodeId) -> bool {
         false
     }
 }
+
+/// Connetion is valid for a broadcast if sender is not target and
+/// and network_id is owned by connection.
+pub fn is_valid_connection_in_broadcast(
+    conn: &Connection,
+    sender: &P2PPeer,
+    network_id: &u16) -> bool {
+
+    if let Some(ref peer) = conn.peer() {
+        if peer.id() != sender.id() {
+            let own_networks = conn.own_networks();
+            return own_networks.lock().unwrap().contains(network_id);
+        }
+    }
+    false
+}
+
+

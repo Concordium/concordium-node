@@ -13,7 +13,7 @@ mod tests {
     use atomic_counter::AtomicCounter;
     use atomic_counter::RelaxedCounter;
     use p2p_client::common::{ ConnectionType };
-    use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
+    use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
     use p2p_client::connection::{ P2PEvent, P2PNodeMode, MessageManager };
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};

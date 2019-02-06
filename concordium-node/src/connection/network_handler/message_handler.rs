@@ -14,7 +14,7 @@ pub struct MessageHandler {
     request_parser: AFunctor<NetworkRequest>,
     response_parser: AFunctor<NetworkResponse>,
     packet_parser: AFunctor<NetworkPacket>,
-    unknow_parser: AFunctor<()>,
+    unknown_parser: AFunctor<()>,
     invalid_parser: AFunctor<()>,
 }
 
@@ -28,7 +28,7 @@ impl MessageHandler {
                     "Network::Response"),
             packet_parser: AFunctor::<NetworkPacket>::new(
                     "Network::Package"),
-            unknow_parser: AFunctor::new(
+            unknown_parser: AFunctor::new(
                     "Network::Unknown"),
             invalid_parser: AFunctor::new(
                     "Network::Invalid")
@@ -50,8 +50,8 @@ impl MessageHandler {
         self
     }
 
-    pub fn add_unknow_callback( &mut self, callback: EmptyCW) -> &mut Self {
-        self.unknow_parser.add_callback( callback);
+    pub fn add_unknown_callback( &mut self, callback: EmptyCW) -> &mut Self {
+        self.unknown_parser.add_callback( callback);
         self
     }
 
@@ -74,8 +74,8 @@ impl MessageHandler {
             self.add_request_callback( cb.clone());
         }
 
-        for cb in other.unknow_parser.callbacks().iter() {
-            self.add_unknow_callback( cb.clone());
+        for cb in other.unknown_parser.callbacks().iter() {
+            self.add_unknown_callback( cb.clone());
         }
 
         for cb in other.invalid_parser.callbacks().iter() {
@@ -97,7 +97,7 @@ impl MessageHandler {
                 (&self.packet_parser)( np)
             },
             NetworkMessage::UnknownMessage => {
-                (&self.unknow_parser)( &())
+                (&self.unknown_parser)( &())
             },
             NetworkMessage::InvalidMessage => {
                 (&self.invalid_parser)( &())

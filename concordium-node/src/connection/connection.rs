@@ -186,7 +186,7 @@ impl Connection {
                 move |res: &NetworkResponse| { (response_handler)(res) }))
             .add_response_callback( last_seen_response_handler)
             .add_packet_callback( last_seen_packet_handler)
-            .add_unknow_callback(
+            .add_unknown_callback(
                 handle_by_private!( self.dptr, &(), default_unknown_message))
             .add_invalid_callback(
                 handle_by_private!( self.dptr, &(), default_invalid_message));
