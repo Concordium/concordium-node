@@ -1,0 +1,35 @@
+version: '3'
+services:
+    bootstrapper:
+        image: concordium/common:latest
+        build: .
+        entrypoint:
+            - /build-project/start-bootstrapper.sh
+       
+    node:
+        image: concordium/common:latest
+        depends_on:
+            - bootstrapper
+        entrypoint:
+            - /build-project/start-node.sh
+        environment:
+            - RUST_BACKTRACE=1
+            - DESIRED_PEERS=10
+            - BOOTSTRAP_NODE="bootstrapper:8888"
+            - EXTERNAL_PORT=8888
+            - NUM_BAKERS=10
+            - EXTRA_ARGS=--debug
+
+    testrunner:
+        image: concordium/common:latest
+        depends_on:
+            - bootstrapper
+        entrypoint:
+            - /build-project/start-testrunner.sh
+        environment:
+            - BOOTSTRAP_NODE=bootstrapper:8888
+            - EXTRA_ARGS=--debug
+            - DESIRED_PEERS=20
+            - EXTERNAL_PORT=8888
+            - BOOTSTRAP_NODE="bootstrapper:8888"
+

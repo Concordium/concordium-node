@@ -7,6 +7,12 @@ git clone https://github.com/libffi/libffi.git
 ( cd libffi && ./autogen.sh && ./configure && make -j8 && make install);
 rm -rf libffi
 
+# NOTE: Requires a release key in GitLab to allow docker to download it.
+# Meanwhile this step have to keep manually.
+#  ---- 
+# git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
+# ( cd consensus && git checkout 8399a2802fe7402663ce1a9a491b1b04e960c08c && ./setup-env.sh )
+
 curl -sSL https://get.haskellstack.org/ | sh
 ( cd consensus && stack build --ghc-options '-dynamic' --force-dirty &&
   cp .stack-work/install/x86_64-linux-tinfo6/lts-12.19/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.so /usr/local/lib &&
@@ -18,12 +24,13 @@ curl -sSL https://get.haskellstack.org/ | sh
   ls ~/.stack/programs/x86_64-linux/
   ) 
 
-(mkdir -p ~/.stack/global-project/ && cp scripts/stack.yaml ~/.stack/global-project/stack.yaml)
+(mkdir -p ~/.stack/global-project/ && cp /build-project/stack/stack.yaml ~/.stack/global-project/stack.yaml)
 
 (cp -R consensus/workdir .)
 
 git clone https://github.com/KDE/heaptrack.git
-(cd heaptrack && patch src/track/heaptrack.sh.cmake ../scripts/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);
+(cd heaptrack && patch src/track/heaptrack.sh.cmake
+/build-project/heaptrack-conf/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);
 rm -rf heaptrack
 
 ldconfig
