@@ -40,7 +40,7 @@ makeRunner bkr gen = do
         inChan <- newChan
         outChan <- newChan
         let
-            finInst = FinalizationInstance (bakerSignKey bkr) (bakerSignPublicKey bkr) (bakerElectionKey bkr) (bakerElectionPublicKey bkr)
+            finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
             sfs = initialSkovFinalizationState finInst gen
         out <- let gbPtr = sfs ^. genesisBlockPointer in newIORef (mkBlockInfo (bpBlock gbPtr) (bpState gbPtr))
         _ <- forkIO $ fst <$> evalRWST (msgLoop inChan outChan out 0 MsgTimer) finInst sfs

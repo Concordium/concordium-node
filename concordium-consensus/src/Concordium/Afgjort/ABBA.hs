@@ -15,7 +15,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
 import GHC.Generics (Generic)
 
-import qualified Concordium.Crypto.DummyVRF as VRF
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 
@@ -130,7 +130,7 @@ liftCSS phase a = do
         liftMsg (Seen p c) = CSSSeen phase p c
         liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
 
-newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => BS.ByteString -> Int -> Int -> (party -> Int) -> (party -> VRF.PublicKey) -> party -> VRF.PrivateKey -> ABBAInstance party sig m
+newABBAInstance :: forall party sig m. (ABBAMonad party sig m, Ord party) => BS.ByteString -> Int -> Int -> (party -> Int) -> (party -> VRF.PublicKey) -> party -> VRF.KeyPair -> ABBAInstance party sig m
 newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey = ABBAInstance {..}
     where
         CSSInstance{..} = newCSSInstance totalWeight corruptWeight partyWeight

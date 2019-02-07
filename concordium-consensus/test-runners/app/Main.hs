@@ -12,8 +12,8 @@ import Data.Time.Clock.POSIX
 
 import Data.String
 
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
+import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
 import Concordium.Payload.Transaction
 import Concordium.Types
@@ -46,9 +46,9 @@ sendTransactions chan (t : ts) = do
 
 makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
-        (esk, epk) <- VRF.newKeypair
-        (ssk, spk) <- Sig.newKeypair
-        return (BakerInfo epk spk lot, BakerIdentity bid ssk spk esk epk)
+        ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
+        sk@(Sig.KeyPair _ spk) <- Sig.newKeyPair
+        return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
 relay :: Chan OutMessage -> Chan (Either Block FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp monitor outps = loop

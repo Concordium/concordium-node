@@ -27,7 +27,7 @@ import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
 
-import qualified Concordium.Crypto.DummyVRF as VRF
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
 
@@ -109,7 +109,7 @@ data WMVBAInstance val party sig = WMVBAInstance {
     partyWeight :: party -> Int,
     publicKeys :: party -> VRF.PublicKey,
     me :: party,
-    privateKey :: VRF.PrivateKey
+    privateKey :: VRF.KeyPair
 }
 
 toFreezeInstance :: WMVBAInstance val party sig -> FreezeInstance party

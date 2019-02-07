@@ -16,8 +16,8 @@ import Control.Monad.State.Class
 import Control.Monad.Reader.Class
 import Control.Monad
 
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
+import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
@@ -26,10 +26,8 @@ import Concordium.Kontrol.BestBlock
 import Data.List(intercalate)
 
 data FinalizationInstance = FinalizationInstance {
-    finMySignKey :: Sig.SignKey,
-    finMyVerifyKey :: Sig.VerifyKey,
-    finMyPrivateVRFKey :: VRF.PrivateKey,
-    finMyPublicVRFKey :: VRF.PublicKey
+    finMySignKey :: Sig.KeyPair,
+    finMyVRFKey :: VRF.KeyPair
 }
 
 data Party = Party {
@@ -191,7 +189,7 @@ initialFinalizationState FinalizationInstance{..} genHash com = FinalizationStat
     _finsHeight = 1,
     _finsCommittee = com,
     _finsPendingMessages = Map.empty,
-    _finsCurrentRound = case filter (\p -> partySignKey p == finMyVerifyKey && partyVRFKey p == finMyPublicVRFKey) (Vec.toList (parties com)) of
+    _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
         [] -> Nothing
         (p:_) -> Just FinalizationRound {
             roundInput = Nothing,
@@ -307,7 +305,7 @@ liftWMVBA a = do
         Just (fr@FinalizationRound{..}) -> do
             let
                 baid = runPut $ putFinalizationSessionId _finsSessionId >> S.put _finsIndex >> S.put roundDelta
-                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) partyWeight partyVRFKey roundMe finMyPrivateVRFKey
+                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) partyWeight partyVRFKey roundMe finMyVRFKey
                 (r, newState, evs) = runWMVBA a inst roundWMVBA
             finCurrentRound ?= fr {roundWMVBA = newState}
             handleWMVBAOutputEvents evs
@@ -345,8 +343,8 @@ notifyBlockArrival b = do
 
 getMyParty :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => m (Maybe Party)
 getMyParty = do
-        myVerifyKey <- asks finMyVerifyKey
-        myPublicVRFKey <- asks finMyPublicVRFKey
+        myVerifyKey <- asks (Sig.verifyKey . finMySignKey)
+        myPublicVRFKey <- asks (VRF.publicKey . finMyVRFKey)
         ps <- parties <$> use finCommittee
         case filter (\p -> partySignKey p == myVerifyKey && partyVRFKey p == myPublicVRFKey) (Vec.toList ps) of
             (p:_) -> return $ Just p

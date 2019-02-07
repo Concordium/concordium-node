@@ -5,8 +5,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 import Data.Serialize
 
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
+import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.Types
 import Concordium.Birk.Bake
@@ -16,10 +16,10 @@ makeBakers :: Word -> [(BakerIdentity,BakerInfo)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
         lot = 1.0 / fromIntegral nBakers
-        mbs gen bid = (BakerIdentity bid ssk spk esk epk, BakerInfo epk spk lot):mbs gen'' (bid+1)
+        mbs gen bid = (BakerIdentity bid sk spk ek epk, BakerInfo epk spk lot):mbs gen'' (bid+1)
             where
-                (VRF.KeyPair esk epk, gen') = random gen
-                (Sig.KeyPair ssk spk, gen'') = random gen'
+                (ek@(VRF.KeyPair esk epk), gen') = VRF.randomKeyPair gen
+                (sk@(Sig.KeyPair ssk spk), gen'') = Sig.randomKeyPair gen'
 
 makeGenesisData :: 
     Timestamp -- ^Genesis time
