@@ -109,11 +109,12 @@ impl Buckets {
     }
 
     pub fn clean_peers(&mut self, retain_minimum: usize) {
-        debug!("Cleaning buckets currently at {}", self.len());
+        let self_len = self.len();
         for i in 0..KEY_SIZE {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
                     if retain_minimum < x.len() {
+                        debug!("Cleaning buckets currently at {}", self_len);
                         x.sort_by(|a, b| {
                                       use std::cmp::Ordering;
                                       if a > b {
