@@ -82,7 +82,7 @@ grpc            = "0.5.0"
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"
 default-features = false
-features = ["nightly", "gen", "push"]
+features = ["nightly", "gen", "push", "protobuf"]
 
 [build-dependencies]
 walkdir         = "2"
