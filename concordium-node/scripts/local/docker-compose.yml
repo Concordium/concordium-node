@@ -5,11 +5,17 @@ services:
         build: .
         entrypoint:
             - /build-project/start-bootstrapper.sh
+
+    baker_id_gen:
+        image: concordium/common:latest
+        entrypoint:
+            - /build-project/baker_id_gen
        
     node:
         image: concordium/common:latest
         depends_on:
             - bootstrapper
+            - baker_id_gen
         entrypoint:
             - /build-project/start-node.sh
         environment:

@@ -7,7 +7,16 @@ RUN pacman -Sy &&\
         libunwind libdwarf elfutils unbound --noconfirm && \
     pacman -Scc --noconfirm
 
-RUN mkdir /build-project/ && \
+# Copy assets needed to build env.
+COPY assets/build-project/ /build-project/
+WORKDIR /build-project
+
+ENV OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 \
+    OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 \
+    LD_LIBRARY_PATH=/usr/local/lib:$HOME/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.3/lib/ghc-8.4.3/rts
+
+# Build Environment: Hacl, ffi, Haskell,
+RUN \
     ### Build Hacl
     git clone https://github.com/mitls/hacl-c && \
     cd hacl-c && \
@@ -25,18 +34,8 @@ RUN mkdir /build-project/ && \
     cd .. && \
     rm -rf libffi && \
     ### Install Haskell 
-    curl -sSL https://get.haskellstack.org/ | sh 
-
-ENV OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 \
-    OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 \
-    LD_LIBRARY_PATH=/usr/local/lib:$HOME/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.3/lib/ghc-8.4.3/rts
-
-COPY assets/ /build-project/
-WORKDIR /build-project
-
-### Install Consensus
-RUN \
-    chmod +x /build-project/*.sh && \
+    curl -sSL https://get.haskellstack.org/ | sh && \
+    ### Install Consensus
     cd consensus && \
     stack build --ghc-options '-dynamic' --force-dirty && \
     cp .stack-work/install/x86_64-linux-tinfo6/lts-12.19/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.so  /usr/local/lib && \
@@ -51,10 +50,9 @@ RUN \
     ls /usr/local/lib && \
     ls ~/.stack/programs/x86_64-linux/ && \
     cd ..  && \ 
-    cp -R consensus/workdir . 
-
-### Stack
-RUN mkdir -p ~/.stack/global-project/ && \
+    cp -R consensus/workdir .  && \
+    ### Stack
+    mkdir -p ~/.stack/global-project/ && \
     cp /build-project/stack/stack.yaml ~/.stack/global-project/stack.yaml && \
     ### Heaptrack 
     git clone https://github.com/KDE/heaptrack.git && \
@@ -67,12 +65,27 @@ RUN mkdir -p ~/.stack/global-project/ && \
     make -j$(nproc) && \
     make install && \
     cd .. && \
-    rm -rf heaptrack && \
-    ### Rust 
-    ldconfig && \
-    rustup default nightly
+    rm -rf heaptrack
 
+### Rust 
+RUN ldconfig && \
+    rustup default nightly-2019-01-22
+
+### Baket id gen
+RUN git clone https://gitlab.com/fmgr/baker_id_gen.git baker_id_gen.git && \
+    cd baker_id_gen.git && \
+    cargo build --release && \
+    mv target/release/baker_id_gen .. && \
+    cd .. && \
+    rm -rf baker_id_gen.git
+
+### P2P client
 RUN cd p2p-client && \
     cargo build
+
+# Copy entrypoints
+COPY assets/entrypoints/ /build-project/
+
+#    chmod +x /build-project/*.sh && \
 
 EXPOSE 8888 
