@@ -80,7 +80,7 @@ serializeBlock Block{..} = do
 deserializeBlock :: Get Block
 deserializeBlock = do
     blockSlot <- get
-    if blockSlot == 0 then do
+    if blockSlot > 0 then do
         blockPointer <- get
         blockBaker <- get
         blockProof <- get
