@@ -3,6 +3,9 @@ services:
     bootstrapper:
         image: concordium/common:latest
         build: .
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=trace
         entrypoint:
             - /build-project/start-bootstrapper.sh
 
