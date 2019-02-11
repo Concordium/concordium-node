@@ -42,7 +42,7 @@ makeRunner bkr gen = do
         let
             finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
             sfs = initialSkovFinalizationState finInst gen
-        out <- let gbPtr = sfs ^. genesisBlockPointer in newIORef (mkBlockInfo (bpBlock gbPtr) (bpState gbPtr))
+        out <- let gbPtr = sfs ^. genesisBlockPointer in newIORef (mkBlockInfo gbPtr)
         _ <- forkIO $ fst <$> evalRWST (msgLoop inChan outChan out 0 MsgTimer) finInst sfs
         return (inChan, outChan, out)
     where
@@ -57,7 +57,7 @@ makeRunner bkr gen = do
 
                       cs' <- getCurrentSlot -- it could have changed by now I suppose
                       bPtr <- bestBlockBefore (cs'+1)
-                      liftIO $ writeIORef out (mkBlockInfo (bpBlock bPtr) (bpState bPtr))
+                      liftIO $ writeIORef out (mkBlockInfo bPtr)
 
                       liftIO $ writeChan outChan (MsgNewBlock block)
 
@@ -71,7 +71,7 @@ makeRunner bkr gen = do
 
             cs <- getCurrentSlot
             bPtr <- bestBlockBefore (cs+1)
-            liftIO $ writeIORef out (mkBlockInfo (bpBlock bPtr) (bpState bPtr))
+            liftIO $ writeIORef out (mkBlockInfo bPtr)
 
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgTransactionReceived trans) = do

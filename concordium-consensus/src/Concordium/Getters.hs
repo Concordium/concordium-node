@@ -71,14 +71,16 @@ globalStateToPairs = Prelude.map (\(addr, State s) -> (decodeUtf8 . BS16.encode 
 blockDataToTxOut :: Block -> Maybe [TxOut]
 blockDataToTxOut b =  Prelude.map transactionToTxOut <$> toTransactions (blockData b)
 
-mkBlockInfo :: Block -> GlobalState -> BlockInfo
-mkBlockInfo block gs =
-  let bh = fromString . show $ hashBlock block
-      bp = fromString . show $ blockPointer block
-      bb = T.blockBaker block
-  in case blockDataToTxOut block of
-       Nothing -> BlockInfo bh bp bb [] (globalStateToPairs gs)
-       Just txouts -> BlockInfo bh bp bb txouts (globalStateToPairs gs)
+mkBlockInfo :: BlockPointer -> BlockInfo
+mkBlockInfo block
+  | bpParent block == block = BlockInfo (fromString $ show $ bpHash block) (fromString $ show $ bpHash block) 0 [] (globalStateToPairs (bpState block)) -- Genesis block
+  | otherwise =
+      let bh = fromString . show $ bpHash block
+          bp = fromString . show $ bpHash (bpParent block)
+          bb = T.blockBaker (bpBlock block)
+      in case blockDataToTxOut (bpBlock block) of
+          Nothing -> BlockInfo bh bp bb [] (globalStateToPairs (bpState block))
+          Just txouts -> BlockInfo bh bp bb txouts (globalStateToPairs (bpState block))
 
 bsToNonce :: BS.ByteString -> Maybe TransactionNonce
 bsToNonce bs = case runGet parseNonce bs of
