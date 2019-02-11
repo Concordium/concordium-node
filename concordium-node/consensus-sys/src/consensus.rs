@@ -578,6 +578,7 @@ mod tests {
                     _ => panic!("Couldn't read haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);
+            
             for i in 0..$num_bakers {
                 &consensus_container.start_baker(i,
                                                  private_data.get(&(i as i64)).unwrap().to_vec());
