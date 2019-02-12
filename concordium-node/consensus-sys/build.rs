@@ -14,6 +14,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=HSConcordium-0.1.0.0");
             println!("cargo:rustc-link-lib=dylib=HSlanguage-glsl-0.3.0");
             println!("cargo:rustc-link-lib=dylib=HSoak-0.19.0");
+            println!("cargo:rustc-link-lib=dylib=HSmonadplus-1.3");
         }
     }
 }
