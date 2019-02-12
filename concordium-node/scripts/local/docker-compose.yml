@@ -28,7 +28,6 @@ services:
             - BOOTSTRAP_NODE=bootstrapper:8888
             - EXTERNAL_PORT=8888
             - NUM_BAKERS=10
-            - EXTRA_ARGS=--debug
 
     testrunner:
         image: concordium/common:latest
@@ -38,10 +37,8 @@ services:
             - /build-project/start-testrunner.sh
         environment:
             - BOOTSTRAP_NODE=bootstrapper:8888
-            - EXTRA_ARGS=--debug
             - DESIRED_PEERS=20
             - EXTERNAL_PORT=8888
             - RUST_BACKTRACE=1
             - RUST_LOG=debug
-
 

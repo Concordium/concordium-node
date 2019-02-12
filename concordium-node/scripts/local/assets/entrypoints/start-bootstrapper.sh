@@ -6,5 +6,6 @@ heaptrack /build-project/p2p-client/target/debug/p2p_bootstrapper-cli \
     --listen-port 8888 \
     --private-node \
     --debug
+    --no-dnssec
 
 

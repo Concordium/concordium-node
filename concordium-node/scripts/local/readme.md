@@ -41,6 +41,12 @@ Using `docker-compose` `build` command as usual:
 $> docker-compose build
 ```
 
+Sometimes you can make changes in scripts and docker cache do not detect them,
+so image is not generate. In order to force a *full* build, you just need:
+```bash
+$> docker-compose build --no-cache
+```
+
 ## Run with N baker nodes 
 
 Use `--scale` argument to increase number of nodes for a specific service. As
