@@ -35,15 +35,18 @@ Using docker-compose approach, you can see logs from all nodes together.
 
 ## How to build
 
-Using `docker-compose` `build` command as usual:
+It requires to clone repositories before build docker image. After that you just
+need to use `docker-compose build` command as usual:
 
 ```bash
+$> ./pre_build.sh
 $> docker-compose build
 ```
 
 Sometimes you can make changes in scripts and docker cache do not detect them,
 so image is not generate. In order to force a *full* build, you just need:
 ```bash
+$> ./pre_build.sh
 $> docker-compose build --no-cache
 ```
 
