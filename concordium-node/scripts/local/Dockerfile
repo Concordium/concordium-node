@@ -8,7 +8,6 @@ RUN pacman -Sy &&\
     pacman -Scc --noconfirm
 
 ADD assets/build-project/ /build-project/
-ADD assets/sshkeys/* /root/.ssh/
 WORKDIR /build-project
 
 ENV OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 \
@@ -17,8 +16,6 @@ ENV OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 \
 
 # Build Environment: Hacl, ffi, Haskell,
 RUN \
-    chmod 600 /root/.ssh/id_rsa && \
-    chmod 644 /root/.ssh/id_rsa.pub && \
     ### Build Hacl
     git clone https://github.com/mitls/hacl-c && \
     cd hacl-c && \
@@ -50,13 +47,13 @@ RUN \
     cd .. && \
     rm -rf heaptrack && \
     rm -rf include-date-in-name && \
-    ldconfig 
+    ldconfig && \
+    rustup default nightly-2019-01-22
 
-RUN rustup default nightly-2019-01-22
+ADD assets/repos/ /build-project/
 
 ### Baket id gen
 RUN \
-    git clone https://gitlab.com/fmgr/baker_id_gen.git baker_id_gen.git && \
     cd baker_id_gen.git && \
     cargo build --release && \
     mv target/release/baker_id_gen .. && \
@@ -65,9 +62,7 @@ RUN \
 
 ### Consensus and stacks
 RUN \
-    git clone -b oak-integration --single-branch git@gitlab.com:Concordium/consensus/prototype.git consensus && \
     cd consensus && \
-    git submodule update --init --recursive && \
     stack build --ghc-options '-dynamic' --force-dirty && \
     # Install and rename generated libs
     cp .stack-work/install/x86_64-linux-tinfo6/lts-12.19/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.so  /usr/local/lib && \
@@ -84,14 +79,13 @@ RUN \
     ldconfig && \
     cd ..  && \ 
     cp -R consensus/workdir .  && \
+    rm -rf consensus && \
     mkdir -p ~/.stack/global-project/ && \
     cp /build-project/stack/stack.yaml ~/.stack/global-project/stack.yaml 
 
 ### P2P client
 RUN \
-    git clone git@gitlab.com:Concordium/p2p-client.git p2p-client && \
     cd p2p-client && \
-    git checkout feature/docker-compose-local && \
     cargo build
 
 # Copy entrypoints
