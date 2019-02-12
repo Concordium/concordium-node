@@ -9,7 +9,7 @@ if [ -d  assets/repos/baker_id_gen.git ]; then
     cd ../../..
 else
     git clone -b master --single-branch \
-        https://gitlab.com/fmgr/baker_id_gen.git \
+        git@gitlab.com:Concordium/tools/baker_id_gen.git \
         assets/repos/baker_id_gen.git
 fi
 
