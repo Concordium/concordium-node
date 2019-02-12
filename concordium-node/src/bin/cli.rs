@@ -284,6 +284,14 @@ fn run() -> ResultExtWrapper<()> {
                                                                         _ => error!("Could'nt deserialize transaction, can't move forward with the message"),
                                                                     }
                                                                 }
+                                                                2 => {
+                                                                    baker.send_finalization(&msg[2..]);
+                                                                    info!("Sent finalization package to consensus layer");
+                                                                }
+                                                                3 => {
+                                                                    baker.send_finalization_record(&msg[2..]);
+                                                                    info!("Sent finalization record to consensus layer");
+                                                                }
                                                                 _ => error!("Incorrect message type received"),
                                                             }
                                                         }
@@ -487,7 +495,7 @@ fn run() -> ResultExtWrapper<()> {
         let _network_id = conf.network_ids.first().unwrap().clone();
         thread::spawn(move || {
                           loop {
-                              match _baker_clone.out_queue().recv() {
+                              match _baker_clone.out_queue().recv_block() {
                                   Ok(x) => {
                                       match x.serialize() {
                                           Ok(bytes) => {
@@ -518,6 +526,68 @@ fn run() -> ResultExtWrapper<()> {
                                       }
                                   }
                                   _ => error!("Error receiving block from baker"),
+                              }
+                          }
+                      });
+        let _baker_clone_2 = baker.clone();
+        let mut _node_ref_2 = node.clone();
+        thread::spawn(move || {
+                          loop {
+                              match _baker_clone_2.out_queue().recv_finalization() {
+                                  Ok(x) => {
+                                    let mut out_bytes = vec![];
+                                    match out_bytes.write_u16::<BigEndian>(2 as u16) {
+                                        Ok(_) => {
+                                            out_bytes.extend(*x);
+                                            match _node_ref_2.send_message(None,
+                                                                        _network_id,
+                                                                        None,
+                                                                        &out_bytes,
+                                                                        true)
+                                            {
+                                                Ok(_) => {
+                                                    info!("Broadcasted finalization packet")
+                                                }
+                                                Err(_) => {
+                                                    error!("Couldn't broadcast finalization packet!")
+                                                }
+                                            }
+                                        }
+                                        Err(_) => error!("Can't write type to packet"),
+                                    }
+                                  }
+                                  _ => error!("Error receiving finalization packet from baker"),
+                              }
+                          }
+                      });
+        let _baker_clone_3 = baker.clone();
+        let mut _node_ref_3 = node.clone();
+        thread::spawn(move || {
+                          loop {
+                              match _baker_clone_3.out_queue().recv_finalization_record() {
+                                  Ok(x) => {
+                                    let mut out_bytes = vec![];
+                                    match out_bytes.write_u16::<BigEndian>(3 as u16) {
+                                        Ok(_) => {
+                                            out_bytes.extend(*x);
+                                            match _node_ref_3.send_message(None,
+                                                                        _network_id,
+                                                                        None,
+                                                                        &out_bytes,
+                                                                        true)
+                                            {
+                                                Ok(_) => {
+                                                    info!("Broadcasted finalization record")
+                                                }
+                                                Err(_) => {
+                                                    error!("Couldn't broadcast finalization record!")
+                                                }
+                                            }
+                                        }
+                                        Err(_) => error!("Can't write type to packet"),
+                                    }
+                                  }
+                                  _ => error!("Error receiving finalization record from baker"),
                               }
                           }
                       });

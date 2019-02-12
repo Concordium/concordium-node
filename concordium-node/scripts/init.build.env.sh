@@ -13,6 +13,7 @@ curl -sSL https://get.haskellstack.org/ | sh
   find /usr/local/lib -name libHSConcordium\*.so -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.so \; &&
   find /usr/local/lib -name libHSlanguage-glsl-0.3.0-\*.so -exec ln -s {} /usr/local/lib/libHSlanguage-glsl-0.3.0.so \; &&
   find /usr/local/lib -name libHSoak-0.19.0-\*.so -exec ln -s {} /usr/local/lib/libHSoak-0.19.0.so \; &&
+  find /usr/local/lib -name libHSmonadplus-1.3\*.so -exec ln -s {} /usr/local/lib/libHSmonadplus-1.3.so \; &&
   find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; &&
   ls /usr/local/lib &&
   ls ~/.stack/programs/x86_64-linux/

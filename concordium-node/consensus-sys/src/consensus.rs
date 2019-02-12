@@ -1,4 +1,4 @@
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::boxed::Box;
 use std::collections::HashMap;
@@ -22,10 +22,12 @@ extern "C" {
                       genesis_data_len: i64,
                       private_data: *const u8,
                       private_data_len: i64,
-                      bake_callback: extern "C" fn(*const u8, i64))
+                      bake_callback: extern "C" fn(i64,*const u8, i64))
                       -> *mut baker_runner;
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(baker: *mut baker_runner, block_data: *const u8, data_length: i64);
+    pub fn receiveFinalization(baker: *mut baker_runner, finalization_data: *const u8, data_length: i64);
+    pub fn receiveFinalizationRecord(baker: *mut baker_runner, finalization_data: *const u8, data_length: i64);
     pub fn receiveTransaction(baker: *mut baker_runner,
                               tx: *const u8) -> i64;
     pub fn stopBaker(baker: *mut baker_runner);
@@ -82,6 +84,24 @@ impl ConsensusBaker {
         }
     }
 
+    pub fn send_finalization(&self, data: Vec<u8>) {
+        unsafe {
+             let baker = &*self.runner.lock().unwrap();
+             let len = data.len();
+             let c_string = CString::from_vec_unchecked(data.to_vec());
+            receiveFinalization(*baker, c_string.as_ptr() as *const u8, len as i64);
+        }
+    }
+
+    pub fn send_finalization_record(&self, data: Vec<u8>) {
+        unsafe {
+             let baker = &*self.runner.lock().unwrap();
+             let len = data.len();
+             let c_string = CString::from_vec_unchecked(data.to_vec());
+            receiveFinalizationRecord(*baker, c_string.as_ptr() as *const u8, len as i64);
+        }
+    }
+
     pub fn send_transaction(&self, data: &String) -> i64{
         unsafe {
             let baker = &*self.runner.lock().unwrap();
@@ -107,31 +127,74 @@ unsafe impl Sync for ConsensusBaker {}
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver: Arc<Mutex<mpsc::Receiver<Box<Block>>>>,
-    sender: Arc<Mutex<mpsc::Sender<Box<Block>>>>,
+    receiver_block: Arc<Mutex<mpsc::Receiver<Box<Block>>>>,
+    sender_block: Arc<Mutex<mpsc::Sender<Box<Block>>>>,
+    receiver_finalization: Arc<Mutex<mpsc::Receiver<Box<Vec<u8>>>>>,
+    sender_finalization: Arc<Mutex<mpsc::Sender<Box<Vec<u8>>>>>,
+    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Box<Vec<u8>>>>>,
+    sender_finalization_record: Arc<Mutex<mpsc::Sender<Box<Vec<u8>>>>>,
 }
 
 impl ConsensusOutQueue {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel::<Box<Block>>();
-        ConsensusOutQueue { receiver: Arc::new(Mutex::new(receiver)),
-                            sender: Arc::new(Mutex::new(sender)), }
+        let (sender_finalization, receiver_finalization) = mpsc::channel::<Box<Vec<u8>>>();
+        let (sender_finalization_record, receiver_finalization_record) = mpsc::channel::<Box<Vec<u8>>>();
+        ConsensusOutQueue { receiver_block: Arc::new(Mutex::new(receiver)),
+                            sender_block: Arc::new(Mutex::new(sender)), 
+                            receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
+                            sender_finalization: Arc::new(Mutex::new(sender_finalization)),
+                            receiver_finalization_record: Arc::new(Mutex::new(receiver_finalization_record)),
+                            sender_finalization_record: Arc::new(Mutex::new(sender_finalization_record)),
+                            }
     }
 
-    pub fn send(self, data: Box<Block>) -> Result<(), mpsc::SendError<Box<Block>>> {
-        self.sender.lock().unwrap().send(data)
+    pub fn send_block(self, data: Box<Block>) -> Result<(), mpsc::SendError<Box<Block>>> {
+        self.sender_block.lock().unwrap().send(data)
     }
 
-    pub fn recv(self) -> Result<Box<Block>, mpsc::RecvError> {
-        self.receiver.lock().unwrap().recv()
+    pub fn recv_block(self) -> Result<Box<Block>, mpsc::RecvError> {
+        self.receiver_block.lock().unwrap().recv()
     }
 
-    pub fn recv_timeout(self, timeout: Duration) -> Result<Box<Block>, mpsc::RecvTimeoutError> {
-        self.receiver.lock().unwrap().recv_timeout(timeout)
+    pub fn recv_timeout_block(self, timeout: Duration) -> Result<Box<Block>, mpsc::RecvTimeoutError> {
+        self.receiver_block.lock().unwrap().recv_timeout(timeout)
     }
 
-    pub fn try_recv(self) -> Result<Box<Block>, mpsc::TryRecvError> {
-        self.receiver.lock().unwrap().try_recv()
+    pub fn try_recv_block(self) -> Result<Box<Block>, mpsc::TryRecvError> {
+        self.receiver_block.lock().unwrap().try_recv()
+    }
+
+    pub fn send_finalization(self, data: Box<Vec<u8>>) -> Result<(), mpsc::SendError<Box<Vec<u8>>>> {
+        self.sender_finalization.lock().unwrap().send(data)
+    }
+
+    pub fn recv_finalization(self) -> Result<Box<Vec<u8>>, mpsc::RecvError> {
+        self.receiver_finalization.lock().unwrap().recv()
+    }
+
+    pub fn recv_timeout_finalization(self, timeout: Duration) -> Result<Box<Vec<u8>>, mpsc::RecvTimeoutError> {
+        self.receiver_finalization.lock().unwrap().recv_timeout(timeout)
+    }
+
+    pub fn try_recv_finalization(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
+        self.receiver_finalization.lock().unwrap().try_recv()
+    }
+
+    pub fn send_finalization_record(self, data: Box<Vec<u8>>) -> Result<(), mpsc::SendError<Box<Vec<u8>>>> {
+        self.sender_finalization_record.lock().unwrap().send(data)
+    }
+
+    pub fn recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::RecvError> {
+        self.receiver_finalization_record.lock().unwrap().recv()
+    }
+
+    pub fn recv_timeout_finalization_record(self, timeout: Duration) -> Result<Box<Vec<u8>>, mpsc::RecvTimeoutError> {
+        self.receiver_finalization_record.lock().unwrap().recv_timeout(timeout)
+    }
+
+    pub fn try_recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
+        self.receiver_finalization_record.lock().unwrap().try_recv()
     }
 }
 
@@ -197,6 +260,18 @@ impl ConsensusContainer {
             if block.baker_id != *id {
                 baker.send_block(&block);
             }
+        }
+    }
+
+    pub fn send_finalization(&self, pkt: &[u8]) {
+        for (_, baker) in &*self.bakers.lock().unwrap() {
+            baker.send_finalization(pkt.to_vec());
+        }
+    }
+
+    pub fn send_finalization_record(&self, pkt: &[u8]) {
+        for (_, baker) in &*self.bakers.lock().unwrap() {
+            baker.send_finalization_record(pkt.to_vec());
         }
     }
 
@@ -270,22 +345,44 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
     }
 }
 
-extern "C" fn on_block_baked(block_data: *const u8, data_length: i64) {
+extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length: i64) {
     debug!("Callback hit - queueing message");
     unsafe {
         let s = str::from_utf8_unchecked(slice::from_raw_parts(block_data as *const u8,
                                                                data_length as usize));
-        match Block::deserialize(s.as_bytes()) {
-            Some(block) => {
-                match CALLBACK_QUEUE.clone().send(Box::new(block)) {
-                    Ok(_) => {
-                        debug!("Queueing {} bytes", data_length);
+        match block_type {
+            0 => {
+                match Block::deserialize(s.as_bytes()) {
+                    Some(block) => {
+                        match CALLBACK_QUEUE.clone().send_block(Box::new(block)) {
+                            Ok(_) => {
+                                debug!("Queueing {} block bytes", data_length);
+                            }
+                            _ => error!("Didn't queue block message properly"),
+                        }
                     }
-                    _ => error!("Didn't queue message properly"),
+                    _ => error!("Deserialization of block failed!"),
                 }
             }
-            _ => error!("Deserialization failed!"),
+            1 => {
+                match CALLBACK_QUEUE.clone().send_finalization(Box::new(s.as_bytes().to_vec())) {
+                    Ok(_) => {
+                        debug!( "Queueing {} bytes of finalization", s.len());
+                    }
+                    _ => error!("Didn't queue finalization message properly"),
+                }
+            }
+            2 => {
+                match CALLBACK_QUEUE.clone().send_finalization_record(Box::new(s.as_bytes().to_vec())) {
+                    Ok(_) => {
+                        debug!("Queueing {} bytes of finalization record", s.len());
+                    }
+                    _ => error!("Didn't queue finalization record message properly"),
+                }
+            }
+            _ => error!("Received invalid callback type"),
         }
+        
     }
 }
 
@@ -304,165 +401,31 @@ impl Nonce {
 #[derive(Debug)]
 pub struct Block {
     slot_id: u64,
-    pointer: Vec<u8>,
     baker_id: u64,
-    proof: Vec<u8>,
-    nonce: Nonce,
-    last_finalized: Vec<u8>,
     data: Vec<u8>,
-    signature: Vec<u8>,
 }
 
 impl Block {
     pub fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 64 {
-            return None;
-        }
         let mut curr_pos = 0;
         let mut slot_id_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let slot_id = match slot_id_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        curr_pos += 8;
-        let mut pointer_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let pointer_size = match pointer_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + pointer_size as usize) {
-            return None;
-        }
-        let pointer = &data[curr_pos..(curr_pos + pointer_size as usize)];
-        curr_pos += pointer_size as usize;
+        curr_pos += 8+32;
         let mut baker_id_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
         let baker_id = match baker_id_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        curr_pos += 8;
-        let mut proof_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let proof_size = match proof_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + proof_size as usize) {
-            return None;
-        }
-        let proof = &data[curr_pos..(curr_pos + proof_size as usize)];
-        curr_pos += proof_size as usize;
-        let mut nonce_hash_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let nonce_hash_size = match nonce_hash_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + nonce_hash_size as usize) {
-            return None;
-        }
-        let nonce_hash = &data[curr_pos..(curr_pos + nonce_hash_size as usize)];
-        curr_pos += nonce_hash_size as usize;
-        let mut nonce_proof_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let nonce_proof_size = match nonce_proof_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + nonce_proof_size as usize) {
-            return None;
-        }
-        let nonce_proof = &data[curr_pos..(curr_pos + nonce_proof_size as usize)];
-        curr_pos += nonce_proof_size as usize;
-        let mut last_finalized_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let last_finalized_size = match last_finalized_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + last_finalized_size as usize) {
-            return None;
-        }
-        let last_finalized = &data[curr_pos..(curr_pos + last_finalized_size as usize)];
-        curr_pos += last_finalized_size as usize;
-        let mut data_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let data_size = match data_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + data_size as usize) {
-            return None;
-        }
-        let block_data = &data[curr_pos..(curr_pos + data_size as usize)];
-        curr_pos += data_size as usize;
-        let mut signature_size_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
-        let signature_size = match signature_size_bytes.read_u64::<BigEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8;
-        if data.len() < (curr_pos + signature_size as usize) {
-            return None;
-        }
-        let signature = &data[curr_pos..(curr_pos + signature_size as usize)];
         Some(Block { slot_id: slot_id,
-                     pointer: pointer.to_vec(),
                      baker_id: baker_id,
-                     proof: proof.to_vec(),
-                     nonce: Nonce::new(nonce_hash.to_vec(), nonce_proof.to_vec()),
-                     last_finalized: last_finalized.to_vec(),
-                     data: block_data.to_vec(),
-                     signature: signature.to_vec(), })
+                     data: data.to_vec(), })
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
-        let mut out: Vec<u8> = vec![];
-        match out.write_u64::<BigEndian>(self.slot_id) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write slot ID"),
-        }
-        match out.write_u64::<BigEndian>(self.pointer.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of pointer"),
-        }
-        out.extend(&self.pointer);
-        match out.write_u64::<BigEndian>(self.baker_id) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write baker ID"),
-        }
-        match out.write_u64::<BigEndian>(self.proof.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of proof"),
-        }
-        out.extend(&self.proof);
-        match out.write_u64::<BigEndian>(self.nonce.hash.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of nonce hash"),
-        }
-        out.extend(&self.nonce.hash);
-        match out.write_u64::<BigEndian>(self.nonce.proof.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of nonce proof"),
-        }
-        out.extend(&self.nonce.proof);
-        match out.write_u64::<BigEndian>(self.last_finalized.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of last finalized"),
-        }
-        out.extend(&self.last_finalized);
-        match out.write_u64::<BigEndian>(self.data.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of data"),
-        }
-        out.extend(&self.data);
-        match out.write_u64::<BigEndian>(self.signature.len() as u64) {
-            Ok(_) => {}
-            Err(_) => return Err("Can't write size of signature"),
-        }
-        out.extend(&self.signature);
-        Ok(out)
+        Ok(self.data.to_owned())
     }
 
     pub fn slot_id(&self) -> u64 {
@@ -482,92 +445,11 @@ mod tests {
     #[test]
     pub fn serialization_deserialize_block_000() {
         let input =
-            vec![0, 0, 0, 0, 9, 49, 55, 40, 0, 0, 0, 0, 0, 0, 0, 32, 61, 187, 166, 54, 160, 207,
-                 17, 196, 1, 20, 226, 192, 124, 63, 47, 212, 116, 98, 227, 71, 183, 220, 24, 105,
-                 202, 174, 83, 196, 132, 228, 118, 43, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,
-                 0, 32, 0, 237, 33, 62, 77, 99, 148, 79, 85, 137, 48, 44, 156, 100, 175, 51, 186,
-                 255, 163, 86, 128, 243, 13, 117, 168, 226, 64, 126, 242, 49, 227, 115, 0, 0, 0,
-                 0, 0, 0, 0, 32, 142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186, 255, 50, 14,
-                 228, 255, 163, 71, 60, 19, 43, 186, 241, 221, 100, 125, 56, 55, 28, 50, 21, 90,
-                 0, 0, 0, 0, 0, 0, 0, 32, 142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186, 255,
-                 50, 14, 228, 255, 163, 71, 60, 19, 43, 186, 241, 221, 100, 125, 56, 55, 28, 50,
-                 21, 90, 0, 0, 0, 0, 0, 0, 0, 32, 61, 187, 166, 54, 160, 207, 17, 196, 1, 20, 226,
-                 192, 124, 63, 47, 212, 116, 98, 227, 71, 183, 220, 24, 105, 202, 174, 83, 196,
-                 132, 228, 118, 43, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                 0, 0, 32, 10, 193, 40, 250, 207, 100, 88, 157, 126, 179, 127, 194, 212, 122, 35,
-                 34, 30, 116, 251, 115, 245, 53, 67, 254, 113, 127, 202, 83, 135, 130, 208, 220];
+            vec![0, 0, 0, 0, 9, 60, 250, 52, 203, 177, 255, 13, 4, 179, 160, 197, 194, 34, 84, 186, 123, 247, 222, 246, 39, 60, 144, 3, 126, 183, 208, 197, 207, 80, 228, 15, 218, 177, 206, 219, 0, 0, 0, 0, 0, 0, 0, 4, 91, 79, 253, 56, 152, 63, 243, 146, 178, 101, 220, 59, 0, 215, 209, 152, 245, 237, 204, 118, 246, 80, 236, 206, 174, 33, 172, 241, 118, 132, 36, 208, 106, 143, 223, 92, 102, 126, 60, 231, 13, 232, 238, 120, 7, 245, 9, 213, 161, 61, 161, 174, 129, 171, 106, 110, 4, 122, 20, 198, 72, 119, 161, 12, 175, 220, 218, 40, 41, 62, 209, 135, 254, 161, 249, 131, 245, 195, 145, 0, 70, 170, 101, 248, 152, 252, 191, 72, 76, 111, 146, 107, 78, 212, 30, 212, 238, 60, 247, 236, 20, 142, 224, 186, 91, 159, 49, 191, 132, 52, 195, 121, 233, 85, 189, 48, 96, 175, 234, 112, 97, 36, 242, 144, 202, 66, 198, 109, 84, 249, 0, 78, 63, 162, 52, 1, 3, 24, 135, 151, 21, 93, 15, 160, 24, 40, 169, 25, 45, 145, 153, 30, 141, 28, 140, 200, 240, 63, 98, 215, 193, 186, 178, 84, 53, 198, 123, 147, 181, 167, 60, 105, 11, 81, 83, 58, 61, 203, 244, 191, 1, 27, 193, 163, 100, 53, 77, 177, 194, 175, 73, 5, 203, 177, 255, 13, 4, 179, 160, 197, 194, 34, 84, 186, 123, 247, 222, 246, 39, 60, 144, 3, 126, 183, 208, 197, 207, 80, 228, 15, 218, 177, 206, 219, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 25, 222, 218, 238, 169, 232, 56, 230, 13, 183, 57, 66, 109, 127, 52, 37, 103, 213, 230, 6, 146, 183, 79, 92, 57, 134, 242, 175, 212, 247, 179, 156, 87, 113, 25, 89, 234, 196, 242, 52, 204, 84, 139, 223, 8, 38, 198, 13, 210, 197, 193, 159, 232, 175, 181, 172, 169, 164, 174, 44, 113, 186, 202, 1];
         let deserialized = Block::deserialize(&input);
         assert!(&deserialized.is_some());
         let block = deserialized.unwrap();
-        assert_eq!(&block.slot_id, &154220328);
-        assert_eq!(&block.baker_id, &3);
-        assert_eq!(&block.pointer,
-                   &vec![61, 187, 166, 54, 160, 207, 17, 196, 1, 20, 226, 192, 124, 63, 47, 212,
-                         116, 98, 227, 71, 183, 220, 24, 105, 202, 174, 83, 196, 132, 228, 118,
-                         43]);
-        assert_eq!(&block.proof,
-                   &vec![0, 237, 33, 62, 77, 99, 148, 79, 85, 137, 48, 44, 156, 100, 175, 51,
-                         186, 255, 163, 86, 128, 243, 13, 117, 168, 226, 64, 126, 242, 49, 227,
-                         115]);
-        assert_eq!(&block.nonce.hash,
-                   &vec![142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186, 255, 50, 14, 228,
-                         255, 163, 71, 60, 19, 43, 186, 241, 221, 100, 125, 56, 55, 28, 50, 21,
-                         90]);
-        assert_eq!(&block.nonce.proof,
-                   &vec![142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186, 255, 50, 14, 228,
-                         255, 163, 71, 60, 19, 43, 186, 241, 221, 100, 125, 56, 55, 28, 50, 21,
-                         90]);
-        assert_eq!(&block.last_finalized,
-                   &vec![61, 187, 166, 54, 160, 207, 17, 196, 1, 20, 226, 192, 124, 63, 47, 212,
-                         116, 98, 227, 71, 183, 220, 24, 105, 202, 174, 83, 196, 132, 228, 118,
-                         43]);
-        assert_eq!(&block.data, &vec![0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(&block.signature,
-                   &vec![10, 193, 40, 250, 207, 100, 88, 157, 126, 179, 127, 194, 212, 122, 35,
-                         34, 30, 116, 251, 115, 245, 53, 67, 254, 113, 127, 202, 83, 135, 130,
-                         208, 220]);
-    }
-
-    #[test]
-    pub fn serialization_serialize_block_000() {
-        let expected_out =
-            vec![0, 0, 0, 0, 9, 49, 55, 40, 0, 0, 0, 0, 0, 0, 0, 32, 61, 187, 166, 54, 160, 207,
-                 17, 196, 1, 20, 226, 192, 124, 63, 47, 212, 116, 98, 227, 71, 183, 220, 24, 105,
-                 202, 174, 83, 196, 132, 228, 118, 43, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,
-                 0, 32, 0, 237, 33, 62, 77, 99, 148, 79, 85, 137, 48, 44, 156, 100, 175, 51, 186,
-                 255, 163, 86, 128, 243, 13, 117, 168, 226, 64, 126, 242, 49, 227, 115, 0, 0, 0,
-                 0, 0, 0, 0, 32, 142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186, 255, 50, 14,
-                 228, 255, 163, 71, 60, 19, 43, 186, 241, 221, 100, 125, 56, 55, 28, 50, 21, 90,
-                 0, 0, 0, 0, 0, 0, 0, 32, 142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186, 255,
-                 50, 14, 228, 255, 163, 71, 60, 19, 43, 186, 241, 221, 100, 125, 56, 55, 28, 50,
-                 21, 90, 0, 0, 0, 0, 0, 0, 0, 32, 61, 187, 166, 54, 160, 207, 17, 196, 1, 20, 226,
-                 192, 124, 63, 47, 212, 116, 98, 227, 71, 183, 220, 24, 105, 202, 174, 83, 196,
-                 132, 228, 118, 43, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                 0, 0, 32, 10, 193, 40, 250, 207, 100, 88, 157, 126, 179, 127, 194, 212, 122, 35,
-                 34, 30, 116, 251, 115, 245, 53, 67, 254, 113, 127, 202, 83, 135, 130, 208, 220];
-        let block =
-            Block { slot_id: 154220328,
-                    baker_id: 3,
-                    pointer: vec![61, 187, 166, 54, 160, 207, 17, 196, 1, 20, 226, 192, 124,
-                                  63, 47, 212, 116, 98, 227, 71, 183, 220, 24, 105, 202, 174,
-                                  83, 196, 132, 228, 118, 43],
-                    proof: vec![0, 237, 33, 62, 77, 99, 148, 79, 85, 137, 48, 44, 156, 100,
-                                175, 51, 186, 255, 163, 86, 128, 243, 13, 117, 168, 226, 64,
-                                126, 242, 49, 227, 115],
-                    last_finalized: vec![61, 187, 166, 54, 160, 207, 17, 196, 1, 20, 226, 192,
-                                         124, 63, 47, 212, 116, 98, 227, 71, 183, 220, 24, 105,
-                                         202, 174, 83, 196, 132, 228, 118, 43],
-                    data: vec![0, 0, 0, 0, 0, 0, 0, 0],
-                    signature: vec![10, 193, 40, 250, 207, 100, 88, 157, 126, 179, 127, 194,
-                                    212, 122, 35, 34, 30, 116, 251, 115, 245, 53, 67, 254, 113,
-                                    127, 202, 83, 135, 130, 208, 220],
-                    nonce: Nonce::new(vec![142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186,
-                                           255, 50, 14, 228, 255, 163, 71, 60, 19, 43, 186,
-                                           241, 221, 100, 125, 56, 55, 28, 50, 21, 90],
-                                      vec![142, 136, 201, 55, 51, 69, 17, 166, 161, 211, 186,
-                                           255, 50, 14, 228, 255, 163, 71, 60, 19, 43, 186,
-                                           241, 221, 100, 125, 56, 55, 28, 50, 21, 90]), };
-        assert_eq!(expected_out, Block::serialize(&block).unwrap());
+        assert_eq!(&block.baker_id, &4);
     }
 
     macro_rules! bakers_test {
@@ -578,13 +460,15 @@ mod tests {
                     _ => panic!("Couldn't read haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);
+            
             for i in 0..$num_bakers {
                 &consensus_container.start_baker(i,
                                                  private_data.get(&(i as i64)).unwrap().to_vec());
             }
+
             for i in 0..$blocks_num {
                 match &consensus_container.out_queue()
-                                          .recv_timeout(Duration::from_millis(400_000))
+                                          .recv_timeout_block(Duration::from_millis(400_000))
                 {
                     Ok(msg) => {
                         &consensus_container.send_block(msg);
