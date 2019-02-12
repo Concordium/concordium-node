@@ -17,6 +17,8 @@ ENV OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 \
 
 # Build Environment: Hacl, ffi, Haskell,
 RUN \
+    chmod 600 /root/.ssh/id_rsa && \
+    chmod 644 /root/.ssh/id_rsa.pub && \
     ### Build Hacl
     git clone https://github.com/mitls/hacl-c && \
     cd hacl-c && \
