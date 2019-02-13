@@ -7,6 +7,8 @@ git clone https://github.com/libffi/libffi.git
 ( cd libffi && ./autogen.sh && ./configure && make -j8 && make install);
 rm -rf libffi
 
+(mkdir -p ~/.stack/global-project/ && cp scripts/stack.yaml ~/.stack/global-project/stack.yaml)
+
 curl -sSL https://get.haskellstack.org/ | sh
 ( cd consensus && stack build --ghc-options '-dynamic' --force-dirty &&
   cp .stack-work/install/x86_64-linux-tinfo6/lts-12.19/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.so /usr/local/lib &&
@@ -18,8 +20,6 @@ curl -sSL https://get.haskellstack.org/ | sh
   ls /usr/local/lib &&
   ls ~/.stack/programs/x86_64-linux/
   ) 
-
-(mkdir -p ~/.stack/global-project/ && cp scripts/stack.yaml ~/.stack/global-project/stack.yaml)
 
 (cp -R consensus/workdir .)
 
