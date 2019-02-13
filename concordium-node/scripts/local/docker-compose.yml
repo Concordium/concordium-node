@@ -14,10 +14,10 @@ services:
         entrypoint:
             - /build-project/baker_id_gen
        
-    node:
+    baker:
         image: concordium/common:latest
         depends_on:
-            - bootstrapper
+            - testrunner
             - baker_id_gen
         entrypoint:
             - /build-project/start-node.sh
@@ -27,7 +27,7 @@ services:
             - DESIRED_PEERS=10
             - BOOTSTRAP_NODE=bootstrapper:8888
             - EXTERNAL_PORT=8888
-            - NUM_BAKERS=10
+            - NUM_BAKERS=${NUM_BAKERS}
 
     testrunner:
         image: concordium/common:latest
@@ -37,7 +37,7 @@ services:
             - /build-project/start-testrunner.sh
         environment:
             - BOOTSTRAP_NODE=bootstrapper:8888
-            - DESIRED_PEERS=20
+            - DESIRED_PEERS=${NUM_BAKERS}
             - EXTERNAL_PORT=8888
             - RUST_BACKTRACE=1
             - RUST_LOG=debug

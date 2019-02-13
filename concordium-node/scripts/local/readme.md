@@ -52,12 +52,14 @@ $> docker-compose build --no-cache
 
 ## Run with N baker nodes 
 
-Use `--scale` argument to increase number of nodes for a specific service. As
-example, to run it using 4 baker nodes:
+Use `--scale` argument and (`NUM_BAKERS` environment variable  to increase 
+number of bakers for a specific service. As example, to run it using 4 baker nodes:
 
 ```bash
-$> docker-compose up --scale node=4
+$> NUM_BAKERS=4 docker-compose up --scale baker=4
 ```
+*NOTE:* It is crucial than environment variable `NUM_BAKERS` *will be equal to number
+of scaled bakers*.
 
 In order to *stop* and *remove* containers, networks, volumes, etc., you have to
 use:

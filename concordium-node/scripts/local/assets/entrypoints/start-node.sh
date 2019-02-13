@@ -7,6 +7,7 @@ echo "Using BAKER_ID $BAKER_ID"
     --private-node \
     --debug \
     --no-dnssec \
+    --testrunner-url http://testrunner:8950 \
     --desired-nodes $DESIRED_PEERS \
     --external-port $EXTERNAL_PORT \
     --bootstrap-node $BOOTSTRAP_NODE \
