@@ -139,6 +139,13 @@ decodeCheckMessage com hdr bs = do
     guard $ checkMessageSignature com msg
     return msg
 
+
+ancestorAtHeight :: BlockHeight -> BlockPointer -> BlockPointer
+ancestorAtHeight h bp
+    | h == bpHeight bp = bp
+    | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
+    | otherwise = error "ancestorAtHeight: block is below required height"
+
 {-
 encodeFinalizationMessage :: FinalizationMessage -> BS.ByteString
 encodeFinalizationMessage FinalizationMessage{..} = S.runPut $ do
@@ -215,11 +222,8 @@ tryNominateBlock = do
             h <- use finHeight
             lastFin <- lastFinalizedBlock
             bBlock <- bestBlock
-            when (bpHeight bBlock >= h + roundDelta && bpLastFinalized bBlock == lastFin) $ do
-                let findAtHeight bp
-                        | bpHeight bp == h = bp
-                        | otherwise = findAtHeight (bpParent bp)
-                    nomBlock = bpHash $ findAtHeight bBlock
+            when (bpHeight bBlock >= h + roundDelta) $ do
+                let nomBlock = bpHash $ ancestorAtHeight h bBlock
                 finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
@@ -241,7 +245,8 @@ newRound newDelta me = do
             roundMe = me,
             roundWMVBA = initialWMVBAState
         }
-        justifiedInputs <- getBlocksAtHeight =<< use finHeight
+        h <- use finHeight
+        justifiedInputs <- fmap (ancestorAtHeight h) <$> getBlocksAtHeight (h + newDelta)
         finIx <- use finIndex
         pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <<.= []
         committee <- use finCommittee
@@ -336,8 +341,8 @@ notifyBlockArrival :: (MonadState s m, FinalizationStateLenses s, MonadReader Fi
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
-        when (bpHeight b == _finsHeight) $
-            liftWMVBA $ justifyWMVBAInput (bpHash b)
+        when (bpHeight b == _finsHeight + roundDelta) $
+            liftWMVBA $ justifyWMVBAInput (bpHash (ancestorAtHeight _finsHeight b))
         tryNominateBlock
 
 
@@ -359,7 +364,7 @@ notifyBlockFinalized FinalizationRecord{..} bp = do
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
         -- TODO: The next finalization height is tweaked from the specification to give better
         -- finalization lag.  This needs to be brought in line eventually.
-        finHeight .= bpHeight bp + finalizationDelay + ((bpHeight bp - bpHeight (bpLastFinalized bp) - 1) `div` 2)
+        finHeight .= bpHeight bp + ((bpHeight bp - bpHeight (bpLastFinalized bp) + 1) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
