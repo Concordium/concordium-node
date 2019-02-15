@@ -134,7 +134,7 @@ mod tests {
                                          false);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(), 4);
             }
             Err(e) => panic!("{}", e),
         }
@@ -171,7 +171,7 @@ mod tests {
                                          false);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(), 4);
             }
             Err(e) => panic!("{}", e),
         }
@@ -197,7 +197,7 @@ mod tests {
                                          false);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(), 4);
             }
             Err(e) => panic!("{}", e),
         }
@@ -221,7 +221,7 @@ mod tests {
                                          false);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(), 4);
             }
             Err(e) => panic!("{}", e),
         }
@@ -246,7 +246,7 @@ mod tests {
                                          false);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(), 4);
             }
             Err(e) => panic!("{}", e),
         }
@@ -260,7 +260,7 @@ mod tests {
                                          false);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(), 4);
             }
             Err(e) => panic!("{}", e),
         }
@@ -306,7 +306,7 @@ mod tests {
                                          true);
         match res {
             Ok(ref resps) => {
-                assert_eq!(resps.len(), 3);
+                assert_eq!(resps.len(),4);
             }
             Err(e) => panic!("{}", e),
         }

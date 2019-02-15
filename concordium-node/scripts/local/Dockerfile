@@ -2,7 +2,7 @@ FROM archlinux/base
  
 RUN pacman -Sy &&\
     pacman -Syyu --noconfirm && \
-    pacman -S protobuf openssl-1.0 cmake go clang git libtool rustup make \
+    pacman -S protobuf cmake go clang git libtool rustup make \
         m4 pkgconf openssl autoconf automake ldns file which boost zstd patch \
         libunwind libdwarf elfutils unbound openssh dos2unix --noconfirm && \
     pacman -Scc --noconfirm
@@ -10,9 +10,7 @@ RUN pacman -Sy &&\
 ADD assets/build-project/ /build-project/
 WORKDIR /build-project
 
-ENV OPENSSL_LIB_DIR=/usr/lib/openssl-1.0 \
-    OPENSSL_INCLUDE_DIR=/usr/include/openssl-1.0 \
-    LD_LIBRARY_PATH=/usr/local/lib:/root/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4/lib/ghc-8.4.4/rts
+ENV LD_LIBRARY_PATH=/usr/local/lib:/root/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4/lib/ghc-8.4.4/rts
 
 # Build Environment: Hacl, ffi, Haskell,
 RUN \

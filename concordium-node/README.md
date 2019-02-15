@@ -10,7 +10,7 @@ Proceed as normally with git
 
 ## Dependencies to build the project
 * Rust (nightly)
-* openssl >= 1.0.1 and <= 1.1.0i
+* openssl >= 1.0.1
 * cmake
 * go >=1.10
 * protobuf >= 3.5.1
