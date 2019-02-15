@@ -1,6 +1,7 @@
 use common;
 use common::{ConnectionType, P2PNodeId};
 use rusqlite::Connection;
+use rusqlite::types::ToSql;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -50,7 +51,7 @@ impl P2PDB {
                 let res = conn_mut.prepare("SELECT id, ip, port FROM bans");
                 match res {
                     Ok(mut x) => {
-                        match x.query_map(&[], |row| {
+                        match x.query_map(&[] as &[&ToSql], |row| {
                                    P2PPeer { id: row.get(0),
                                              ip: row.get(1),
                                              port: row.get(2), }
@@ -90,7 +91,7 @@ impl P2PDB {
             Some(ref conn) => {
                 let conn_mut = conn.lock().unwrap();
                 match conn_mut.execute("CREATE TABLE bans(id VARCHAR, ip VARCHAR, port INTEGER)",
-                                       &[])
+                                       &[] as &[&ToSql])
                 {
                     Ok(mut _x) => {}
                     Err(e) => {
@@ -107,7 +108,7 @@ impl P2PDB {
             Some(ref conn) => {
                 let conn_mut = conn.lock().unwrap();
                 match conn_mut.execute("INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)",
-                                       &[&id, &ip, &port])
+                                       &[&id, &ip, &port as &ToSql]  )
                 {
                     Ok(updated) => {
                         if updated > 0 {
@@ -131,7 +132,7 @@ impl P2PDB {
             Some(ref conn) => {
                 let conn_mut = conn.lock().unwrap();
                 match conn_mut.execute("DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?",
-                                       &[&id, &ip, &port])
+                                       &[&id, &ip, &port as &ToSql])
                 {
                     Ok(updated) => {
                         if updated > 0 {

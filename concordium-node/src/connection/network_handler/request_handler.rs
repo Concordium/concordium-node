@@ -121,11 +121,11 @@ mod request_handler_test {
 
     use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };
-    use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT };
+    use std::sync::atomic::{ AtomicUsize, Ordering };
 
-    static PING_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-    static FIND_NODE_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-    static BAN_NODE_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+    static PING_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static FIND_NODE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static BAN_NODE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     fn make_request_handler() -> RequestHandler {
         let mut handler = RequestHandler::new();

@@ -20,13 +20,13 @@ mod tests {
     use p2p_client::errors::*;
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex, Once, ONCE_INIT};
-    use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+    use std::sync::atomic::{ AtomicUsize, Ordering};
     use std::cell::{ RefCell };
     use std::{thread, time};
     use rand::{ Rng };
 
     static INIT: Once = ONCE_INIT;
-    static PORT_OFFSET: AtomicUsize = ATOMIC_USIZE_INIT;
+    static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
     static PORT_START: u16 = 8888;
 
     #[derive(Debug, Clone)]

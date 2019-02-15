@@ -159,13 +159,13 @@ mod integration_test {
 
     use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };
-    use std::sync::atomic::{ AtomicUsize, Ordering, ATOMIC_USIZE_INIT };
+    use std::sync::atomic::{ AtomicUsize, Ordering };
 
-    static NETWORK_REQUEST_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-    static NETWORK_RESPONSE_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-    static NETWORK_PACKET_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-    static NETWORK_PACKET_DIRECT_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-    static NETWORK_PACKET_BROADCAST_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
+    static NETWORK_REQUEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static NETWORK_RESPONSE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static NETWORK_PACKET_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static NETWORK_PACKET_DIRECT_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    static NETWORK_PACKET_BROADCAST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     // Test data for `on_network_request_handler`.
     pub fn network_request_handler_data() -> Vec<NetworkMessage> {
