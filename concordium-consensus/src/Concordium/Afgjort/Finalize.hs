@@ -220,7 +220,6 @@ tryNominateBlock = do
     forM_ currRound $ \r@FinalizationRound{..} -> 
         when (isNothing roundInput) $ do
             h <- use finHeight
-            lastFin <- lastFinalizedBlock
             bBlock <- bestBlock
             when (bpHeight bBlock >= h + roundDelta) $ do
                 let nomBlock = bpHash $ ancestorAtHeight h bBlock
