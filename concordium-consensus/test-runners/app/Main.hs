@@ -9,6 +9,7 @@ import System.Random
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
+import System.IO
 
 import Data.String
 
@@ -40,7 +41,7 @@ transactions gen = trs 0 (randoms gen)
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (500000, 1500000)
+        r <- randomRIO (5000000, 15000000)
         threadDelay r
         sendTransactions chan ts
 
@@ -118,6 +119,7 @@ main = do
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
+                    hFlush stdout
                     loop (Map.insert bh gs' gsMap)
                 Right fr -> do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
