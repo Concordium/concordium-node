@@ -104,4 +104,5 @@ tests:
     - QuickCheck >= 2.10
     - hspec-expectations >= 0.8
     - vector >= 0.12
+    - math-functions >= 0.2
 

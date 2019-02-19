@@ -36,6 +36,15 @@ data WMVBAMessage val party
     | WMVBAABBAMessage (ABBAMessage party)
     | WMVBAWitnessCreatorMessage val
 
+instance (Show val, Show party) => Show (WMVBAMessage val party) where
+    show (WMVBAFreezeMessage (Proposal val)) = "Propose " ++ show val
+    show (WMVBAFreezeMessage (Vote v)) = "Vote " ++ show v
+    show (WMVBAABBAMessage (Justified phase b ticket)) = "Justified@" ++ show phase ++ ": " ++ show b
+    show (WMVBAABBAMessage (CSSSeen phase party b)) = "Seen@" ++ show phase ++ ": " ++ show party ++ "->" ++ show b
+    show (WMVBAABBAMessage (CSSDoneReporting phase choices)) = "DoneReporting@" ++ show phase
+    show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
+    show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
+
 putWMVBAMessage :: Putter val -> Putter party -> Putter (WMVBAMessage val party)
 putWMVBAMessage putVal putParty = enc
     where
