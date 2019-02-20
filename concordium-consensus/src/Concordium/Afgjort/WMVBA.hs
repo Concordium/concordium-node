@@ -6,7 +6,7 @@ module Concordium.Afgjort.WMVBA (
     WMVBAState,
     initialWMVBAState,
     WMVBAInstance(WMVBAInstance),
-    WMVBAMonad,
+    WMVBAMonad(..),
     WMVBAOutputEvent(..),
     WMVBA,
     runWMVBA,
@@ -39,9 +39,9 @@ data WMVBAMessage val party
 instance (Show val, Show party) => Show (WMVBAMessage val party) where
     show (WMVBAFreezeMessage (Proposal val)) = "Propose " ++ show val
     show (WMVBAFreezeMessage (Vote v)) = "Vote " ++ show v
-    show (WMVBAABBAMessage (Justified phase b ticket)) = "Justified@" ++ show phase ++ ": " ++ show b
+    show (WMVBAABBAMessage (Justified phase b _ticket)) = "Justified@" ++ show phase ++ ": " ++ show b
     show (WMVBAABBAMessage (CSSSeen phase party b)) = "Seen@" ++ show phase ++ ": " ++ show party ++ "->" ++ show b
-    show (WMVBAABBAMessage (CSSDoneReporting phase choices)) = "DoneReporting@" ++ show phase
+    show (WMVBAABBAMessage (CSSDoneReporting phase _choices)) = "DoneReporting@" ++ show phase
     show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
     show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
 
@@ -124,8 +124,8 @@ data WMVBAInstance val party sig = WMVBAInstance {
 toFreezeInstance :: WMVBAInstance val party sig -> FreezeInstance party
 toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ me _) = FreezeInstance totalWeight corruptWeight partyWeight me
 
-toABBAInstance :: (ABBAMonad party m, Ord party) => WMVBAInstance val party sig -> ABBAInstance party m
-toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey) = newABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
+toABBAInstance :: WMVBAInstance val party sig -> ABBAInstance party
+toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey) = ABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
 
 class (MonadState (WMVBAState val party sig) m, MonadReader (WMVBAInstance val party sig) m) => WMVBAMonad val party sig m where
     sendWMVBAMessage :: WMVBAMessage val party -> m ()
@@ -170,12 +170,10 @@ liftFreeze a = do
             sendWMVBAMessage (WMVBAFreezeMessage msg)
             handleEvents r
         handleEvents (Frozen c : r) = do
-            inst <- ask
-            liftABBA (beginABBA (toABBAInstance inst) (isJust c))
+            liftABBA (beginABBA (isJust c))
             handleEvents r
         handleEvents (DecisionJustified c : r) = do
-            inst <- ask
-            liftABBA (justifyABBAChoice (toABBAInstance inst) (isJust c))
+            liftABBA (justifyABBAChoice (isJust c))
             forM_ c $ \v ->
                 use justifiedDecision >>= \case
                     OSAwaiting -> justifiedDecision .= OSFrozen v
@@ -187,8 +185,9 @@ liftFreeze a = do
 
 liftABBA :: (WMVBAMonad val party sig m) => ABBA party a -> m a
 liftABBA a = do
+        aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
-        let (r, aBBAState', evs) = runABBA a aBBAState
+        let (r, aBBAState', evs) = runABBA a aBBAInstance aBBAState
         abbaState .= aBBAState'
         handleEvents evs
         return r
@@ -217,8 +216,7 @@ justifyWMVBAInput val = liftFreeze $ justifyCandidate val
 receiveWMVBAMessage :: (WMVBAMonad val party sig m, Ord val, Ord party, Eq sig) => party -> sig -> WMVBAMessage val party -> m ()
 receiveWMVBAMessage src _ (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg
 receiveWMVBAMessage src _ (WMVBAABBAMessage msg) = do
-        inst <- toABBAInstance <$> ask
-        liftABBA $ receiveABBAMessage inst src msg
+        liftABBA $ receiveABBAMessage src msg
 receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
         WMVBAInstance{..} <- ask
         (wt, m) <- use (justifications . at v . non (0, Map.empty))

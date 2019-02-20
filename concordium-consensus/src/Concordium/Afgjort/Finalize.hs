@@ -146,18 +146,6 @@ ancestorAtHeight h bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
     | otherwise = error "ancestorAtHeight: block is below required height"
 
-{-
-encodeFinalizationMessage :: FinalizationMessage -> BS.ByteString
-encodeFinalizationMessage FinalizationMessage{..} = S.runPut $ do
-    S.put (fsidGenesis msgSessionId)
-    S.putWord64be (fsidIncarnation msgSessionId)
-    S.put msgFinalizationIndex
-    S.put msgDelta
-    S.put msgSender
-    S.put msgData
-    S.put msgSignature
--}
-
 data FinalizationState = FinalizationState {
     _finsSessionId :: FinalizationSessionId,
     _finsIndex :: FinalizationIndex,

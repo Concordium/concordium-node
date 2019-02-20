@@ -110,7 +110,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                 let a = case inp of
                             JustifyChoice c -> justifyChoice c
                             ReceiveCSSMessage p msg -> receiveCSSMessage p msg
-                let (_, s', out) = runCSS a (sts Vec.! rcpt)
+                let (_, s', out) = runCSS a cssInst (sts Vec.! rcpt)
                 {-return $ counterexample (show rcpt ++ ": " ++ show inp) $ -}
                 case invariantCSSState allparties corruptWeight (const 1) s' of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
@@ -122,7 +122,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                             go hist' (msgs'' <> msgs') sts' (cores & ix rcpt %~ (<> core'))
         fromOut src (SendCSSMessage msg) = (Seq.fromList [(i,ReceiveCSSMessage src msg)|i <- parties], mempty)
         fromOut _ (SelectCoreSet theCore) = (mempty, First (Just theCore))
-        CSSInstance{..} = newCSSInstance allparties corruptWeight (const 1)
+        cssInst = CSSInstance allparties corruptWeight (const 1)
         parties = [0..nparties-1]
 
 multiCSSTest :: Int -> Gen Property
