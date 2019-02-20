@@ -17,7 +17,7 @@ if [ "$MODE" == "tps_receiver" ]; then
     --enable-tps-test-recv \
     --listen-port $LISTEN_PORT \
     --num-bakers $NUM_BAKERS \
-    --baker-id $(echo $BAKER_ID | cut -d'-' -f2) \
+    --baker-id 0 \
     --prometheus-server $PROMETHEUS_METRICS_SERVER \
     --prometheus-listen-port $PROMETHEUS_METRICS_PORT \
     --prometheus-listen-addr $PROMETHEUS_METRICS_IP \
@@ -53,7 +53,7 @@ elif [ "$MODE" == "tps_sender" ]; then
     --tps-test-data-dir $DATA_DIR/tps_test \
     --listen-port $LISTEN_PORT \
     --num-bakers $NUM_BAKERS \
-    --baker-id $(echo $BAKER_ID | cut -d'-' -f2) \
+    --baker-id 1 \
     --prometheus-server $PROMETHEUS_METRICS_SERVER \
     --prometheus-listen-port $PROMETHEUS_METRICS_PORT \
     --prometheus-listen-addr $PROMETHEUS_METRICS_IP \
