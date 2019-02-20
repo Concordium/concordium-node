@@ -32,10 +32,10 @@ elif [ "$MODE" == "tps_sender" ]; then
     # Create dirs
     mkdir -p $CONFIG_DIR
     mkdir -p $DATA_DIR
-    mkdir -p $DATA_DIR/tps_test/
+    mkdir -p $DATA_DIR/tps_test
 
     echo "Generating data\n"
-    cd $DATA_DIR/tps_test/
+    cd $DATA_DIR/tps_test
 
     for i in `seq 0 999`;
     do
