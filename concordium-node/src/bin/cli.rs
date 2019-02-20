@@ -601,23 +601,25 @@ fn run() -> ResultExtWrapper<()> {
         let mut _node_ref = node.clone();
         let _network_id = conf.network_ids.first().unwrap().clone();
         thread::spawn(move || {
-            let test_messages = utils::get_tps_test_messages(_dir_clone);
-            for message in test_messages {
-                let mut out_bytes = vec![];
-                out_bytes.extend(message);
-                match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
-                                            _network_id,
-                                            None,
-                                            &out_bytes,
-                                            false) {
-                                                  Ok(_) => {
-                                                      info!("Sent TPS test bytes of len {}",
-                                                            out_bytes.len());
-                                                  }
-                                                  Err(_) => {
-                                                      error!("Couldn't broadcast block!")
-                                                  }
-                                            }
+            loop {
+                let test_messages = utils::get_tps_test_messages(_dir_clone);
+                for message in test_messages {
+                    let mut out_bytes = vec![];
+                    out_bytes.extend(message);
+                    match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
+                                                _network_id,
+                                                None,
+                                                &out_bytes,
+                                                false) {
+                                                    Ok(_) => {
+                                                        info!("Sent TPS test bytes of len {}",
+                                                                out_bytes.len());
+                                                    }
+                                                    Err(_) => {
+                                                        error!("Couldn't broadcast block!")
+                                                    }
+                                                }
+                }
             }
         });
     }
