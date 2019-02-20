@@ -602,7 +602,7 @@ fn run() -> ResultExtWrapper<()> {
         let _network_id = conf.network_ids.first().unwrap().clone();
         thread::spawn(move || {
             loop {
-                let test_messages = utils::get_tps_test_messages(_dir_clone);
+                let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                 for message in test_messages {
                     let mut out_bytes = vec![];
                     out_bytes.extend(message);
