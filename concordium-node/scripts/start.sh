@@ -59,7 +59,7 @@ elif [ "$MODE" == "tps_sender" ]; then
     --prometheus-listen-addr $PROMETHEUS_METRICS_IP \
     --override-config-dir $CONFIG_DIR \
     --override-data-dir $DATA_DIR \
-    --connect-to 10.96.0.15 \
+    --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
     $EXTRA_ARGS
     # cron -f
