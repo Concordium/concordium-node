@@ -47,11 +47,11 @@ update model msg =
       ( { model | counter = model.counter - 1 }, {-txNone-} Nothing )
 
 exec modelStr maybeMsgStr =
-  let msgIn =
-        case maybeMsgStr of
-          Just "Increment" -> Just Increment
-          Just "Decrement" -> Just Decrement
-          _ -> Nothing -- we just map errors together with the intentional no message case for now, but that will need to change later
+  let msgIn = Just Increment
+--        case maybeMsgStr of
+--          Just "Increment" -> Just Increment
+--          Just "Decrement" -> Just Decrement
+--          _ -> Nothing -- we just map errors together with the intentional no message case for now, but that will need to change later
       modelIn =
         case String.toInt modelStr of
           Just x -> { counter = x }

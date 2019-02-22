@@ -4,7 +4,7 @@ import           Data.ByteString.Builder
 import qualified Data.ByteString.Lazy          as L
 import           Data.ByteString
 
-import qualified Concordium.Crypto.DummyVRF    as VRF
+import qualified Concordium.Crypto.VRF    as VRF
 import           Concordium.Types
 
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double
@@ -25,14 +25,14 @@ leaderElection
   -> BakerElectionPrivateKey
   -> LotteryPower
   -> Maybe BlockProof
-leaderElection nonce diff slot privKey lotPow = if won
+leaderElection nonce diff slot key lotPow = if won
   then Just proof
   else Nothing
  where
   msg   = leaderElectionMessage nonce slot
-  hsh   = VRF.hash privKey msg
+  hsh   = VRF.proofToHash proof
   won   = VRF.hashToDouble hsh < electionProbability lotPow diff
-  proof = VRF.prove privKey msg
+  proof = VRF.prove key msg
 
 verifyProof
   :: LeadershipElectionNonce
@@ -63,9 +63,10 @@ blockNonceMessage nonce (Slot slot) =
 
 computeBlockNonce
   :: LeadershipElectionNonce -> Slot -> BakerElectionPrivateKey -> BlockNonce
-computeBlockNonce nonce slot privKey =
-  (VRF.hash privKey msg, VRF.prove privKey msg)
+computeBlockNonce nonce slot key =
+  (VRF.proofToHash proof, proof)
   where msg = blockNonceMessage nonce slot
+        proof = VRF.prove key msg
 
 verifyBlockNonce
   :: LeadershipElectionNonce

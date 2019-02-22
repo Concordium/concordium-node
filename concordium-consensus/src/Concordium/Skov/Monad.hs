@@ -3,11 +3,12 @@ module Concordium.Skov.Monad where
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import Control.Monad.IO.Class
 import Data.Maybe
 
 import Concordium.Types
 
-class Monad m => SkovMonad m where
+class (Monad m, MonadIO m) => SkovMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe BlockPointer)
     -- |Store a block in the block table and add it to the tree
@@ -21,7 +22,7 @@ class Monad m => SkovMonad m where
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block
     lastFinalizedBlock :: m BlockPointer
-    genesisData :: m GenesisData
+    getGenesisData :: m GenesisData
     genesisBlock :: m BlockPointer
     -- |Get the height of the highest blocks in the tree.
     -- Note: the genesis block has height 0
@@ -30,6 +31,8 @@ class Monad m => SkovMonad m where
     -- That is the first element of the list is all of the blocks at 'getCurrentHeight',
     -- the next is those at @getCurrentHeight - 1@, etc.
     branchesFromTop :: m [[BlockPointer]]
+    -- |Get a list of all the blocks at a given height in the tree.
+    getBlocksAtHeight :: BlockHeight -> m [BlockPointer]
 
 instance SkovMonad m => SkovMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock
@@ -37,16 +40,17 @@ instance SkovMonad m => SkovMonad (MaybeT m) where
     finalizeBlock = lift . finalizeBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
-    genesisData = lift genesisData
+    getGenesisData = lift getGenesisData
     genesisBlock = lift genesisBlock
     getCurrentHeight = lift getCurrentHeight
     branchesFromTop = lift branchesFromTop
+    getBlocksAtHeight = lift . getBlocksAtHeight
 
 getBirkParameters :: (SkovMonad m) => Slot -> m BirkParameters
-getBirkParameters _ = genesisBirkParameters <$> genesisData
+getBirkParameters _ = genesisBirkParameters <$> getGenesisData
 
 getGenesisTime :: (SkovMonad m) => m Timestamp
-getGenesisTime = genesisTime <$> genesisData
+getGenesisTime = genesisTime <$> getGenesisData
 
 getFinalizationParameters :: (SkovMonad m) => m FinalizationParameters
-getFinalizationParameters = genesisFinalizationParameters <$> genesisData
+getFinalizationParameters = genesisFinalizationParameters <$> getGenesisData
