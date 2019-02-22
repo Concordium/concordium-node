@@ -39,7 +39,7 @@ dependencies:
 - base16-bytestring
 - aeson >= 1.3
 - text >= 1.2
-- monadplus
+- acorn
 
 library:
   source-dirs: src

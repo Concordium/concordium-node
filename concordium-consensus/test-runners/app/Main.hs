@@ -24,26 +24,27 @@ import Concordium.Show
 import Data.Map(Map)
 import qualified Data.Map as Map
 
+import qualified Data.HashMap.Strict as HashMap
+
 import Data.List(intercalate)
 
-import Init(update)
-import Interpreter(lState, instances)
-import Scheduler(BlockResult(BlockSuccess))
+import Acorn.Utils.Init(update)
+import Acorn.Types(lState, instances, BlockResult(..), instances)
 
 import Data.Maybe(fromJust)
+
+nAccounts = 2
 
 transactions :: StdGen -> [Transaction]
 transactions gen = trs 0 (randoms gen)
     where
-        trs n (a : b : c : d : f : g : rs) = let (meta, payload) = update f (g `mod` 10)
+        trs n (a : b : c : d : f : g : rs) = let (meta, payload) = update f (g `mod` fromIntegral nAccounts)
                                              in (Transaction (TransactionNonce a b c d) meta payload) : trs (n+1) rs
-        mkSender n = BS.pack $ "Sender: " ++ show n
-        mkAddress n = BS.pack $ show (n `mod` 2)
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (5000000, 15000000)
+        r <- randomRIO (50, 150)
         threadDelay r
         sendTransactions chan ts
 
@@ -90,7 +91,7 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re l [] = []
 
-gsToString gs = let keys = map (\n -> (n, lState $ fromJust (Map.lookup ("Tid-" ++ show n) (instances gs)))) $ enumFromTo 0 9
+gsToString gs = let keys = map (\n -> (n, lState $ fromJust (HashMap.lookup (fromString ("Tid-" ++ show n)) (instances gs)))) $ enumFromTo 0 (nAccounts-1)
                 in intercalate "\\l" . map show $ keys
 
 main :: IO ()
@@ -99,7 +100,7 @@ main = do
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
-    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.1
+    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
@@ -111,14 +112,14 @@ main = do
         return (cin, cout, out)) bis
     monitorChan <- newChan
     mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
-    let iState = initState 2
+    let iState = initState nAccounts
     let loop gsMap = do
             readChan monitorChan >>= \case
                 Left block -> do
                     let bh = hashBlock block
                     let (Just ts) = (toTransactions (blockData block))
                     let gs = Map.findWithDefault iState (blockPointer block) gsMap
-                    Right (_, gs') <- executeBlock gs ts
+                    let BlockSuccess _ gs' = executeBlockForState ts gs
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"

@@ -18,6 +18,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 
+import qualified Acorn.Types as ATypes
+
 import Concordium.Payload.Transaction
 import Concordium.Payload.Monad
 import Concordium.Types
@@ -25,8 +27,6 @@ import Concordium.Skov.Monad
 import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Afgjort.Finalize
-
-import qualified Scheduler as Sch
 
 data BlockStatus =
     BlockAlive !BlockPointer
@@ -315,9 +315,9 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
                     let height = bpHeight parentP + 1
                     ts <- MaybeT $ pure $ toTransactions (blockData block)
-                    executeBlock (bpState parentP) ts >>= \case
-                        Left _ -> mzero -- Execution failed
-                        Right (_, gs) -> do
+                    case executeBlockForState ts (bpState parentP) of
+                        ATypes.BlockInvalid _ -> mzero -- Execution failed
+                        ATypes.BlockSuccess _ gs -> do
                             let blockP = BlockPointer {
                                 bpHash = cbp,
                                 bpBlock = block,

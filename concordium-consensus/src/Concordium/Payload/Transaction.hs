@@ -13,6 +13,9 @@ import Data.Hashable
 import Data.Bits
 import Numeric
 
+import Data.Foldable(toList)
+import qualified Data.Sequence as Seq
+
 import Data.Map(Map)
 import qualified Data.Map as Map
 
@@ -21,10 +24,10 @@ import Control.Monad.IO.Class
 
 import Data.String(fromString)
 
-import Scheduler(Metadata, Payload)
-import qualified Interpreter as I
-import qualified Init
-import qualified Scheduler as Sch
+import Acorn.Types(Metadata, Payload, Message(..))
+import qualified Acorn.Types as Types
+import qualified Acorn.Utils.Init as Init
+import qualified Acorn.Scheduler as Sch
 
 data TransactionNonce = TransactionNonce !Word64 !Word64 !Word64 !Word64
     deriving (Eq, Ord, Generic)
@@ -45,7 +48,9 @@ data Transaction = Transaction {
     transactionPayload :: !Payload
 } deriving (Generic)
 
-instance Sch.Message Transaction where
+type GlobalState = Types.GlobalState
+
+instance Message Transaction where
   getMeta = transactionMetadata
   getPayload = transactionPayload
 
@@ -59,16 +64,14 @@ toTransactions bs = case decode bs of
         Left _ -> Nothing
         Right r -> Just r
 
-fromTransactions :: [Transaction] -> ByteString
-fromTransactions = encode
+fromTransactions :: Seq.Seq Transaction -> ByteString
+fromTransactions = encode . toList
 
-executeBlock :: [Transaction] -> GlobalState -> Sch.BlockResult Sch.FailureKind ([Sch.TxCommit [Sch.Event]]) GlobalState
-executeBlock = Sch.handleBlock
+executeBlockForState :: [Transaction] -> Types.GlobalState -> Types.BlockResult Types.FailureKind () Types.GlobalState
+executeBlockForState = Sch.handleBlockOnlyState
 
-makeBlock :: [Transaction] -> GlobalState -> ([(Transaction, Sch.TxCommit [Sch.Event])], GlobalState, [(Transaction, Sch.FailureKind)])
+makeBlock :: [Transaction] -> Types.GlobalState -> (Seq.Seq ((Transaction, Types.TxCommit [Types.Event])), Types.GlobalState, Seq.Seq (Transaction, Types.FailureKind))
 makeBlock = Sch.makeValidBlock 
 
+initState :: Int -> Types.GlobalState
 initState = Init.initialState
-
-type GlobalState = I.GlobalState
-
