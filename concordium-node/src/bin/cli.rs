@@ -439,6 +439,7 @@ fn run() -> ResultExtWrapper<()> {
     let _dns_resolvers = dns_resolvers.clone();
     let _bootstrap_node = conf.bootstrap_node.clone();
     let _nids = conf.network_ids.clone();
+    let _no_boostrap_dns = conf.no_boostrap_dns.clone();
     let mut _node_ref_guard_timer = node.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
@@ -458,24 +459,28 @@ fn run() -> ResultExtWrapper<()> {
                     }
                     if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
                         if x.len() == 0 {
-                            info!("No nodes at all - retrying bootstrapping");
-                            match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
-                                                             &_dns_resolvers,
-                                                             _dnssec,
-                                                             _bootstrap_node.clone())
-                            {
-                                Ok(nodes) => {
-                                    for (ip, port) in nodes {
-                                        info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                        _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
-                                                                      ip,
-                                                                      port,
-                                                                      None)
-                                                             .map_err(|e| info!("{}", e))
-                                                             .ok();
+                            if !_no_boostrap_dns {
+                                info!("No nodes at all - retrying bootstrapping");
+                                match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
+                                                                &_dns_resolvers,
+                                                                _dnssec,
+                                                                _bootstrap_node.clone())
+                                {
+                                    Ok(nodes) => {
+                                        for (ip, port) in nodes {
+                                            info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                                            _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
+                                                                        ip,
+                                                                        port,
+                                                                        None)
+                                                                .map_err(|e| info!("{}", e))
+                                                                .ok();
+                                        }
                                     }
+                                    _ => error!("Can't find any bootstrap nodes - check DNS!"),
                                 }
-                                _ => error!("Can't find any bootstrap nodes - check DNS!"),
+                            } else {
+                                info!("No nodes at all - Not retrying bootstrapping using DNS since --no-bootstrap is specified");
                             }
                         } else {
                             info!("Not enough nodes, sending GetPeers requests");
