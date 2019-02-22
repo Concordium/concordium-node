@@ -1,6 +1,7 @@
-[submodule "oak-compiler"]
-	path = oak-compiler
-	url = git@gitlab.com:Concordium/oak/oak-compiler.git
 [submodule "crypto"]
 	path = crypto
 	url = git@gitlab.com:Concordium/crypto.git
+[submodule "acorn"]
+	path = acorn
+	url = git@gitlab.com:Concordium/oak/acorn.git
+	branch = experiments
