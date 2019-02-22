@@ -257,6 +257,7 @@ fn run() -> ResultExtWrapper<()> {
     let mut _baker_pkt_clone = baker.clone();
     let _tps_test_enabled = conf.enable_tps_test;
     let mut stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
+    let mut msg_count = 0;
     let _guard_pkt = thread::spawn(move || {
                                        fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
                                                             msg: &[u8])
@@ -305,7 +306,12 @@ fn run() -> ResultExtWrapper<()> {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
                                                    if _tps_test_enabled {
                                                        stats_engine.add_stat(msg.len() as u64);
-                                                       info!("Current TPS: {}", stats_engine.calculate_total_tps_average());
+                                                       msg_count += 1;
+
+                                                       if msg_count > 49 {
+                                                           info!("Current TPS: {}", stats_engine.calculate_total_tps_average());
+                                                           msg_count = 0;
+                                                       }
                                                    }
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
