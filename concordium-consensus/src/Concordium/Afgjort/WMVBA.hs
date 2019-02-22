@@ -221,7 +221,10 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
         WMVBAInstance{..} <- ask
         (wt, m) <- use (justifications . at v . non (0, Map.empty))
         when (isNothing $ Map.lookup src m) $ do
-            Just (newWeight, newMap) <- justifications . at v <.= Just (wt + partyWeight src, Map.insert src sig m)
+            let
+                newWeight = wt + partyWeight src
+                newMap = Map.insert src sig m
+            justifications . at v .= Just (newWeight, newMap)
             when (newWeight > corruptWeight) $
                 wmvbaComplete (Just (v, Map.toList newMap))
 

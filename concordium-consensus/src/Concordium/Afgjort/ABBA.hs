@@ -4,7 +4,7 @@ module Concordium.Afgjort.ABBA(
     Phase,
     ABBAMessage(..),
     ABBAInstance(ABBAInstance),
-    ABBAState,
+    ABBAState(..),
     initialABBAState,
     ABBAMonad(..),
     ABBAOutputEvent(..),
@@ -12,7 +12,8 @@ module Concordium.Afgjort.ABBA(
     runABBA,
     beginABBA,
     justifyABBAChoice,
-    receiveABBAMessage
+    receiveABBAMessage,
+    Choice
 ) where
 
 import qualified Data.Map as Map
@@ -79,7 +80,7 @@ data PhaseState party = PhaseState {
     _phaseCSSState :: CSSState party,
     _topInputWeight :: Maybe (Int, Set party),
     _botInputWeight :: Maybe (Int, Set party)
-}
+} deriving (Show)
 makeLenses ''PhaseState
 
 -- |The total weight and set of parties nominating a particular choice.
@@ -108,8 +109,9 @@ data ABBAState party = ABBAState {
     _topWeAreDone :: Set party,
     _topWeAreDoneWeight :: Int,
     _botWeAreDone :: Set party,
-    _botWeAreDoneWeight :: Int
-}
+    _botWeAreDoneWeight :: Int,
+    _completed :: Bool
+} deriving (Show)
 makeLenses ''ABBAState
 
 -- |The state of a particular phase
@@ -136,7 +138,8 @@ initialABBAState = ABBAState {
     _topWeAreDone = Set.empty,
     _topWeAreDoneWeight = 0,
     _botWeAreDone = Set.empty,
-    _botWeAreDoneWeight = 0
+    _botWeAreDoneWeight = 0,
+    _completed = False
 }
 
 -- |The @ABBAMonad@ class defines the events associated with the ABBA protocol.
@@ -240,13 +243,18 @@ myTicket :: Phase -> SimpleGetter (ABBAInstance party) TicketProof
 myTicket phase = to $ \a ->
         makeTicketProof (a ^. lotteryId phase) (privateKey a)
 
+unlessCompleted :: (ABBAMonad party m, Ord party) => m () -> m ()
+unlessCompleted a = do
+        c <- use completed
+        unless c a
+
 -- |Called to indicate that a given choice is justified.
 justifyABBAChoice :: (ABBAMonad party m, Ord party) => Choice -> m ()
-justifyABBAChoice c = liftCSS 0 (justifyChoice c)
+justifyABBAChoice c = unlessCompleted $ liftCSS 0 (justifyChoice c)
 
 -- |Called when an 'ABBAMessage' is received.
 receiveABBAMessage :: (ABBAMonad party m, Ord party) => party -> ABBAMessage party -> m ()
-receiveABBAMessage src (Justified phase c ticketProof) = do
+receiveABBAMessage src (Justified phase c ticketProof) = unlessCompleted $ do
     ABBAInstance{..} <- ask
     liftCSS phase (receiveCSSMessage src (Input c))
     let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
@@ -259,20 +267,21 @@ receiveABBAMessage src (Justified phase c ticketProof) = do
         else
             phaseState phase . inputWeight c .= Just (w + partyWeight src, Set.insert src ps)
 receiveABBAMessage src (CSSSeen phase p c) =
-    liftCSS phase (receiveCSSMessage src (Seen p c))
+    unlessCompleted $ liftCSS phase (receiveCSSMessage src (Seen p c))
 receiveABBAMessage src (CSSDoneReporting phase m) =
-    liftCSS phase (receiveCSSMessage src (DoneReporting m))
-receiveABBAMessage src (WeAreDone c) = do
+    unlessCompleted $ liftCSS phase (receiveCSSMessage src (DoneReporting m))
+receiveABBAMessage src (WeAreDone c) = unlessCompleted $ do
     ABBAInstance{..} <- ask
     alreadyDone <- weAreDone c <<%= Set.insert src
     unless (src `Set.member` alreadyDone) $ do
         owadw <- weAreDoneWeight c <<%= (+ partyWeight src)
-        when (owadw + partyWeight src >= totalWeight - corruptWeight && owadw < totalWeight - corruptWeight) $
+        when (owadw + partyWeight src >= totalWeight - corruptWeight && owadw < totalWeight - corruptWeight) $ do
+            completed .= True
             aBBAComplete c
 
 -- |Called to start the ABBA protocol
 beginABBA :: (ABBAMonad party m, Ord party) => Choice -> m ()
-beginABBA c = do
+beginABBA c = unlessCompleted $ do
     cp <- use currentPhase
     when (cp == 0) $ do
         tkt <- view $ myTicket 0
