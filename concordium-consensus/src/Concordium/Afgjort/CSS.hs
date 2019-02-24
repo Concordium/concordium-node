@@ -219,11 +219,12 @@ receiveCSSMessage src (Input c) = do
 receiveCSSMessage src (Seen sp c) = do
     CSSInstance{..} <- ask
     -- Update the set of parties that claim to have seen @sp@ make choice @c@
-    let updateSaw Nothing = Just (partyWeight src, Set.singleton src)
+    let updateSaw Nothing = let w = partyWeight src in (w, Just (w, Set.singleton src))
         updateSaw o@(Just (oldWeight, oldMap))
-            | src `Set.member` oldMap = o
-            | otherwise = Just (oldWeight + partyWeight src, Set.insert src oldMap)
-    Just (weight, _) <- saw c . at sp <%= updateSaw
+            | src `Set.member` oldMap = (oldWeight, o)
+            | otherwise = let w = oldWeight + partyWeight src in (w, Just (w, Set.insert src oldMap))
+    weight <- state ((saw c . at sp) updateSaw)
+    -- Just (weight, _) <- saw c . at sp <%= updateSaw
     -- Check if this seen message is justified
     whenM (use (justified c)) $ whenM (Set.member sp <$> use (input c)) $ do
         -- If the weight is high enough, record it in manySaw
