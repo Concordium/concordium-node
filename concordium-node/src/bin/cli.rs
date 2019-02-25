@@ -256,8 +256,9 @@ fn run() -> ResultExtWrapper<()> {
     let _test_runner_url = conf.test_runner_url.clone();
     let mut _baker_pkt_clone = baker.clone();
     let _tps_test_enabled = conf.enable_tps_test;
-    let mut stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
-    let mut msg_count = 0;
+    let mut _stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
+    let mut _msg_count = 0;
+    let _tps_message_count = conf.tps_message_count;
     let _guard_pkt = thread::spawn(move || {
                                        fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
                                                             msg: &[u8])
@@ -305,12 +306,13 @@ fn run() -> ResultExtWrapper<()> {
                                                match *full_msg.clone() {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
                                                    if _tps_test_enabled {
-                                                       stats_engine.add_stat(msg.len() as u64);
-                                                       msg_count += 1;
+                                                       _stats_engine.add_stat(msg.len() as u64);
+                                                       _msg_count += 1;
 
-                                                       if msg_count > 49 {
-                                                           info!("Current TPS: {}", stats_engine.calculate_total_tps_average());
-                                                           msg_count = 0;
+                                                       if _msg_count == _tps_message_count {
+                                                           info!("Current TPS: {}", _stats_engine.calculate_total_tps_average());
+                                                           _msg_count = 0;
+                                                           _stats_engine.clear();
                                                        }
                                                    }
                                                    if let Some(ref mut rpc) = _rpc_clone {
@@ -612,24 +614,32 @@ fn run() -> ResultExtWrapper<()> {
         let mut _node_ref = node.clone();
         let _network_id = conf.network_ids.first().unwrap().clone();
         thread::spawn(move || {
-            loop {
-                let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
-                for message in test_messages {
-                    let mut out_bytes = vec![];
-                    out_bytes.extend(message);
-                    match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
-                                                _network_id,
-                                                None,
-                                                &out_bytes,
-                                                false) {
-                                                    Ok(_) => {
-                                                        info!("Sent TPS test bytes of len {}",
-                                                                out_bytes.len());
-                                                    }
-                                                    Err(_) => {
-                                                        error!("Couldn't broadcast block!")
-                                                    }
-                                                }
+            let mut done = false;
+            while !done {
+                //Test if we have any peers yet. Otherwise keep trying until we do
+                if let Ok(node_list) = _node_ref.get_nodes(&vec![_network_id]) {
+                    if node_list.len() > 0 {
+                        let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
+                        for message in test_messages {
+                            let mut out_bytes = vec![];
+                            out_bytes.extend(message);
+                            match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
+                                                        _network_id,
+                                                        None,
+                                                        &out_bytes,
+                                                        false) {
+                                                            Ok(_) => {
+                                                                info!("Sent TPS test bytes of len {}",
+                                                                        out_bytes.len());
+                                                            }
+                                                            Err(_) => {
+                                                                error!("Couldn't send TPS test message!")
+                                                            }
+                                                        }
+                        }
+
+                        done = true;
+                    }
                 }
             }
         });

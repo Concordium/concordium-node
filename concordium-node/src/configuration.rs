@@ -164,6 +164,11 @@ pub struct CliConfig {
                 help = "Amount of stats to save for TPS statistics",
                 default_value = "10000")]
     pub tps_stats_save_amount: u64,
+    #[structopt(long = "tps-message-count",
+                help = "Amount of messages to be sent and received",
+                default_value = "1000")]
+    pub tps_message_count: u64,
+
 }
 
 pub fn parse_cli_config() -> CliConfig {
