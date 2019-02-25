@@ -24,6 +24,7 @@ if [ "$MODE" == "tps_receiver" ]; then
     --override-config-dir $CONFIG_DIR \
     --override-data-dir $DATA_DIR \
     --external-ip 10.96.0.15 \
+    --tps-message-count $TPS_MESSAGE_COUNT
     $EXTRA_ARGS
 
 elif [ "$MODE" == "tps_sender" ]; then
@@ -37,7 +38,7 @@ elif [ "$MODE" == "tps_sender" ]; then
     echo "Generating data\n"
     cd $DATA_DIR/tps_test
 
-    for i in `seq 0 999`;
+    for i in `seq 0 $(($TPS_MESSAGE_COUNT - 1))`;
     do
 	    echo $i
 	    dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
@@ -61,6 +62,7 @@ elif [ "$MODE" == "tps_sender" ]; then
     --override-data-dir $DATA_DIR \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
+    --tps-message-count $TPS_MESSAGE_COUNT
     $EXTRA_ARGS
     # cron -f
 elif [ "$MODE" == "basic" ]; then
