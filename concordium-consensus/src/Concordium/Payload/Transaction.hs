@@ -98,8 +98,8 @@ encodeTransactions = encode
 encodeTransaction :: Transaction -> ByteString
 encodeTransaction = encode
 
-messageToMsg Increment = I.Msg . fromString $ "Increment"
-messageToMsg Decrement = I.Msg . fromString $ "Decrement"
+messageToMsg Increment = I.Msg . fromString $ "[\"Increment\"]"
+messageToMsg Decrement = I.Msg . fromString $ "[\"Decrement\"]"
 
 -- tryTransaction :: MonadIO m => GlobalState -> Transaction -> m (Either String (Event, GlobalState))
 tryTransaction ctx gs@(GlobalState {instances = instances}) (Transaction _ meta payload) =
@@ -109,15 +109,19 @@ tryTransaction ctx gs@(GlobalState {instances = instances}) (Transaction _ meta 
   in case cstate of
        Nothing -> return . Left $ "Non-existent contract instance: " ++ show addr
        Just addrState -> do
-         (newState, txres) <- liftIO $ I.callContract ctx undefined I.Address (Just (messageToMsg msg)) addrState undefined I.Caller
+         txres <- liftIO $ I.callContract ctx (I.Address "<stubbed address>") (Just (messageToMsg msg)) addrState undefined I.Caller
          case txres of
-           I.TxReject -> return . Right $ (Rejected, gs)
-           I.TxAccept -> return . Right $ (Updated addr msg, GlobalState (Map.insert addr newState instances))
+           I.Reject -> return . Right $ (Rejected, gs)
+           I.Accept newState I.None -> return . Right $ (Updated addr msg, GlobalState (Map.insert addr newState instances))
+           I.Accept newState (I.Transfer _ _ _) -> return . Right $ (Updated addr msg, GlobalState (Map.insert addr newState instances)) -- TODO Do the transfer
+           I.Accept newState (I.Send _ _ _ _) -> return . Right $ (Updated addr msg, GlobalState (Map.insert addr newState instances)) -- TODO Do the sending
+           I.Accept newState (I.Batch _) -> return . Right $ (Updated addr msg, GlobalState (Map.insert addr newState instances)) -- TODO Unwrap and handle the batch
 
 executeBlock :: MonadIO m => GlobalState -> [Transaction] -> m (Either String ([Event], GlobalState))
 executeBlock gs msgs = do
   () <- liftIO (takeMVar lock)
-  ctx <- liftIO $ I.makeContext 
+  let hardcodedSmartContract = I.Code "workdir/smart-contracts/IncDec/elm.json" ["workdir/smart-contracts/IncDec/src/IncDec.elm","workdir/smart-contracts/IncDec/src/Evergreen.elm","workdir/smart-contracts/IncDec/src/Blockchain.elm","workdir/smart-contracts/IncDec/src/Tx.elm","workdir/smart-contracts/IncDec/src/Reply.elm"] "IncDec"
+  ctx <- liftIO $ I.makeContext hardcodedSmartContract
   r <- foldM (\case (Left s) -> \_ -> return $ Left s
                     (Right (es, gs')) -> \msg -> do
                       res <- tryTransaction ctx gs' msg
@@ -129,7 +133,8 @@ executeBlock gs msgs = do
 makeBlock :: (MonadIO m) => GlobalState -> [Transaction] -> m ([(Transaction, Event)], [Failure String Transaction], GlobalState)
 makeBlock gs msgs = do
   () <- liftIO (takeMVar lock)
-  ctx <- liftIO $ I.makeContext
+  let hardcodedSmartContract = I.Code "workdir/smart-contracts/IncDec/elm.json" ["workdir/smart-contracts/IncDec/src/IncDec.elm","workdir/smart-contracts/IncDec/src/Evergreen.elm","workdir/smart-contracts/IncDec/src/Blockchain.elm","workdir/smart-contracts/IncDec/src/Tx.elm","workdir/smart-contracts/IncDec/src/Reply.elm"] "IncDec"
+  ctx <- liftIO $ I.makeContext hardcodedSmartContract
   (sucs, fails, gs') <- foldM (\(suc, fails, gs') msg -> do
                                   res <- tryTransaction ctx gs' msg
                                   case res of
@@ -140,7 +145,7 @@ makeBlock gs msgs = do
   return (reverse sucs, reverse fails, gs')
 
 mkState :: Int -> I.State
-mkState = I.State . fromString . show
+mkState i = I.State $ fromString $ "[" ++ show i ++ "]" -- Wire encoding used by Oak encodes Ints as single-element JSON arrays that contain a Number
 
 initState :: Int -> GlobalState
 initState n = GlobalState { instances = Map.fromList . map (\i -> (pack (show i), mkState 0)) $ enumFromTo 0 (n-1)

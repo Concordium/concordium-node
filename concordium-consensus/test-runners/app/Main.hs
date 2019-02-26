@@ -24,14 +24,11 @@ import Concordium.Show
 import Data.Map(Map)
 import qualified Data.Map as Map
 
-import Interpreter.CallContract as I
-
 import Data.List(intercalate)
 
 transactions :: StdGen -> [Transaction]
 transactions gen = trs 0 (randoms gen)
     where
-      
         trs n (a : b : c : d : f : g : rs) =
           (Transaction (TransactionNonce a b c d) (Metadata (mkSender n)) (Update (mkAddress f) (mkMessage g))) : trs (n+1) rs
         mkSender n = BS.pack $ "Sender: " ++ show n
@@ -125,7 +122,4 @@ main = do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop gsMap
     loop Map.empty
-
-
-    
 
