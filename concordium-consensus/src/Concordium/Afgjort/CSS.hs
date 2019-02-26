@@ -178,6 +178,7 @@ newtype CSS party a = CSS {
     runCSS' :: RWS (CSSInstance party) (Endo [CSSOutputEvent party]) (CSSState party) a
 } deriving (Functor, Applicative, Monad)
 
+{-# INLINE runCSS #-}
 runCSS :: CSS party a -> CSSInstance party -> CSSState party -> (a, CSSState party, [CSSOutputEvent party])
 runCSS z i s = runRWS (runCSS' z) i s & _3 %~ (\(Endo f) -> f [])
 
@@ -237,6 +238,7 @@ receiveCSSMessage src (DoneReporting sawSet) = handleDoneReporting src (Map.toLi
 
 -- |Call when a nomination (@c@) by a party (@src@) becomes justified,
 -- i.e. @input c@ contains @src@ and @justified c@ gives @True@.
+{-# SPECIALIZE justifyNomination :: Ord party => party -> Choice -> CSS party () #-}
 justifyNomination :: (CSSMonad party m, Ord party) => party -> Choice -> m ()
 justifyNomination src c = do
     CSSInstance{..} <- ask
@@ -262,6 +264,7 @@ justifyNomination src c = do
             -- And handle those where we do.
             forM_ (Map.toList js) $ uncurry handleDoneReporting))
 
+{-# SPECIALIZE addManySaw :: Ord party => party -> Choice -> CSS party () #-}
 addManySaw :: (CSSMonad party m, Ord party) => party -> Choice -> m ()
 addManySaw party c = do
     CSSInstance{..} <- ask
@@ -271,6 +274,7 @@ addManySaw party c = do
         oldRep <- report <<.= False
         when oldRep $
             sendCSSMessage . DoneReporting =<< use iSaw
+{-# SPECIALIZE handleDoneReporting :: Ord party => party -> [(party, Choice)] -> CSS party () #-}
 handleDoneReporting :: (CSSMonad party m, Ord party) => party -> [(party, Choice)] -> m ()
 handleDoneReporting party [] = do
     CSSInstance{..} <- ask
