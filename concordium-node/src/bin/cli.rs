@@ -310,7 +310,7 @@ fn run() -> ResultExtWrapper<()> {
                                                        _msg_count += 1;
 
                                                        if _msg_count == _tps_message_count {
-                                                           info!("Current TPS: {}", _stats_engine.calculate_total_tps_average());
+                                                           info!("TPS over {} messages is {}", _tps_message_count, _stats_engine.calculate_total_tps_average());
                                                            _msg_count = 0;
                                                            _stats_engine.clear();
                                                        }
