@@ -6,6 +6,16 @@ sudo rm -f /usr/local/lib/libHSoak-*.so
 sudo rm -f /usr/local/lib/libHSmonadplus-*.so
 git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
 
+if [ -d ~/.stack/global-project/ ]; then
+    if [ -f ~/.stack/global-project/stack.yaml ]; then
+        mv ~/.stack/global-project/stack.yaml ~/.stack/global-project/stack.yaml.$$
+    fi
+else
+    mkdir -p ~/.stack/global-project
+fi
+
+cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
+
 ( cd consensus &&
   git checkout oak-integration && 
   git submodule update --init --recursive &&
