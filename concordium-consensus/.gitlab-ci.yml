@@ -12,5 +12,6 @@ cache:
 build-and-test:
   script:
     - "apt-get update && apt-get install -y moreutils"
+    - "git submodule update --init --recursive"
     - "stack build --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - "stack test | ts '[%Y-%m-%d %H:%M:%.S]'"
