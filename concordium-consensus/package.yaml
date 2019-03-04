@@ -101,6 +101,12 @@ tests:
     - -with-rtsopts=-N
     - -Wall
     - -Wcompat
+    when: 
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          ghc-options: -dynamic
     dependencies:
     - Concordium
     - hspec >= 2.5
