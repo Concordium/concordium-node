@@ -142,9 +142,9 @@ multiWithCorruptKeysEvil keys active corrupt = property $ do
 
 
 tests :: Spec
-tests = describe "Concordium.Afgjort.ABBA" $ do
+tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
     beforeAll (generate (superCorruptKeys 3 1 6)) $ do
-        it "3 parties + 1 super corrupt" $ \k -> (withMaxSuccess 5000 $ multiWithCorruptKeys k 3 1)
+        it "3 parties + 1 super corrupt" $ \k -> (withMaxSuccess 50000 $ multiWithCorruptKeys k 3 1)
     beforeAll (generate (superCorruptKeys 5 2 6)) $ do    
         it "5 parties + 2 super corrupt" $ \k -> (withMaxSuccess 5000 $ multiWithCorruptKeys k 5 2)
     it "3 parties + 1 corrupt" $ withMaxSuccess 500 $ multiWithCorrupt 3 1
