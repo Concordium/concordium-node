@@ -14,13 +14,13 @@ Proceed as normally with git
 * cmake
 * go >=1.10
 * protobuf >= 3.5.1
-* [LDNS](https://git.nlnetlabs.nl/ldns)
+* [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/)
 * libclang >= 6.0
 * [HACL*](https://github.com/mitls/hacl-c)
-* Stack
+* Stack (GHC-8.4.4)
 
 ## Setting up basic local build environment
-Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh`.
+Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](https://gitlab.com/Concordium/p2p-client/blob/master/scripts/init.build.env.sh#L10) for details).
 
 ## Running the library as a binary (usable via RPC)
 `cargo run -- --debug --private-mode`
