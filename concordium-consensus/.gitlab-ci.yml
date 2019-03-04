@@ -1,0 +1,16 @@
+image: "haskell"
+
+variables:
+    STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
+
+cache:
+  paths:
+    - .stack
+    - .stack-work
+    - target
+
+build-and-test:
+  script:
+    - "apt-get update && apt-get install -y moreutils"
+    - "stack build --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
+    - "stack test | ts '[%Y-%m-%d %H:%M:%.S]'"
