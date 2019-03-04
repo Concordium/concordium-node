@@ -130,6 +130,3 @@ main = do
                     loop gsMap
     loop Map.empty
 
-
-    
-

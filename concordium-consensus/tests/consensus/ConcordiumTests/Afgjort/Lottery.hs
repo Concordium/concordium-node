@@ -26,6 +26,13 @@ ticketCheck = do
     let ticket = proofToTicket tproof 1 10
     return $ property $ checkTicket lotteryid (VRF.publicKey keyp) ticket 
 
+ticketNoCheckOther :: Property
+ticketNoCheckOther = property $ \kp1 kp2 -> kp1 /= kp2 ==> do
+    lotteryid <- BS.pack <$> arbitrary
+    let tproof = makeTicketProof lotteryid kp1
+    let ticket = proofToTicket tproof 1 10
+    return $ not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
+
 -- |Cumulative distribution function for the binomial distribution
 binCdf :: Integer -> Integer -> Double -> Double
 binCdf k n p = incompleteBeta (fromIntegral $ n - k) (fromIntegral $ k + 1) (1 - p)
@@ -59,4 +66,5 @@ doubleWeightTrial samples = pval samples (trials samples 0) p
 tests :: Spec
 tests = parallel $ describe "ConcordiumTests.Afgjort.Lottery" $ do
     it "Generated ticket passes check" $ withMaxSuccess 1000 $ ticketCheck
+    it "Generated ticket does not pass for other keypair" $ withMaxSuccess 1000 $ ticketNoCheckOther
     let p = doubleWeightTrial 100000 in it ("double weight trial p-value>0.05 (n=100000): p = " ++ show p) $ p > 0.05

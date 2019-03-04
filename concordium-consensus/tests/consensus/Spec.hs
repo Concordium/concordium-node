@@ -14,5 +14,5 @@ main = hspec $ do
     -- ConcordiumTests.Crypto.DummyVRF.tests
     ConcordiumTests.Afgjort.ABBA.tests
     -- ConcordiumTests.Afgjort.Freeze.tests
-    --ConcordiumTests.Afgjort.CSS.tests
-    --ConcordiumTests.Afgjort.Lottery.tests
+    ConcordiumTests.Afgjort.CSS.tests
+    -- ConcordiumTests.Afgjort.Lottery.tests
