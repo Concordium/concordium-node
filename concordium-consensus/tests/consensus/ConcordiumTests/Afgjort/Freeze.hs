@@ -132,7 +132,7 @@ ex2 = (equalParties 2 0 0, [FIProposal 1 "A", FIRequestProposal "B", FICandidate
     [FOMessage (Vote (Nothing)), FOMessage (Proposal "B"), FOJustifiedDecision Nothing, FOComplete Nothing])
     
 testFreezeExampleAllPerms :: FreezeExample -> Spec
-testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [describe ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [0..]]
+testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [0..]]
 
 checkInvariant :: (HasCallStack, Ord val, Ord party, Show val, Show party) => FreezeInstance party -> FreezeState val party -> Expectation
 checkInvariant ctx@(FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw pw st of
@@ -161,10 +161,10 @@ testStream2 = (4, 1, [FICandidate 'A', FICandidate 'B', FICandidate 'C', FIReque
 
 testStream3 = (6, 1, [FIVote 4 (Just 'C'),FIProposal 3 'D',FICandidate 'B',FIVote 2 (Just 'C'),FIProposal 2 'C',FICandidate 'B',FICandidate 'A',FIRequestProposal 'C',FIVote 1 (Just 'B'),FIProposal 5 'D',FIVote 2 Nothing,FIRequestProposal 'C',FICandidate 'D',FIVote 1 (Just 'A'),FIVote 4 (Just 'B'),FIVote 1 (Just 'B'),FIProposal 2 'C',FIRequestProposal 'B',FIProposal 5 'C',FIProposal 2 'C',FIVote 3 Nothing,FIProposal 2 'C',FIVote 4 (Just 'B'),FIProposal 1 'C',FICandidate 'D',FIVote 3 Nothing,FIRequestProposal 'B',FICandidate 'A',FIVote 4 (Just 'A'),FIVote 2 (Just 'D'),FIVote 5 Nothing,FICandidate 'D',FIProposal 1 'C',FIRequestProposal 'A',FIRequestProposal 'C',FIRequestProposal 'C',FIVote 5 (Just 'B'),FIProposal 4 'C',FICandidate 'C'])
 
-testFreezeExample :: FreezeExample -> Spec
+testFreezeExample :: FreezeExample -> Expectation
 testFreezeExample (ctx@(FreezeInstance tw cw pw me), inp, outp) = do
-        sequence_ [it "state satisfies invariant" $ checkInvariant ctx st | st <- rights (rights res)]
-        it "Expected trace" $ (Set.fromList $ lefts $ rights res) `shouldBe` (Set.fromList outp)
+        sequence_ [checkInvariant ctx st | st <- rights (rights res)]
+        (Set.fromList $ lefts $ rights res) `shouldBe` (Set.fromList outp)
     where
         res = runFreezeSequence ctx inp
     

@@ -10,11 +10,7 @@ module Concordium.Afgjort.Lottery(
 import qualified Data.Serialize as Ser
 import qualified Data.ByteString as BS
 
-import qualified Concordium.Crypto.DummyVRF as VRF
--- import qualified Concordium.Crypto.SHA256 as H
-
--- TODO: Since the ticket can be calculated from just the proof, given the party weight
--- and total weight, we could just send this 
+import qualified Concordium.Crypto.VRF as VRF
 
 newtype TicketProof = TicketProof VRF.Proof deriving (Ser.Serialize,Eq,Show)
 
@@ -22,27 +18,25 @@ data Ticket = Ticket {
     ticketValue :: Double,
     ticketProof :: VRF.Proof
 } deriving (Eq, Show)
-instance Ser.Serialize Ticket where
-    put t = Ser.put (ticketValue t) >> Ser.put (ticketProof t)
-    get = do
-        v <- Ser.get
-        p <- Ser.get
-        return $ Ticket v p
 
 calculateTicketValue :: VRF.Proof -> Int -> Int -> Double
 calculateTicketValue pf weight totalWeight = (VRF.hashToDouble (VRF.proofToHash pf) + encodeFloat 1 (-53)) ** (fromIntegral totalWeight / fromIntegral weight)
 
-proofToTicket :: TicketProof -> Int -> Int -> Ticket
+proofToTicket :: TicketProof    -- ^Ticket proof
+        -> Int                  -- ^Party weight
+        -> Int                  -- ^Total party weight
+        -> Ticket
 proofToTicket (TicketProof pf) weight totalWeight = Ticket (calculateTicketValue pf weight totalWeight) pf
 
 -- |Generate a ticket for a lottery
 makeTicketProof :: BS.ByteString -- ^Lottery identifier
-            -> VRF.PrivateKey   -- ^Private VRF key
+            -> VRF.KeyPair   -- ^Private VRF key
             -> TicketProof
-makeTicketProof lotteryid privKey = TicketProof pf
+makeTicketProof lotteryid key = TicketProof pf
     where
-        pf = VRF.prove privKey ("AL" <> lotteryid)
+        pf = VRF.prove key ("AL" <> lotteryid)
 
+-- |Check that a ticket is valid
 checkTicket :: BS.ByteString    -- ^Lottery identifier
         -> VRF.PublicKey        -- ^Party's public VRF key
         -> Ticket               -- ^Ticket to check

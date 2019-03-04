@@ -18,6 +18,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 
+import qualified Acorn.Types as ATypes
+
 import Concordium.Payload.Transaction
 import Concordium.Payload.Monad
 import Concordium.Types
@@ -312,24 +314,29 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                     -- And the block signature
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
                     let height = bpHeight parentP + 1
-                    let blockP = BlockPointer {
-                        bpHash = cbp,
-                        bpBlock = block,
-                        bpParent = parentP,
-                        bpLastFinalized = lfBlockP,
-                        bpHeight = height
-                    }
-                    blockTable . at cbp ?= BlockAlive blockP
-                    finHght <- use (skov . to lastFinalizedHeight)
-                    brs <- use branches
-                    let branchLen = fromIntegral $ Seq.length brs
-                    let insertIndex = height - finHght - 1
-                    if insertIndex < branchLen then
-                        branches . ix (fromIntegral insertIndex) %= (blockP:)
-                    else
-                        assert (insertIndex == branchLen)
-                            branches %= (Seq.|> [blockP])
-                    return (Just blockP)
+                    ts <- MaybeT $ pure $ toTransactions (blockData block)
+                    case executeBlockForState ts (bpState parentP) of
+                        ATypes.BlockInvalid _ -> mzero -- Execution failed
+                        ATypes.BlockSuccess _ gs -> do
+                            let blockP = BlockPointer {
+                                bpHash = cbp,
+                                bpBlock = block,
+                                bpParent = parentP,
+                                bpLastFinalized = lfBlockP,
+                                bpHeight = height,
+                                bpState = gs
+                            }
+                            blockTable . at cbp ?= BlockAlive blockP
+                            finHght <- use (skov . to lastFinalizedHeight)
+                            brs <- use branches
+                            let branchLen = fromIntegral $ Seq.length brs
+                            let insertIndex = height - finHght - 1
+                            if insertIndex < branchLen then
+                                branches . ix (fromIntegral insertIndex) %= (blockP:)
+                            else
+                                assert (insertIndex == branchLen)
+                                    branches %= (Seq.|> [blockP])
+                            return (Just blockP)
                 -- If the block's last finalized block is dead, then the block arrives dead.
                 -- If the block's last finalized block is pending then it can't be an ancestor,
                 -- so the block is invalid and it arrives dead.
@@ -405,7 +412,7 @@ noopSkovListeners = SkovListeners {
     onFinalize = \_ _ -> return ()
 }
 
-instance Monad m => SkovMonad (StateT SkovData m) where
+instance MonadIO m => SkovMonad (StateT SkovData m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
@@ -444,7 +451,7 @@ doGetTransactionsAtBlock bp = do
     runMaybeT $ getTrans bp
 
 
-instance Monad m => PayloadMonad (StateT SkovData m) where
+instance MonadIO m => PayloadMonad (StateT SkovData m) where
     addPendingTransaction = doAddPendingTransaction
     getPendingTransactionsAtBlock  = doGetPendingTransactionsAtBlock
     getTransactionsAtBlock = doGetTransactionsAtBlock
@@ -478,7 +485,7 @@ sfsSkovListeners = SkovListeners {
         return ()
 }
 
-instance Monad m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
+instance MonadIO m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
@@ -493,11 +500,11 @@ instance Monad m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutp
     branchesFromTop = doBranchesFromTop
     getBlocksAtHeight = doGetBlocksAtHeight
 
-instance Monad m => FinalizationMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
+instance MonadIO m => FinalizationMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
     broadcastFinalizationMessage = tell . Endo . (:) . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . Endo . (:) . BroadcastFinalizationRecord
 
-instance Monad m => PayloadMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
+instance MonadIO m => PayloadMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
     addPendingTransaction = doAddPendingTransaction
     getPendingTransactionsAtBlock  = doGetPendingTransactionsAtBlock
     getTransactionsAtBlock = doGetTransactionsAtBlock

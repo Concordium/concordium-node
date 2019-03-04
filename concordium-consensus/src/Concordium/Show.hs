@@ -12,7 +12,7 @@ showBSHex :: SBS.ByteString -> String
 showBSHex bs = unpack (toLazyByteString $ byteStringHex bs)
 
 showsBlock :: Block -> ShowS
-showsBlock block rest = show bh ++
+showsBlock block rest = show bh ++ if blockSlot block == 0 then "[GENESIS]" else 
         "[slot=" ++ show (blockSlot block) ++
         "; pointer=" ++ show (blockPointer block) ++
         "; baker=" ++ show (blockBaker block) ++

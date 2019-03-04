@@ -22,7 +22,6 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - bytestring >= 0.10
-- cryptohash-sha256 >= 0.11
 - random >= 1.1
 - cereal >= 0.5.7
 - unordered-containers >= 0.2
@@ -33,7 +32,13 @@ dependencies:
 - microlens-platform >=0.3
 - mtl >=2.2
 - pqueue >= 1.4.1
+- acorn
 - vector >= 0.12
+- concordium-crypto
+- base16-bytestring
+- aeson >= 1.3
+- text >= 1.2
+- acorn
 
 library:
   source-dirs: src
@@ -41,16 +46,17 @@ library:
       - -fPIC
       - -shared
       - -Wall
-  when: 
+      - -Wcompat
+  when:
     - condition: os(windows)
       then:
-        ghc-options: -static
+        ghc-options: -static lib.def
       else:
         ghc-options: -dynamic
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
-  
+
 executables:
   Concordium-exe:
     main:                Main.hs
@@ -60,6 +66,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     - -Wall
+    - -Wcompat
     when: 
       - condition: os(windows)
         then:
@@ -74,6 +81,7 @@ executables:
     ghc-options:
     - -rtsopts
     - -Wall
+    - -Wcompat
     when: 
       - condition: os(windows)
         then:
@@ -92,10 +100,12 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     - -Wall
+    - -Wcompat
     dependencies:
     - Concordium
     - hspec >= 2.5
     - QuickCheck >= 2.10
     - hspec-expectations >= 0.8
     - vector >= 0.12
+    - math-functions >= 0.2
 

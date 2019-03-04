@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections, LambdaCase #-}
+{-# LANGUAGE LambdaCase #-}
 module Main where
 
 import Control.Concurrent
@@ -8,32 +9,50 @@ import System.Random
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
+import System.IO
 
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
+import Data.String
+
+import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
 import Concordium.Payload.Transaction
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Show
 
+import Data.Map(Map)
+import qualified Data.Map as Map
+
+import qualified Data.HashMap.Strict as HashMap
+
+import Data.List(intercalate)
+
+import Acorn.Utils.Init(update)
+import Acorn.Types(lState, instances, BlockResult(..), instances)
+
+import Data.Maybe(fromJust)
+
+nAccounts = 2
+
 transactions :: StdGen -> [Transaction]
 transactions gen = trs 0 (randoms gen)
     where
-        trs n (a : b : c : d : rs) = (Transaction (TransactionNonce a b c d) (BS.pack ("Transaction " ++ show n))) : trs (n+1) rs
+        trs n (a : b : c : d : f : g : rs) = let (meta, payload) = update f (g `mod` fromIntegral nAccounts)
+                                             in (Transaction (TransactionNonce a b c d) meta payload) : trs (n+1) rs
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (50000, 150000)
+        r <- randomRIO (50, 150)
         threadDelay r
         sendTransactions chan ts
 
 makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
-        (esk, epk) <- VRF.newKeypair
-        (ssk, spk) <- Sig.newKeypair
-        return (BakerInfo epk spk lot, BakerIdentity bid ssk spk esk epk)
+        ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
+        sk@(Sig.KeyPair _ spk) <- Sig.newKeyPair
+        return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
 relay :: Chan OutMessage -> Chan (Either Block FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp monitor outps = loop
@@ -72,9 +91,12 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re l [] = []
 
+gsToString gs = let keys = map (\n -> (n, lState $ fromJust (HashMap.lookup (fromString ("Tid-" ++ show n)) (instances gs)))) $ enumFromTo 0 (nAccounts-1)
+                in intercalate "\\l" . map show $ keys
+
 main :: IO ()
 main = do
-    let n = 10
+    let n = 5
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
@@ -85,24 +107,26 @@ main = do
     let gen = GenesisData now 1 bps fps
     trans <- transactions <$> newStdGen
     chans <- mapM (\(_, (_, bid)) -> do
-        (cin, cout) <- makeRunner bid gen
+        (cin, cout, out) <- makeRunner bid gen
         forkIO $ sendTransactions cin trans
-        return (cin, cout)) bis
+        return (cin, cout, out)) bis
     monitorChan <- newChan
-    mapM_ (\((_,cout), cs) -> forkIO $ relay cout monitorChan (fst <$> cs)) (removeEach chans)
-    let loop = do
+    mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
+    let iState = initState nAccounts
+    let loop gsMap = do
             readChan monitorChan >>= \case
                 Left block -> do
                     let bh = hashBlock block
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ "\"];"
+                    let (Just ts) = (toTransactions (blockData block))
+                    let gs = Map.findWithDefault iState (blockPointer block) gsMap
+                    let BlockSuccess _ gs' = executeBlockForState ts gs
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
-                Right fr ->
+                    hFlush stdout
+                    loop (Map.insert bh gs' gsMap)
+                Right fr -> do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
-            --putStrLn (showsBlock block "")
-            loop
-    loop
-
-
-    
+                    loop gsMap
+    loop Map.empty
 

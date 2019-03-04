@@ -1,0 +1,13 @@
+EXPORTS
+ hs_init
+ hs_exit
+ makeGenesisData
+ startBaker
+ stopBaker
+ receiveBlock
+ receiveFinalization
+ receiveFinalizationRecord
+ printBlock
+ receiveTransaction
+ getBestBlockInfo
+ freeCStr

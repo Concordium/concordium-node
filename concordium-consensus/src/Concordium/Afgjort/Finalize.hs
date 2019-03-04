@@ -16,8 +16,8 @@ import Control.Monad.State.Class
 import Control.Monad.Reader.Class
 import Control.Monad
 
-import qualified Concordium.Crypto.DummySignature as Sig
-import qualified Concordium.Crypto.DummyVRF as VRF
+import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
@@ -26,10 +26,8 @@ import Concordium.Kontrol.BestBlock
 import Data.List(intercalate)
 
 data FinalizationInstance = FinalizationInstance {
-    finMySignKey :: Sig.SignKey,
-    finMyVerifyKey :: Sig.VerifyKey,
-    finMyPrivateVRFKey :: VRF.PrivateKey,
-    finMyPublicVRFKey :: VRF.PublicKey
+    finMySignKey :: Sig.KeyPair,
+    finMyVRFKey :: VRF.KeyPair
 }
 
 data Party = Party {
@@ -141,17 +139,12 @@ decodeCheckMessage com hdr bs = do
     guard $ checkMessageSignature com msg
     return msg
 
-{-
-encodeFinalizationMessage :: FinalizationMessage -> BS.ByteString
-encodeFinalizationMessage FinalizationMessage{..} = S.runPut $ do
-    S.put (fsidGenesis msgSessionId)
-    S.putWord64be (fsidIncarnation msgSessionId)
-    S.put msgFinalizationIndex
-    S.put msgDelta
-    S.put msgSender
-    S.put msgData
-    S.put msgSignature
--}
+
+ancestorAtHeight :: BlockHeight -> BlockPointer -> BlockPointer
+ancestorAtHeight h bp
+    | h == bpHeight bp = bp
+    | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
+    | otherwise = error "ancestorAtHeight: block is below required height"
 
 data FinalizationState = FinalizationState {
     _finsSessionId :: FinalizationSessionId,
@@ -191,7 +184,7 @@ initialFinalizationState FinalizationInstance{..} genHash com = FinalizationStat
     _finsHeight = 1,
     _finsCommittee = com,
     _finsPendingMessages = Map.empty,
-    _finsCurrentRound = case filter (\p -> partySignKey p == finMyVerifyKey && partyVRFKey p == finMyPublicVRFKey) (Vec.toList (parties com)) of
+    _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
         [] -> Nothing
         (p:_) -> Just FinalizationRound {
             roundInput = Nothing,
@@ -215,13 +208,9 @@ tryNominateBlock = do
     forM_ currRound $ \r@FinalizationRound{..} -> 
         when (isNothing roundInput) $ do
             h <- use finHeight
-            lastFin <- lastFinalizedBlock
             bBlock <- bestBlock
-            when (bpHeight bBlock >= h + roundDelta && bpLastFinalized bBlock == lastFin) $ do
-                let findAtHeight bp
-                        | bpHeight bp == h = bp
-                        | otherwise = findAtHeight (bpParent bp)
-                    nomBlock = bpHash $ findAtHeight bBlock
+            when (bpHeight bBlock >= h + roundDelta) $ do
+                let nomBlock = bpHash $ ancestorAtHeight h bBlock
                 finCurrentRound ?= r {roundInput = Just nomBlock}
                 liftWMVBA $ startWMVBA nomBlock
 
@@ -243,7 +232,8 @@ newRound newDelta me = do
             roundMe = me,
             roundWMVBA = initialWMVBAState
         }
-        justifiedInputs <- getBlocksAtHeight =<< use finHeight
+        h <- use finHeight
+        justifiedInputs <- fmap (ancestorAtHeight h) <$> getBlocksAtHeight (h + newDelta)
         finIx <- use finIndex
         pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <<.= []
         committee <- use finCommittee
@@ -307,7 +297,7 @@ liftWMVBA a = do
         Just (fr@FinalizationRound{..}) -> do
             let
                 baid = runPut $ putFinalizationSessionId _finsSessionId >> S.put _finsIndex >> S.put roundDelta
-                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) partyWeight partyVRFKey roundMe finMyPrivateVRFKey
+                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) partyWeight partyVRFKey roundMe finMyVRFKey
                 (r, newState, evs) = runWMVBA a inst roundWMVBA
             finCurrentRound ?= fr {roundWMVBA = newState}
             handleWMVBAOutputEvents evs
@@ -338,15 +328,15 @@ notifyBlockArrival :: (MonadState s m, FinalizationStateLenses s, MonadReader Fi
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
-        when (bpHeight b == _finsHeight) $
-            liftWMVBA $ justifyWMVBAInput (bpHash b)
+        when (bpHeight b == _finsHeight + roundDelta) $
+            liftWMVBA $ justifyWMVBAInput (bpHash (ancestorAtHeight _finsHeight b))
         tryNominateBlock
 
 
 getMyParty :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => m (Maybe Party)
 getMyParty = do
-        myVerifyKey <- asks finMyVerifyKey
-        myPublicVRFKey <- asks finMyPublicVRFKey
+        myVerifyKey <- asks (Sig.verifyKey . finMySignKey)
+        myPublicVRFKey <- asks (VRF.publicKey . finMyVRFKey)
         ps <- parties <$> use finCommittee
         case filter (\p -> partySignKey p == myVerifyKey && partyVRFKey p == myPublicVRFKey) (Vec.toList ps) of
             (p:_) -> return $ Just p
@@ -354,13 +344,14 @@ getMyParty = do
 
 
 -- |Called to notify the finalization routine when a new block is finalized.
+-- (NB: this should never be called with the genesis block.)
 notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => FinalizationRecord -> BlockPointer -> m ()
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
         -- TODO: The next finalization height is tweaked from the specification to give better
         -- finalization lag.  This needs to be brought in line eventually.
-        finHeight .= bpHeight bp + finalizationDelay + ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+        finHeight .= bpHeight bp + ((bpHeight bp - bpHeight (bpLastFinalized bp) + 1) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
