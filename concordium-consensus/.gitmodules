@@ -1,7 +1,7 @@
 [submodule "crypto"]
 	path = crypto
-	url = git@gitlab.com:Concordium/crypto.git
+	url = ../../crypto.git
 [submodule "acorn"]
 	path = acorn
-	url = git@gitlab.com:Concordium/oak/acorn.git
+	url = ../../oak/acorn.git
 	branch = experiments
