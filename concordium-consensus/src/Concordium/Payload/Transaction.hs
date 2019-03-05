@@ -26,7 +26,7 @@ import Data.String(fromString)
 
 import Acorn.Types(Metadata, Payload, Message(..))
 import qualified Acorn.Types as Types
-import qualified Acorn.Utils.Init as Init
+import qualified Acorn.Utils.Init.Example as Init
 import qualified Acorn.Scheduler as Sch
 
 data TransactionNonce = TransactionNonce !Word64 !Word64 !Word64 !Word64

@@ -28,7 +28,7 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Acorn.Utils.Init(update)
+import Acorn.Utils.Init.Example(update)
 import Acorn.Types(lState, instances, BlockResult(..), instances)
 
 import Data.Maybe(fromJust)
