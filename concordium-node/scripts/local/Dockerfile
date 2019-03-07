@@ -83,6 +83,14 @@ RUN \
 
 ### P2P client
 RUN \
+    # Build Concordium Crypto
+    mkdir -p p2p-client/deps/internal/crypto/build && \
+    cd p2p-client/deps/internal/crypto/build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    cmake --build . && \
+    cmake --build . --target install && \
+    cd ../../../../../ && \
+    # Build P2P client
     cd p2p-client && \
     cargo build
 

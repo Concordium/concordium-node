@@ -29,11 +29,14 @@ fi
 
 # P2P Client
 if [ -d assets/repos/p2p-client ]; then
-    cd assets/repos/p2p-client
+    pushd assets/repos/p2p-client
     git pull
-    cd ../../..
 else
     git clone \
             git@gitlab.com:Concordium/p2p-client.git \
             assets/repos/p2p-client
+    pushd assets/repos/p2p-client
 fi
+
+git submodule update --init --recursive
+popd

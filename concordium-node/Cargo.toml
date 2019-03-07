@@ -60,6 +60,7 @@ human-panic = "1.0"
 cfg-if = "0.1"
 dns = { path = "dns" } 
 consensus-sys = { path = "consensus-sys" }
+crypto-sys = { path = "crypto-sys" }
 hostname = "^0.1"
 serde_json = "1.0"
 reqwest = { version = "^0.9", default-features = false }
@@ -119,3 +120,8 @@ name = "testrunner"
 [[bin]]
 path = "src/bin/testrunner_parser.rs"
 name = "testrunner_parser"
+
+[[bin]]
+path = "src/bin/generate-new-keypair.rs"
+name = "generate-new-keypair"
+
