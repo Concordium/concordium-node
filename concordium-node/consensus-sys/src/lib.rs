@@ -10,5 +10,6 @@ extern crate lazy_static;
 extern crate byteorder;
 #[macro_use]
 extern crate log;
+extern crate env_logger;
 
 pub mod consensus;
