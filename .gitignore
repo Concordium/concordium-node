@@ -19,3 +19,5 @@ cabal.sandbox.config
 workdir
 consensus/
 oak-compiler/
+win_build
+scripts/local/assets/repos

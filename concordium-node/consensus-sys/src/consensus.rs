@@ -196,6 +196,18 @@ impl ConsensusOutQueue {
     pub fn try_recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
         self.receiver_finalization_record.lock().unwrap().try_recv()
     }
+
+    pub fn clear(self) {
+        if let Ok(ref mut q) = self.receiver_block.try_lock() {
+            debug!("Drained queue for {} element(s)", q.try_iter().count() );
+        }
+        if let Ok(ref mut q) = self.receiver_finalization.try_lock() {
+            debug!("Drained queue for {} element(s)", q.try_iter().count() );
+        }
+        if let Ok(ref mut q) = self.receiver_finalization_record.try_lock() {
+            debug!("Drained queue for {} element(s)", q.try_iter().count() );
+        }
+    }
 }
 
 lazy_static! {
@@ -244,11 +256,18 @@ impl ConsensusContainer {
     }
 
     pub fn stop_baker(&mut self, baker_id: u64) {
-        match self.bakers.lock().unwrap().get_mut(&baker_id) {
-            Some(baker) => baker.stop(),
-            None => error!("Can't find baker"),
+        if let Ok(ref mut bakers) = self.bakers.lock() {
+            match bakers.get_mut(&baker_id) {
+                Some(baker) => baker.stop(),
+                None => error!("Can't find baker"),
+            }
+            bakers.remove(&baker_id);
+            if bakers.len() == 0 {
+                CALLBACK_QUEUE.clone().clear();
+            }
+        } else {
+            panic!("Can't obtain lock on consensus container bakers");
         }
-        self.bakers.lock().unwrap().remove(&baker_id);
     }
 
     pub fn out_queue(&self) -> ConsensusOutQueue {
@@ -441,9 +460,25 @@ impl Block {
 mod tests {
     use consensus::*;
     use std::time::Duration;
+    use std::sync::{Once, ONCE_INIT};
+
+    static INIT: Once = ONCE_INIT;
+
+    #[derive(Debug, Clone)]
+    pub enum NetworkStep {
+        Handshake(u16),
+        Broadcast(u16),
+    }
+
+    fn setup() {
+        INIT.call_once( || {
+            env_logger::init()
+        });
+    }
 
     #[test]
     pub fn serialization_deserialize_block_000() {
+        setup();
         let input =
             vec![0, 0, 0, 0, 9, 60, 250, 52, 203, 177, 255, 13, 4, 179, 160, 197, 194, 34, 84, 186, 123, 247, 222, 246, 39, 60, 144, 3, 126, 183, 208, 197, 207, 80, 228, 15, 218, 177, 206, 219, 0, 0, 0, 0, 0, 0, 0, 4, 91, 79, 253, 56, 152, 63, 243, 146, 178, 101, 220, 59, 0, 215, 209, 152, 245, 237, 204, 118, 246, 80, 236, 206, 174, 33, 172, 241, 118, 132, 36, 208, 106, 143, 223, 92, 102, 126, 60, 231, 13, 232, 238, 120, 7, 245, 9, 213, 161, 61, 161, 174, 129, 171, 106, 110, 4, 122, 20, 198, 72, 119, 161, 12, 175, 220, 218, 40, 41, 62, 209, 135, 254, 161, 249, 131, 245, 195, 145, 0, 70, 170, 101, 248, 152, 252, 191, 72, 76, 111, 146, 107, 78, 212, 30, 212, 238, 60, 247, 236, 20, 142, 224, 186, 91, 159, 49, 191, 132, 52, 195, 121, 233, 85, 189, 48, 96, 175, 234, 112, 97, 36, 242, 144, 202, 66, 198, 109, 84, 249, 0, 78, 63, 162, 52, 1, 3, 24, 135, 151, 21, 93, 15, 160, 24, 40, 169, 25, 45, 145, 153, 30, 141, 28, 140, 200, 240, 63, 98, 215, 193, 186, 178, 84, 53, 198, 123, 147, 181, 167, 60, 105, 11, 81, 83, 58, 61, 203, 244, 191, 1, 27, 193, 163, 100, 53, 77, 177, 194, 175, 73, 5, 203, 177, 255, 13, 4, 179, 160, 197, 194, 34, 84, 186, 123, 247, 222, 246, 39, 60, 144, 3, 126, 183, 208, 197, 207, 80, 228, 15, 218, 177, 206, 219, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 25, 222, 218, 238, 169, 232, 56, 230, 13, 183, 57, 66, 109, 127, 52, 37, 103, 213, 230, 6, 146, 183, 79, 92, 57, 134, 242, 175, 212, 247, 179, 156, 87, 113, 25, 89, 234, 196, 242, 52, 204, 84, 139, 223, 8, 38, 198, 13, 210, 197, 193, 159, 232, 175, 181, 172, 169, 164, 174, 44, 113, 186, 202, 1];
         let deserialized = Block::deserialize(&input);
@@ -466,30 +501,67 @@ mod tests {
                                                  private_data.get(&(i as i64)).unwrap().to_vec());
             }
 
+            let relay_th_guard = Arc::new(Mutex::new(true));
+            let _th_guard = relay_th_guard.clone();
+            let _th_container = consensus_container.clone();
+            let _aux_th = thread::spawn(move|| {
+                loop {
+                    thread::sleep(Duration::from_millis(1_000));
+                    if let Ok(val) = _th_guard.lock() {
+                        if !*val {
+                            debug!("Terminating relay thread, zapping..");
+                            return;
+                        }
+                    }
+                    while let Ok(msg) = &_th_container.out_queue().try_recv_finalization() {
+                        debug!("Relaying finalization");
+                        &_th_container.send_finalization(msg);
+                    }
+                    while let Ok(msg) = &_th_container.out_queue().try_recv_finalization_record() {
+                        debug!("Relaying finalization record");
+                        &_th_container.send_finalization_record(msg);
+                    }
+                    
+                }
+            });
+
             for i in 0..$blocks_num {
                 match &consensus_container.out_queue()
-                                          .recv_timeout_block(Duration::from_millis(400_000))
+                                          .recv_timeout_block(Duration::from_millis(500_000))
                 {
                     Ok(msg) => {
+                        debug!("{} Got block data => {:?}", i, msg);
                         &consensus_container.send_block(msg);
                     }
-                    _ => panic!(format!("No message at {}!", i)),
+                    Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
                 }
             }
+            debug!("Now attempting to get best block via FFI to Haskell");
             match &consensus_container.get_best_block_info() {
                 Some(ref best_block) => {
                     assert!(best_block.contains("globalState"));
                 }
                 _ => panic!("Didn't get best block back!"),
             }
+            
+            debug!("Stopping relay thread");
+            if let Ok(mut guard) = relay_th_guard.lock() {
+                *guard = false;
+            }
+            _aux_th.join().unwrap();
+
+            debug!("Shutting down bakers");
             for i in 0..$num_bakers {
                 &consensus_container.stop_baker(i);
             }
+            debug!("Test concluded");
         };
     }
 
+    #[allow(unused_macros)]
     macro_rules! baker_test_tx {
         ($genesis_time: expr, $retval: expr, $data: expr) => {
+            debug!("Performing TX test call to Haskell via FFI");
             let (genesis_data, private_data) =
                 match ConsensusContainer::generate_data($genesis_time, 1) {
                     Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
@@ -501,16 +573,18 @@ mod tests {
             assert_eq!(consensus_container.send_transaction($data), $retval as i64);
             &consensus_container.stop_baker(0);
         };
+        
     }
 
     #[test]
-    #[ignore]
     pub fn consensus_tests() {
+        setup();
         ConsensusContainer::start_haskell();
         bakers_test!(0, 5, 10);
         bakers_test!(0, 10, 5);
-        baker_test_tx!(0, 0, &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Increment\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".to_string());
-        baker_test_tx!(0, 1, &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Incorrect\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".to_string());
+        // Re-enable when we have acorn sc-tx tests possible
+        //baker_test_tx!(0, 0, &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Increment\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".to_string());
+        //baker_test_tx!(0, 1, &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Incorrect\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".to_string());
         ConsensusContainer::stop_haskell();
     }
 }

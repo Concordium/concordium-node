@@ -15,6 +15,9 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=HSlanguage-glsl-0.3.0");
             println!("cargo:rustc-link-lib=dylib=HSoak-0.19.0");
             println!("cargo:rustc-link-lib=dylib=HSmonadplus-1.3");
+            // TODO : move to master branch once we have acorn sc-tx tests possible, and disable 3 elf libs above
+            //println!("cargo:rustc-link-lib=dylib=HSacorn-0.1.0.0");
+            //println!("cargo:rustc-link-lib=dylib=HSconcordium-crypto-0.1");
         }
     }
 }
