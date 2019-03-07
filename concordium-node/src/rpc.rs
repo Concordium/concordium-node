@@ -344,6 +344,18 @@ impl P2P for RpcServerImpl {
                          })
                     .collect();
             let mut resp = PeerListResponse::new();
+            let mut node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
+                "NormalMode" | "NormalPrivateMode" => {
+                    "Normal"
+                }
+                "BootstrapperMode" | "BootstrapperPrivateMode" => {
+                    "Bootstrapper"
+                }
+                _ => {
+                    panic!()
+                }
+            };
+            resp.set_node_type(node_type.to_string());
             resp.set_peer(::protobuf::RepeatedField::from_vec(data));
             let f = sink.success(resp)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
@@ -473,7 +485,7 @@ impl P2P for RpcServerImpl {
         });
     }
 
-    fn po_c_send_transaction(&self, 
+    fn po_c_send_transaction(&self,
                   ctx: ::grpcio::RpcContext,
                   req: PoCSendTransactionMessage,
                   sink: ::grpcio::UnarySink<SuccessResponse>) {
@@ -508,7 +520,7 @@ impl P2P for RpcServerImpl {
         } );
     }
 
-    fn get_best_block_info(&self, 
+    fn get_best_block_info(&self,
         ctx: ::grpcio::RpcContext,
         req: Empty,
         sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
