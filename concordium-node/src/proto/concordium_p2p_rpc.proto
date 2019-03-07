@@ -82,6 +82,12 @@ message  BestBlockInfoMessage {
   string best_block_info = 1;
 }
 
+message NodeInfoResponse {
+   google.protobuf.StringValue node_id = 1;
+   uint64 current_localtime = 2;
+  string node_type = 3;
+}
+
 message Empty {}
 
 service P2P {
@@ -111,4 +117,6 @@ service P2P {
   rpc PoCSendTransaction(PoCSendTransactionMessage) returns (SuccessResponse) {}
   // Block info for peer's current 'best' view of the latest global state
   rpc GetBestBlockInfo(Empty) returns (BestBlockInfoMessage) {}
+  // Get information about the running Node
+  rpc NodeInfo(Empty) returns (NodeInfoResponse) {}
 }

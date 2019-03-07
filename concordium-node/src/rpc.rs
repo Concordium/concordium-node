@@ -14,6 +14,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::{ SystemTime , UNIX_EPOCH};
 use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
@@ -357,6 +358,35 @@ impl P2P for RpcServerImpl {
             };
             resp.set_node_type(node_type.to_string());
             resp.set_peer(::protobuf::RepeatedField::from_vec(data));
+            let f = sink.success(resp)
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
+        });
+    }
+
+    fn node_info(&self,
+                 ctx: ::grpcio::RpcContext,
+                 req: Empty,
+                 sink: ::grpcio::UnarySink<NodeInfoResponse>) {
+        authenticate!(ctx, req, sink, &self.access_token, {
+            let mut resp = NodeInfoResponse::new();
+            let mut node_id = ::protobuf::well_known_types::StringValue::new();
+            node_id.set_value(format!("{}", self.node.borrow().get_own_id().to_string()));
+            resp.set_node_id(node_id);
+            let curtime = SystemTime::now().duration_since( UNIX_EPOCH ).expect("Time went backwards").as_secs();
+            resp.set_current_localtime(curtime);
+            let node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
+                "NormalMode" | "NormalPrivateMode" => {
+                    "Normal"
+                }
+                "BootstrapperMode" | "BootstrapperPrivateMode" => {
+                    "Bootstrapper"
+                }
+                _ => {
+                    panic!()
+                }
+            };
+            resp.set_node_type(node_type.to_string());
             let f = sink.success(resp)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);

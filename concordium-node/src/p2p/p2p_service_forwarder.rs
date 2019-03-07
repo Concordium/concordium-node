@@ -1,8 +1,9 @@
 use std::sync::{ Arc, RwLock };
 use proto::{
-    SendMessageRequest, PeerConnectRequest, SuccessResponse, Empty, NumberResponse, 
+    SendMessageRequest, PeerConnectRequest, SuccessResponse, Empty, NumberResponse,
     StringResponse, PeerStatsResponse, PeerListResponse, P2PNetworkMessage,
     PeerElement, NetworkChangeRequest, PoCSendTransactionMessage, BestBlockInfoMessage,
+    NodeInfoResponse,
 };
 use proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
@@ -20,7 +21,7 @@ impl P2PServiceForwarder {
     pub fn new() -> Self {
         let part_mself = P2PServiceForwarder {
             targets: Arc::new( RwLock::new( Vec::new())),
-            service: Arc::new( None) 
+            service: Arc::new( None)
         };
         let service = create_p2_p( part_mself.clone());
         let mself = P2PServiceForwarder {
@@ -32,7 +33,7 @@ impl P2PServiceForwarder {
 }
 
 lazy_static! {
-    static ref P2P_SERVICE_FORWARDER: Arc< P2PServiceForwarder > = Arc::new( 
+    static ref P2P_SERVICE_FORWARDER: Arc< P2PServiceForwarder > = Arc::new(
         P2PServiceForwarder::new());
 }
 
@@ -60,7 +61,7 @@ impl P2P for P2PServiceForwarder {
     fn peer_connect(&self, ctx: ::grpcio::RpcContext, req: PeerConnectRequest, sink: ::grpcio::UnarySink<SuccessResponse>) {
         forward_to_targets!( self.targets, peer_connect, ctx, req, sink);
     }
-    
+
     fn peer_uptime(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
         forward_to_targets!( self.targets, peer_uptime, ctx, req, sink);
     }
@@ -96,10 +97,14 @@ impl P2P for P2PServiceForwarder {
         forward_to_targets!( self.targets, subscription_stop, ctx, req, sink);
     }
 
+    fn node_info(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<NodeInfoResponse>) {
+        forward_to_targets!( self.targets, node_info, ctx, req, sink);
+    }
+
     fn subscription_poll(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<P2PNetworkMessage>){
         forward_to_targets!( self.targets, subscription_poll, ctx, req, sink);
     }
-    
+
     fn ban_node(&self, ctx: ::grpcio::RpcContext, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, ban_node, ctx, req, sink);
     }
@@ -116,18 +121,17 @@ impl P2P for P2PServiceForwarder {
         forward_to_targets!( self.targets, leave_network, ctx, req, sink);
     }
 
-    fn get_best_block_info(&self, 
+    fn get_best_block_info(&self,
         ctx: ::grpcio::RpcContext,
         req: Empty,
         sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
             forward_to_targets!( self.targets, get_best_block_info, ctx, req, sink);
     }
 
-    fn po_c_send_transaction(&self, 
+    fn po_c_send_transaction(&self,
                   ctx: ::grpcio::RpcContext,
                   req: PoCSendTransactionMessage,
                   sink: ::grpcio::UnarySink<SuccessResponse>) {
         forward_to_targets!( self.targets, po_c_send_transaction, ctx, req, sink);
     }
 }
-
