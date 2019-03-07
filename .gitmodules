@@ -1,0 +1,3 @@
+[submodule "deps/internal/crypto"]
+	path = deps/internal/crypto
+	url = ../crypto.git

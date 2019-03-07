@@ -1,0 +1,30 @@
+[package]
+name = "crypto-sys"
+version = "0.1.0"
+description = "Concordium Crypto"
+authors = [ "Miguel Garcia <mg@concordium.com>"]
+exclude = [
+    ".gitignore",
+    ".gitlab-ci.yml",
+    "test/**/*"
+]
+publish = false
+build = "build.rs"
+
+[features]
+default = []
+valgrind = []
+
+[dependencies]
+libc = "0.2"
+log = "0.4"
+base64 = "0.10.1"
+
+[build-dependencies]
+bindgen = "0.48.0"
+
+[lib]
+path = "src/lib.rs"
+name = "crypto_sys"
+
+

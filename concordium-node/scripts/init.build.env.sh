@@ -27,6 +27,13 @@ git clone https://github.com/KDE/heaptrack.git
 (cd heaptrack && patch src/track/heaptrack.sh.cmake ../scripts/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);
 rm -rf heaptrack
 
+(mkdir -p deps/internal/crypto/build && 
+    cd deps/internal/crypto/build && 
+    cmake -DCMAKE_BUILD_TYPE=Release .. && 
+    cmake --build . && 
+    cmake --build . --target install
+)
+
 ldconfig
 # 20190123 - Moved from 2018-10-26 to latest nightly after allocator fixes in nightly
 rustup default nightly
