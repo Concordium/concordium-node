@@ -211,4 +211,140 @@ mod tests {
 
         rpc_serv.stop_server().expect("rpc");
     }
+
+    #[test]
+    pub fn  test_grpc_peer_list_node_type_str() {
+        let modes = vec![P2PNodeMode::NormalMode, P2PNodeMode::NormalPrivateMode, P2PNodeMode::BootstrapperMode, P2PNodeMode::BootstrapperPrivateMode];
+        let modes : Vec<String> = modes.iter().map(|x| format!("{:?}", x).to_string()).collect();
+        let mut j = 0;
+        for m in modes {
+            info!("testing mode: {}", m);
+            grpc_peer_list_node_type_str(m, j);
+            j = j + 1;
+        }
+    }
+
+    fn grpc_peer_list_node_type_str(s: String, j: u16) {
+        let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+
+        let (sender, receiver) = mpsc::channel();
+        let _guard =
+            thread::spawn(move || {
+                              loop {
+                                  if let Ok(msg) = receiver.recv() {
+                                      match msg {
+                                          P2PEvent::ConnectEvent(ip, port) => {
+                                              info!("Received connection from {}:{}", ip, port)
+                                          }
+                                          P2PEvent::DisconnectEvent(msg) => {
+                                              info!("Received disconnect for {}", msg)
+                                          }
+                                          P2PEvent::ReceivedMessageEvent(node_id) => {
+                                              info!("Received message from {:?}", node_id)
+                                          }
+                                          P2PEvent::SentMessageEvent(node_id) => {
+                                              info!("Sent message to {:?}", node_id)
+                                          }
+                                          P2PEvent::InitiatingConnection(ip, port) => {
+                                              info!("Initiating connection to {}:{}", ip, port)
+                                          }
+                                          P2PEvent::JoinedNetwork(peer, network_id) => {
+                                              info!("Peer {} joined network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
+                                          }
+                                          P2PEvent::LeftNetwork(peer, network_id) => {
+                                              info!("Peer {} left network {}",
+                                                    peer.id().to_string(),
+                                                    network_id);
+                                          }
+                                      }
+                                  }
+                              }
+            });
+        let node_type = match &format!("{}", s)[..] {
+            "NormalMode" => {
+                P2PNodeMode::NormalMode
+            }
+            "NormalPrivateMode" => {
+                P2PNodeMode::NormalPrivateMode
+            }
+            "BootstrapperMode" => {
+                P2PNodeMode::BootstrapperMode
+            }
+            "BootstrapperPrivateMode" => {
+                P2PNodeMode::BootstrapperPrivateMode
+            }
+            _ => {
+                panic!()
+            }
+            };
+        let node = P2PNode::new(None,
+                                Some("127.0.0.1".to_string()),
+                                8888 + j,
+                                None,
+                                None,
+                                pkt_in,
+                                Some(sender),
+                                node_type,
+                                None,
+                                vec![],
+                                100);
+
+        let mut _node_self_clone = node.clone();
+
+        let _guard_pkt = thread::spawn(move || {
+                                           loop {
+                                               if let Ok(ref outer_msg) = pkt_out.recv() {
+                                                   match *outer_msg.clone() {
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => info!("DirectMessage/{}/{} with {:?} received", nid, msgid, msg),
+                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msgid, ref nid, ref msg), _, _) => {
+                                                       info!("BroadcastedMessage/{}/{} with {:?} received", nid, msgid, msg);
+                                                       _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| panic!(e)).ok();
+                                                   }
+                                                   box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
+                                                   box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
+                                                   _ => {}
+                                               }
+                                               }
+                                           }
+                                       });
+
+        let mut rpc_serv = RpcServerImpl::new(node.clone(),
+                                                None,
+                                              None,
+                                              "127.0.0.1".to_string(),
+                                              10002 + j,
+                                              "rpcadmin".to_string());
+        rpc_serv.start_server().expect("rpc");
+
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env).connect(&("127.0.0.1:".to_owned() + &format!("{}", 10002+j)[..]));
+
+        let client = P2PClient::new(ch);
+
+        let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
+        req_meta_builder.add_str("Authentication", "rpcadmin")
+                        .unwrap();
+        let meta_data = req_meta_builder.build();
+
+        let call_options = ::grpcio::CallOption::default().headers(meta_data);
+        let reply = client.peer_list_opt(&Empty::new(), call_options)
+                          .expect("rpc");
+        let node_type = match &format!("{}", s)[..] {
+                "NormalMode" | "NormalPrivateMode" => {
+                    "Normal"
+                }
+                "BootstrapperMode" | "BootstrapperPrivateMode" => {
+                    "Bootstrapper"
+                }
+                _ => {
+                    panic!()
+                }
+            };
+        assert_eq!(reply.node_type, node_type.to_string());
+
+
+        rpc_serv.stop_server().expect("rpc");
+    }
 }

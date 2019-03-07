@@ -26,7 +26,8 @@ message PeerElement {
 }
 
 message PeerListResponse {
-  repeated PeerElement peer = 1;
+          string node_type = 1;
+          repeated PeerElement peer = 2;
 }
 
 message PeerStatsResponse {
@@ -73,7 +74,6 @@ message PoCSendTransactionMessage {
   uint32 network_id = 1;
   string message_content = 2;
 }
-
 message NetworkChangeRequest {
   google.protobuf.Int32Value network_id = 1;
 }
