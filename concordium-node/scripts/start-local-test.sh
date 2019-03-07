@@ -13,12 +13,17 @@ fi
 
 EXTERNAL_IP=$1
 NODE_COUNT=$2
+
+echo "--> Starting bootstrapper..."
 docker run -d --name=bootstrapper -p 8888:8888 concordium/test/bootstrapper:latest
+echo "--> Bootstrapper started, waiting 5s..."
+
 sleep 5
 for i in `seq 1 $NODE_COUNT`;
 do
     PORT=$((8889+$i))
-    docker run -d --name=nodetest$i -p $PORT:8888 -e "EXTERNAL_PORT=$PORT" -e "BOOTSTRAP_NODE=$EXTERNAL_IP:8888" -e "BAKER_ID=$(($i-1))" -e "NUM_BAKERS=$NODE_COUNT" concordium/test/node:latest 
+    echo "--> Starting node on port ${PORT}"
+    docker run -d --name=nodetest$i -p $PORT:10000 -e "EXTERNAL_PORT=$PORT" -e "BOOTSTRAP_NODE=$EXTERNAL_IP:8888" -e "BAKER_ID=$(($i-1))" -e "NUM_BAKERS=$NODE_COUNT" concordium/test/node:latest
     ps aux | grep p2p_client-cli
 done
 TESTRUNNER_PORT=$((8889+$NODE_COUNT+1))

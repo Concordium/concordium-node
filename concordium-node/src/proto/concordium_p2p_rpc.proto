@@ -20,7 +20,7 @@ message PeerConnectRequest {
 }
 
 message PeerElement {
-  google.protobuf.StringValue node_id = 1; 
+  google.protobuf.StringValue node_id = 1;
   google.protobuf.Int32Value port = 2;
   google.protobuf.StringValue ip = 3;
 }
@@ -31,8 +31,8 @@ message PeerListResponse {
 
 message PeerStatsResponse {
   message PeerStats {
-    string node_id = 1; 
-    uint64 packets_sent = 2; 
+    string node_id = 1;
+    uint64 packets_sent = 2;
     uint64 packets_received = 3;
     uint64 measured_latency  = 4;
   }
@@ -85,13 +85,20 @@ message  BestBlockInfoMessage {
 message Empty {}
 
 service P2P {
+  // Suggest this peer connects to submitted peer details
   rpc PeerConnect (PeerConnectRequest) returns (SuccessResponse) {}
+  // Peer uptime in milliseconds
   rpc PeerUptime(Empty) returns (NumberResponse) {}
+  // Peer total number of sent packets
   rpc PeerTotalSent(Empty) returns (NumberResponse) {}
+  // Peer total number of received packets
   rpc PeerTotalReceived(Empty) returns(NumberResponse) {}
+  // Peer client software version
   rpc PeerVersion(Empty) returns (StringResponse) {}
   rpc SendMessage(SendMessageRequest) returns (SuccessResponse) {}
+  // Stats for connected peers
   rpc PeerStats(Empty) returns (PeerStatsResponse) {}
+  // List of connected peers
   rpc PeerList(Empty) returns (PeerListResponse) {}
   rpc SubscriptionStart(Empty) returns (SuccessResponse) {}
   rpc SubscriptionStop(Empty) returns (SuccessResponse) {}
@@ -100,6 +107,8 @@ service P2P {
   rpc UnbanNode(PeerElement) returns (SuccessResponse) {}
   rpc JoinNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
   rpc LeaveNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
+  // @TEMP helper endpoint for PoC testing
   rpc PoCSendTransaction(PoCSendTransactionMessage) returns (SuccessResponse) {}
+  // Block info for peer's current 'best' view of the latest global state
   rpc GetBestBlockInfo(Empty) returns (BestBlockInfoMessage) {}
 }

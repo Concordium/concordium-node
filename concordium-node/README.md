@@ -38,3 +38,38 @@ Install the needed dependencies from the list above (Windows build is special, f
 
 ## Creating the default node docker image
 `scripts/docker.node.basic.sh`
+
+
+## Building locally with Docker
+
+Run `./scripts/build-local.sh` and on successful build run;
+
+```
+# Example for localhost with 2 nodes
+$ ./scripts/start-local-test.sh 127.0.0.1 2
+--> Starting bootstrapper...
+c00a2ec87fec404ea38c7265d186a5ba7fb00fe010c9640243d534fceaeb6adf
+--> Bootstrapper started, waiting 5s...
+--> Starting node on port 8890
+b01b9cef07cc7b8ec984f571d214d6ece8fa347d60204837109fe3dfc976efaf
+--> Starting node on port 8891
+b7154a37ce3e4ee6b1af6875a6866719e7ef6505eacb289c0e72c822e718028b
+```
+
+If you want to enable gRPC, you'll need to make this change and rebuild your docker images:
+
+```diff
+diff --git a/scripts/local.testnode.Dockerfile b/scripts/local.testnode.Dockerfile
+index 91ec912..13674e1 100644
+--- a/scripts/local.testnode.Dockerfile
++++ b/scripts/local.testnode.Dockerfile
+@@ -4,7 +4,7 @@ COPY ./scripts/local-start-node.sh ./start-node.sh
+ RUN chmod +x ./start-node.sh
+ EXPOSE 10000
+ EXPOSE 8888
+-ENV EXTRA_ARGS="--debug"
++ENV EXTRA_ARGS="--debug --rpc-server-addr 0.0.0.0"
+ ENV DESIRED_PEERS="10"
+ ENV EXTERNAL_PORT="8889"
+ ENV BOOTSTRAP_NODE="127.0.0.1:8888"
+```
