@@ -20,19 +20,20 @@ message PeerConnectRequest {
 }
 
 message PeerElement {
-  google.protobuf.StringValue node_id = 1; 
+  google.protobuf.StringValue node_id = 1;
   google.protobuf.Int32Value port = 2;
   google.protobuf.StringValue ip = 3;
 }
 
 message PeerListResponse {
-  repeated PeerElement peer = 1;
+          string node_type = 1;
+          repeated PeerElement peer = 2;
 }
 
 message PeerStatsResponse {
   message PeerStats {
-    string node_id = 1; 
-    uint64 packets_sent = 2; 
+    string node_id = 1;
+    uint64 packets_sent = 2;
     uint64 packets_received = 3;
     uint64 measured_latency  = 4;
   }
@@ -73,7 +74,6 @@ message PoCSendTransactionMessage {
   uint32 network_id = 1;
   string message_content = 2;
 }
-
 message NetworkChangeRequest {
   google.protobuf.Int32Value network_id = 1;
 }

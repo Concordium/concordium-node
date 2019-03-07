@@ -314,6 +314,10 @@ impl P2PNode {
         self.port
     }
 
+    pub fn get_node_mode(&self) -> P2PNodeMode {
+        self.mode
+    }
+
     pub fn get_nodes(&self, nids: &Vec<u16>) -> Result<Vec<PeerStatistic>, Error> {
         match self.tls_server.lock() {
             Ok(x) => Ok(x.get_peer_stats(nids)),
@@ -763,5 +767,3 @@ pub fn is_valid_connection_in_broadcast(
     }
     false
 }
-
-
