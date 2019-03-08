@@ -68,7 +68,7 @@ foreign import ccall "dynamic" callCStringCallback :: FunPtr CStringCallback -> 
 
 foreign import ccall "dynamic" callCStringCallbackInstance :: FunPtr (Int64 -> CStringCallback) -> Int64 -> CStringCallback
 
-makeGenesisData :: 
+makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word64 -- ^Number of bakers
     -> FunPtr CStringCallback -- ^Function to process the generated genesis data.
@@ -83,6 +83,47 @@ makeGenesisData genTime nBakers cbkgen cbkbaker = do
         bakersPrivate = map fst bakers
 
 type BlockCallback = Int64 -> CString -> Int64 -> IO ()
+
+-- | External function that logs in Rust a message using standard Rust log output
+--
+-- The first argument represents the Identifier which shows in which module the message has been emited.
+-- The current mapping is as follows:
+--
+-- +----------+-------+
+-- |Identifier|Module |
+-- +==========+=======+
+-- |1         |Runner |
+-- +----------+-------+
+-- |2         |Afgjort|
+-- +----------+-------+
+-- |3         |Birk   |
+-- +----------+-------+
+-- |4         |Crypto |
+-- +----------+-------+
+-- |5         |Kontrol|
+-- +----------+-------+
+-- |6         |Skov   |
+-- +----------+-------+
+-- |Other     |Baker  |
+-- +----------+-------+
+--
+-- The second argument represents the Log Level which is interpreted as follows:
+--
+-- +-----+--------+
+-- |Value|LogLevel|
+-- +=====+========+
+-- |1    |Error   |
+-- +-----+--------+
+-- |2    |Warning |
+-- +-----+--------+
+-- |3    |Info    |
+-- +-----+--------+
+-- |Other|Debug   |
+-- +-----+--------+
+--
+-- The third argument is the log message that is emited.
+
+type LogCallback = Word8 -> Word8 -> CString -> IO()
 
 foreign import ccall "dynamic" callBlockCallback :: FunPtr BlockCallback -> BlockCallback
 
@@ -99,19 +140,19 @@ outLoop chan cbk = do
             BS.useAsCStringLen bs $ \(cstr, l) -> cbk 2 cstr (fromIntegral l)
     outLoop chan cbk
 
-startBaker :: 
+startBaker ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
-           -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
-startBaker gdataC gdataLenC bidC bidLenC bcbk = do
-    gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
-    bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
-    case (decode gdata, decode bdata) of
-      (Right genData, Right bid) -> do
-        (cin, cout, out) <- makeRunner bid genData
-        forkIO $ outLoop cout (callBlockCallback bcbk)
-        newStablePtr (BakerRunner cin cout out)
-      _   -> ioError (userError $ "Error decoding serialized data.")
+           -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
+startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
+  gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
+  bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
+  case (decode gdata, decode bdata) of
+    (Right genData, Right bid) -> do
+      (cin, cout, out) <- makeRunner bid genData
+      forkIO $ outLoop cout (callBlockCallback bcbk)
+      newStablePtr (BakerRunner cin cout out)
+    _   -> ioError (userError $ "Error decoding serialized data.")
 
 stopBaker :: StablePtr BakerRunner -> IO ()
 stopBaker bptr = do
@@ -167,7 +208,7 @@ freeCStr :: CString -> IO ()
 freeCStr = free
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
-foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> IO (StablePtr BakerRunner)
+foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
