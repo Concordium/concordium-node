@@ -146,6 +146,7 @@ startBaker ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
 startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
+  BS.useAsCString (BS.pack "Starting up baker") $ \stt -> (callLogCallback lcbk) 0 3 stt
   gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
   bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
   case (decode gdata, decode bdata) of
