@@ -1,3 +1,7 @@
 [submodule "deps/internal/crypto"]
 	path = deps/internal/crypto
-	url = ../crypto.git
+        url = ../crypto.git
+[submodule "deps/internal/consensus"]
+	path = deps/internal/consensus
+	url = ../consensus/prototype.git
+	branch = master

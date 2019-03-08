@@ -5,12 +5,6 @@ then
   exit 1
 fi
 
-# Foreign temporary dependency, potentially a smarter way?
-rm -rf consensus
-git clone git@gitlab.com:Concordium/consensus/prototype.git consensus
-# Locked to oak-integration for PoC due to build issues on Windows with master currently.
-( cd consensus && git checkout oak-integration && git submodule update --init --recursive )
-
 git submodule update --init --recursive
 
 scripts/build-base-docker.sh

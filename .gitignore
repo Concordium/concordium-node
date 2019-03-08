@@ -17,7 +17,6 @@ dist
 .cabal-sandbox
 cabal.sandbox.config
 workdir
-consensus/
-oak-compiler/
 win_build
 scripts/local/assets/repos
+deps/internal/crypto/build

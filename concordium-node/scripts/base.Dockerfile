@@ -10,6 +10,6 @@ COPY ./scripts/gen_data.sh ./gen_data.sh
 COPY ./scripts/start.sh ./start.sh
 RUN pacman -Sy &&\
     pacman -Syyu --noconfirm && \
-    pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf openssl autoconf automake ldns file which boost zstd patch libunwind libdwarf elfutils unbound --noconfirm && \
+    pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm && \
     pacman -Scc --noconfirm && \
     ./init.build.env.sh

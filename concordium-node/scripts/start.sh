@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Haskell binding needs proper library path to function
-export LD_LIBRARY_PATH=/usr/local/lib:$HOME/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.3/lib/ghc-8.4.3/rts
+export LD_LIBRARY_PATH=/usr/local/lib:$HOME/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4/lib/ghc-8.4.4/rts
 
 if [ "$MODE" == "tps_receiver" ]; then
     # Create dirs
@@ -99,4 +99,37 @@ elif [ "$MODE" == "testrunner" ]; then
     
     heaptrack /build-project/target/debug/testrunner --listen-port $LISTEN_PORT --listen-http-port $LISTEN_HTTP_PORT --bootstrap-node $BOOTSTRAP_FIRST_NODE --bootstrap-node $BOOTSTRAP_SECOND_NODE $EXTRA_ARGS 
 
+elif [ "$MODE" == "local_basic" ]; then
+    export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
+    echo "Using BAKER_ID $BAKER_ID"
+
+
+    /build-project/p2p-client/target/debug/p2p_client-cli \
+        --private-node \
+        --debug \
+        --no-dnssec \
+        --testrunner-url http://testrunner:8950 \
+        --desired-nodes $DESIRED_PEERS \
+        --external-port $EXTERNAL_PORT \
+        --bootstrap-node $BOOTSTRAP_NODE \
+        --baker-id $BAKER_ID \
+        --num-bakers $NUM_BAKERS 
+
+elif [ "$MODE" == "local_bootstrapper" ]; then
+    export NODE_ID=`awk 'END{ print $1}' /etc/hosts | sha256sum | awk '{print $1}'`
+    heaptrack /build-project/p2p-client/target/debug/p2p_bootstrapper-cli \
+        --id $NODE_ID \
+        --listen-port 8888 \
+        --private-node \
+        --debug
+        --no-dnssec
+
+elif [ "$MODE" == "local_testrunner" ]; then
+    /build-project/p2p-client/target/debug/testrunner \
+        --private-node \
+        --debug \
+        --no-dnssec \
+        --desired-nodes $DESIRED_PEERS \
+        --external-port $EXTERNAL_PORT \
+        --bootstrap-node $BOOTSTRAP_NODE
 fi
