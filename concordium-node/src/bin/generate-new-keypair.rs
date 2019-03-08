@@ -9,6 +9,8 @@ fn main() -> Result<(), &'static str>
 
     println!( "Private key: {}", keys.private_key_as_base64());
     println!( "Public key: {}", keys.public_key_as_base64());
+    println!( "Address: {}", keys.address());
+
 
     Ok(())
 }

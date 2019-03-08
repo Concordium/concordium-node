@@ -1,4 +1,8 @@
-use super::{ ed25519_public_key, ed25519_secret_key, priv_key, public_key };
+use super::{ ed25519_public_key, ed25519_secret_key, priv_key, public_key, ADDRESS_SCHEME };
+use sha2::{ Sha224, Digest};
+use base58::{ ToBase58 };
+
+
 
 #[derive (Debug)]
 pub struct KeyPair
@@ -39,6 +43,14 @@ impl KeyPair
     pub fn public_key_as_base64(&self) -> String
     {
         base64::encode( &self.public_key)
+    }
+
+    pub fn address(&self) -> String
+    {
+        let hasher :Sha224 = Sha224::default();
+        let pk_hash = hasher.chain( &self.public_key).result();
+
+        format!( "{}{}", ADDRESS_SCHEME, pk_hash[..20].to_base58())
     }
 
 }

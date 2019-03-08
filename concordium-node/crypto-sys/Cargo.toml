@@ -19,6 +19,8 @@ valgrind = []
 libc = "0.2"
 log = "0.4"
 base64 = "0.10.1"
+sha2 = "0.8.0"
+base58 = "0.1.0"
 
 [build-dependencies]
 bindgen = "0.48.0"
