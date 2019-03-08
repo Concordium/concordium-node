@@ -45,6 +45,8 @@ impl KeyPair
         base64::encode( &self.public_key)
     }
 
+    /// Address is generated following next rule:
+    /// `<ADDRESS_SCHEME> + MostSignificantBits_160( SHA_224( public_key))`
     pub fn address(&self) -> String
     {
         let hasher :Sha224 = Sha224::default();
