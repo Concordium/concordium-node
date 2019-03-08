@@ -7,21 +7,16 @@ git clone https://github.com/libffi/libffi.git
 ( cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install);
 rm -rf libffi
 
-(mkdir -p ~/.stack/global-project/ && echo -e "packages: []\nresolver: $(cat consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml)
+(mkdir -p ~/.stack/global-project/ && echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml)
 
 curl -sSL https://get.haskellstack.org/ | sh
-( cd consensus && stack build --ghc-options '-dynamic -j4' --force-dirty &&
+( cd deps/internal/consensus && stack build --ghc-options '-dynamic -j4' --force-dirty &&
   cp .stack-work/install/x86_64-linux-tinfo6/$(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.so /usr/local/lib &&
   find /usr/local/lib -name libHSConcordium\*.so -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.so \; &&
-  find /usr/local/lib -name libHSlanguage-glsl-0.3.0-\*.so -exec ln -s {} /usr/local/lib/libHSlanguage-glsl-0.3.0.so \; &&
-  find /usr/local/lib -name libHSoak-0.19.0-\*.so -exec ln -s {} /usr/local/lib/libHSoak-0.19.0.so \; &&
-  find /usr/local/lib -name libHSmonadplus-1.3\*.so -exec ln -s {} /usr/local/lib/libHSmonadplus-1.3.so \; &&
-  find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; &&
-  ls /usr/local/lib &&
-  ls ~/.stack/programs/x86_64-linux/
+  find /usr/local/lib -name libHSacorn\*.so -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.so \; &&
+  find /usr/local/lib -name libHSconcordium-crypto\*.so -exec ln -s {} /usr/local/lib/libHSconcordium-crypto-0.1.so \; &&
+  find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; 
   ) 
-
-(cp -r consensus/workdir consensus-sys/)
 
 git clone https://github.com/KDE/heaptrack.git
 (cd heaptrack && patch src/track/heaptrack.sh.cmake ../scripts/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);

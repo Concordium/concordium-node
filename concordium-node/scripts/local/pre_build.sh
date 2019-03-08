@@ -13,30 +13,8 @@ else
         assets/repos/baker_id_gen.git
 fi
 
-# Consensus
-if [ -d assets/repos/consensus ]; then
-    cd assets/repos/consensus
-    git pull
-    cd ../../..
-else
-    git clone -b oak-integration --single-branch \
-            git@gitlab.com:Concordium/consensus/prototype.git \
-            assets/repos/consensus && \
-        cd assets/repos/consensus && \
-        git submodule update --init --recursive && \
-        cd ../../..
-fi
-
 # P2P Client
-if [ -d assets/repos/p2p-client ]; then
-    pushd assets/repos/p2p-client
-    git pull
-else
-    git clone \
-            git@gitlab.com:Concordium/p2p-client.git \
-            assets/repos/p2p-client
-    pushd assets/repos/p2p-client
-fi
+rsync -a --exclude=target/ \
+    --exclude=scripts/local/assets \
+    ../.. assets/repos/p2p-client
 
-git submodule update --init --recursive
-popd

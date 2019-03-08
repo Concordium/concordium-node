@@ -67,3 +67,18 @@ use:
 ```
 $> docker-compose down
 ```
+
+## Exposed ports
+
+### Bootstrap node
+
+Port 11000/tcp for gRPC
+
+### Baker nodes
+
+11200-11500/tcp on the local machine is mapped for gRPC access to individual baker nodes
+
+### Testrunner
+
+Port 11100/tcp for gRPC.
+Port 11101/tcp for HTTP interface.
