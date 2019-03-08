@@ -126,6 +126,7 @@ type BlockCallback = Int64 -> CString -> Int64 -> IO ()
 type LogCallback = Word8 -> Word8 -> CString -> IO()
 
 foreign import ccall "dynamic" callBlockCallback :: FunPtr BlockCallback -> BlockCallback
+foreign import ccall "dynamic" callLogCallback :: FunPtr LogCallback -> LogCallback
 
 outLoop :: Chan OutMessage -> BlockCallback -> IO ()
 outLoop chan cbk = do
