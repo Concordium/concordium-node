@@ -1,4 +1,0 @@
-149c149
-< output=$(pwd)/heaptrack.$(basename "$client").$$
----
-> output=$(pwd)/heaptrack.$(basename "$client").$$.$(date +%Y-%m-%dT%H:%M:%S)

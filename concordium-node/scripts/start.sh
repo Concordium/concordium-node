@@ -113,7 +113,8 @@ elif [ "$MODE" == "local_basic" ]; then
         --external-port $EXTERNAL_PORT \
         --bootstrap-node $BOOTSTRAP_NODE \
         --baker-id $BAKER_ID \
-        --num-bakers $NUM_BAKERS 
+        --num-bakers $NUM_BAKERS \
+        --rpc-server-addr 0.0.0.0
 
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID=`awk 'END{ print $1}' /etc/hosts | sha256sum | awk '{print $1}'`
@@ -121,8 +122,7 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
         --id $NODE_ID \
         --listen-port 8888 \
         --private-node \
-        --debug
-        --no-dnssec
+        --debug 
 
 elif [ "$MODE" == "local_testrunner" ]; then
     /build-project/p2p-client/target/debug/testrunner \
@@ -131,5 +131,5 @@ elif [ "$MODE" == "local_testrunner" ]; then
         --no-dnssec \
         --desired-nodes $DESIRED_PEERS \
         --external-port $EXTERNAL_PORT \
-        --bootstrap-node $BOOTSTRAP_NODE
+        --bootstrap-node $BOOTSTRAP_NODE 
 fi

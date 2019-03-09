@@ -12,6 +12,9 @@ All services use the same docker image: *concordium/common:latest*. However,
 each service defined in `docker-compose.yml` overwrites its `entrypoint` to run
 specific launcher script.
 
+## Requirements
+To use this you must have rsync, docker, and docker-compose installed.
+
 ## Advantages
 
 ### No external port or IP is needed
@@ -70,15 +73,10 @@ $> docker-compose down
 
 ## Exposed ports
 
-### Bootstrap node
-
-Port 11000/tcp for gRPC
-
 ### Baker nodes
 
-11200-11500/tcp on the local machine is mapped for gRPC access to individual baker nodes
+11100-11500/tcp on the local machine is mapped for gRPC access to individual baker nodes
 
 ### Testrunner
 
-Port 11100/tcp for gRPC.
-Port 11101/tcp for HTTP interface.
+Port 11000/tcp for HTTP interface.
