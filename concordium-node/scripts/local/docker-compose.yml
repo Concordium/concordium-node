@@ -9,8 +9,6 @@ services:
             - MODE=local_bootstrapper
         entrypoint:
             - /build-project/start.sh
-        ports:
-            - "11000:10000"
     baker_id_gen:
         image: concordium/common:latest
         entrypoint:
@@ -32,7 +30,7 @@ services:
             - NUM_BAKERS=${NUM_BAKERS}
             - MODE=local_basic
         ports:
-            - "11200-11500:10000"
+            - "11100-11500:10000"
     testrunner:
         image: concordium/common:latest
         depends_on:
@@ -47,5 +45,4 @@ services:
             - RUST_LOG=debug
             - MODE=local_testrunner
         ports:
-            - "11100:10000"
-            - "11101:8950"
+            - "11000:8950"
