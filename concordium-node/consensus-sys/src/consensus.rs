@@ -429,8 +429,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
     }
 }
 
-// Following the implementation of the log crate, error = 1, warning = 2, info = 3, any other option
-// is considered as debug.
+/// Following the implementation of the log crate, error = 1, warning = 2, info = 3, any other option is considered as debug.
 extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: *const u8) {
     fn identifier_to_string(id: c_char) -> &'static str {
         match id {
@@ -443,17 +442,15 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
             _ => "Baker",
         }
     }
-    unsafe {
-        let s = CStr::from_ptr(log_message as *const c_char).to_str()
-            .expect("log_callback: unable to decode invaid UTF-8 values");
-        let i = identifier_to_string(identifier).to_string();
-        match log_level as u8 {
-            1 => error!("{}: {}", i, s),
-            2 => warn!("{}: {}", i, s),
-            3 => info!("{}: {}", i, s),
-            _ => debug!("{}: {}", i, s),
-        };
-    }
+    let s = unsafe {CStr::from_ptr(log_message as *const c_char)}.to_str()
+        .expect("log_callback: unable to decode invalid UTF-8 values");
+    let i = identifier_to_string(identifier).to_string();
+    match log_level as u8 {
+        1 => error!("{}: {}", i, s),
+        2 => warn!("{}: {}", i, s),
+        3 => info!("{}: {}", i, s),
+        _ => debug!("{}: {}", i, s),
+    };
 }
 
 #[derive(Debug)]
