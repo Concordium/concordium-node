@@ -15,8 +15,6 @@ module Concordium.Crypto.DummyVRF(
     proofToHash,
     verify,
     verifyKey,
-    hashToDouble,
-    hashToInt,
     emptyHash,
     emptyProof
 ) where
@@ -81,21 +79,6 @@ verify (PublicKey key) doc (Proof pf) = myHash key doc == pf
 
 verifyKey :: PublicKey -> Bool
 verifyKey (PublicKey key) = BS.length key == 8
-
--- |Convert a 'Hash' into a 'Double' value in the range [0,1].
--- This implementation takes the first 64-bit word (big-endian) and uses it
--- as the significand, with an exponent of -64.  Since the precision of a
--- 'Double' is only 53 bits, there is inevitably some loss.  This also means
--- that the outcome 1 is not possible.
-hashToDouble :: Hash -> Double
-hashToDouble (Hash (Hash.Hash h)) = case runGet getWord64be h of
-    Left e -> error e
-    Right w -> encodeFloat (toInteger w) (-64)
-
-hashToInt :: Hash -> Int
-hashToInt (Hash (Hash.Hash h)) = case runGet getInt64be h of
-    Left e -> error e
-    Right i -> fromIntegral i
 
 -- |An empty hash value (typically, not a valid hash)
 emptyHash :: Hash
