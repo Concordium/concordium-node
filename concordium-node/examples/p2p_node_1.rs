@@ -176,7 +176,8 @@ fn run() -> ResultExtWrapper<()> {
                      mode_type,
                      prometheus.clone(),
                      conf.network_ids.clone(),
-                     conf.min_peers_bucket)
+                     conf.min_peers_bucket,
+                     !conf.no_trust_broadcasts)
     } else {
         P2PNode::new(conf.id,
                      conf.listen_address,
@@ -188,7 +189,8 @@ fn run() -> ResultExtWrapper<()> {
                      mode_type,
                      prometheus.clone(),
                      conf.network_ids.clone(),
-                     conf.min_peers_bucket)
+                     conf.min_peers_bucket,
+                     !conf.no_trust_broadcasts)
     };
 
     if let Some(ref prom) = prometheus {

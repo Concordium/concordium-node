@@ -33,7 +33,8 @@ pub struct TlsServer {
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
 
     message_handler: Arc< RwLock< MessageHandler>>,
-    dptr: Rc< RefCell< TlsServerPrivate>>
+    dptr: Rc< RefCell< TlsServerPrivate>>,
+    blind_trusted_broadcast: bool,
 }
 
 impl TlsServer {
@@ -46,7 +47,8 @@ impl TlsServer {
            mode: P2PNodeMode,
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            networks: Vec<u16>,
-           buckets: Arc< RwLock< Buckets > >
+           buckets: Arc< RwLock< Buckets > >,
+           blind_trusted_broadcast: bool,
            )
            -> Self {
         let mdptr = Rc::new( RefCell::new(
@@ -65,7 +67,8 @@ impl TlsServer {
                     prometheus_exporter: prometheus_exporter,
                     buckets: buckets,
                     message_handler: Arc::new( RwLock::new( MessageHandler::new())),
-                    dptr: mdptr
+                    dptr: mdptr,
+                    blind_trusted_broadcast,
         };
 
         mself.setup_default_message_handler();
@@ -147,7 +150,8 @@ impl TlsServer {
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
                                            networks,
-                                           self.buckets.clone());
+                                           self.buckets.clone(),
+                                           self.blind_trusted_broadcast,);
                 self.register_message_handlers( &mut conn);
 
                 let register_status = conn.register( poll);
@@ -221,7 +225,8 @@ impl TlsServer {
                                            self.prometheus_exporter.clone(),
                                            self.event_log.clone(),
                                            networks.clone(),
-                                           self.buckets.clone());
+                                           self.buckets.clone(),
+                                           self.blind_trusted_broadcast,);
 
                 self.register_message_handlers( &mut conn);
                 conn.register(poll)?;

@@ -49,22 +49,33 @@ pub fn forward_network_packet_message(
         own_networks: &Arc<Mutex<Vec<u16>>>,
         send_queue: &Arc<Mutex<VecDeque<Arc<Box<NetworkMessage>>>>>,
         packet_queue: &Sender<Arc<Box<NetworkMessage>>>,
-        pac: &NetworkPacket) -> FunctorResult {
+        pac: &NetworkPacket,
+        blind_trust_broadcast: bool,) -> FunctorResult {
 
     match pac {
         NetworkPacket::DirectMessage( ref sender, ref msg_id, _, ref network_id, ref msg) =>{
             forward_network_packet_message_common(
                 seen_messages, prometheus_exporter, own_networks, send_queue, packet_queue,
                 pac, sender, msg_id, network_id, msg,
-                "Dropping duplicate direct packet")
+                "Dropping duplicate direct packet", blind_trust_broadcast)
         },
         NetworkPacket::BroadcastedMessage(ref sender, ref msg_id, ref network_id, ref msg) => {
             forward_network_packet_message_common(
                 seen_messages, prometheus_exporter, own_networks, send_queue, packet_queue,
                 pac, sender, msg_id, network_id, msg,
-                "Dropping duplicate broadcast packet")
+                "Dropping duplicate broadcast packet", blind_trust_broadcast)
         }
     }
+}
+
+/// It returns a `FunctorRunningError` with the specific message.
+fn make_fn_err( e: &'static str) -> ErrorWrapper {
+    ErrorWrapper::from_kind(
+        ErrorKindWrapper::FunctorRunningError( e))
+}
+
+fn make_fn_error_prometheus() -> ErrorWrapper {
+    make_fn_err( "Prometheus has faild")
 }
 
 /// # TODO
@@ -80,7 +91,8 @@ fn forward_network_packet_message_common(
         msg_id: &String,
         network_id: &u16,
         msg: &Vec<u8>,
-        drop_message: &str
+        drop_message: &str,
+        blind_trust_broadcast: bool,
         ) -> FunctorResult {
 
     debug!("### Forward Broadcast Message: msgid: {}", msg_id);
@@ -90,7 +102,16 @@ fn forward_network_packet_message_common(
             let outer = Arc::new( box NetworkMessage::NetworkPacket( pac.clone(), None, None));
 
             seen_messages.append(&msg_id);
-            send_queue.lock()?.push_back( outer.clone());
+            if blind_trust_broadcast {
+                if let NetworkPacket::BroadcastedMessage(_,_,_,_) = pac {
+                    
+                    send_queue.lock()?.push_back( outer.clone());
+                    if let Some(ref prom) = prometheus_exporter {
+                        prom.lock()?.queue_size_inc()
+                            .map_err(|_| make_fn_error_prometheus())?;
+                    };
+                }
+            }
 
             if let Err(e) = packet_queue.send(outer) {
                 warn!( "Forward network packet cannot be sent by incoming_pkts: {}", e.to_string());

@@ -43,6 +43,8 @@ pub struct ConnectionPrivate {
     pub sent_handshake: u64,
     pub sent_ping: u64,
     pub last_latency_measured: u64,
+
+    blind_trusted_broadcast: bool,
 }
 
 impl ConnectionPrivate {
@@ -58,6 +60,7 @@ impl ConnectionPrivate {
             tls_client_session: Option< ClientSession>,
             prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
             event_log: Option<Sender<P2PEvent>>,
+            blind_trusted_broadcast: bool,
             ) -> Self {
 
         let u64_max_value: u64 = u64::max_value();
@@ -85,7 +88,8 @@ impl ConnectionPrivate {
 
             sent_handshake: u64_max_value,
             sent_ping: u64_max_value,
-            last_latency_measured: u64_max_value
+            last_latency_measured: u64_max_value,
+            blind_trusted_broadcast,
         }
     }
 
