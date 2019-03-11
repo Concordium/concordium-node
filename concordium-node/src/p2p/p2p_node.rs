@@ -52,6 +52,7 @@ pub struct P2PNode {
     external_port: u16,
     seen_messages: SeenMessagesList,
     minimum_per_bucket: usize,
+    blind_trusted_broadcast: bool,
 }
 
 unsafe impl Send for P2PNode {}
@@ -68,7 +69,8 @@ impl P2PNode {
                mode: P2PNodeMode,
                prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
                networks: Vec<u16>,
-               minimum_per_bucket: usize)
+               minimum_per_bucket: usize,
+               blind_trusted_broadcast: bool,)
                -> Self {
         let addr = if let Some(ref addy) = listen_address {
             format!("{}:{}", addy, listen_port).parse().unwrap()
@@ -184,7 +186,8 @@ impl P2PNode {
                                      mode,
                                      prometheus_exporter.clone(),
                                      networks,
-                                     buckets.clone());
+                                     buckets.clone(), 
+                                     blind_trusted_broadcast,);
 
         let mut mself = P2PNode {
                   tls_server: Arc::new(Mutex::new(tlsserv)),
@@ -203,6 +206,7 @@ impl P2PNode {
                   mode: mode,
                   seen_messages: seen_messages,
                   minimum_per_bucket: minimum_per_bucket,
+                  blind_trusted_broadcast,
         };
         mself.add_default_message_handlers();
         mself
@@ -230,10 +234,11 @@ impl P2PNode {
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = self.send_queue.clone();
+        let trusted_broadcast = self.blind_trusted_broadcast.clone();
 
         make_atomic_callback!( move|pac: &NetworkPacket| {
             forward_network_packet_message( &seen_messages, &prometheus_exporter,
-                                                   &own_networks, &send_queue, &packet_queue, pac)
+                                                   &own_networks, &send_queue, &packet_queue, pac, trusted_broadcast)
         })
     }
 

@@ -183,7 +183,8 @@ fn run() -> ResultExtWrapper<()> {
                      mode_type,
                      prometheus.clone(),
                      conf.network_ids.clone(),
-                     conf.min_peers_bucket)
+                     conf.min_peers_bucket,
+                     !conf.no_trust_broadcasts)
     } else {
         P2PNode::new(node_id,
                      conf.listen_address.clone(),
@@ -195,7 +196,8 @@ fn run() -> ResultExtWrapper<()> {
                      mode_type,
                      prometheus.clone(),
                      conf.network_ids.clone(),
-                     conf.min_peers_bucket)
+                     conf.min_peers_bucket,
+                     !conf.no_trust_broadcasts)
     };
 
     match db.get_banlist() {
@@ -324,10 +326,6 @@ fn run() -> ResultExtWrapper<()> {
                                                box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                                                   }
-                                                   if !_no_trust_broadcasts {
-                                                       info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                                       _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                                                    }
                                                    if let Some(testrunner_url ) = _test_runner_url.clone() {
                                                        info!("Sending information to test runner");

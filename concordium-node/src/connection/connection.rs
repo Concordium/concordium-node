@@ -57,6 +57,7 @@ pub struct Connection {
     messages_sent: u64,
     messages_received: u64,
     last_ping_sent: u64,
+    blind_trusted_broadcast: bool,
 
 
     /// It stores internal info used in handles. In this way,
@@ -81,14 +82,15 @@ impl Connection {
            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
            event_log: Option<Sender<P2PEvent>>,
            own_networks: Arc<Mutex<Vec<u16>>>,
-           buckets: Arc< RwLock< Buckets > >)
+           buckets: Arc< RwLock< Buckets > >,
+           blind_trusted_broadcast: bool,)
            -> Self {
 
         let curr_stamp = get_current_stamp();
         let priv_conn = Rc::new( RefCell::new( ConnectionPrivate::new(
                 connection_type, mode, own_id, self_peer, own_networks, buckets,
                 initiated_by_me, tls_server_session, tls_client_session,
-                prometheus_exporter, event_log)));
+                prometheus_exporter, event_log, blind_trusted_broadcast,)));
 
         let mut lself = Connection {
                      socket: socket,
@@ -106,7 +108,8 @@ impl Connection {
                      pkt_valid: false,
                      last_ping_sent: curr_stamp,
                      dptr: priv_conn,
-                     message_handler: MessageHandler::new()
+                     message_handler: MessageHandler::new(),
+                     blind_trusted_broadcast,
         };
 
         lself.setup_message_handler();

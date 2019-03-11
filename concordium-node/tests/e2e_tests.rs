@@ -35,6 +35,27 @@ mod tests {
         Broadcast(u16),
     }
 
+    /// Counter implementation
+    #[derive(Clone)]
+    pub struct Counter(pub Arc<AtomicUsize>);
+
+    impl Counter {
+        /// Creates a new `Counter` starting with the given value.
+        pub fn new(value: usize) -> Self {
+            Counter(Arc::new(AtomicUsize::new(value)))
+        }
+
+        /// Retrieves the current counter value.
+        pub fn get(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+
+        /// Increase the current counter by `ticks`.
+        pub fn tick(&self, ticks: usize) {
+            self.0.fetch_add(ticks, Ordering::SeqCst);
+        }
+    }
+
     /// It initializes the global logger with a `env_logger`, but just once.
     fn setup() {
         INIT.call_once( || {
@@ -84,7 +105,6 @@ mod tests {
 
 
     #[test]
-    #[ignore]
     pub fn e2e_000_two_nodes() {
         setup();
         let test_port_added = next_port_offset(3);
@@ -137,7 +157,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let mut _th_1 = node_1.spawn();
 
@@ -151,7 +172,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let _th_2 = node_2.spawn();
 
@@ -215,12 +237,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_000_two_nodes_wrong_net() {
         setup();
         let test_port_added = next_port_offset(5);
         let (pkt_in_1, pkt_out_1) = mpsc::channel();
-        let (pkt_in_2, _pkt_out_2) = mpsc::channel();
+        let (pkt_in_2, pkt_out_2) = mpsc::channel();
 
         let (sender, receiver) = mpsc::channel();
         let _guard =
@@ -268,7 +289,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let mut _th_1 = node_1.spawn();
 
@@ -282,7 +304,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![200],
-                                      100);
+                                      200,
+                                      true);
 
         let _th_2 = node_2.spawn();
 
@@ -322,7 +345,9 @@ mod tests {
 
         thread::sleep(time::Duration::from_secs(5));
 
-        match pkt_out_1.try_recv() {
+        pkt_out_2.recv_timeout(max_recv_timeout()).expect("Didn't get peer list response");
+
+        match pkt_out_2.try_recv() {
             Ok(ref outer) => {
                 match *outer.clone() {
                     box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_,
@@ -349,7 +374,7 @@ mod tests {
         let test_port_added = next_port_offset( 10);
 
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
-        let (pkt_in_2, pkt_out_2) = mpsc::channel();
+        let (pkt_in_2, _pkt_out_2) = mpsc::channel();
         let (pkt_in_3, pkt_out_3) = mpsc::channel();
 
         let (sender, receiver) = mpsc::channel();
@@ -398,7 +423,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let mut _th_1 = node_1.spawn();
 
@@ -412,24 +438,12 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let _th_2 = node_2.spawn();
 
         let mut _2_node = node_2.clone();
-
-        let _guard_2 = thread::spawn(move || {
-                                         loop {
-                                             if let Ok(ref outer_msg) = pkt_out_2.recv() {
-                                                 match *outer_msg.clone() {
-                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid,  ref nid, ref msg), _, _) => {
-                                                     _2_node.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| panic!(e)).ok();
-                                                 }
-                                                 _ => {}
-                                             }
-                                             }
-                                         }
-                                     });
 
         let mut node_3 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
@@ -441,7 +455,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let _th_3 = node_3.spawn();
 
@@ -465,7 +480,11 @@ mod tests {
               .map_err(|e| panic!(e))
               .ok();
 
+        pkt_out_3.recv_timeout( max_recv_timeout() ).expect("Didn't get peer list response");
+
         let mut pkt_out_3_msg = pkt_out_3.recv_timeout( max_recv_timeout());
+
+
 
         match pkt_out_3_msg {
             Ok(ref mut outer_msg) => {
@@ -490,12 +509,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_001_trust_broadcast_wrong_net() {
         setup();
         let test_port_added = next_port_offset(5);
         let (pkt_in_1, _pkt_out_1) = mpsc::channel();
-        let (pkt_in_2, pkt_out_2) = mpsc::channel();
+        let (pkt_in_2, _pkt_out_2) = mpsc::channel();
         let (pkt_in_3, pkt_out_3) = mpsc::channel();
 
         let (sender, receiver) = mpsc::channel();
@@ -544,7 +562,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![100],
-                                      100);
+                                      100,
+                                      true);
 
         let mut _th_1 = node_1.spawn();
 
@@ -558,24 +577,12 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![200],
-                                      100);
+                                      200,
+                                      true);
 
         let _th_2 = node_2.spawn();
 
         let mut _2_node = node_2.clone();
-
-        let _guard_2 = thread::spawn(move || {
-                                         loop {
-                                             if let Ok(ref outer_msg) = pkt_out_2.recv() {
-                                                 match *outer_msg.clone() {
-                                                 box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
-                                                     _2_node.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| panic!(e)).ok();
-                                                 }
-                                                 _ => {}
-                                             }
-                                             }
-                                         }
-                                     });
 
         let mut node_3 = P2PNode::new(None,
                                       Some("127.0.0.1".to_string()),
@@ -587,7 +594,8 @@ mod tests {
                                       P2PNodeMode::NormalPrivateMode,
                                       None,
                                       vec![200],
-                                      100);
+                                      200,
+                                      true);
 
         let _th_3 = node_3.spawn();
 
@@ -606,6 +614,8 @@ mod tests {
               .unwrap();
 
         thread::sleep(time::Duration::from_secs(5));
+
+        pkt_out_3.recv_timeout( max_recv_timeout() ).expect("Didn't get peer list response");
 
         node_1.send_message(None, 100, None, &msg.as_bytes().to_vec(), true)
               .map_err(|e| panic!(e))
@@ -634,7 +644,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_002_small_mesh_net() {
         setup();
         let test_port_added = next_port_offset( 20);
@@ -682,7 +691,7 @@ mod tests {
         let mut peer_ports: Vec<usize> = vec![];
 
         let message_counter = Arc::new(RelaxedCounter::new(0));
-        let message_count_estimated = mesh_node_count - 1;
+        let message_count_estimated = mesh_node_count;
 
         let mut peer = 0;
 
@@ -699,7 +708,8 @@ mod tests {
                                         P2PNodeMode::NormalPrivateMode,
                                         Some(Arc::new(Mutex::new(prometheus.clone()))),
                                         vec![100],
-                                        100);
+                                        100,
+                                        false);
             let mut _node_self_clone = node.clone();
             let _msg_counter = message_counter.clone();
             let _guard_pkt = thread::spawn(move || {
@@ -741,7 +751,7 @@ mod tests {
                            .ok();
         };
 
-        thread::sleep(time::Duration::from_secs(5));
+        thread::sleep(time::Duration::from_secs(30));
 
         for peer in &peers {
             match peer.3.queue_size() {
@@ -758,8 +768,8 @@ mod tests {
             let test_port_added = $test_port_added;
             let island_size = $island_size;
             let islands_count = $islands_count;
-            let message_counter = Arc::new(RelaxedCounter::new(0));
-            let message_count_estimated = (island_size*islands_count-1)*islands_count;
+            let message_counter = Counter::new(0);
+            let message_count_estimated = island_size*islands_count*islands_count;
 
             let (sender, receiver) = mpsc::channel();
 
@@ -815,7 +825,6 @@ mod tests {
                 for instance_port in (test_port_added + (island_size * island))
                                     ..(test_port_added + island_size + (island_size * island))
                 {
-                    let _inner_msg_counter = message_counter.clone();
                     let (inner_sender, inner_receiver) = mpsc::channel();
                     let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
                     let mut node = P2PNode::new(None,
@@ -828,15 +837,18 @@ mod tests {
                                                 P2PNodeMode::NormalPrivateMode,
                                                 Some(Arc::new(Mutex::new(prometheus.clone()))),
                                                 vec![100],
-                                                100);
+                                                100,
+                                                false);
                     let mut _node_self_clone = node.clone();
+              
+                    let _inner_counter = message_counter.clone();
                     let _guard_pkt = thread::spawn(move || {
                         loop {
                             if let Ok(full_msg) = inner_receiver.recv() {
                                 match *full_msg.clone() {
                                     box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
                                         info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                        _inner_msg_counter.inc();
+                                        _inner_counter.tick(1);
                                         _node_self_clone.send_message(None, *nid, Some(msgid.clone()),&msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                                     }
                                     _ => { /*ignored for test*/ }
@@ -870,7 +882,7 @@ mod tests {
                 };
             };
 
-            thread::sleep(time::Duration::from_secs(5));
+            thread::sleep(time::Duration::from_secs(30));
 
             let msg = "Hello other mother's brother".to_string();
 
@@ -899,15 +911,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_002_small_mesh_three_islands_net() {
-        islands_mesh_test!(500, 3, 3);
+        islands_mesh_test!(next_port_offset( 10) as usize, 3, 3);
     }
 
     #[test]
-    #[ignore]
     pub fn e2e_003_big_mesh_three_islands_net() {
-        islands_mesh_test!(600, 5, 3);
+        islands_mesh_test!(next_port_offset( 20) as usize, 5, 3);
     }
 
     #[test]
@@ -948,7 +958,7 @@ mod tests {
             let mut node = P2PNode::new(
                     None, Some("127.0.0.1".to_string()), test_port_added + n as u16,
                     None, None, tx_i, None, P2PNodeMode::NormalPrivateMode, None,
-                    vec![100], 100);
+                    vec![100], 100, true);
 
             if n > 0 {
                 let root = &nodes[0];
@@ -1053,7 +1063,7 @@ mod tests {
         let mut node = P2PNode::new(
             None, Some("127.0.0.1".to_string()), port,
             None, None, net_tx, None, P2PNodeMode::NormalPrivateMode, None,
-            networks.clone(), 100);
+            networks.clone(), 100, true);
 
         let mh = node.message_handler();
         mh.write().unwrap().add_request_callback(
@@ -1277,7 +1287,6 @@ mod tests {
     /// It create a *complex* network structure of 5 levels, using between 4 and 9 nodes
     /// per level.
     #[test]
-    #[ignore]
     pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() {
         setup();
         no_relay_broadcast_to_sender_on_tree_network( 5, 4, 10);

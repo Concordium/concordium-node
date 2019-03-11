@@ -44,7 +44,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     pub fn test_consensus_tests() {
         ConsensusContainer::start_haskell();
         test_grpc_consensus();
@@ -55,7 +54,7 @@ mod tests {
 
         let port_node = next_port_offset( 2);
 
-        let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+        let (pkt_in, _pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
         let (genesis_data, private_data) =
             match ConsensusContainer::generate_data(0, 1) {
@@ -110,26 +109,10 @@ mod tests {
                                 P2PNodeMode::NormalPrivateMode,
                                 None,
                                 vec![],
-                                100);
+                                100,
+                                true);
 
         let mut _node_self_clone = node.clone();
-
-        let _guard_pkt = thread::spawn(move || {
-                                           loop {
-                                               if let Ok(ref outer_msg) = pkt_out.recv() {
-                                                   match *outer_msg.clone() {
-                                                   box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => info!("DirectMessage/{}/{} with {:?} received", nid, msgid, msg),
-                                                   box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_,ref msgid, ref nid, ref msg), _, _) => {
-                                                       info!("BroadcastedMessage/{}/{} with {:?} received", nid, msgid, msg);
-                                                       _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| panic!(e)).ok();
-                                                   }
-                                                   box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(_, ref x), _, _) => info!("Ban node request for {:?}", x),
-                                                   box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(_, ref x), _, _) => info!("Unban node requets for {:?}", x),
-                                                   _ => {}
-                                               }
-                                               }
-                                           }
-                                       });
 
         let mut rpc_serv = RpcServerImpl::new(node.clone(),
                                                 None,
