@@ -291,7 +291,7 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let mh = self.message_handler.read().unwrap();
+        let mh = self.message_handler.read().expect("Couldn't read when registering message handlers");
         conn.message_handler.merge( &mh);
     }
 }

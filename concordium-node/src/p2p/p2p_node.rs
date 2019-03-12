@@ -70,7 +70,13 @@ impl P2PNode {
                minimum_per_bucket: usize)
                -> Self {
         let addr = if let Some(ref addy) = listen_address {
-            format!("{}:{}", addy, listen_port).parse().unwrap()
+            match format!("{}:{}", addy, listen_port).parse() {
+                Ok(a) => a,
+                Err(_) => {
+                    warn!("Supplied listen address coulnd't be parsed");
+                    format!("0.0.0.0:{}", listen_port).parse().unwrap()
+                }
+            }
         } else {
             format!("0.0.0.0:{}", listen_port).parse().unwrap()
         };
@@ -81,10 +87,10 @@ impl P2PNode {
         let ip = if let Some(ref addy) = listen_address {
             match IpAddr::from_str(addy) {
                 Ok(x) => x,
-                _ => P2PNode::get_ip().unwrap(),
+                _ => P2PNode::get_ip().expect("Couldn't retrieve my own ip"),
             }
         } else {
-            P2PNode::get_ip().unwrap()
+            P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
         let ip_port = format!("{}:{}", ip.to_string(), listen_port);
         debug!("Listening on {:?}", ip_port);
@@ -92,7 +98,7 @@ impl P2PNode {
         let id = match supplied_id {
             Some(x) => {
                 if x.chars().count() != 64 {
-                    panic!("Incorrect ID specified.. Should be a sha256 value or 64 characters long!");
+                    panic!("Incorrect ID specified. Should be a sha256 value or 64 characters long!");
                 }
                 x
             }
@@ -102,7 +108,7 @@ impl P2PNode {
             }
         };
 
-        let _id = P2PNodeId::from_string(&id).unwrap();
+        let _id = P2PNodeId::from_string(&id).expect("Couldn't parse the id");
 
         let poll = match Poll::new() {
             Ok(x) => x,
@@ -214,7 +220,7 @@ impl P2PNode {
         let packet_handler = self.make_default_network_packet_message_handler();
 
         let shared_mh = self.message_handler();
-        let mut locked_mh = shared_mh.write().unwrap();
+        let mut locked_mh = shared_mh.write().expect("Coulnd't set the default message handlers");
         locked_mh.add_packet_callback( packet_handler)
                 .add_response_callback( make_atomic_callback!(
                     move |res: &NetworkResponse| { (response_handler)(res) }))
@@ -225,7 +231,7 @@ impl P2PNode {
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
         let seen_messages = self.seen_messages.clone();
-        let own_networks = self.tls_server.lock().unwrap().networks().clone();
+        let own_networks = self.tls_server.lock().expect("Couldn't lock the tls server").networks().clone();
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = self.send_queue.clone();
@@ -347,7 +353,7 @@ impl P2PNode {
         if let Some(ref peer) = conn.peer().clone() {
             match status {
                 Ok(_) => {
-                    self.pks_sent_inc().unwrap();
+                    self.pks_sent_inc().unwrap(); // assuming non-failable
                     TOTAL_MESSAGES_SENT_COUNTER.inc();
                 },
                 Err(e) => {
@@ -741,7 +747,7 @@ impl P2PNode {
 
 impl MessageManager for P2PNode {
     fn message_handler(&self) -> Arc< RwLock< MessageHandler>> {
-        self.tls_server.lock().unwrap()
+        self.tls_server.lock().expect("Couldn't lock the tls server")
             .message_handler().clone()
     }
 }
@@ -764,7 +770,7 @@ pub fn is_valid_connection_in_broadcast(
     if let Some(ref peer) = conn.peer() {
         if peer.id() != sender.id() {
             let own_networks = conn.own_networks();
-            return own_networks.lock().unwrap().contains(network_id);
+            return own_networks.lock().expect("Couldn't lock own networks").contains(network_id);
         }
     }
     false
