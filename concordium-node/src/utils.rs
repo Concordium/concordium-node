@@ -12,7 +12,7 @@ use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
-use rand::OsRng;
+use rand::rngs::OsRng;
 use reqwest;
 #[cfg(not(target_os = "windows"))]
 use resolv_conf::Config as ResolverConfig;

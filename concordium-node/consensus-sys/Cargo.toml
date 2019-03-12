@@ -29,4 +29,4 @@ curryrswin = { path = "../deps/windows/curryrs", features = ["threaded"], packag
 curryrsunix = { version = "^0.2.0", features = ["threaded"], package  = "curryrs" }
 
 [build-dependencies]
-bindgen = "0.43.1"
+bindgen = "0.48.1"

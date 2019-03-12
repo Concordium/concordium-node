@@ -6,7 +6,7 @@ use network:: {
 
 use utils;
 use std::sync::{ Mutex };
-use rand::os::{ OsRng };
+use rand::rngs::OsRng;
 use rand::{ RngCore };
 
 lazy_static! {

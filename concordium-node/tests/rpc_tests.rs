@@ -15,7 +15,7 @@ extern crate grpciowin as grpcio;
 mod tests {
     use grpcio::RpcStatusCode;
     use grpcio::{ ChannelBuilder, EnvBuilder };
-    use p2p_client::network::{NetworkMessage, NetworkPacket, NetworkRequest };
+    use p2p_client::network::NetworkMessage;
     use p2p_client::connection::{ P2PEvent, P2PNodeMode };
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::proto::*;
