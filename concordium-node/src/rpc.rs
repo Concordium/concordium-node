@@ -347,7 +347,8 @@ impl P2P for RpcServerImpl {
                  req: Empty,
                  sink: ::grpcio::UnarySink<PeerListResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
-            let f = match self.node.borrow_mut().get_peer_stats(&vec![]) {
+            let borrowed_node = self.node.borrow_mut();
+            let f = match borrowed_node.get_peer_stats(&vec![]) {
                 Ok(data) => {
                     let data: Vec<_> =
                         data
@@ -367,7 +368,7 @@ impl P2P for RpcServerImpl {
                         })
                         .collect();
                     let mut resp = PeerListResponse::new();
-                    let mut node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
+                    let mut node_type = match &format!("{:?}", borrowed_node.get_node_mode())[..] {
                         "NormalMode" | "NormalPrivateMode" => {
                             "Normal"
                         }
