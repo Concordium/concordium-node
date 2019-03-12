@@ -1,10 +1,20 @@
 image: "archlinux/base"
 
+cache:
+  paths:
+    - target
+    - deps/internal/consensus/.stack-work
+    - stack
+
 test:cargo:
   variables:
     LD_LIBRARY_PATH: "/usr/local/lib"
     GIT_SUBMODULE_STRATEGY: recursive
   script:
+  - mkdir -p stack
+  - mkdir -p /root/.stack
+  - touch stack/do-not-touch
+  - cp -rf stack/* /root/.stack/
   - cp scripts/init.build.env.sh .
   - pacman -Sy && pacman -Syyu --noconfirm
   - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm
@@ -14,5 +24,6 @@ test:cargo:
   - stack exec -- ghc --print-libdir
   - ( cd dns && cargo test --all --verbose )
   - ( cd consensus-sys && cargo test --all --verbose )
-  - cargo test --all --verbose -- --test-threads=1
+  - cargo test --all --verbose
+  - cp -rf /root/.stack/* stack/
 
