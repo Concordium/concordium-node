@@ -43,7 +43,7 @@ pub fn p2p_service_forwarder() -> Arc< P2PServiceForwarder > {
 
 macro_rules! forward_to_targets {
     ( $target:expr, $func:ident, $ctx:ident, $req:ident, $sink:ident) => {
-        let target_ref = &*($target.read().unwrap());
+        let target_ref = &*($target.read().expect("Coudn't read target when forwarding"));
 
         match target_ref.len() {
             1 => { target_ref[0].$func( $ctx, $req, $sink); }

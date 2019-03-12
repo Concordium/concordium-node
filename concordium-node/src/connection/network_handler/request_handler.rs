@@ -116,7 +116,7 @@ impl_all_fns!( RequestHandler, NRequest);
 #[cfg(test)]
 mod request_handler_test {
     use connection::{ RequestHandler };
-    use common::{ ConnectionType, P2PPeer, P2PNodeId };
+    use common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
     use network::request::{ NetworkRequest as NRequest };
 
     use std::sync::{ Arc, Mutex };
@@ -148,8 +148,8 @@ mod request_handler_test {
 
     fn ut_1_data() -> Vec<NRequest> {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
-        let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080);
+        let p2p_peer =P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
+        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080).unwrap();
 
         let data = vec![
             NRequest::Ping( p2p_peer.clone()),
@@ -172,4 +172,3 @@ mod request_handler_test {
         assert_eq!( BAN_NODE_COUNTER.load(Ordering::Relaxed), 1);
     }
 }
-

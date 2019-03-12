@@ -1,6 +1,6 @@
 use common::{ P2PPeer, P2PNodeId, get_current_stamp };
 use network:: {
-    PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, 
+    PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
 };
 
@@ -64,9 +64,10 @@ impl NetworkPacket {
 
     pub fn generate_message_id() -> String {
         let mut secure_bytes = vec![0u8; 256];
-        RNG.lock().unwrap().fill_bytes(&mut secure_bytes);
+        match RNG.lock() {
+            Ok(mut l) => {l.fill_bytes(&mut secure_bytes);}
+            Err(_) => {return String::new();}
+        }
         utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
     }
 }
-
-

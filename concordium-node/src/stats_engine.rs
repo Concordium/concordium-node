@@ -30,7 +30,7 @@ impl StatsEngine {
     }
 
     pub fn add_stat(&mut self, size: u64) {
-        let _dur = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+        let _dur = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("can't happen before epoch");
 
         //Check if we are over amount of stats to save
         if self.datapoints.len() >= self.save_amount as usize {
@@ -38,7 +38,7 @@ impl StatsEngine {
             self.datapoints.pop_front();
         }
 
-        //We add the data point with the current amount of milliseconds since epoch. 
+        //We add the data point with the current amount of milliseconds since epoch.
         //Since Rust doesn't have a method to return millis in u64, we have to manually calculate that
         self.datapoints.push_back(DataPoint::new(size, (_dur.as_secs() * 1000) + (_dur.subsec_millis() as u64)));
     }
@@ -48,31 +48,31 @@ impl StatsEngine {
     }
 
     pub fn calculate_total_tps_average(&self) -> f64 {
-        //Get the first element and the last element in the queue. 
+        //Get the first element and the last element in the queue.
         //We use their time fields to calculate total elapsed amount of time.
         let front_time = match self.datapoints.front() {
             Some(x) => x.time,
             None => 0
         };
-        
+
         let back_time = match self.datapoints.back() {
             Some(x) => x.time,
             None => 0
         };
 
         let _dur = back_time-front_time;
-        
-        //Calculate the average amount of time used per transaction expressed in seconds. 
+
+        //Calculate the average amount of time used per transaction expressed in seconds.
         let avg_time = ((_dur as f64) / (self.datapoints.len() as f64)) / 1000 as f64;
 
-        //Convert into transactions per second. 
+        //Convert into transactions per second.
         avg_time.powi(-1)
     }
 
     pub fn calculate_last_five_min_tps_average(&self) -> f64 {
         let mut within_slot = VecDeque::new();
-        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-        let minusfive = now.checked_sub(Duration::from_secs(300)).unwrap();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).expect("can't happen before epoch");
+        let minusfive = now.checked_sub(Duration::from_secs(300)).expect("less than 5 minutes spent");
 
 
         for point in self.datapoints.clone() {
@@ -85,29 +85,29 @@ impl StatsEngine {
             Some(x) => x.time,
             None => 0
         };
-        
+
         let back_time = match within_slot.back() {
             Some(x) => x.time,
             None => 0
         };
 
         let _dur = back_time-front_time;
-        
-        //Calculate the average amount of time used per transaction expressed in seconds. 
+
+        //Calculate the average amount of time used per transaction expressed in seconds.
         let avg_time = ((_dur as f64) / (within_slot.len() as f64)) / 1000 as f64;
 
-        //Convert into transactions per second. 
+        //Convert into transactions per second.
         avg_time.powi(-1)
     }
 
     pub fn calculate_total_transferred_data_per_second(&self) -> f64 {
-        //Get the first element and the last element in the queue. 
+        //Get the first element and the last element in the queue.
         //We use their time fields to calculate total elapsed amount of time.
         let front_time = match self.datapoints.front() {
             Some(x) => x.time,
             None => 0
         };
-        
+
         let back_time = match self.datapoints.back() {
             Some(x) => x.time,
             None => 0

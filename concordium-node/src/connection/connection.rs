@@ -507,11 +507,14 @@ impl Connection {
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter() {
-            prom.lock()
-                .unwrap()
-                .pkt_received_inc()
-                .map_err(|e| error!("{}", e))
-                .ok();
+            match prom.lock() {
+                Err(_) => {}
+                Ok(mut plock) => {
+                    plock.pkt_received_inc()
+                        .map_err(|e| error!("{}", e))
+                        .ok();
+                }
+            }
         };
 
         // Process message by message handler.
@@ -536,7 +539,7 @@ impl Connection {
                     if self.mode() == P2PNodeMode::BootstrapperMode
                        || self.mode() == P2PNodeMode::BootstrapperPrivateMode
                     {
-                        let msg_num = String::from_utf8(bufdata.to_vec()).unwrap();
+                        let msg_num = String::from_utf8(bufdata.to_vec()).expect("Unable to get string from utf8");
                         if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
                            || msg_num == PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
                         {
@@ -609,7 +612,7 @@ impl Connection {
             trace!("Trying to read size");
             let _buf = &buf[..4].to_vec();
             let mut size_bytes = Cursor::new(_buf);
-            self.expected_size = size_bytes.read_u32::<NetworkEndian>().unwrap();
+            self.expected_size = size_bytes.read_u32::<NetworkEndian>().expect("Couldn't read from buffer on incoming plaintext");
             if self.expected_size > 268_435_456 {
                 error!("Packet can't be bigger than 256MB");
                 self.expected_size = 0;

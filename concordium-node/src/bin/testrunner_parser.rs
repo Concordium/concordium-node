@@ -8,7 +8,7 @@ extern crate serde;
 extern crate serde_json;
 
 use p2p_client::errors::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::prelude::*;
@@ -54,41 +54,51 @@ pub fn run() -> ResultExtWrapper<()> {
             }
         };
     let json_value: Value = serde_json::from_str(&results)?;
-    if json_value.get("service_name").is_some()
-       && json_value.get("service_version").is_some()
-       && json_value.get("service_name").unwrap().as_str().unwrap() == "TestRunner"
+    if json_value["service_name"] != json!(null)
+       && json_value["service_version"] != json!(null)
+       && json_value["service_name"].as_str().unwrap() == "TestRunner"
        && json_value.get("service_version").unwrap().as_str().unwrap() == p2p_client::VERSION
     {
-        let start_time = json_value.get("test_start_time").unwrap().as_u64().unwrap();
-        let packet_size = json_value.get("packet_size").unwrap().as_u64().unwrap();
-        let mut measurements =
-            json_value.get("measurements")
-                      .unwrap()
-                      .as_array()
-                      .unwrap()
-                      .iter()
-                      .map(|ref v| {
-                               (v.get("node_id").unwrap().as_str().unwrap().to_string(),
-                                v.get("received_time").unwrap().as_u64().unwrap() - start_time,
-                                v.get("received_time").unwrap().as_u64().unwrap())
-                           })
-                      .collect::<Vec<(String, u64, u64)>>();
-        measurements.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-        if conf.csv {
-            for ele in measurements {
-                println!("{},{},{}", ele.0, ele.2, ele.1);
+        if json_value["test_start_time"] != json!(null)
+            && json_value["packet_size"] != json!(null)
+            && json_value["measurements"] != json!(null) {
+                let start_time = json_value["test_start_time"].as_u64().unwrap();
+                let packet_size = json_value["packet_size"].as_u64().unwrap();
+                let mut measurements =
+                    json_value["measurements"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|ref v| {
+                        if v["node_id"]  != json!(null)
+                            && v["received_time"]  != json!(null) {
+                                Ok((v["node_id"].as_str().unwrap().to_string(),
+                                    v["received_time"].as_u64().unwrap() - start_time,
+                                    v["received_time"].as_u64().unwrap()))
+                            } else {
+                                Err(ErrorKindWrapper::ParseError("Json not correct format".to_string()).into())
+                            }
+                    })
+                    .collect::<Result<Vec<(String, u64, u64)>, ErrorKindWrapper>>()?;
+                measurements.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+                if conf.csv {
+                    for ele in measurements {
+                        println!("{},{},{}", ele.0, ele.2, ele.1);
+                    }
+                } else {
+                    println!("Analyzed output from test runner");
+                    println!("Start of test: {}", start_time);
+                    println!("Measurements count: {}", measurements.len());
+                    println!("Packet size used: {}", packet_size);
+                    for ele in measurements {
+                        println!("- {} got it at {} with a transmission time of {}",
+                                 ele.0, ele.2, ele.1);
+                    }
+                }
+                Ok(())
+            } else {
+                Err(ErrorKindWrapper::ParseError("Json not correct format".to_string()).into())
             }
-        } else {
-            println!("Analyzed output from test runner");
-            println!("Start of test: {}", start_time);
-            println!("Measurements count: {}", measurements.len());
-            println!("Packet size used: {}", packet_size);
-            for ele in measurements {
-                println!("- {} got it at {} with a transmission time of {}",
-                         ele.0, ele.2, ele.1);
-            }
-        }
-        Ok(())
     } else {
         Err(ErrorKindWrapper::ParseError("Json not correct format".to_string()).into())
     }

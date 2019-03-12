@@ -360,7 +360,7 @@ fn run() -> ResultExtWrapper<()> {
                                                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
                                                    info!("Received PeerList response, attempting to satisfy desired peers");
                                                    let mut new_peers = 0;
-                                                   match _node_self_clone.get_nodes(&vec![]) {
+                                                   match _node_self_clone.get_peer_stats(&vec![]) {
                                                        Ok(x) => {
                                                            for peer_node in peers {
                                                                debug!("Peer {}/{}/{} sent us peer info for {}/{}/{}", peer.id().to_string(),peer.ip(),peer.port(),peer_node.id().to_string(),peer_node.ip(),peer_node.port() );
@@ -503,7 +503,7 @@ fn run() -> ResultExtWrapper<()> {
     if let Some(ref mut baker) = baker {
         let mut _baker_clone = baker.clone();
         let mut _node_ref = node.clone();
-        let _network_id = conf.network_ids.first().unwrap().clone();
+        let _network_id = conf.network_ids.first().unwrap().clone(); // defaulted so there's always first()
         thread::spawn(move || {
                           loop {
                               match _baker_clone.out_queue().recv_block() {
@@ -615,25 +615,26 @@ fn run() -> ResultExtWrapper<()> {
             let mut done = false;
             while !done {
                 //Test if we have any peers yet. Otherwise keep trying until we do
-                if let Ok(node_list) = _node_ref.get_nodes(&vec![_network_id]) {
+                if let Ok(node_list) = _node_ref.get_peer_stats(&vec![_network_id]) {
                     if node_list.len() > 0 {
                         let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                         for message in test_messages {
                             let mut out_bytes = vec![];
                             out_bytes.extend(message);
-                            match _node_ref.send_message(Some(P2PNodeId::from_string(&_id_clone).unwrap()),
-                                                        _network_id,
-                                                        None,
-                                                        &out_bytes,
-                                                        false) {
-                                                            Ok(_) => {
-                                                                info!("Sent TPS test bytes of len {}",
-                                                                        out_bytes.len());
-                                                            }
-                                                            Err(_) => {
-                                                                error!("Couldn't send TPS test message!")
-                                                            }
-                                                        }
+                            let to_send = P2PNodeId::from_string(&_id_clone).ok();
+                            match _node_ref.send_message(to_send,
+                                                         _network_id,
+                                                         None,
+                                                         &out_bytes,
+                                                         false) {
+                                Ok(_) => {
+                                    info!("Sent TPS test bytes of len {}",
+                                          out_bytes.len());
+                                }
+                                Err(_) => {
+                                    error!("Couldn't send TPS test message!")
+                                }
+                            }
                         }
 
                         done = true;
@@ -643,14 +644,14 @@ fn run() -> ResultExtWrapper<()> {
         });
     }
 
-    _node_th.join().unwrap();
+    _node_th.join().expect("Node thread panicked!");
 
     if let Some(ref mut serv) = rpc_serv {
         serv.stop_server()?;
     }
 
     if let Some(ref mut baker_ref) = baker {
-        baker_ref.stop_baker(conf.baker_id.unwrap());
+        baker_ref.stop_baker(conf.baker_id.unwrap()); // only reached if not None, so it's safe
         consensus::ConsensusContainer::stop_haskell();
     }
 
@@ -663,7 +664,7 @@ fn get_baker_data(app_prefs: &configuration::AppPreferences,
     let mut genesis_loc = app_prefs.get_user_app_dir().clone();
     genesis_loc.push("genesis.dat");
     let mut private_loc = app_prefs.get_user_app_dir().clone();
-    private_loc.push(format!("baker_private_{}.dat", conf.baker_id.unwrap()));
+    private_loc.push(format!("baker_private_{}.dat", conf.baker_id.unwrap())); // only reached if not None
     let (generated_genesis, generated_private_data) = if !genesis_loc.exists()
                                                          || !private_loc.exists()
     {
@@ -710,7 +711,7 @@ fn get_baker_data(app_prefs: &configuration::AppPreferences,
         {
             Ok(mut file) => {
                 match file.write_all(generated_private_data.get(&(conf.baker_id.unwrap() as i64))
-                                                           .unwrap())
+                                                           .unwrap()) // safe to assume it is set
                 {
                     Ok(_) => {
                         generated_private_data.get(&(conf.baker_id.unwrap() as i64))

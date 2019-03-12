@@ -119,7 +119,7 @@ mod message_handler_unit_test {
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
     use common::functor::{ FunctorResult };
 
-    use common::{ ConnectionType, P2PPeer };
+    use common::{ ConnectionType, P2PPeerBuilder };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::{ Arc, Mutex };
 
@@ -142,7 +142,7 @@ mod message_handler_unit_test {
         let mh_arc = Arc::new( mh);
 
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
-        let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
+        let p2p_peer = P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
         let msg = NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer), None, None);
 
         (mh_arc)(&msg).unwrap();
@@ -152,7 +152,7 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use connection::{ MessageHandler,  PacketHandler };
-    use common::{ ConnectionType, P2PPeer, P2PNodeId };
+    use common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
     use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
     use network::packet::{ NetworkPacket as NetworkPacketEnum };
     use common::functor::{ FunctorResult };
@@ -170,9 +170,9 @@ mod integration_test {
     // Test data for `on_network_request_handler`.
     pub fn network_request_handler_data() -> Vec<NetworkMessage> {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
-        let p2p_peer = P2PPeer::new( ConnectionType::Node, ip, 8080);
+        let p2p_peer = P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
         let inner_msg: Vec<u8> = "Message XXX".to_string().as_bytes().to_vec();
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080);
+        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080).unwrap();
 
         let data = vec![
             NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer.clone()), Some(100), Some(42)),
