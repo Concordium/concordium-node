@@ -5,9 +5,9 @@ use hacl_star::sha2;
 use hex;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
-use openssl::ec::{EcGroup, EcKey};
+//use openssl::ec::{EcGroup, EcKey};
 use openssl::hash::MessageDigest;
-use openssl::nid::Nid;
+//use openssl::nid::Nid;
 use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
 use openssl::x509::extension::SubjectAlternativeName;
@@ -51,58 +51,47 @@ pub struct Cert {
 }
 
 pub fn generate_certificate(id: String) -> Result<Cert, Error> {
-    let group = EcGroup::from_curve_name(Nid::SECP224R1).unwrap();
-    match EcKey::generate(&group) {
-        Ok(_) => {
-            match X509Builder::new() {
-                Ok(mut builder) => {
-                    match X509NameBuilder::new() {
-                        Ok(mut name_builder) => {
-                            name_builder.append_entry_by_text("C", "EU").unwrap();
-                            name_builder.append_entry_by_text("O", "Concordium")
-                                        .unwrap();
-                            name_builder.append_entry_by_text("CN", &id).unwrap();
+    //let group = EcGroup::from_curve_name(Nid::SECP224R1).unwrap();
+    //match EcKey::generate(&group) {
+    let mut builder =  X509Builder::new().unwrap();
+    let mut name_builder = X509NameBuilder::new().unwrap();
 
-                            //let pkey = PKey::from_ec_key(private_key.clone()).unwrap();
-                            let private_part = Rsa::generate(2048).unwrap();
-                            let pkey = PKey::from_rsa(private_part.clone()).unwrap();
+    name_builder.append_entry_by_text("C", "EU").unwrap();
+    name_builder.append_entry_by_text("O", "Concordium")
+        .unwrap();
+    name_builder.append_entry_by_text("CN", &id).unwrap();
 
-                            let name = name_builder.build();
-                            builder.set_subject_name(&name).unwrap();
-                            builder.set_issuer_name(&name).unwrap();
-                            builder.set_pubkey(&pkey).unwrap();
-                            builder.set_version(2).unwrap();
+    //let pkey = PKey::from_ec_key(private_key.clone()).unwrap();
+    let private_part = Rsa::generate(2048).unwrap();
+    let pkey = PKey::from_rsa(private_part.clone()).unwrap();
 
-                            builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())
-                                   .unwrap();
+    let name = name_builder.build();
+    builder.set_subject_name(&name).unwrap();
+    builder.set_issuer_name(&name).unwrap();
+    builder.set_pubkey(&pkey).unwrap();
+    builder.set_version(2).unwrap();
 
-                            builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())
-                                   .unwrap();
+    builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())
+        .unwrap();
 
-                            let mut serial = BigNum::new().unwrap();
-                            serial.rand(128, MsbOption::MAYBE_ZERO, false).unwrap();
-                            builder.set_serial_number(&serial.to_asn1_integer().unwrap())
-                                   .unwrap();
+    builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())
+        .unwrap();
 
-                            let subject_alternative_name =
-                                SubjectAlternativeName::new().dns(&format!("{}.node.concordium.com", id))
-                                                             .build(&builder.x509v3_context(None, None))
-                                                             .unwrap();
-                            builder.append_extension(subject_alternative_name).unwrap();
+    let mut serial = BigNum::new().unwrap();
+    serial.rand(128, MsbOption::MAYBE_ZERO, false).unwrap();
+    builder.set_serial_number(&serial.to_asn1_integer().unwrap())
+        .unwrap();
 
-                            builder.sign(&pkey, MessageDigest::sha256()).unwrap();
+    let subject_alternative_name =
+        SubjectAlternativeName::new().dns(&format!("{}.node.concordium.com", id))
+        .build(&builder.x509v3_context(None, None))
+        .unwrap();
+    builder.append_extension(subject_alternative_name).unwrap();
 
-                            Ok(Cert { x509: builder.build(),
-                                      private_key: private_part, })
-                        }
-                        Err(e) => Err(Error::from(e)),
-                    }
-                }
-                Err(e) => Err(Error::from(e)),
-            }
-        }
-        Err(e) => Err(Error::from(e)),
-    }
+    builder.sign(&pkey, MessageDigest::sha256()).unwrap();
+
+    Ok(Cert { x509: builder.build(),
+              private_key: private_part, })
 }
 
 pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
@@ -186,58 +175,65 @@ pub fn parse_host_port(input: &String,
                        resolvers: &Vec<String>,
                        dnssec_fail: bool)
                        -> Option<(IpAddr, u16)> {
-    match input.rfind(":") {
-        Some(n) => {
+    input.rfind(":").map_or_else(
+        || { None }, // no semicolon
+        |n| {
             let ip = input.chars().take(n).collect::<String>();;
-            let port = input.chars()
-                            .skip(n + 1)
-                            .take(input.len())
-                            .collect::<String>();
+            let port = input.chars().skip(n + 1).take(input.len()).collect::<String>();
             match IpAddr::from_str(&ip) {
-                Ok(ip) => {
+                Err(_) => { // coulnd't parse ip address
                     match port.parse::<usize>() {
-                        Ok(port) => Some((ip, port as u16)),
-                        _ => None,
-                    }
-                }
-                _ => {
-                    match port.parse::<usize>() {
+                        Err(_) => None, // couldn't parse port
                         Ok(port) => {
                             let resolver_addresses = resolvers.iter()
-                                                              .map(|x| IpAddr::from_str(x))
-                                                              .flat_map(|x| x)
-                                                              .collect::<Vec<IpAddr>>();
-                            if resolver_addresses.len() == 0 {
-                                return None;
-                            }
-                            match dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail) {
-                                Ok(res) => {
-                                    if res.len() > 0 {
-                                        return Some((IpAddr::from_str(res.get(0).unwrap()).unwrap(), port as u16));
+                                .map(|x| IpAddr::from_str(x))
+                                .flat_map(|x| x)
+                                .collect::<Vec<IpAddr>>();
+                            if resolver_addresses.len() != 0 {
+                                match dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail) {
+                                    Err(_) => {},
+                                    Ok(res) => { // resolved by A records
+                                        if res.len() > 0 {
+                                            match IpAddr::from_str(res.get(0).unwrap()) {
+                                                Err(_) => {return None;},
+                                                Ok(ip) => {return Some((ip, port as u16));}
+                                            };
+                                        }
+                                    }
+                                };
+                                match dns::resolve_dns_aaaa_record(&ip,
+                                                             &resolver_addresses,
+                                                             dnssec_fail) {
+                                    Err(_) => None,
+                                    Ok(res) => { // resolved by AAAA records
+                                        if res.len() > 0 {
+                                           match IpAddr::from_str(res.get(0).unwrap()) {
+                                                Err(_) => None,
+                                                Ok(ip) => Some((ip, port as u16))
+                                            }
+                                        } else {
+                                            None
+                                        }
                                     }
                                 }
-                                _ => {}
+                            } else {
+                                None
                             }
-                            match dns::resolve_dns_aaaa_record(&ip,
-                                                               &resolver_addresses,
-                                                               dnssec_fail)
-                            {
-                                Ok(res) => {
-                                    if res.len() > 0 {
-                                        return Some((IpAddr::from_str(res.get(0).unwrap()).unwrap(), port as u16));
-                                    }
-                                }
-                                _ => {}
-                            }
-                            None
                         }
-                        _ => None,
                     }
+                },
+                Ok(ip) => {
+                    match port.parse::<usize>() {
+                        Ok(port) => {
+                            return Some((ip, port as u16));
+                        },
+                        Err(_) => { None }
+                    }
+
                 }
             }
         }
-        _ => None,
-    }
+    )
 }
 
 pub fn get_bootstrap_nodes(bootstrap_name: String,
@@ -336,8 +332,7 @@ pub fn generate_bootstrap_dns(input_key: [u8; 32],
     let mut ret = String::new();
 
     let mut return_size = vec![];
-    return_size.write_u16::<NetworkEndian>(return_buffer.len() as u16)
-               .unwrap();
+    return_size.write_u16::<NetworkEndian>(return_buffer.len() as u16).unwrap();
     ret.push_str(&to_hex_string(&return_size));
     ret.push_str(&return_buffer);
 
@@ -528,17 +523,23 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     let mut ret = Vec::new();
     if let Some(ref _path) = path {
         info!("Trying path to find TPS test messages: {}", _path);
-        let files = fs::read_dir(_path).unwrap();
-        for file in files {
-            let file = file.unwrap().path();
-            if !file.is_dir() {
-                let data = fs::read(file).expect("Unable to read file!");
-                ret.push(data);
+        match fs::read_dir(_path) {
+            Ok(files) => {
+                for file in files {
+                    match file {
+                        Ok(file) => {
+                            if !file.path().is_dir() {
+                                let data = fs::read(file.path()).expect("Unable to read file!");
+                                ret.push(data);
+                            }
+                        }
+                        Err(_) => {}
+                    }
+                }
             }
+            Err(_) => {}
         }
-    }
-
-
+    };
     ret
 }
 

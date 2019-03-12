@@ -568,9 +568,12 @@ impl AppPreferences {
     }
 
     pub fn get_config(&self, key: &str) -> Option<String> {
-        match self.preferences_map.lock().unwrap().get(&key.to_string()) {
-            Some(res) => Some(res.clone()),
-            _ => None,
+        match self.preferences_map.lock() {
+            Ok(pm) => match pm.get(&key.to_string()) {
+                Some(res) => Some(res.clone()),
+                _ => None,
+            },
+            Err(_) => None
         }
     }
 
