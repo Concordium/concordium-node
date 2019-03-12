@@ -64,9 +64,20 @@ impl<T> From<std::sync::PoisonError<T>> for ErrorWrapper {
 }
 
 impl<T> From<std::sync::mpsc::SendError<T>> for ErrorWrapper {
-    fn from( e: std::sync::mpsc::SendError<T>) -> Self {
+    fn from(err: std::sync::mpsc::SendError<T>) -> Self {
         Self::from_kind(
-            ErrorKindWrapper::MessageProcessError(
-                e.to_string()))
+            ErrorKindWrapper::MessageProcessError(err.to_string()))
+    }
+}
+
+impl From<std::net::AddrParseError> for ErrorWrapper {
+    fn from(err: std::net::AddrParseError) -> Self {
+        Self::from_kind(ErrorKindWrapper::ParseError(format!("{}", err).to_string()))
+    }
+}
+
+impl From<std::num::ParseIntError> for ErrorWrapper {
+    fn from(err: std::num::ParseIntError) -> Self {
+        Self::from_kind(ErrorKindWrapper::ParseError(format!("{}", err).to_string()))
     }
 }

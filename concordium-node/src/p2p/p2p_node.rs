@@ -11,7 +11,6 @@ use prometheus_exporter::PrometheusServer;
 use rustls::{ Certificate, ClientConfig, NoClientAuth, PrivateKey, ServerConfig };
 
 use atomic_counter::{ AtomicCounter };
-use std::io::{ Error, ErrorKind };
 use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
 use std::time::{ Duration };
@@ -326,13 +325,6 @@ impl P2PNode {
 
     pub fn get_node_mode(&self) -> P2PNodeMode {
         self.mode
-    }
-
-    pub fn get_nodes(&self, nids: &Vec<u16>) -> Result<Vec<PeerStatistic>, Error> {
-        match self.tls_server.lock() {
-            Ok(x) => Ok(x.get_peer_stats(nids)),
-            Err(_e) => Err(Error::new(ErrorKind::Other, "Couldn't get lock on buckets!")),
-        }
     }
 
     fn log_event(&mut self, event: P2PEvent) {

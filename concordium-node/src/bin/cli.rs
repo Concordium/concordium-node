@@ -362,7 +362,7 @@ fn run() -> ResultExtWrapper<()> {
                                                box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
                                                    info!("Received PeerList response, attempting to satisfy desired peers");
                                                    let mut new_peers = 0;
-                                                   match _node_self_clone.get_nodes(&vec![]) {
+                                                   match _node_self_clone.get_peer_stats(&vec![]) {
                                                        Ok(x) => {
                                                            for peer_node in peers {
                                                                debug!("Peer {}/{}/{} sent us peer info for {}/{}/{}", peer.id().to_string(),peer.ip(),peer.port(),peer_node.id().to_string(),peer_node.ip(),peer_node.port() );
@@ -617,7 +617,7 @@ fn run() -> ResultExtWrapper<()> {
             let mut done = false;
             while !done {
                 //Test if we have any peers yet. Otherwise keep trying until we do
-                if let Ok(node_list) = _node_ref.get_nodes(&vec![_network_id]) {
+                if let Ok(node_list) = _node_ref.get_peer_stats(&vec![_network_id]) {
                     if node_list.len() > 0 {
                         let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                         for message in test_messages {

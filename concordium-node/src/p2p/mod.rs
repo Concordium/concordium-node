@@ -22,7 +22,7 @@ mod tests {
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
         let mut bucket = Buckets::new();
-        let p2p_self = P2PNodeId::from_ipstring("127.0.0.1:8888".to_string());
+        let p2p_self = P2PNodeId::from_ipstring("127.0.0.1:8888".to_string()).unwrap();
         let p2p_node_id = P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap();
         let p2p_new_peer = P2PPeer::from(ConnectionType::Node,
                                          p2p_node_id.clone(),
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     pub fn test_buckets_insert_duplicate_ip_port() {
         let mut bucket = Buckets::new();
-        let p2p_self = P2PNodeId::from_ipstring("127.0.0.1:8888".to_string());
+        let p2p_self = P2PNodeId::from_ipstring("127.0.0.1:8888".to_string()).unwrap();
         let p2p_node_id = P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2".to_string()).unwrap();
         let p2p_node_id_2 = P2PNodeId::from_string(&"c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb3".to_string()).unwrap();
         let p2p_new_peer = P2PPeer::from(ConnectionType::Node,

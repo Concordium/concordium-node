@@ -6,17 +6,17 @@ use common::{ P2PPeer, P2PNodeId, ConnectionType, get_current_stamp };
 use network::{
     PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_SENT_TIMESTAMP_LENGTH , PROTOCOL_NODE_ID_LENGTH,
     PROTOCOL_MESSAGE_TYPE_REQUEST_PING,
-    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, 
+    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,
     PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
-    PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, 
-    PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE, 
+    PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
+    PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,
     PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,
     PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
     PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE,
     PROTOCOL_MESSAGE_TYPE_REQUEST_JOINNETWORK,
     PROTOCOL_MESSAGE_TYPE_REQUEST_LEAVENETWORK,
     PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST,
-    PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, 
+    PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE
 };
 
@@ -243,7 +243,7 @@ impl NetworkMessage {
                             Some(sender) => {
                                 let node_data = P2PPeer::deserialize(str::from_utf8(&bytes[(inner_msg_size)..]).unwrap());
                                 match node_data {
-                                    Some(node_info) => NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, node_info), Some(timestamp), Some(get_current_stamp())),
+                                    Ok(node_info) => NetworkMessage::NetworkRequest(NetworkRequest::BanNode(sender, node_info), Some(timestamp), Some(get_current_stamp())),
                                     _ => NetworkMessage::InvalidMessage,
                                 }
                             }
@@ -255,7 +255,7 @@ impl NetworkMessage {
                             Some(sender) => {
                                 let node_data = P2PPeer::deserialize(str::from_utf8(&bytes[(inner_msg_size)..]).unwrap());
                                 match node_data {
-                                    Some(node_info) => NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, node_info), Some(timestamp), Some(get_current_stamp())),
+                                    Ok(node_info) => NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(sender, node_info), Some(timestamp), Some(get_current_stamp())),
                                     _ => NetworkMessage::InvalidMessage,
                                 }
                             }
@@ -311,7 +311,7 @@ impl NetworkMessage {
                                 let mut peers: Vec<P2PPeer> = vec![];
                                 for _ in 0..peers_count.unwrap() {
                                     match P2PPeer::deserialize(str::from_utf8(&inner_msg[current_peer_start..]).unwrap()) {
-                                        Some(peer) => {
+                                        Ok(peer) => {
                                             current_peer_start += &peer.serialize().len();
                                             peers.push(peer);
                                         }
@@ -342,7 +342,7 @@ impl NetworkMessage {
                                 let mut peers: Vec<P2PPeer> = vec![];
                                 for _ in 0..peers_count.unwrap() {
                                     match P2PPeer::deserialize(str::from_utf8(&inner_msg[current_peer_start..]).unwrap()) {
-                                        Some(peer) => {
+                                        Ok(peer) => {
                                             current_peer_start += &peer.serialize().len();
                                             peers.push(peer);
                                         }
@@ -420,5 +420,3 @@ impl NetworkMessage {
         }
     }
 }
-
-

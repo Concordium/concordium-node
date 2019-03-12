@@ -19,6 +19,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
 use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
+use errors::ErrorWrapper;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -88,33 +89,76 @@ impl RpcServerImpl {
 
     pub fn stop_server(&mut self) -> ResultExtWrapper<()> {
         if let Some(ref mut server) = self.server {
-            &server.lock()
-                   .unwrap()
-                   .shutdown()
-                   .wait()
-                   .chain_err(|| ProcessControlError("can't stop process".to_string()))?;
+            server.lock().map_err(|e| ErrorWrapper::with_chain(ErrorWrapper::from(e), "grpcio server poisoned, unable to lock"))?
+                .shutdown() .wait().chain_err(|| ProcessControlError("can't stop process".to_string()))?;
         }
         Ok(())
     }
+
+     fn send_message_with_error(&self,
+                                   req: &SendMessageRequest) -> ResultExtWrapper<SuccessResponse> {
+            let mut r: SuccessResponse = SuccessResponse::new();
+            if req.has_node_id()
+                && req.has_message()
+                && req.has_broadcast()
+                && !req.get_broadcast().get_value()
+                && req.has_network_id()
+            {
+                let id = P2PNodeId::from_string(&req.get_node_id().get_value().to_string())?;
+
+                info!("Sending direct message to: {:064x}", id.get_id());
+                            r.set_value(self.node
+                                        .borrow_mut()
+                                        .send_message(Some(id),
+                                                      req.get_network_id().get_value() as u16,
+                                                      None,
+                                                      req.get_message().get_value(),
+                                                      false)
+                                        .map_err(|e| error!("{}", e))
+                                        .is_ok());
+            } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
+                        info!("Sending broadcast message");
+                        r.set_value(self.node
+                                    .borrow_mut()
+                                    .send_message(None,
+                                                  req.get_network_id().get_value() as u16,
+                                                  None,
+                                                  req.get_message().get_value(),
+                                                  true)
+                                    .map_err(|e| error!("{}", e))
+                                    .is_ok());
+            } else {
+                r.set_value(false);
+            }
+            Ok(r)
+        }
 }
 
 macro_rules! authenticate {
     ($ctx:expr,$req:expr,$sink:expr,$access_token: expr, $inner:block) => {
         match $ctx.request_headers().iter().find(|&val| val.0 == "authentication") {
             Some(val) => {
-                if String::from_utf8(val.1.to_vec()).unwrap() == *$access_token {
-                    $inner
-                } else {
-                    let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string()))).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                    $ctx.spawn(f);
-                }
+                match String::from_utf8(val.1.to_vec()) {
+                    Ok(at) => {
+                        if at == *$access_token {
+                            $inner
+                        } else {
+                            let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string()))).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+                            $ctx.spawn(f);
+                        }
+                    }
+                    Err(e) => {
+                        let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::InvalidArgument, Some(e.to_string()))).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+                        $ctx.spawn(f);
+                    }
+                };
             }
             _ => {
                 let f = $sink.fail(::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Unauthenticated, Some("Missing or incorrect token provided".to_string()))).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
                 $ctx.spawn(f);
             }
-        }
-    };
+        };
+    }
 }
 
 impl P2P for RpcServerImpl {
@@ -125,7 +169,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
             if req.has_ip() && req.has_port() {
-                let ip = IpAddr::from_str(req.get_ip().get_value()).unwrap();
+                let ip = IpAddr::from_str(req.get_ip().get_value()).expect(&format!("incorrect IP in peer connect request, current value: {:?}", req.get_ip().get_value()).to_string());
                 let port = req.get_port().get_value() as u16;
                 r.set_value(self.node
                                 .borrow_mut()
@@ -193,46 +237,20 @@ impl P2P for RpcServerImpl {
         });
     }
 
+
+
     fn send_message(&self,
                     ctx: ::grpcio::RpcContext,
                     req: SendMessageRequest,
                     sink: ::grpcio::UnarySink<SuccessResponse>) {
+
         authenticate!(ctx, req, sink, &self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            if req.has_node_id()
-               && req.has_message()
-               && req.has_broadcast()
-               && !req.get_broadcast().get_value()
-               && req.has_network_id()
-            {
-                let id =
-                    P2PNodeId::from_string(&req.get_node_id().get_value().to_string()).unwrap();
-                info!("Sending direct message to: {:064x}", id.get_id());
-                r.set_value(self.node
-                                .borrow_mut()
-                                .send_message(Some(id),
-                                              req.get_network_id().get_value() as u16,
-                                              None,
-                                              req.get_message().get_value(),
-                                              false)
-                                .map_err(|e| error!("{}", e))
-                                .is_ok());
-            } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
-                info!("Sending broadcast message");
-                r.set_value(self.node
-                                .borrow_mut()
-                                .send_message(None,
-                                              req.get_network_id().get_value() as u16,
-                                              None,
-                                              req.get_message().get_value(),
-                                              true)
-                                .map_err(|e| error!("{}", e))
-                                .is_ok());
-            } else {
-                r.set_value(false);
-            }
-            let f = sink.success(r)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+
+            let f = match self.send_message_with_error(&req) {
+                Ok(r) => sink.success(r),
+                Err(e) => sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument, Some(e.description().to_string())))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
@@ -294,27 +312,32 @@ impl P2P for RpcServerImpl {
                   req: Empty,
                   sink: ::grpcio::UnarySink<PeerStatsResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
-            let data: Vec<_> =
-                self.node
-                    .borrow_mut()
-                    .get_peer_stats(&vec![])
-                    .unwrap()
-                    .iter()
-                    .map(|x| {
-                             let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                             peer_resp.set_node_id(x.id.clone());
-                             peer_resp.set_packets_sent(x.sent);
-                             peer_resp.set_packets_received(x.received);
-                             if x.measured_latency().is_some() {
-                                 peer_resp.set_measured_latency(x.measured_latency().unwrap());
-                             }
-                             peer_resp
-                         })
-                    .collect();
-            let mut resp = PeerStatsResponse::new();
-            resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
-            let f = sink.success(resp)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            let f = match self.node.borrow_mut().get_peer_stats(&vec![]) {
+                Ok(data) => {
+                    let data: Vec<_> =
+                        data
+                        .iter()
+                        .map(|x| {
+                            let mut peer_resp = PeerStatsResponse_PeerStats::new();
+                            peer_resp.set_node_id(x.id.clone());
+                            peer_resp.set_packets_sent(x.sent);
+                            peer_resp.set_packets_received(x.received);
+                            x.measured_latency().map_or_else(
+                                || {} ,
+                                |val| peer_resp.set_measured_latency(val)
+                            );
+                            peer_resp
+                        })
+                        .collect();
+                    let mut resp = PeerStatsResponse::new();
+                    resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
+                    sink.success(resp)
+                },
+                Err(e) => {
+                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::Aborted, Some(e.description().to_string())))
+                }
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
@@ -324,42 +347,46 @@ impl P2P for RpcServerImpl {
                  req: Empty,
                  sink: ::grpcio::UnarySink<PeerListResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
-            let data: Vec<_> =
-                self.node
-                    .borrow_mut()
-                    .get_nodes(&vec![])
-                    .unwrap()
-                    .iter()
-                    .map(|x| {
-                             let mut peer_resp = PeerElement::new();
-                             let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                             node_id.set_value(format!("{}", x.id()));
-                             peer_resp.set_node_id(node_id);
-                             let mut ip = ::protobuf::well_known_types::StringValue::new();
-                             ip.set_value(x.ip().to_string());
-                             peer_resp.set_ip(ip);
-                             let mut port = ::protobuf::well_known_types::Int32Value::new();
-                             port.set_value(x.port() as i32);
-                             peer_resp.set_port(port);
-                             peer_resp
-                         })
-                    .collect();
-            let mut resp = PeerListResponse::new();
-            let mut node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
-                "NormalMode" | "NormalPrivateMode" => {
-                    "Normal"
-                }
-                "BootstrapperMode" | "BootstrapperPrivateMode" => {
-                    "Bootstrapper"
-                }
-                _ => {
-                    panic!()
+            let f = match self.node.borrow_mut().get_peer_stats(&vec![]) {
+                Ok(data) => {
+                    let data: Vec<_> =
+                        data
+                        .iter()
+                        .map(|x| {
+                            let mut peer_resp = PeerElement::new();
+                            let mut node_id = ::protobuf::well_known_types::StringValue::new();
+                            node_id.set_value(format!("{}", x.id()));
+                            peer_resp.set_node_id(node_id);
+                            let mut ip = ::protobuf::well_known_types::StringValue::new();
+                            ip.set_value(x.ip().to_string());
+                            peer_resp.set_ip(ip);
+                            let mut port = ::protobuf::well_known_types::Int32Value::new();
+                            port.set_value(x.port() as i32);
+                            peer_resp.set_port(port);
+                            peer_resp
+                        })
+                        .collect();
+                    let mut resp = PeerListResponse::new();
+                    let mut node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
+                        "NormalMode" | "NormalPrivateMode" => {
+                            "Normal"
+                        }
+                        "BootstrapperMode" | "BootstrapperPrivateMode" => {
+                            "Bootstrapper"
+                        }
+                        _ => {
+                            panic!()
+                        }
+                    };
+                    resp.set_node_type(node_type.to_string());
+                    resp.set_peer(::protobuf::RepeatedField::from_vec(data));
+                    sink.success(resp)
+                },
+                Err(e) => {
+                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::Aborted, Some(e.description().to_string())))
                 }
             };
-            resp.set_node_type(node_type.to_string());
-            resp.set_peer(::protobuf::RepeatedField::from_vec(data));
-            let f = sink.success(resp)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
@@ -375,6 +402,7 @@ impl P2P for RpcServerImpl {
             resp.set_node_id(node_id);
             let curtime = SystemTime::now().duration_since( UNIX_EPOCH ).expect("Time went backwards").as_secs();
             resp.set_current_localtime(curtime);
+            // TODO: use enums for matching
             let node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
                 "NormalMode" | "NormalPrivateMode" => {
                     "Normal"
@@ -428,39 +456,56 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
             if let Some(ref mut receiver) = *self.subscription_queue_out.borrow_mut() {
-                match receiver.lock().unwrap().try_recv() {
-                    Ok(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
-                                                                                      msgid,
-                                                                                      _,
-                                                                                      network_id,
-                                                                                      msg),
-                                                         sent,
-                                                         received)) => {
-                        let mut i_msg = MessageDirect::new();
-                        i_msg.set_data(msg);
-                        r.set_message_direct(i_msg);
-                        r.set_sent_at(sent.unwrap());
-                        r.set_received_at(received.unwrap());
-                        r.set_network_id(network_id as u32);
-                        r.set_message_id(msgid);
-                        r.set_sender(format!("{:064x}", sender.id().get_id()));
+                match receiver.lock() {
+                    Err(_) => {r.set_message_none(MessageNone::new()); } ,
+                    Ok(rec) => {
+                        match rec.try_recv() {
+                            Ok(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
+                                                                                              msgid,
+                                                                                              _,
+                                                                                              network_id,
+                                                                                              msg),
+                                                                 sent,
+                                                                 received)) => {
+                                let mut i_msg = MessageDirect::new();
+                                i_msg.set_data(msg);
+                                r.set_message_direct(i_msg);
+                                sent.map_or_else(
+                                    || {},
+                                    |sent| {r.set_sent_at(sent);}
+                                );
+                                received.map_or_else(
+                                    || {},
+                                    |val| {r.set_received_at(val);}
+                                );
+                                r.set_network_id(network_id as u32);
+                                r.set_message_id(msgid);
+                                r.set_sender(format!("{:064x}", sender.id().get_id()));
+                            }
+                            Ok(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
+                                                                                                   msg_id,
+                                                                                                   network_id,
+                                                                                                   msg),
+                                                                 sent,
+                                                                 received)) => {
+                                let mut i_msg = MessageBroadcast::new();
+                                i_msg.set_data(msg);
+                                r.set_message_broadcast(i_msg);
+                                sent.map_or_else(
+                                    || {},
+                                    |sent| {r.set_sent_at(sent);}
+                                );
+                                received.map_or_else(
+                                    || {},
+                                    |val| {r.set_received_at(val);}
+                                );
+                                r.set_network_id(network_id as u32);
+                                r.set_message_id(msg_id);
+                                r.set_sender(format!("{:064x}", sender.id().get_id()));
+                            }
+                            _ => r.set_message_none(MessageNone::new()),
+                        }
                     }
-                    Ok(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
-                                                                                           msg_id,
-                                                                                           network_id,
-                                                                                           msg),
-                                                         sent,
-                                                         received)) => {
-                        let mut i_msg = MessageBroadcast::new();
-                        i_msg.set_data(msg);
-                        r.set_message_broadcast(i_msg);
-                        r.set_sent_at(sent.unwrap());
-                        r.set_received_at(received.unwrap());
-                        r.set_network_id(network_id as u32);
-                        r.set_message_id(msg_id);
-                        r.set_sender(format!("{:064x}", sender.id().get_id()));
-                    }
-                    _ => r.set_message_none(MessageNone::new()),
                 }
             } else {
                 r.set_message_none(MessageNone::new())
@@ -477,7 +522,7 @@ impl P2P for RpcServerImpl {
                 sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
-            if req.has_node_id() && req.has_ip() && req.has_port() {
+            let f = if req.has_node_id() && req.has_ip() && req.has_port() {
                 let req_id = req.get_node_id().get_value().to_string();
                 let node_id = P2PNodeId::from_string(&req_id);
                 let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
@@ -503,14 +548,16 @@ impl P2P for RpcServerImpl {
                             r.set_value(false);
                         }
                     }
+                     sink.success(r)
                 } else {
-                    r.set_value(false);
+                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument,
+                                                     Some("invalid node_id or ip".to_string())))
                 }
             } else {
-                r.set_value(false);
-            }
-            let f = sink.success(r)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument,
+                                                 Some("missing node_id, ip or port".to_string())))
+            };
+           let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
@@ -581,7 +628,7 @@ impl P2P for RpcServerImpl {
                   sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
-            if req.has_node_id() && req.has_ip() && req.has_port() {
+            let f = if req.has_node_id() && req.has_ip() && req.has_port() {
                 let req_id = req.get_node_id().get_value().to_string();
                 let node_id = P2PNodeId::from_string(&req_id);
                 let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
@@ -607,14 +654,16 @@ impl P2P for RpcServerImpl {
                             r.set_value(false);
                         }
                     }
+                    sink.success(r)
                 } else {
-                    r.set_value(false);
+                      sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument,
+                                                     Some("invalid node_id or ip".to_string())))
                 }
             } else {
-                r.set_value(false);
-            }
-            let f = sink.success(r)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument,
+                                                 Some("missing node_id, ip or port".to_string())))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
