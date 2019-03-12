@@ -2,9 +2,9 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.23-debug"
+version = "0.1.24-debug"
 description = "Concordium P2P library"
-authors = [ "Ian Johannesen <ij@concordium.com>", "Francisco Miguel Garcia Rodriguez <mg@concordium.com", "Martin Karlsen Jensen <mkj@concordium.com>"]
+authors = [ "Concordium AG <info@concordium.com>"]
 exclude = [
     ".gitignore",
     ".gitlab-ci.yml",
@@ -23,7 +23,7 @@ valgrind = []
 libc = "0.2"
 structopt = "0.2"
 clap = "2"
-rand = "^0.5"
+rand = "^0.6"
 rustc-serialize = "^0.3"
 hacl-star = "^0.0.14"
 mio = "0.6"
@@ -46,7 +46,7 @@ tls-api         = "0.1.20"
 httpbis         = "^0.7"
 preferences = "^1.1.0"
 app_dirs = "^1.2.1"
-rusqlite = {version = "0.16", features = ["bundled"]}
+rusqlite = {version = "0.17", features = ["bundled"]}
 timer = "0.2"
 chrono = "0.4"
 arrayref = "0.3"

@@ -324,6 +324,11 @@ impl Connection {
         }
     }
 
+    #[allow(unused)]
+    pub fn blind_trusted_broadcast(&self) -> bool {
+        self.blind_trusted_broadcast
+    }
+
     fn event_set(&self) -> Ready {
         let mut rd: bool = false;
         let mut _wr: bool;

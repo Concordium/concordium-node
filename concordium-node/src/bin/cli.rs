@@ -323,7 +323,7 @@ fn run() -> ResultExtWrapper<()> {
                                                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                                    send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                                                }
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
+                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), _, _) => {
                                                    if let Some(ref mut rpc) = _rpc_clone {
                                                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                                                    }

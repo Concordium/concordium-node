@@ -52,9 +52,9 @@ impl P2PDB {
                 match res {
                     Ok(mut x) => {
                         match x.query_map(&[] as &[&ToSql], |row| {
-                                   P2PPeer { id: row.get(0),
-                                             ip: row.get(1),
-                                             port: row.get(2), }
+                                   Ok( P2PPeer { id: row.get(0)?,
+                                             ip: row.get(1)?,
+                                             port: row.get(2)?, } )
                                }) {
                             Ok(rows) => {
                                 for row in rows {

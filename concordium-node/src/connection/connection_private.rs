@@ -146,5 +146,10 @@ impl ConnectionPrivate {
     pub fn set_peer(&mut self, p: P2PPeer) {
         self.peer = Some(p);
     }
+
+    #[allow(unused)]
+    pub fn blind_trusted_broadcast(&self) -> bool {
+        self.blind_trusted_broadcast
+    }
 }
 

@@ -1,4 +1,6 @@
-use rand::{ Rng, thread_rng };
+use rand::seq::SliceRandom;
+use rand::rngs::OsRng;
+use std::sync::Mutex;
 use num_traits::{ pow };
 use num_bigint::{ BigUint, ToBigUint };
 use std::collections::{ HashMap };
@@ -10,6 +12,10 @@ const BUCKET_SIZE: u8 = 20;
 
 pub struct Buckets {
     buckets: HashMap<u16, Vec<(P2PPeer, Vec<u16>)>>,
+}
+
+lazy_static! {
+    static ref RNG: Mutex<OsRng> = { Mutex::new(OsRng::new().unwrap()) };
 }
 
 impl Buckets {
@@ -175,9 +181,13 @@ impl Buckets {
                             amount: usize,
                             nids: &Vec<u16>)
                             -> Vec<P2PPeer> {
-        let mut ret: Vec<P2PPeer> = self.get_all_nodes(Some(sender), nids);
-        thread_rng().shuffle(&mut ret);
-        ret.truncate(amount);
-        ret
+        match RNG.lock() {
+            Ok(ref mut rng) => self.get_all_nodes(Some(sender), nids)
+                .choose_multiple(&mut **rng, amount)
+                .map(|x| x.clone())
+                .collect(),
+            _ => vec![],
+        }
+        
     }
 }
