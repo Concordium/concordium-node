@@ -252,7 +252,7 @@ fn run() -> ResultExtWrapper<()> {
                                 };
                             });
 
-    _node_th.join().unwrap();
+    _node_th.join().expect("Node thread panicked!");
 
     Ok(())
 }

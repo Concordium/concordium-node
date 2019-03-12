@@ -87,9 +87,9 @@ impl TestRunner {
     }
 
     fn register_receipt(&self, req: &mut Request) -> IronResult<Response> {
-        match req.extensions.get::<Router>().unwrap().find("node_id") {
+        match req.extensions.get::<Router>().expect("Malformed Iron request, lacks Router").find("node_id") {
             Some(node_id) => {
-                match req.extensions.get::<Router>().unwrap().find("packet_id") {
+                match req.extensions.get::<Router>().expect("Malformed Iron request, lacks Router").find("packet_id") {
                     Some(pktid) => {
                         let time = common::get_current_stamp();
                         if let Ok(mut list) = self.registered_times.lock() {
@@ -122,14 +122,14 @@ impl TestRunner {
                 if !*value {
                     *value = true;
                     info!("Started test");
-                    *self.test_start.lock().unwrap() = Some(common::get_current_stamp());
-                    *self.packet_size.lock().unwrap() = Some(packet_size);
+                    *self.test_start.lock().expect("Couldn't lock test_start") = Some(common::get_current_stamp());
+                    *self.packet_size.lock().expect("Couldn't lock packet size") = Some(packet_size);
                     let random_pkt: Vec<u8> = thread_rng().sample_iter(&Standard)
                                                           .take(packet_size)
                                                           .collect();
                     self.node
                         .lock()
-                        .unwrap()
+                        .expect("Couldn't lock node")
                         .send_message(None, self.nid, None, &random_pkt, true)
                         .map_err(|e| error!("{}", e))
                         .ok();
@@ -165,8 +165,8 @@ impl TestRunner {
                         _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
                     }
                     *value = false;
-                    *self.test_start.lock().unwrap() = None;
-                    *self.packet_size.lock().unwrap() = None;
+                    *self.test_start.lock().expect("Couldn't lock test_start") = None;
+                    *self.packet_size.lock().expect("Couldn't lock packet size") = None;
                     info!("Testing reset on runner");
                     Ok(Response::with((status::Ok,
                                        format!("TEST RESET ON {}/{} @ {}",
@@ -200,7 +200,7 @@ impl TestRunner {
                                         "service_version": p2p_client::VERSION,
                                         "measurements": *inner_vals.clone(),
                                         "test_start_time": *test_start_time,
-                                        "packet_size": *self.packet_size.lock().unwrap(),
+                                        "packet_size": *self.packet_size.lock().expect("Couldn't lock packet size") ,
                                     });
                                     let mut resp =
                                         Response::with((status::Ok, return_json.to_string()));
@@ -526,7 +526,7 @@ fn run() -> ResultExtWrapper<()> {
         };
     }
 
-    let mut testrunner = TestRunner::new(node.clone(), *conf.network_ids.first().unwrap());
+    let mut testrunner = TestRunner::new(node.clone(), *conf.network_ids.first().unwrap()); //defaulted so it is always set
 
     let timer = Timer::new();
 
