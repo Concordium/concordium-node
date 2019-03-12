@@ -89,13 +89,19 @@ impl P2PDB {
     pub fn create_banlist(&self) {
         match self.conn {
             Some(ref conn) => {
-                let conn_mut = conn.lock().unwrap();
-                match conn_mut.execute("CREATE TABLE bans(id VARCHAR, ip VARCHAR, port INTEGER)",
-                                       &[] as &[&ToSql])
-                {
-                    Ok(mut _x) => {}
+                match conn.lock() {
                     Err(e) => {
-                        error!("Couldn't execute query! {:?}", e);
+                        error!("Couldn't lock connection: {:?}", e);
+                    },
+                    Ok(conn_mut) => {
+                        match conn_mut.execute("CREATE TABLE bans(id VARCHAR, ip VARCHAR, port INTEGER)",
+                                               &[] as &[&ToSql])
+                        {
+                            Ok(mut _x) => {}
+                            Err(e) => {
+                                error!("Couldn't execute query! {:?}", e);
+                            }
+                        }
                     }
                 }
             }
@@ -106,20 +112,27 @@ impl P2PDB {
     pub fn insert_ban(&self, id: String, ip: String, port: u16) -> bool {
         match self.conn {
             Some(ref conn) => {
-                let conn_mut = conn.lock().unwrap();
-                match conn_mut.execute("INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)",
-                                       &[&id, &ip, &port as &ToSql]  )
-                {
-                    Ok(updated) => {
-                        if updated > 0 {
-                            true
-                        } else {
-                            false
-                        }
-                    }
+                match conn.lock() {
                     Err(e) => {
-                        error!("Couldn't execute query! {:?}", e);
+                        error!("Couldn't lock connection: {:?}", e);
                         false
+                    },
+                    Ok(conn_mut) => {
+                        match conn_mut.execute("INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)",
+                                               &[&id, &ip, &port as &ToSql]  )
+                        {
+                            Ok(updated) => {
+                                if updated > 0 {
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            Err(e) => {
+                                error!("Couldn't execute query! {:?}", e);
+                                false
+                            }
+                        }
                     }
                 }
             }
@@ -130,20 +143,27 @@ impl P2PDB {
     pub fn delete_ban(&self, id: String, ip: String, port: u16) -> bool {
         match self.conn {
             Some(ref conn) => {
-                let conn_mut = conn.lock().unwrap();
-                match conn_mut.execute("DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?",
-                                       &[&id, &ip, &port as &ToSql])
-                {
-                    Ok(updated) => {
-                        if updated > 0 {
-                            true
-                        } else {
-                            false
-                        }
-                    }
+                match conn.lock() {
                     Err(e) => {
-                        error!("Couldn't execute query! {:?}", e);
+                        error!("Couldn't lock connection: {:?}", e);
                         false
+                    },
+                    Ok(conn_mut) => {
+                        match conn_mut.execute("DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?",
+                                               &[&id, &ip, &port as &ToSql])
+                        {
+                            Ok(updated) => {
+                                if updated > 0 {
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            Err(e) => {
+                                error!("Couldn't execute query! {:?}", e);
+                                false
+                            }
+                        }
                     }
                 }
             }
