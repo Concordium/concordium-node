@@ -25,6 +25,7 @@ if [ "$MODE" == "tps_receiver" ]; then
     --override-data-dir $DATA_DIR \
     --external-ip 10.96.0.15 \
     --tps-message-count $TPS_MESSAGE_COUNT \
+    --desired-nodes $DESIRED_PEERS
     $EXTRA_ARGS
 
 elif [ "$MODE" == "tps_sender" ]; then
@@ -63,6 +64,7 @@ elif [ "$MODE" == "tps_sender" ]; then
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
     --tps-message-count $TPS_MESSAGE_COUNT \
+    --desired-nodes $DESIRED_PEERS
     $EXTRA_ARGS
     # cron -f
 elif [ "$MODE" == "basic" ]; then
