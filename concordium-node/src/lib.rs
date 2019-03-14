@@ -2,6 +2,7 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
+extern crate base64;
 #[macro_use]
 extern crate derive_builder;
 extern crate structopt;
@@ -55,6 +56,7 @@ extern crate resolv_conf;
 extern crate semver;
 extern crate vecio;
 extern crate consensus_sys;
+extern crate crypto_sys;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

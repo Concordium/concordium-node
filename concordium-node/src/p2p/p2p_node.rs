@@ -8,8 +8,7 @@ use get_if_addrs;
 #[cfg(target_os = "windows")]
 use ipconfig;
 use prometheus_exporter::PrometheusServer;
-use rustls::{ Certificate, ClientConfig, NoClientAuth, PrivateKey, ServerConfig };
-
+use rustls::{ Certificate, ClientConfig, NoClientAuth, ServerConfig };
 use atomic_counter::{ AtomicCounter };
 use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
@@ -132,8 +131,26 @@ impl P2PNode {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {
-                        match x.private_key.private_key_to_der() {
-                            Ok(private_part) => (Certificate(der), PrivateKey(private_part)),
+                        // When setting the server single certificate on rustls, it requires a rustls::PrivateKey.
+                        // such PrivateKey is defined as `pub struct PrivateKey(pub Vec<u8>);` and it expects the key
+                        // to come in DER format.
+                        //
+                        // As we have an `openssl::pkey::PKey`, inside the `utils::Cert` struct, we could just
+                        // use the function `private_key_to_der()` over such key, BUT the output of that function
+                        // is reported as invalid key when fed into `set_single_cert` IF the original key was an EcKey
+                        // (if it was an RSA key, the DER method works fine).
+                        //
+                        // There must be a bug somewhere in between the DER encoding of openssl or the
+                        // DER decoding of rustls when dealing with EcKeys.
+                        //
+                        // Luckily for us, rustls offers a way to import a key from a pkcs8-PEM-encoded buffer and
+                        // openssl offers a function for exporting a key into pkcs8-PEM-encoded buffer so connecting
+                        // those two functions, we get a valid `rustls::PrivateKey`.
+                        match rustls::internal::pemfile::pkcs8_private_keys(& mut std::io::BufReader::new(x.private_key
+                                                                                                          .private_key_to_pem_pkcs8().expect("Something went wrong when exporting a key through openssl").as_slice())) {
+                            Ok(der_keys) => {
+                                (Certificate(der), der_keys[0].clone())
+                            }
                             Err(e) => {
                                 panic!("Couldn't convert certificate to DER! {:?}", e);
                             }
@@ -191,7 +208,7 @@ impl P2PNode {
                                      mode,
                                      prometheus_exporter.clone(),
                                      networks,
-                                     buckets.clone(), 
+                                     buckets.clone(),
                                      blind_trusted_broadcast,);
 
         let mut mself = P2PNode {

@@ -1,15 +1,16 @@
+use base64::{encode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use dns::dns;
+use errors::*;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
+use crypto_sys;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
-//use openssl::ec::{EcGroup, EcKey};
 use openssl::hash::MessageDigest;
-//use openssl::nid::Nid;
+use openssl::ec::{EcKey, EcGroup};
 use openssl::pkey::{PKey, Private};
-use openssl::rsa::Rsa;
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use rand::rngs::OsRng;
@@ -21,7 +22,6 @@ use serde_json::Value;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::io::Cursor;
-use std::io::Error;
 #[cfg(not(target_os = "windows"))]
 use std::io::Read;
 use std::net::IpAddr;
@@ -47,51 +47,100 @@ pub fn to_hex_string(bytes: &[u8]) -> String {
 
 pub struct Cert {
     pub x509: X509,
-    pub private_key: Rsa<Private>,
+    pub private_key: openssl::pkey::PKey<Private>,
 }
 
-pub fn generate_certificate(id: String) -> Result<Cert, Error> {
-    //let group = EcGroup::from_curve_name(Nid::SECP224R1).unwrap();
-    //match EcKey::generate(&group) {
-    let mut builder =  X509Builder::new().unwrap();
-    let mut name_builder = X509NameBuilder::new().unwrap();
+///
+/// PEM encoding follows several rules:
+///
+/// 1. It starts with the header  "-----BEGIN EC PRIVATE KEY-----".
+///
+/// 2. The key encoded following the ASN.1 syntax
+///            and then encoded in base64
+///            and then splitted into lines of 64 characters long
+///            goes second
+///
+/// In our case, the ASN.1 syntax leads to this scheme:
+/// - 30 // start of an ASN.1 sequence
+/// - 2e // length of such sequence in # of bytes (46)
+/// - 02 // start of an integer
+/// - 01 // length of the integer in # of bytes
+/// - 00 // integer (0)
+/// - 30 // start of an ASN.1 sequence
+/// - 05 // length of such sequence
+/// - 06 // OID tag
+/// - 03 // OID tag length in # of bytes (3)
+/// - 2b 65 6e // OID of curveX25519 (1.3.101.110)
+/// - 04 // start of octet string
+/// - 22 // length of octet string in # of bytes (34)
+/// - 04 // start of octet string (OpenSSL does it this way, repeating OctetString tag)
+/// - 20 // length of octet string in # of bytes (32)
+/// - private key (in hex encoding)
+///
+/// 3. It ends with the footer "-----END EC PRIVATE KEY-----"
+///
+pub fn crypto_key_to_pem( input:  &crypto_sys::KeyPair) -> Vec<u8> {
+    let pemheader = "-----BEGIN EC PRIVATE KEY-----\n";
 
-    name_builder.append_entry_by_text("C", "EU").unwrap();
-    name_builder.append_entry_by_text("O", "Concordium")
-        .unwrap();
-    name_builder.append_entry_by_text("CN", &id).unwrap();
+    let mut pemcontent = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
+    pemcontent.append(& mut input.private_key.to_vec());
+    let pemcontent  = encode(&pemcontent);
 
-    //let pkey = PKey::from_ec_key(private_key.clone()).unwrap();
-    let private_part = Rsa::generate(2048).unwrap();
-    let pkey = PKey::from_rsa(private_part.clone()).unwrap();
+    let pemfooter = "\n-----END EC PRIVATE KEY-----";
+
+    format!("{}{}{}", pemheader, pemcontent, pemfooter).into_bytes()
+}
+
+
+pub fn generate_certificate(id: String) -> ResultExtWrapper<Cert> {
+    // let ec_kp = crypto_sys::KeyPair::new();
+    //
+    // We can generate a KeyPair using our crypto_sys crate and we have functions to sign with it
+    // but as we are using the openssl crate, an openssl::x509::X509 certificate has to be build with
+    // the openssl::x509::X509Builder and in order to use the sign method in it, the function for signing
+    // with our curve would need to be of type ENV_MD
+    //
+    // Currently, openssl supports ed25519 but the openssl crate doesn't map such function so
+    // there is no way to use it through the crate.
+    //
+    // A way to sign x509 certificates with it on our own or a wrapper over openssl crate (and openssl-sys crate)
+    // is needed in order to use it for tls connections.
+    let group = EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1)?;
+    let ec_kp = EcKey::generate(&group)?;
+    let kp_as_pk = PKey::from_ec_key(ec_kp.clone())?;
+
+    // these are static or well known values for the x509 cert so it should not fail
+    let mut builder =  X509Builder::new()?;
+    let mut name_builder = X509NameBuilder::new()?;
+
+    name_builder.append_entry_by_text("C", "EU")?;
+    name_builder.append_entry_by_text("O", "Concordium")?;
+    name_builder.append_entry_by_text("CN", &id)?;
 
     let name = name_builder.build();
-    builder.set_subject_name(&name).unwrap();
-    builder.set_issuer_name(&name).unwrap();
-    builder.set_pubkey(&pkey).unwrap();
-    builder.set_version(2).unwrap();
+    builder.set_subject_name(&name)?;
+    builder.set_issuer_name(&name)?;
+    builder.set_pubkey(&kp_as_pk)?;
+    builder.set_version(2)?;
 
-    builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())
-        .unwrap();
+    builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())?;
 
-    builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())
-        .unwrap();
+    builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())?;
 
-    let mut serial = BigNum::new().unwrap();
-    serial.rand(128, MsbOption::MAYBE_ZERO, false).unwrap();
-    builder.set_serial_number(&serial.to_asn1_integer().unwrap())
-        .unwrap();
+    let mut serial = BigNum::new()?;
+    serial.rand(128, MsbOption::MAYBE_ZERO, false)?;
+    builder.set_serial_number(&serial.to_asn1_integer().unwrap())?;
 
     let subject_alternative_name =
         SubjectAlternativeName::new().dns(&format!("{}.node.concordium.com", id))
-        .build(&builder.x509v3_context(None, None))
-        .unwrap();
-    builder.append_extension(subject_alternative_name).unwrap();
+        .build(&builder.x509v3_context(None, None))?;
+    builder.append_extension(subject_alternative_name)?;
 
-    builder.sign(&pkey, MessageDigest::sha256()).unwrap();
+    builder.sign(&kp_as_pk, MessageDigest::sha384())?;
 
     Ok(Cert { x509: builder.build(),
-              private_key: private_part, })
+              private_key: kp_as_pk,
+    })
 }
 
 pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
@@ -623,4 +672,11 @@ mod tests {
                         "8.8.8.8",
                         "8.8.4.4"]);
     }
+
+    #[test]
+    pub fn test_keypair_import_openssl() {
+        let kp = crypto_sys::KeyPair::new();
+        assert!(openssl::pkey::PKey::private_key_from_pem(&crypto_key_to_pem(&kp)).is_ok());
+    }
+
 }

@@ -52,6 +52,7 @@ error_chain! {
         RustlsInternalError(TLSError);
         InternalIOError(std::io::Error);
         JsonParseError(serde_json::Error);
+        OpenSSLError(openssl::error::ErrorStack);
         MpscRecvError(std::sync::mpsc::RecvError);
         Utf8Error(std::string::FromUtf8Error);
     }
