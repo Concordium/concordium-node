@@ -146,7 +146,8 @@ impl P2PNode {
                         // Luckily for us, rustls offers a way to import a key from a pkcs8-PEM-encoded buffer and
                         // openssl offers a function for exporting a key into pkcs8-PEM-encoded buffer so connecting
                         // those two functions, we get a valid `rustls::PrivateKey`.
-                        match rustls::internal::pemfile::pkcs8_private_keys(& mut std::io::BufReader::new(x.private_key.private_key_to_pem_pkcs8().unwrap().as_slice())) {
+                        match rustls::internal::pemfile::pkcs8_private_keys(& mut std::io::BufReader::new(x.private_key
+                                                                                                          .private_key_to_pem_pkcs8().expect("Something went wrong when exporting a key through openssl").as_slice())) {
                             Ok(der_keys) => {
                                 (Certificate(der), der_keys[0].clone())
                             }
@@ -207,7 +208,7 @@ impl P2PNode {
                                      mode,
                                      prometheus_exporter.clone(),
                                      networks,
-                                     buckets.clone(), 
+                                     buckets.clone(),
                                      blind_trusted_broadcast,);
 
         let mut mself = P2PNode {

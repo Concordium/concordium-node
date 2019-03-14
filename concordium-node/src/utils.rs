@@ -1,6 +1,6 @@
-use base64::{encode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use dns::dns;
+use errors::*;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
@@ -20,9 +20,7 @@ use serde_json;
 use serde_json::Value;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
-use std::cmp;
 use std::io::Cursor;
-use std::io::Error;
 #[cfg(not(target_os = "windows"))]
 use std::io::Read;
 use std::net::IpAddr;
@@ -81,32 +79,23 @@ pub struct Cert {
 /// 3. It ends with the footer "-----END EC PRIVATE KEY-----"
 ///
 pub fn crypto_key_to_pem( input:  &crypto_sys::KeyPair) -> Vec<u8> {
-    let mut pem = String::new();
     let pemheader = "-----BEGIN EC PRIVATE KEY-----\n";
-    pem = pem + pemheader;
 
-    let mut pem_content = vec![];
-    let mut header = hex::decode("302e020100300506032b656e04220420").unwrap();
-    pem_content.append(& mut header);
-    let mut pk = input.private_key.to_vec();
-    pem_content.append(& mut pk);
-    let mut pem_content = &encode(&pem_content)[..];
-    let mut pem_content_splitted = String::new();
-    while !pem_content.is_empty() {
-        let (chunk, rest) = pem_content.split_at(cmp::min(64, pem_content.len()));
-        pem_content_splitted = pem_content_splitted + chunk + "\n";
-        pem_content = rest;
-    };
-    pem = pem + &pem_content_splitted;
+    let header = String::from_utf8(hex::decode("302e020100300506032b656e04220420").unwrap()).unwrap(); // static, should never fail
+    let pk = String::from_utf8(input.private_key.to_vec()).unwrap() // keys are always in utf-8 range
+        .as_bytes().chunks(64)
+        .map(|x|
+             String::from_utf8(x.to_vec()).unwrap() // it was in utf8 so it still will be
+        ).collect::<Vec<String>>().
+        join("\n");
 
-    let pemfooter = "-----END EC PRIVATE KEY-----";
-    pem = pem + pemfooter;
+    let pemfooter = "\n-----END EC PRIVATE KEY-----";
 
-    pem.into_bytes()
+    format!("{}{}{}{}", pemheader, header, pk, pemfooter).into_bytes()
 }
 
 
-pub fn generate_certificate(id: String) -> Result<Cert, Error> {
+pub fn generate_certificate(id: String) -> ResultExtWrapper<Cert> {
     // let ec_kp = crypto_sys::KeyPair::new();
     //
     // We can generate a KeyPair using our crypto_sys crate and we have functions to sign with it
@@ -119,45 +108,42 @@ pub fn generate_certificate(id: String) -> Result<Cert, Error> {
     //
     // A way to sign x509 certificates with it on our own or a wrapper over openssl crate (and openssl-sys crate)
     // is needed in order to use it for tls connections.
-    let group = EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1).unwrap();
-    let ec_kp = EcKey::generate(&group).unwrap();
-    let kp_as_pk = PKey::from_ec_key(ec_kp.clone()).unwrap();
+    let group = EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1)?;
+    let ec_kp = EcKey::generate(&group)?;
+    let kp_as_pk = PKey::from_ec_key(ec_kp.clone())?;
 
-    let mut builder =  X509Builder::new().unwrap();
-    let mut name_builder = X509NameBuilder::new().unwrap();
+    // these are static or well known values for the x509 cert so it should not fail
+    let mut builder =  X509Builder::new()?;
+    let mut name_builder = X509NameBuilder::new()?;
 
-    name_builder.append_entry_by_text("C", "EU").unwrap();
-    name_builder.append_entry_by_text("O", "Concordium")
-        .unwrap();
-    name_builder.append_entry_by_text("CN", &id).unwrap();
+    name_builder.append_entry_by_text("C", "EU")?;
+    name_builder.append_entry_by_text("O", "Concordium")?;
+    name_builder.append_entry_by_text("CN", &id)?;
 
     let name = name_builder.build();
-    builder.set_subject_name(&name).unwrap();
-    builder.set_issuer_name(&name).unwrap();
-    builder.set_pubkey(&kp_as_pk).unwrap();
-    builder.set_version(2).unwrap();
+    builder.set_subject_name(&name)?;
+    builder.set_issuer_name(&name)?;
+    builder.set_pubkey(&kp_as_pk)?;
+    builder.set_version(2)?;
 
-    builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())
-        .unwrap();
+    builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())?;
 
-    builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())
-        .unwrap();
+    builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())?;
 
-    let mut serial = BigNum::new().unwrap();
-    serial.rand(128, MsbOption::MAYBE_ZERO, false).unwrap();
-    builder.set_serial_number(&serial.to_asn1_integer().unwrap())
-        .unwrap();
+    let mut serial = BigNum::new()?;
+    serial.rand(128, MsbOption::MAYBE_ZERO, false)?;
+    builder.set_serial_number(&serial.to_asn1_integer().unwrap())?;
 
     let subject_alternative_name =
         SubjectAlternativeName::new().dns(&format!("{}.node.concordium.com", id))
-        .build(&builder.x509v3_context(None, None))
-        .unwrap();
-    builder.append_extension(subject_alternative_name).unwrap();
+        .build(&builder.x509v3_context(None, None))?;
+    builder.append_extension(subject_alternative_name)?;
 
-    builder.sign(&kp_as_pk, MessageDigest::sha384()).unwrap();
+    builder.sign(&kp_as_pk, MessageDigest::sha384())?;
 
     Ok(Cert { x509: builder.build(),
-              private_key: kp_as_pk, })
+              private_key: kp_as_pk,
+    })
 }
 
 pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
@@ -690,9 +676,4 @@ mod tests {
                         "8.8.4.4"]);
     }
 
-    #[test]
-    pub fn test_key_to_pem () {
-        let kp = crypto_sys::KeyPair::new();
-        println!("Output PEM encoded: {:?}", crypto_key_to_pem(&kp));
-    }
 }
