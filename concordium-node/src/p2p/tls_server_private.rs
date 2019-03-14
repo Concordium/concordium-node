@@ -1,4 +1,6 @@
 use std::sync::{ Arc, Mutex, mpsc::Sender };
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
 use mio::{ Token, Poll, Event };
 
@@ -13,12 +15,19 @@ use p2p::unreachable_nodes::{ UnreachableNodes };
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
+const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300000;
+const MAX_NORMAL_KEEP_ALIVE: u64 = 1200000;
 
 /// This class allows to share some information between `TlsServer` and its handler.
 /// This concept is similar to `d-Pointer` of C++ but it is used just to facilitate information
 /// sharing.
+///
+/// # Connections
+/// Connections are stored in RC in two `hashmap`s in order to improve performance access
+/// for specific look-ups.
 pub struct TlsServerPrivate {
-    pub connections: HashMap<Token, Connection>,
+    connections_by_token: HashMap<Token, Rc<RefCell<Connection>>>,
+    connections_by_id: HashMap<P2PNodeId, Rc<RefCell<Connection>>>,
     pub unreachable_nodes: UnreachableNodes,
     pub banned_peers: HashSet<P2PPeer>,
     pub networks: Arc<Mutex<Vec<u16>>>,
@@ -30,7 +39,8 @@ impl TlsServerPrivate {
             networks: Vec<u16>,
             prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>) -> Self {
         TlsServerPrivate {
-            connections: HashMap::new(),
+            connections_by_token: HashMap::new(),
+            connections_by_id: HashMap::new(),
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: HashSet::new(),
             networks: Arc::new(Mutex::new(networks)),
@@ -70,7 +80,8 @@ impl TlsServerPrivate {
     /// any of networks in `nids`.
     pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
         let mut ret = vec![];
-        for (_, ref conn) in &self.connections {
+        for (_, ref rc_conn) in &self.connections_by_token {
+            let conn = rc_conn.borrow();
             match conn.peer() {
                 Some(ref x) => {
                     if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
@@ -92,34 +103,39 @@ impl TlsServerPrivate {
     }
 
     /// It find a connection by its `P2PNodeId`.
-    pub fn find_connection(&mut self, id: P2PNodeId) -> Option<&mut Connection> {
-        let mut tok = Token(0);
-        for (token, mut connection) in &self.connections {
-            match connection.peer() {
-                Some(ref x) => {
-                    if x.id() == id {
-                        tok = *token;
-                    } else {
-                        break;
-                    }
-                }
-                _ => {
-                    break;
-                }
-            }
+    pub fn find_connection_by_id(&self, id: &P2PNodeId) -> Option< &Rc< RefCell<Connection>>> {
+        self.connections_by_id.get( id)
+    }
+
+    pub fn find_connection_by_token(&self, token: &Token) -> Option< &Rc< RefCell<Connection>>> {
+        self.connections_by_token.get( token)
+    }
+
+    /// It removes connection `conn` from each `hashmap`.
+    fn remove_connection(&mut self, conn: &Connection)
+    {
+        self.connections_by_token.remove( conn.token());
+
+        if let Some(peer) = conn.peer() {
+            let id = peer.id();
+            self.connections_by_id.remove( &id);
+        }
+    }
+
+    /// It adds a new connection into each `hashmap` in order to optimice searches.
+    pub fn add_connection(&mut self, conn: Connection)
+    {
+        let token = conn.token().clone();
+        let ip = conn.ip();
+        let port = conn.port();
+
+        let rc_conn = Rc::new( RefCell::new( conn));
+
+        if let Ok(id) = P2PNodeId::from_ip_port( ip, port){
+            self.connections_by_id.insert( id, rc_conn.clone());
         }
 
-        if tok == Token(0) {
-            None
-        } else {
-            match self.connections.get_mut(&tok) {
-                Some(x) => Some(x),
-                None => {
-                    error!("Couldn't get connections mutable");
-                    None
-                }
-            }
-        }
+        self.connections_by_token.insert( token, rc_conn);
     }
 
     pub fn conn_event(&mut self,
@@ -128,96 +144,110 @@ impl TlsServerPrivate {
                   packet_queue: &Sender<Arc<Box<NetworkMessage>>>)
                   -> ResultExtWrapper<()> {
         let token = event.token();
-        if self.connections.contains_key(&token) {
-            match self.connections.get_mut(&token) {
-                Some(x) => x.ready(poll, event, &packet_queue)
-                            .map_err(|e| error!("Error while performing ready() check on connection '{}'", e))
-                            .ok(),
-                None => {
-                    return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into())
-                }
-            };
+        let mut rc_conn_to_be_removed : Option<_> = None;
 
-            if self.connections[&token].is_closed() {
-                self.connections.remove(&token);
+        if let Some(rc_conn) = self.connections_by_token.get(&token)
+        {
+            let mut conn = rc_conn.borrow_mut();
+            conn.ready(poll, event, &packet_queue)?;
+
+            if conn.is_closed() {
+                rc_conn_to_be_removed = Some( Rc::clone(rc_conn));
             }
+        } else {
+                return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into())
         }
+
+        if let Some(rc_conn) = rc_conn_to_be_removed {
+            let conn = rc_conn.borrow();
+            self.remove_connection( &conn);
+        }
+
         Ok(())
     }
 
-    pub fn cleanup_connections(&mut self, mode: P2PNodeMode, mut poll: &mut Poll) -> ResultExtWrapper<()> {
+    pub fn cleanup_connections(&mut self, mode: P2PNodeMode, mut poll: &mut Poll) -> ResultExtWrapper<()>
+    {
         let curr_stamp = get_current_stamp();
 
-        if mode == P2PNodeMode::BootstrapperMode || mode == P2PNodeMode::BootstrapperPrivateMode {
-            for conn in self.connections.values_mut() {
-                if conn.last_seen() + 300000 < curr_stamp {
-                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
+        if mode == P2PNodeMode::BootstrapperMode || mode == P2PNodeMode::BootstrapperPrivateMode
+        {
+            for rc_conn in self.connections_by_token.values()
+            {
+                let mut conn = rc_conn.borrow_mut();
+                if conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp {
+                    conn.close( &mut poll)?;
                 }
             }
-        } else {
-            for conn in self.connections.values_mut() {
-                if conn.last_seen() + 1200000 < curr_stamp
-                    && conn.connection_type() == ConnectionType::Node
-                    {
-                        conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
-                    }
-                if conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED {
-                    conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
+        }
+        else
+        {
+            for rc_conn in self.connections_by_token.values()
+            {
+                let mut conn = rc_conn.borrow_mut();
+                if (conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
+                        && conn.connection_type() == ConnectionType::Node)
+                        || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+                {
+                    conn.close( &mut poll)?;
                 }
             }
+
             self.unreachable_nodes
                 .cleanup(curr_stamp - MAX_UNREACHABLE_MARK_TIME);
         }
 
-        let closed_ones: Vec<_> = self.connections
-            .iter()
-            .filter(|&(_, &ref v)| v.closing)
-            .map(|(k, _)| k.clone())
-            .collect();
-        for closed in closed_ones {
-            if let Some(ref prom) = &self.prometheus_exporter {
-                if let Some(ref peer) = self.connections.get(&closed) {
-                    if let Some(_) = peer.peer() {
-                        prom.lock()?.peers_dec().map_err(|e| error!("{}", e)).ok();
-                    };
-                };
-            };
-
-            self.connections.remove(&closed);
-        }
-
         //Kill banned connections
-        for peer in &self.banned_peers {
-            for conn in self.connections.values_mut() {
-                match conn.peer().clone() {
-                    Some(ref p) => {
-                        if p == peer {
-                            conn.close(&mut poll).map_err(|e| error!("{}", e)).ok();
-                        }
-                    }
-                    None => {}
-                }
+        for peer in self.banned_peers.iter()
+        {
+            if let Some(rc_conn) = self.connections_by_id.get( &peer.id())
+            {
+                rc_conn.borrow_mut().close( &mut poll)?;
             }
         }
-        Ok(())
 
+        // Remove connections which status is 'closing'.
+        let closing_conns: Vec<_> = self.connections_by_token.values()
+            .filter( |ref rc_conn| { rc_conn.borrow().closing })
+            .map( |ref rc_conn| { Rc::clone(rc_conn) })
+            .collect();
+
+        if let Some(ref prom) = &self.prometheus_exporter
+        {
+            let closing_with_peer = closing_conns.iter()
+                    .filter( |ref rc_conn| { rc_conn.borrow().peer().is_some() })
+                    .count();
+            prom.lock()?.peers_dec_by( closing_with_peer as i64)?;
+        }
+
+        for rc_conn in closing_conns.iter()
+        {
+            let conn = rc_conn.borrow();
+            self.remove_connection( &conn);
+        }
+
+        Ok(())
     }
 
     pub fn liveness_check(&mut self) -> ResultExtWrapper<()> {
         let curr_stamp = get_current_stamp();
 
-        for conn in self.connections.values_mut() {
-            if conn.last_seen() + 120000 < curr_stamp
-               || conn.get_last_ping_sent() + 300000 < curr_stamp
-            {
+        self.connections_by_token.values()
+            .filter( |ref rc_conn| {
+                let conn = rc_conn.borrow();
+                conn.last_seen() + 120000 < curr_stamp
+                    || conn.get_last_ping_sent() + 300000 < curr_stamp
+            })
+            .for_each( |ref rc_conn| {
+                let mut conn = rc_conn.borrow_mut();
+
                 let self_peer = conn.get_self_peer().clone();
                 conn.serialize_bytes( &NetworkRequest::Ping(self_peer).serialize())
-                    .map_err(|e| error!("{}", e))
-                    .ok();
+                    .map_err(|e| error!("{}", e)).ok();
                 conn.set_measured_ping_sent();
                 conn.set_last_ping_sent();
-            }
-        }
+            });
+
         Ok(())
     }
 
@@ -230,13 +260,15 @@ impl TlsServerPrivate {
     pub fn send_over_all_connections( &mut self,
             data: &Vec<u8>,
             filter_conn: &Fn( &Connection) -> bool,
-            send_status: &Fn( &Connection, ResultExtWrapper<()>))
+            send_status: &Fn( &Connection, Result<usize, std::io::Error>))
     {
-        for conn in self.connections.values_mut()
+        for rc_conn in self.connections_by_token.values()
         {
-            if filter_conn( conn) {
+            let mut conn = rc_conn.borrow_mut();
+            if filter_conn( &conn)
+            {
                 let status = conn.serialize_bytes( data);
-                send_status( conn, status)
+                send_status( &conn, status)
             }
         }
     }

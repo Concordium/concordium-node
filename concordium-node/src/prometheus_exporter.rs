@@ -130,6 +130,11 @@ impl PrometheusServer {
         Ok(())
     }
 
+    pub fn peers_dec_by(&mut self, value: i64) -> ResultExtWrapper<()> {
+        self.peers_gauge.sub( value);
+        Ok(())
+    }
+
     pub fn pkt_received_inc(&mut self) -> ResultExtWrapper<()> {
         self.pkts_received_counter.inc();
         Ok(())
