@@ -82,9 +82,9 @@ pub struct Cert {
 pub fn crypto_key_to_pem( input:  &crypto_sys::KeyPair) -> Vec<u8> {
     let pemheader = "-----BEGIN EC PRIVATE KEY-----\n";
 
-    let mut header = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
-    header.append(& mut input.private_key.to_vec());
-    let pemcontent  = encode(&header);
+    let mut pemcontent = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
+    pemcontent.append(& mut input.private_key.to_vec());
+    let pemcontent  = encode(&pemcontent);
 
     let pemfooter = "\n-----END EC PRIVATE KEY-----";
 
