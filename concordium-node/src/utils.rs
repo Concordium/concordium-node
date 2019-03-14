@@ -1,3 +1,4 @@
+use base64::{encode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use dns::dns;
 use errors::*;
@@ -81,17 +82,13 @@ pub struct Cert {
 pub fn crypto_key_to_pem( input:  &crypto_sys::KeyPair) -> Vec<u8> {
     let pemheader = "-----BEGIN EC PRIVATE KEY-----\n";
 
-    let header = String::from_utf8(hex::decode("302e020100300506032b656e04220420").unwrap()).unwrap(); // static, should never fail
-    let pk = String::from_utf8(input.private_key.to_vec()).unwrap() // keys are always in utf-8 range
-        .as_bytes().chunks(64)
-        .map(|x|
-             String::from_utf8(x.to_vec()).unwrap() // it was in utf8 so it still will be
-        ).collect::<Vec<String>>().
-        join("\n");
+    let mut header = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
+    header.append(& mut input.private_key.to_vec());
+    let pemcontent  = encode(&header);
 
     let pemfooter = "\n-----END EC PRIVATE KEY-----";
 
-    format!("{}{}{}{}", pemheader, header, pk, pemfooter).into_bytes()
+    format!("{}{}{}", pemheader, pemcontent, pemfooter).into_bytes()
 }
 
 
@@ -674,6 +671,12 @@ mod tests {
                         "2001:4860:4860::8844",
                         "8.8.8.8",
                         "8.8.4.4"]);
+    }
+
+    #[test]
+    pub fn test_keypair_import_openssl() {
+        let kp = crypto_sys::KeyPair::new();
+        assert!(openssl::pkey::PKey::private_key_from_pem(&crypto_key_to_pem(&kp)).is_ok());
     }
 
 }
