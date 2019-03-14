@@ -9,13 +9,6 @@ use prometheus_exporter::PrometheusServer;
 use connection::{ SeenMessagesList };
 use errors::{ ErrorWrapper, ErrorKindWrapper };
 
-macro_rules! wrap_error {
-    ($src_error:ident) => {
-        ErrorWrapper::with_chain(
-            $src_error,
-            ErrorKindWrapper::FunctorRunningError( "Couldn't send to packet queue"))
-    }
-}
 
 /// It forwards network response message into `queue`.
 pub fn forward_network_response(
@@ -23,7 +16,11 @@ pub fn forward_network_response(
         queue: &Sender<Arc<Box<NetworkMessage>>> ) -> FunctorResult {
     let outer = Arc::new( box NetworkMessage::NetworkResponse( res.clone(), None, None));
 
-    queue.send(outer).map_err( |e| { wrap_error!(e) })
+    if let Err(queue_error) = queue.send(outer) {
+        warn!( "Message cannot be forwarded: {:?}", queue_error);
+    };
+
+    Ok(())
 }
 
 /// It forwards network request message into `packet_queue`
@@ -104,7 +101,7 @@ fn forward_network_packet_message_common(
             seen_messages.append(&msg_id);
             if blind_trust_broadcast {
                 if let NetworkPacket::BroadcastedMessage(_,_,_,_) = pac {
-                    
+
                     send_queue.lock()?.push_back( outer.clone());
                     if let Some(ref prom) = prometheus_exporter {
                         prom.lock()?.queue_size_inc()

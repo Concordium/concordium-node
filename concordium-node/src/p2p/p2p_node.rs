@@ -354,7 +354,7 @@ impl P2PNode {
         (time::get_time() - self.start_time).num_milliseconds()
     }
 
-    fn check_sent_status(&self, conn: &Connection, status: ResultExtWrapper<()>) {
+    fn check_sent_status(&self, conn: &Connection, status: Result<usize, std::io::Error>) {
         if let Some(ref peer) = conn.peer().clone() {
             match status {
                 Ok(_) => {
@@ -390,17 +390,20 @@ impl P2PNode {
                             }
                         };
                         trace!("Got message to process!");
+                        let check_sent_status_fn =
+                            |conn: &Connection, status: Result<usize, std::io::Error>|
+                                self.check_sent_status( conn, status);
+
                         match *x.clone() {
                             box NetworkMessage::NetworkPacket(ref inner_pkt
                                     @ NetworkPacket::DirectMessage(_, _, _, _, _), _, _) => {
                                 if let NetworkPacket::DirectMessage(_, _msgid, receiver, _network_id,  _) = inner_pkt {
                                     let data = inner_pkt.serialize();
                                     let filter = |conn: &Connection|{ is_conn_peer_id( conn, receiver)};
-                                    let sent_status = |conn: &Connection, status: ResultExtWrapper<()>|
-                                        self.check_sent_status( conn, status);
 
                                     self.tls_server.lock()?
-                                        .send_over_all_connections( &data, &filter, &sent_status);
+                                        .send_over_all_connections( &data, &filter,
+                                                                    &check_sent_status_fn);
                                 }
                             }
                             box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_, _, _, _), _, _) => {
@@ -409,11 +412,10 @@ impl P2PNode {
                                     let filter = |conn: &Connection| {
                                         is_valid_connection_in_broadcast( conn, sender, network_id)
                                     };
-                                    let sent_status = |conn: &Connection, status: ResultExtWrapper<()>|
-                                        self.check_sent_status( conn, status);
 
                                     self.tls_server.lock()?
-                                        .send_over_all_connections( &data, &filter, &sent_status);
+                                        .send_over_all_connections( &data, &filter,
+                                                                    &check_sent_status_fn);
                                 }
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(_, _), _, _)
@@ -421,21 +423,19 @@ impl P2PNode {
                             | box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_, _), _, _) => {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
-                                let sent_status = |conn: &Connection, status: ResultExtWrapper<()>|
-                                    self.check_sent_status( conn, status);
 
                                 self.tls_server.lock()?
-                                    .send_over_all_connections( &data, &no_filter, &sent_status);
+                                    .send_over_all_connections( &data, &no_filter,
+                                                                &check_sent_status_fn);
                             }
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::JoinNetwork(_, _), _, _) => {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
-                                let sent_status = |conn: &Connection, status: ResultExtWrapper<()>|
-                                    self.check_sent_status( conn, status);
 
                                 let mut locked_tls_server = self.tls_server.lock()?;
                                 locked_tls_server
-                                    .send_over_all_connections( &data, &no_filter, &sent_status);
+                                    .send_over_all_connections( &data, &no_filter,
+                                                                &check_sent_status_fn);
 
                                 if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
                                     locked_tls_server.add_network(network_id)
@@ -445,12 +445,11 @@ impl P2PNode {
                             box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::LeaveNetwork(_,_), _, _) => {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
-                                let sent_status = |conn: &Connection, status: ResultExtWrapper<()>|
-                                    self.check_sent_status( conn, status);
 
                                 let mut locked_tls_server = self.tls_server.lock()?;
                                 locked_tls_server
-                                    .send_over_all_connections( &data, &no_filter, &sent_status);
+                                    .send_over_all_connections( &data, &no_filter,
+                                                                &check_sent_status_fn);
 
                                 if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
                                    locked_tls_server.remove_network(network_id)
@@ -520,14 +519,31 @@ impl P2PNode {
         debug!("Queueing message!");
         match broadcast {
             true => {
-                self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(self.get_self_peer(), msg_id.unwrap_or(NetworkPacket::generate_message_id()), network_id,  msg.to_vec()), None, None)));
+                self.send_queue.lock()?.push_back( Arc::new(
+                        box NetworkMessage::NetworkPacket(
+                            NetworkPacket::BroadcastedMessage(
+                                self.get_self_peer(),
+                                msg_id.unwrap_or(NetworkPacket::generate_message_id()),
+                                network_id,
+                                msg.to_vec()),
+                            None,
+                            None)));
                 self.queue_size_inc()?;
                 return Ok(());
             }
             false => {
                 match id {
                     Some(x) => {
-                        self.send_queue.lock()?.push_back(Arc::new(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(self.get_self_peer(), msg_id.unwrap_or(NetworkPacket::generate_message_id()), x, network_id, msg.to_vec()), None, None)));
+                        self.send_queue.lock()?.push_back( Arc::new(
+                                box NetworkMessage::NetworkPacket(
+                                    NetworkPacket::DirectMessage(
+                                        self.get_self_peer(),
+                                        msg_id.unwrap_or(NetworkPacket::generate_message_id()),
+                                        x,
+                                        network_id,
+                                        msg.to_vec()),
+                                    None,
+                                    None)));
                         self.queue_size_inc()?;
                         return Ok(());
                     }
@@ -698,7 +714,7 @@ impl P2PNode {
     pub fn process(&mut self, events: &mut Events) -> ResultExtWrapper<()> {
         self.poll
             .lock()?
-            .poll(events, Some(Duration::from_millis(500)))?;
+            .poll(events, Some(Duration::from_millis(1000)))?;
 
         if self.mode != P2PNodeMode::BootstrapperMode
            && self.mode != P2PNodeMode::BootstrapperPrivateMode
@@ -732,6 +748,8 @@ impl P2PNode {
                 }
             }
         }
+
+        events.clear();
 
         {
             let tls_ref = self.tls_server.lock()?;

@@ -5,15 +5,14 @@ use std::sync::mpsc::{ Sender };
 use std::net::{Shutdown, IpAddr };
 use std::rc::{ Rc };
 use std::cell::{ RefCell };
-use std::io::{ Error, ErrorKind, Cursor, Result };
+use std::io::{ Cursor, Result };
 use atomic_counter::AtomicCounter;
 
 use mio::{ Poll, PollOpt, Ready, Token, Event, net::TcpStream };
 use rustls::{ ServerSession, ClientSession };
 use prometheus_exporter::{ PrometheusServer };
 
-use errors::{ ResultExtWrapper, ResultExt };
-use errors::ErrorKindWrapper::{ InternalIOError, NetworkError };
+use errors::{ ResultExtWrapper, ErrorKindWrapper, ErrorWrapper };
 use error_chain::ChainedError;
 
 use common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
@@ -26,10 +25,11 @@ use connection::{
     MessageHandler, RequestHandler, ResponseHandler,
     P2PEvent, P2PNodeMode };
 
-use connection::connection_private::{ ConnectionPrivate, ConnSession };
+use connection::connection_private::{ ConnectionPrivate };
 #[cfg(not(target_os = "windows"))]
 use connection::writev_adapter::{ WriteVAdapter };
 use connection::connection_default_handlers::*;
+
 
 /// This macro clones `dptr` and moves it into callback closure.
 /// That closure is just a call to `fn` Fn.
@@ -73,7 +73,6 @@ impl Connection {
            token: Token,
            tls_server_session: Option< ServerSession>,
            tls_client_session: Option< ClientSession>,
-           initiated_by_me: bool,
            own_id: P2PNodeId,
            self_peer: P2PPeer,
            peer_ip: IpAddr,
@@ -89,8 +88,8 @@ impl Connection {
         let curr_stamp = get_current_stamp();
         let priv_conn = Rc::new( RefCell::new( ConnectionPrivate::new(
                 connection_type, mode, own_id, self_peer, own_networks, buckets,
-                initiated_by_me, tls_server_session, tls_client_session,
-                prometheus_exporter, event_log, blind_trusted_broadcast,)));
+                tls_server_session, tls_client_session,
+                prometheus_exporter, event_log, blind_trusted_broadcast)));
 
         let mut lself = Connection {
                      socket: socket,
@@ -198,10 +197,6 @@ impl Connection {
 
     // =============================
 
-    pub fn session(&self) -> ConnSession {
-        self.dptr.borrow().session()
-    }
-
     pub fn get_last_latency_measured(&self) -> Option<u64> {
         let latency : u64 = self.dptr.borrow().last_latency_measured;
         if latency != u64::max_value() {
@@ -302,54 +297,19 @@ impl Connection {
         self.pkt_validated = false;
     }
 
+    /// It registers the connection socket, for read and write ops using *edge* notifications.
     pub fn register(&self, poll: &mut Poll) -> ResultExtWrapper<()> {
-        match poll.register(&self.socket,
-                            self.token,
-                            self.event_set(),
-                            PollOpt::level() | PollOpt::oneshot())
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(InternalIOError(e).into()),
-        }
-    }
-
-    fn reregister(&self, poll: &mut Poll) -> ResultExtWrapper<()> {
-        match poll.reregister(&self.socket,
-                              self.token,
-                              self.event_set(),
-                              PollOpt::level() | PollOpt::oneshot())
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(InternalIOError(e).into()),
-        }
+        poll.register(
+                &self.socket,
+                self.token,
+                Ready::readable() | Ready::writable(),
+                PollOpt::edge())
+            .map_err( |e| ErrorWrapper::from_kind( ErrorKindWrapper::InternalIOError(e)))
     }
 
     #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool {
         self.blind_trusted_broadcast
-    }
-
-    fn event_set(&self) -> Ready {
-        let mut rd: bool = false;
-        let mut _wr: bool;
-
-        if let Some(ref session) = self.session() {
-            if let Some(ref locked_session) = session.read().ok() {
-                rd = locked_session.wants_read();
-                _wr = locked_session.wants_write();
-            }
-        };
-
-        //Don't trust it .. It's broken and inconsistent
-        _wr = true;
-
-        if rd && _wr {
-            Ready::readable() | Ready::writable()
-        } else if _wr {
-            Ready::writable()
-        } else {
-            Ready::readable()
-        }
     }
 
     pub fn is_closed(&self) -> bool {
@@ -367,96 +327,67 @@ impl Connection {
              poll: &mut Poll,
              ev: &Event,
              packets_queue: &Sender<Arc<Box<NetworkMessage>>>)
-             -> ResultExtWrapper<()> {
-        if ev.readiness().is_readable() {
-            self.do_tls_read().map_err(|e| error!("{}", e)).ok();
-            self.try_plain_read(poll, &packets_queue);
+             -> ResultExtWrapper<()>
+    {
+        let ev_readiness = ev.readiness();
+
+        if ev_readiness.is_readable()
+        {
+            // Process pending reads.
+            while let Ok(size) = self.do_tls_read()
+            {
+                if size == 0 {
+                    break;
+                }
+                self.try_plain_read(poll, &packets_queue);
+            }
         }
 
-        if ev.readiness().is_writable() {
-            self.do_tls_write().map_err(|e| error!("{}", e)).ok();
+        if ev_readiness.is_writable()
+        {
+            self.flush_tls()?;
         }
 
+        // Manage clossing event.
         if self.closing {
             self.close(poll).map_err(|e| error!("{}", e)).ok();
         }
 
-        if let Some(ref session) = self.session() {
-            if let Some(ref locked_session) = session.read().ok() {
-                if self.closing && ! locked_session.wants_read() {
-                    let _ = self.socket.shutdown(Shutdown::Both);
-                    self.closed = true;
-                } else {
-                    self.reregister(poll).map_err(|e| error!("{}", e)).ok();
-                }
-            }
+        let session_wants_read = self.dptr.borrow().tls_session.wants_read();
+        if self.closing && ! session_wants_read {
+            let _ = self.socket.shutdown(Shutdown::Both);
+            self.closed = true;
         }
 
         Ok(())
     }
 
-    fn do_tls_read(&mut self) -> ResultExtWrapper<(usize)> {
-        let local_session = self.session();
+    fn do_tls_read(&mut self) -> ResultExtWrapper<usize> {
+        let lptr = &mut self.dptr.borrow_mut();
 
-        let rc = if let Some(ref session) = local_session {
-            if let Some(ref mut locked_session) = session.write().ok() {
-                locked_session.read_tls(&mut self.socket)
-            } else {
-                Err( Error::new(ErrorKind::Other, "Session cannot be locked"))
-            }
-        } else {
-            Err(Error::new( ErrorKind::Other, "Session is empty"))
-        };
-
-        if rc.is_err() {
-            let err = &rc.unwrap_err();
-
-            if let ErrorKind::WouldBlock = err.kind() {
-                return Err(NetworkError(format!("{}:{}/blocked {:?}",
-                                                                  self.ip().to_string(),
-                                                                  self.port(),
-                                                                  err)).into());
-            }
-
-            //error!("read error {}:{}/{:?}", self.ip().to_string(), self.port(), err);
-            self.closing = true;
-            return Err(NetworkError(format!("{}:{}/read error {:?}",
-                                                              self.ip().to_string(),
-                                                              self.port(),
-                                                              err)).into());
-        }
-
-        if let Ok(size) = rc {
-            if size == 0 {
-                debug!("eof");
-                self.closing = true;
-                return Err(NetworkError("eof".to_string()).into());
+        if lptr.tls_session.wants_read()
+        {
+            match lptr.tls_session.read_tls(&mut self.socket)
+            {
+                Ok(size) => {
+                    if size > 0 {
+                        lptr.tls_session.process_new_packets()?;
+                    }
+                    Ok(size)
+                },
+                Err(read_err) => {
+                    if read_err.kind() == std::io::ErrorKind::WouldBlock {
+                        Ok(0)
+                    } else {
+                        self.closing = true;
+                        Err( ErrorKindWrapper::InternalIOError( read_err).into())
+                    }
+                }
             }
         }
-
-        // Process newly-received TLS messages.
-        let processed = if let Some(session) = local_session {
-            if let Some(mut locked_session) = session.write().ok() {
-                Ok( locked_session.process_new_packets())
-            } else {
-                Err(NetworkError(format!("{}:{} Session cannot be locked",
-                                         self.ip().to_string(),
-                                         self.port())))
-            }
-        } else {
-            Err(NetworkError(format!("{}:{} Session is not found",
-                                     self.ip().to_string(),
-                                     self.port())))
-        };
-
-        if processed.is_err() {
-            error!("cannot process packet: {:?}", processed);
-            self.closing = true;
-            return Err(NetworkError(format!("Can't process packet {:?}",
-                                                              processed)).into());
+        else {
+            Ok(0)
         }
-
-        rc.chain_err(|| NetworkError("couldn't read from TLS socket".to_string()))
     }
 
     fn try_plain_read(&mut self,
@@ -465,40 +396,26 @@ impl Connection {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
-        let rc =
-            if let Some(ref session) = self.session() {
-                if let Some(ref mut locked_session) = session.write().ok() {
-                    locked_session.read_to_end(&mut buf)
-                } else {
-                    Err(Error::new(ErrorKind::Other, "Session cannot be locked!"))
+        let read_status = self.dptr.borrow_mut().tls_session.read_to_end( &mut buf);
+        match read_status
+        {
+            Ok(_) => {
+                if !buf.is_empty() {
+                    trace!("plaintext read {:?}", buf.len());
+                    self.incoming_plaintext(poll, &packets_queue, &buf);
                 }
-            } else {
-                Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-            };
-
-        if rc.is_err() {
-            error!("plaintext read failed: {:?}", rc);
-            self.closing = true;
-            return;
-        }
-
-        if !buf.is_empty() {
-            trace!("plaintext read {:?}", buf.len());
-            self.incoming_plaintext(poll, &packets_queue, &buf);
+            },
+            Err(read_err) => {
+                error!("plaintext read failed: {:?}", read_err);
+                self.closing = true;
+            }
         }
     }
 
-    fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
-        if let Some(ref session) = self.session() {
-            if let Some(ref mut locked_session) = session.write().ok() {
-                self.messages_sent += 1;
-                locked_session.write_all(bytes)
-            } else {
-                Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-            }
-        } else {
-            Err(Error::new(ErrorKind::Other, "Couldn't find session!"))
-        }
+    fn write_to_tls(&mut self, bytes: &[u8]) -> Result<()>
+    {
+        self.messages_sent += 1;
+        self.dptr.borrow_mut().tls_session.write_all(bytes)
     }
 
     /// It decodes message from `buf` and processes it using its message handlers.
@@ -627,75 +544,35 @@ impl Connection {
         }
     }
 
-    pub fn serialize_bytes(&mut self, pkt: &[u8]) -> ResultExtWrapper<()> {
+    pub fn serialize_bytes(&mut self, pkt: &[u8]) -> Result<usize> {
         trace!("Serializing data to connection {} bytes", pkt.len());
         let mut size_vec = Vec::with_capacity(4);
 
-        match size_vec.write_u32::<NetworkEndian>(pkt.len() as u32) {
-            Ok(()) => {}
-            Err(e) => {
-                if let Some(inner_err) = e.into_inner() {
-                    info!("{}", inner_err);
-                }
-            }
-        };
-        match self.write_all(&size_vec[..]) {
-            Ok(()) => {}
-            Err(e) => {
-                if let Some(inner_err) = e.into_inner() {
-                    info!("{}", inner_err);
-                }
-            }
-        };
-        match self.write_all(pkt) {
-            Ok(()) => {}
-            Err(e) => {
-                if let Some(inner_err) = e.into_inner() {
-                    info!("{}", inner_err);
-                }
-            }
-        };
-        Ok(())
+        size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
+        self.write_to_tls(&size_vec[..])?;
+        self.write_to_tls(pkt)?;
+
+        self.flush_tls()
     }
 
-    #[cfg(not(target_os = "windows"))]
-    fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
-
-        let rc = if let Some(ref session) = self.session() {
-            if let Some(ref mut locked_session) = session.write().ok() {
-                let mut wr = WriteVAdapter::new(&mut self.socket);
-                locked_session.writev_tls( &mut wr)
+    fn flush_tls(&mut self) -> Result<usize>
+    {
+        let rc = {
+            let mut lptr = self.dptr.borrow_mut();
+            if lptr.tls_session.wants_write() {
+                let mut wr = WriteVAdapter::new( &mut self.socket);
+                lptr.tls_session.writev_tls( &mut wr)
             } else {
-                Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
+                Ok(0)
             }
-        } else {
-            Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
         };
 
         if rc.is_err() {
             error!("write failed {:?}", rc);
             self.closing = true;
         }
-        rc.chain_err(|| NetworkError("couldn't write TLS to socket".to_string()))
-    }
 
-    #[cfg(target_os = "windows")]
-    fn do_tls_write(&mut self) -> ResultExtWrapper<(usize)> {
-        let rc = if let Some(ref session) = self.session() {
-            if let Some(ref mut locked_session) = session.write().ok() {
-                locked_session.write_tls( &mut self.socket)
-            } else {
-                Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
-            }
-        } else {
-            Err(Error::new(ErrorKind::Other, format!("Couldn't find session! {}:{}", file!(), line!())))
-        };
-
-        if rc.is_err() {
-            error!("write failed {:?}", rc);
-            self.closing = true;
-        }
-        rc.chain_err(|| NetworkError("couldn't write TLS to socket".to_string()))
+        rc
     }
 
     pub fn prometheus_exporter(&self) -> Option<Arc<Mutex<PrometheusServer>>> {
@@ -732,5 +609,9 @@ impl Connection {
 
     pub fn own_networks(&self) -> Arc<Mutex<Vec<u16>>> {
         self.dptr.borrow().own_networks.clone()
+    }
+
+    pub fn token(&self) -> &Token {
+        &self.token
     }
 }
