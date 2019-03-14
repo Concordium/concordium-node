@@ -1,4 +1,5 @@
 use std::sync::{ Arc, Mutex, RwLock };
+use std::sync::atomic::{ AtomicUsize, Ordering };
 use std::net::{ IpAddr, SocketAddr };
 use std::rc::{ Rc };
 use std::cell::{ RefCell };
@@ -22,7 +23,7 @@ use p2p::tls_server_private::{ TlsServerPrivate };
 
 pub struct TlsServer {
     server: TcpListener,
-    next_id: usize,
+    next_id: AtomicUsize,
     server_tls_config: Arc<ServerConfig>,
     client_tls_config: Arc<ClientConfig>,
     own_id: P2PNodeId,
@@ -57,7 +58,7 @@ impl TlsServer {
                     prometheus_exporter.clone())));
 
         let mut mself = TlsServer { server,
-                    next_id: 2,
+                    next_id: AtomicUsize::new(2),
                     server_tls_config: server_cfg,
                     client_tls_config: client_cfg,
                     own_id,
@@ -132,8 +133,7 @@ impl TlsServer {
                 self.log_event(P2PEvent::ConnectEvent(format!("{}", addr.ip()), addr.port()));
 
                 let tls_session = ServerSession::new(&self.server_tls_config);
-                let token = Token(self.next_id);
-                self.next_id += 1;
+                let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
                 let networks = self.dptr.borrow().networks.clone();
                 let mut conn = Connection::new(ConnectionType::Node,
@@ -141,7 +141,6 @@ impl TlsServer {
                                            token,
                                            Some(tls_session),
                                            None,
-                                           false,
                                            self.own_id.clone(),
                                            self_id.clone(),
                                            addr.ip().clone(),
@@ -155,7 +154,7 @@ impl TlsServer {
                 self.register_message_handlers( &mut conn);
 
                 let register_status = conn.register( poll);
-                self.dptr.borrow_mut().connections.insert(token, conn);
+                self.dptr.borrow_mut().add_connection( conn);
 
                 register_status
             },
@@ -168,7 +167,7 @@ impl TlsServer {
                poll: &mut Poll,
                ip: IpAddr,
                port: u16,
-               peer_id: Option<P2PNodeId>,
+               peer_id_opt: Option<P2PNodeId>,
                self_id: &P2PPeer)
                -> ResultExtWrapper<()> {
         if connection_type == ConnectionType::Node && self.is_unreachable(ip, port) {
@@ -179,19 +178,19 @@ impl TlsServer {
         if self_peer.ip() == ip && self_peer.port() == port {
             return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
         }
-        for (_, ref conn) in &self.dptr.borrow().connections {
-            if let Some(ref peer) = conn.peer() {
-                if peer.ip() == ip && peer.port() == port {
-                    return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
-                } else if let Some(ref new_peer_id) = peer_id {
-                    if new_peer_id == &peer.id() {
-                        return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
-                    }
-                }
-            } else if conn.ip() == ip && conn.port() == port {
+
+        if let Ok(target_id) = P2PNodeId::from_ip_port( ip, port) {
+            if let Some(_rc_conn) = self.dptr.borrow().find_connection_by_id( &target_id) {
                 return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
             }
         }
+
+        if let Some(ref peer_id) = peer_id_opt {
+            if let Some(_rc_conn) = self.dptr.borrow().find_connection_by_id( peer_id) {
+                return Err(ErrorKindWrapper::DuplicatePeerError("Already connected to peer".to_string()).into());
+            }
+        }
+
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
             Ok(x) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
@@ -208,7 +207,7 @@ impl TlsServer {
                                            Err(e) => panic!("The error is: {:?}", e),
                                        });
 
-                let token = Token(self.next_id);
+                let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
                 let networks = self.dptr.borrow().networks.clone();
                 let mut conn = Connection::new(connection_type,
@@ -216,7 +215,6 @@ impl TlsServer {
                                            token,
                                            None,
                                            Some(tls_session),
-                                           true,
                                            self.own_id.clone(),
                                            self_id.clone(),
                                            ip,
@@ -231,14 +229,16 @@ impl TlsServer {
                 self.register_message_handlers( &mut conn);
                 conn.register(poll)?;
 
-                self.next_id += 1;
-                self.dptr.borrow_mut().connections.insert(token, conn);
+                self.dptr.borrow_mut().add_connection( conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
                 debug!("Requesting handshake from new peer {}:{}",
                        ip.to_string(),
                        port);
                 let self_peer = self.get_self_peer().clone();
-                if let Some(ref mut conn) = self.dptr.borrow_mut().connections.get_mut(&token) {
+
+                if let Some(ref rc_conn) = self.dptr.borrow().find_connection_by_token( &token)
+                {
+                    let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
                         &NetworkRequest::Handshake(self_peer,
                             networks.lock()?.clone(),
@@ -284,7 +284,7 @@ impl TlsServer {
     pub fn send_over_all_connections( &self,
             data: &Vec<u8>,
             filter_conn: &Fn( &Connection) -> bool,
-            send_status: &Fn( &Connection, ResultExtWrapper<()>))
+            send_status: &Fn( &Connection, Result<usize, std::io::Error>))
     {
         self.dptr.borrow_mut()
             .send_over_all_connections( data, filter_conn, send_status)

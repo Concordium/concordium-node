@@ -1,17 +1,13 @@
 use std::sync::atomic::{ AtomicU64, Ordering };
 use std::sync::mpsc::{ Sender };
 use std::sync::{ Arc, Mutex, RwLock };
-use rustls::{ ServerSession, ClientSession, Session };
+use rustls::{ ServerSession, ClientSession };
 
 use common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
-use connection::{ P2PNodeMode, P2PEvent };
+use connection::{ P2PNodeMode, P2PEvent, CommonSession };
 use network::{ Buckets };
 use prometheus_exporter::{ PrometheusServer };
 
-
-pub type ConnServerSession = Option< Arc< RwLock< ServerSession > > >;
-pub type ConnClientSession = Option< Arc< RwLock< ClientSession > > >;
-pub type ConnSession = Option< Arc< RwLock<dyn Session > > >;
 
 /// It is just a helper struct to facilitate sharing information with
 /// message handlers, which are set up from _inside_ `Connection`.
@@ -29,9 +25,7 @@ pub struct ConnectionPrivate {
     pub buckets: Arc< RwLock< Buckets > >,
 
     // Session
-    initiated_by_me: bool,
-    tls_server_session: ConnServerSession,
-    tls_client_session: ConnClientSession,
+    pub tls_session: Box<dyn CommonSession>,
 
     // Stats
     last_seen: AtomicU64,
@@ -55,7 +49,6 @@ impl ConnectionPrivate {
             self_peer: P2PPeer,
             own_networks: Arc< Mutex< Vec<u16>>>,
             buckets: Arc< RwLock< Buckets > >,
-            initiated_by_me: bool,
             tls_server_session: Option< ServerSession>,
             tls_client_session: Option< ClientSession>,
             prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
@@ -64,8 +57,13 @@ impl ConnectionPrivate {
             ) -> Self {
 
         let u64_max_value: u64 = u64::max_value();
-        let srv_session = if let Some(s) = tls_server_session { Some(Arc::new( RwLock::new(s)))} else { None };
-        let cli_session = if let Some(c) = tls_client_session { Some(Arc::new( RwLock::new(c)))} else { None };
+        let tls_session = if let Some(s) = tls_server_session {
+                box s as Box<dyn CommonSession>
+            } else if let Some(c) = tls_client_session {
+                box c as Box<dyn CommonSession>
+            } else {
+                panic!( "Connection needs one session");
+        };
 
         ConnectionPrivate {
             connection_type: connection_type,
@@ -77,9 +75,7 @@ impl ConnectionPrivate {
             own_networks: own_networks,
             buckets: buckets,
 
-            initiated_by_me: initiated_by_me,
-            tls_server_session: srv_session,
-            tls_client_session: cli_session,
+            tls_session: tls_session,
 
             last_seen: AtomicU64::new( get_current_stamp()),
             failed_pkts: 0 as u32,
@@ -90,25 +86,6 @@ impl ConnectionPrivate {
             sent_ping: u64_max_value,
             last_latency_measured: u64_max_value,
             blind_trusted_broadcast,
-        }
-    }
-
-    /// It returns the `Client Session` if connection has been initiated by me.
-    /// Otherwise, it will return its `Server Session`.
-    /// Both kind of session could be `None`.
-    pub fn session(&self) -> ConnSession {
-        if self.initiated_by_me {
-            if let Some(ref cli_session) = self.tls_client_session {
-                Some( Arc::clone(&cli_session) as Arc< RwLock< dyn Session>>)
-            } else {
-                None
-            }
-        } else {
-            if let Some(ref srv_session) = self.tls_server_session {
-                Some( Arc::clone(&srv_session) as Arc< RwLock< dyn Session>>)
-            } else {
-                None
-            }
         }
     }
 

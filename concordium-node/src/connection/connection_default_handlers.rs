@@ -1,32 +1,27 @@
 use std::rc::{ Rc };
 use std::cell::{ RefCell };
-use std::sync::{ Arc, RwLock };
 use std::sync::mpsc::{ Sender };
 use byteorder::{ NetworkEndian,  WriteBytesExt };
 use atomic_counter::AtomicCounter;
-
-use rustls::{ Session };
 
 use common::{ P2PPeer, get_current_stamp };
 use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use common::functor::{ FunctorResult };
 use network::{ NetworkRequest, NetworkResponse };
-use connection::{ P2PEvent, P2PNodeMode };
+use connection::{ P2PEvent, P2PNodeMode, CommonSession };
 use connection::connection_private::{ ConnectionPrivate };
 
 use errors::*;
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
-fn serialize_bytes( session: &Arc< RwLock<dyn Session>>, pkt: &[u8]) -> FunctorResult {
+fn serialize_bytes( session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> FunctorResult {
     // Write size of pkt into 4 bytes vector.
     let mut size_vec = Vec::with_capacity(4);
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
 
-    // Write 4bytes size + pkt into session.
-    let mut locked_session = session.write()?;
-    locked_session.write_all( &size_vec[..])?;
-    locked_session.write_all( pkt)?;
+    session.write_all( &size_vec[..])?;
+    session.write_all( pkt)?;
 
     Ok(())
 }
@@ -41,10 +36,6 @@ fn make_msg_error( e:&'static str) -> ErrorWrapper {
 fn make_fn_err( e: &'static str) -> ErrorWrapper {
     ErrorWrapper::from_kind(
         ErrorKindWrapper::FunctorRunningError( e))
-}
-
-fn make_fn_error_session() -> ErrorWrapper {
-    make_fn_err( "Session not found")
 }
 
 fn make_fn_error_peer() -> ErrorWrapper {
@@ -64,19 +55,21 @@ pub fn default_network_request_ping_handle(
     priv_conn.borrow_mut().update_last_seen();
     TOTAL_MESSAGES_SENT_COUNTER.inc();
 
-    let priv_conn_borrow = priv_conn.borrow();
-    if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-        prom.lock()?.pkt_sent_inc()?
+    let pong_data = {
+        let priv_conn_borrow = priv_conn.borrow();
+        if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+            prom.lock()?.pkt_sent_inc()?
+        };
+
+        // Make `Pong` response and send
+        let peer = priv_conn_borrow.peer().clone()
+            .ok_or_else( || make_fn_error_peer())?;
+
+        NetworkResponse::Pong(peer.clone()).serialize()
     };
 
-    // Make `Pong` response and send
-    let ref session = priv_conn_borrow.session()
-        .ok_or_else( || make_fn_error_session())?;
-    let peer = priv_conn_borrow.peer().clone()
-        .ok_or_else( || make_fn_error_peer())?;
-    let pong_data = NetworkResponse::Pong(peer.clone()).serialize();
 
-    Ok( serialize_bytes( session, &pong_data)?)
+    Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &pong_data)?)
 }
 
 /// It sends the list of nodes.
@@ -90,16 +83,15 @@ pub fn default_network_request_find_node_handle(
             priv_conn.borrow_mut().update_last_seen();
 
             //Return list of nodes
-            let priv_conn_borrow = priv_conn.borrow();
-            let ref session = priv_conn_borrow.session()
-                .ok_or_else( || make_fn_error_session())?;
-            let peer = priv_conn_borrow.peer().clone()
-                .ok_or_else( || make_fn_error_peer())?;
-            let nodes = priv_conn_borrow.buckets.read()?.closest_nodes(node_id);
-            let response_data = NetworkResponse::FindNode( peer, nodes)
-                    .serialize();
+            let response_data = {
+                let priv_conn_borrow = priv_conn.borrow();
+                let peer = priv_conn_borrow.peer().clone()
+                    .ok_or_else( || make_fn_error_peer())?;
+                let nodes = priv_conn_borrow.buckets.read()?.closest_nodes(node_id);
+                NetworkResponse::FindNode( peer, nodes).serialize()
+            };
 
-            Ok( serialize_bytes( &session, &response_data)?)
+            Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &response_data)?)
         }
         _ => {
             Err( make_msg_error( "Find node handler cannot handler this packet"))
@@ -118,22 +110,21 @@ pub fn default_network_request_get_peers(
             priv_conn.borrow_mut().update_last_seen();
             TOTAL_MESSAGES_SENT_COUNTER.inc();
 
-            let priv_conn_borrow = priv_conn.borrow();
-            let nodes = priv_conn_borrow.buckets.read()?
-                .get_all_nodes(Some(&sender), networks);
+            let peer_list_packet = {
+                let priv_conn_borrow = priv_conn.borrow();
+                let nodes = priv_conn_borrow.buckets.read()?
+                    .get_all_nodes(Some(&sender), networks);
 
-            if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-                prom.lock()?.pkt_sent_inc()?;
+                if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+                    prom.lock()?.pkt_sent_inc()?;
+                };
+
+                let peer = priv_conn_borrow.peer().clone().ok_or_else( || make_fn_error_peer())?;
+                NetworkResponse::PeerList(peer, nodes)
+                    .serialize()
             };
 
-            let ref session = priv_conn_borrow.session()
-                    .ok_or_else( || make_fn_error_session())?;
-            let peer = priv_conn_borrow.peer().clone()
-                    .ok_or_else( || make_fn_error_peer())?;
-            let peer_list_packet = &NetworkResponse::PeerList(peer, nodes)
-                    .serialize();
-
-            Ok( serialize_bytes( &session, peer_list_packet)?)
+            Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &peer_list_packet)?)
         },
         _ => {
             Err( make_msg_error( "Get peers handler cannot handler this packet"))
@@ -317,12 +308,14 @@ fn send_handshake_and_ping(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>
     ) -> FunctorResult {
 
-    let priv_conn_borrow = priv_conn.borrow();
-    let ref session = priv_conn_borrow.session()
-        .ok_or_else( || make_fn_error_session())?;
-    let self_peer = & priv_conn_borrow.self_peer;
-    let my_nets = priv_conn_borrow.own_networks.lock()?.clone();
+    let (my_nets, self_peer) = {
+        let priv_conn_borrow = priv_conn.borrow();
+        let my_nets = priv_conn_borrow.own_networks.lock()?.clone();
+        let self_peer = priv_conn_borrow.self_peer.clone();
+        (my_nets, self_peer)
+    };
 
+    let session = &mut priv_conn.borrow_mut().tls_session;
     serialize_bytes(
         session,
         &NetworkResponse::Handshake(
@@ -333,7 +326,7 @@ fn send_handshake_and_ping(
     serialize_bytes(
         session,
         &NetworkRequest::Ping(
-            self_peer.clone()).serialize())?;
+            self_peer).serialize())?;
 
     TOTAL_MESSAGES_SENT_COUNTER.add(2);
     Ok(())
@@ -350,18 +343,18 @@ fn send_peer_list(
         "Running in bootstrapper mode, so instantly sending peers {} random peers",
         BOOTSTRAP_PEER_COUNT);
 
-    let priv_conn_borrow = priv_conn.borrow();
-    let random_nodes = priv_conn_borrow.buckets.read()?
-        .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets);
+    let data = {
+        let priv_conn_borrow = priv_conn.borrow();
+        let random_nodes = priv_conn_borrow.buckets.read()?
+            .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets);
 
-    let self_peer = & priv_conn_borrow.self_peer;
-    let session = priv_conn_borrow.session()
-        .ok_or_else( || make_fn_error_session())?;
-    serialize_bytes(
-        &session,
-        &NetworkResponse::PeerList( self_peer.clone(), random_nodes).serialize())?;
+        let self_peer = & priv_conn_borrow.self_peer;
+        NetworkResponse::PeerList( self_peer.clone(), random_nodes).serialize()
+    };
 
-    if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+    serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &data)?;
+
+    if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
         prom.lock()?.pkt_sent_inc()
             .map_err(|_| make_fn_error_prometheus())?;
     };

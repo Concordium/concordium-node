@@ -2,6 +2,7 @@ use std::sync::{ Arc, RwLock };
 use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 
+pub type NetworkMessageCW = AFunctorCW<NetworkMessage>;
 pub type NetworkRequestCW = AFunctorCW<NetworkRequest>;
 pub type NetworkResponseCW = AFunctorCW<NetworkResponse>;
 pub type NetworkPacketCW = AFunctorCW<NetworkPacket>;
@@ -16,6 +17,8 @@ pub struct MessageHandler {
     packet_parser: AFunctor<NetworkPacket>,
     unknown_parser: AFunctor<()>,
     invalid_parser: AFunctor<()>,
+
+    general_parser: AFunctor<NetworkMessage>
 }
 
 impl MessageHandler {
@@ -31,7 +34,9 @@ impl MessageHandler {
             unknown_parser: AFunctor::new(
                     "Network::Unknown"),
             invalid_parser: AFunctor::new(
-                    "Network::Invalid")
+                    "Network::Invalid"),
+            general_parser: AFunctor::<NetworkMessage>::new(
+                    "General NetworkMessage")
         }
     }
 
@@ -60,8 +65,18 @@ impl MessageHandler {
         self
     }
 
+    pub fn add_callback( &mut self, callback: NetworkMessageCW) -> &mut Self {
+        self.general_parser.add_callback( callback);
+        self
+    }
+
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
+    pub fn merge(&mut self, other: &MessageHandler) -> &mut Self
+    {
+        for  cb in other.general_parser.callbacks().iter() {
+            self.add_callback( cb.clone());
+        }
+
         for cb in other.packet_parser.callbacks().iter() {
             self.add_packet_callback( cb.clone());
         }
@@ -84,9 +99,13 @@ impl MessageHandler {
         self
     }
 
-    fn process_message(&self, msg: &NetworkMessage) -> FunctorResult {
+    fn process_message(&self, msg: &NetworkMessage) -> FunctorResult
+    {
+        // General
+        let general_status = (&self.general_parser)(msg);
 
-        match msg {
+        // Specific
+        let specific_status = match msg {
             NetworkMessage::NetworkRequest(ref nr, _, _) => {
                 (&self.request_parser)( nr)
             },
@@ -102,7 +121,9 @@ impl MessageHandler {
             NetworkMessage::InvalidMessage => {
                 (&self.invalid_parser)( &())
             }
-        }
+        };
+
+        general_status.and( specific_status)
     }
 
 }
