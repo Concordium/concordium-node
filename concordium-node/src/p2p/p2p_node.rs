@@ -631,7 +631,7 @@ impl P2PNode {
         vec![]
     }
 
-    pub fn get_peer_stats(&self, nids: &Vec<u16>) -> ResultExtWrapper<Vec<PeerStatistic>> {
+    pub fn get_peer_stats(&self, nids: &[u16]) -> ResultExtWrapper<Vec<PeerStatistic>> {
         match self.tls_server.lock() {
             Ok(x) => Ok(x.get_peer_stats(nids)),
             Err(e) => {

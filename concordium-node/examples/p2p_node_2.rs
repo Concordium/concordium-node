@@ -94,7 +94,7 @@ fn run() -> ResultExtWrapper<()> {
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
                                                      &dns_resolvers,
                                                      conf.no_dnssec,
-                                                     conf.bootstrap_node.clone());
+                                                     &conf.bootstrap_node);
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
 
@@ -283,7 +283,7 @@ fn run() -> ResultExtWrapper<()> {
                                  match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
                                                                   &_dns_resolvers,
                                                                   _dnssec,
-                                                                  _bootstrap_node.clone())
+                                                                  &_bootstrap_node)
                                  {
                                      Ok(nodes) => {
                                          for (ip, port) in nodes {

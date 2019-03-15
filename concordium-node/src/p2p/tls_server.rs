@@ -114,8 +114,8 @@ impl TlsServer {
         self.dptr.borrow_mut().unreachable_nodes.insert( ip, port)
     }
 
-    pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
-        self.dptr.borrow().get_peer_stats( nids)
+    pub fn get_peer_stats(&self, nids: &[u16]) -> Vec<PeerStatistic> {
+        self.dptr.borrow().get_peer_stats(nids)
     }
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> bool {

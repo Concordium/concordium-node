@@ -87,7 +87,7 @@ fn run() -> ResultExtWrapper<()> {
     let bootstrap_nodes = utils::get_bootstrap_nodes(conf.bootstrap_server.clone(),
                                                      &dns_resolvers,
                                                      conf.no_dnssec,
-                                                     conf.bootstrap_node.clone());
+                                                     &conf.bootstrap_node);
 
     let mut db_path = app_prefs.get_user_app_dir().clone();
     db_path.push("p2p.db");
@@ -262,126 +262,136 @@ fn run() -> ResultExtWrapper<()> {
     let mut _msg_count = 0;
     let _tps_message_count = conf.tps_message_count;
     let _guard_pkt = thread::spawn(move || {
-                                       fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>,
-                                                            msg: &[u8])
-                                       {
-                                           if let Some(ref mut baker) = baker_ins {
-                                               let mut type_id_bytes = Cursor::new(&msg[0..2]);
-                                               match type_id_bytes.read_u16::<BigEndian>() {
-                                                        Ok(num) => {
-                                                            match num {
-                                                                0 => {
-                                                                    match consensus::Block::deserialize(&msg[2..]) {
-                                                                        Some(block) => {
-                                                                            baker.send_block(&block);
-                                                                            info!("Sent block from network to baker");
-                                                                        }
-                                                                        _ => error!("Couldn't deserialize block, can't move forward with the message"),
-                                                                    }
-                                                                }
-                                                                1 => {
-                                                                    match str::from_utf8(&msg[2..]) {
-                                                                        Ok(tx) => {
-                                                                            baker.send_transaction(&tx.to_string());
-                                                                            info!("Sent transaction to baker");
-                                                                        }
-                                                                        _ => error!("Could'nt deserialize transaction, can't move forward with the message"),
-                                                                    }
-                                                                }
-                                                                2 => {
-                                                                    baker.send_finalization(&msg[2..]);
-                                                                    info!("Sent finalization package to consensus layer");
-                                                                }
-                                                                3 => {
-                                                                    baker.send_finalization_record(&msg[2..]);
-                                                                    info!("Sent finalization record to consensus layer");
-                                                                }
-                                                                _ => error!("Incorrect message type received"),
-                                                            }
-                                                        }
-                                                        _ => error!("Couldn't read bytes properly for type"),
-                                                    }
-                                           }
-                                       }
-                                       loop {
-                                           if let Ok(full_msg) = pkt_out.recv() {
-                                               match *full_msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
-                                                   if _tps_test_enabled {
-                                                       _stats_engine.add_stat(msg.len() as u64);
-                                                       _msg_count += 1;
+       fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>, msg: &[u8]) {
+           if let Some(ref mut baker) = baker_ins {
+               let mut type_id_bytes = Cursor::new(&msg[0..2]);
+               match type_id_bytes.read_u16::<BigEndian>() {
+                        Ok(num) => {
+                            match num {
+                                0 => {
+                                    match consensus::Block::deserialize(&msg[2..]) {
+                                        Some(block) => {
+                                            baker.send_block(&block);
+                                            info!("Sent block from network to baker");
+                                        }
+                                        _ => error!("Couldn't deserialize block, can't move forward with the message"),
+                                    }
+                                }
+                                1 => {
+                                    match str::from_utf8(&msg[2..]) {
+                                        Ok(tx) => {
+                                            baker.send_transaction(&tx.to_string());
+                                            info!("Sent transaction to baker");
+                                        }
+                                        _ => error!("Could'nt deserialize transaction, can't move forward with the message"),
+                                    }
+                                }
+                                2 => {
+                                    baker.send_finalization(&msg[2..]);
+                                    info!("Sent finalization package to consensus layer");
+                                }
+                                3 => {
+                                    baker.send_finalization_record(&msg[2..]);
+                                    info!("Sent finalization record to consensus layer");
+                                }
+                                _ => error!("Incorrect message type received"),
+                            }
+                        }
+                        _ => error!("Couldn't read bytes properly for type"),
+                    }
+           }
+       }
+       loop {
+           if let Ok(full_msg) = pkt_out.recv() {
+               match *full_msg.clone() {
+               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
+                   if _tps_test_enabled {
+                       _stats_engine.add_stat(msg.len() as u64);
+                       _msg_count += 1;
 
-                                                       if _msg_count == _tps_message_count {
-                                                           info!("TPS over {} messages is {}", _tps_message_count, _stats_engine.calculate_total_tps_average());
-                                                           _msg_count = 0;
-                                                           _stats_engine.clear();
-                                                       }
-                                                   }
-                                                   if let Some(ref mut rpc) = _rpc_clone {
-                                                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                                                   }
-                                                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
-                                               }
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), _, _) => {
-                                                   if let Some(ref mut rpc) = _rpc_clone {
-                                                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                                                   }
-                                                   if let Some(testrunner_url ) = _test_runner_url.clone() {
-                                                       info!("Sending information to test runner");
-                                                       match reqwest::get(&format!("{}/register/{}/{}", testrunner_url, _node_self_clone.get_own_id().to_string(), msgid)) {
-                                                           Ok(ref mut res) if res.status().is_success() => info!("Registered packet received with test runner"),
-                                                           _ => error!("Couldn't register packet received with test runner")
-                                                       }
-                                                   };
-                                                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
-                                               }
+                       if _msg_count == _tps_message_count {
+                           info!("TPS over {} messages is {}", _tps_message_count, _stats_engine.calculate_total_tps_average());
+                           _msg_count = 0;
+                           _stats_engine.clear();
+                       }
+                   }
+                   if let Some(ref mut rpc) = _rpc_clone {
+                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
+                   }
+                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
+                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
+               }
+               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), _, _) => {
+                   if let Some(ref mut rpc) = _rpc_clone {
+                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
+                   }
+                   if let Some(testrunner_url ) = _test_runner_url.clone() {
+                       info!("Sending information to test runner");
+                       match reqwest::get(&format!("{}/register/{}/{}", testrunner_url, _node_self_clone.get_own_id().to_string(), msgid)) {
+                           Ok(ref mut res) if res.status().is_success() => info!("Registered packet received with test runner"),
+                           _ => error!("Couldn't register packet received with test runner")
+                       }
+                   };
+                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
+               }
 
-                                               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
-                                                   info!("Ban node request for {:?}", x);
-                                                   let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
-                                                   if ban.is_ok() {
-                                                       db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                                                       if !_no_trust_bans {
-                                                           _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
-                                                       }
-                                                   }
-                                               }
-                                               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), _, _) => {
-                                                   info!("Unban node requets for {:?}", x);
-                                                   let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
-                                                   if req.is_ok() {
-                                                       db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                                                       if !_no_trust_bans {
-                                                           _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
-                                                       }
-                                                   }
-                                               }
-                                               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
-                                                   info!("Received PeerList response, attempting to satisfy desired peers");
-                                                   let mut new_peers = 0;
-                                                   match _node_self_clone.get_peer_stats(&vec![]) {
-                                                       Ok(x) => {
-                                                           for peer_node in peers {
-                                                               debug!("Peer {}/{}/{} sent us peer info for {}/{}/{}", peer.id().to_string(),peer.ip(),peer.port(),peer_node.id().to_string(),peer_node.ip(),peer_node.port() );
-                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port(), Some(peer_node.id())).map_err(|e| info!("{}", e)).is_ok() {
-                                                                   new_peers += 1;
-                                                               }
-                                                               if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                                                   break;
-                                                               }
-                                                           }
-                                                       }
-                                                       _ => {
-                                                           error!("Can't get nodes - so not trying to connect to new peers!");
-                                                       }
-                                                   }
-                                               }
-                                               _ => {}
-                                           }
-                                           }
-                                       }
-                                   });
+               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
+                   info!("Ban node request for {:?}", x);
+                   let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
+                   if ban.is_ok() {
+                       db.insert_ban(peer.id().to_string(), peer.ip().to_string(), peer.port());
+                       if !_no_trust_bans {
+                           _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                       }
+                   }
+               }
+               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), _, _) => {
+                   info!("Unban node requets for {:?}", x);
+                   let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
+                   if req.is_ok() {
+                       db.delete_ban(peer.id().to_string(), peer.ip().to_string(), peer.port());
+                       if !_no_trust_bans {
+                           _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                       }
+                   }
+               }
+               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
+                   info!("Received PeerList response, attempting to satisfy desired peers");
+                   let mut new_peers = 0;
+                   match _node_self_clone.get_peer_stats(&[]) {
+                       Ok(x) => {
+                           for peer_node in peers {
+                                debug!("Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                                       peer.id().to_string(),
+                                       peer.ip(),
+                                       peer.port(),
+                                       peer_node.id().to_string(),
+                                       peer_node.ip(),
+                                       peer_node.port()
+                                );
+                               if _node_self_clone.connect(ConnectionType::Node,
+                                                           peer_node.ip(),
+                                                           peer_node.port(),
+                                                           Some(peer_node.id())
+                                                 ).map_err(|e| info!("{}", e)).is_ok()
+                                {
+                                   new_peers += 1;
+                                }
+                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
+                                    break;
+                                }
+                           }
+                       }
+                       _ => {
+                           error!("Can't get nodes - so not trying to connect to new peers!");
+                       }
+                   }
+               }
+               _ => {}
+           }
+           }
+       }
+   });
 
     info!("Concordium P2P layer. Network disabled: {}",
           conf.no_network);
@@ -470,7 +480,7 @@ fn run() -> ResultExtWrapper<()> {
                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
                                                                 &_dns_resolvers,
                                                                 _dnssec,
-                                                                _bootstrap_node.clone())
+                                                                &_bootstrap_node)
                                 {
                                     Ok(nodes) => {
                                         for (ip, port) in nodes {
