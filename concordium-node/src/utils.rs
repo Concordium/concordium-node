@@ -42,7 +42,7 @@ pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter()
          .map(|b| format!("{:02X}", b))
-         .collect::<String>()
+         .collect()
 }
 
 pub struct Cert {
@@ -79,18 +79,17 @@ pub struct Cert {
 ///
 /// 3. It ends with the footer "-----END EC PRIVATE KEY-----"
 ///
-pub fn crypto_key_to_pem( input:  &crypto_sys::KeyPair) -> Vec<u8> {
-    let pemheader = "-----BEGIN EC PRIVATE KEY-----\n";
+pub fn crypto_key_to_pem(input: &crypto_sys::KeyPair) -> Vec<u8> {
+    let pemheader = b"-----BEGIN EC PRIVATE KEY-----\n";
 
     let mut pemcontent = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
-    pemcontent.append(& mut input.private_key.to_vec());
-    let pemcontent  = encode(&pemcontent);
+    pemcontent.append(&mut input.private_key.to_vec());
+    let pemcontent = encode(&pemcontent);
 
-    let pemfooter = "\n-----END EC PRIVATE KEY-----";
+    let pemfooter = b"\n-----END EC PRIVATE KEY-----";
 
-    format!("{}{}{}", pemheader, pemcontent, pemfooter).into_bytes()
+    [pemheader, pemcontent.as_bytes(), pemfooter].concat()
 }
-
 
 pub fn generate_certificate(id: String) -> ResultExtWrapper<Cert> {
     // let ec_kp = crypto_sys::KeyPair::new();
@@ -107,7 +106,7 @@ pub fn generate_certificate(id: String) -> ResultExtWrapper<Cert> {
     // is needed in order to use it for tls connections.
     let group = EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1)?;
     let ec_kp = EcKey::generate(&group)?;
-    let kp_as_pk = PKey::from_ec_key(ec_kp.clone())?;
+    let kp_as_pk = PKey::from_ec_key(ec_kp)?;
 
     // these are static or well known values for the x509 cert so it should not fail
     let mut builder =  X509Builder::new()?;
@@ -143,34 +142,27 @@ pub fn generate_certificate(id: String) -> ResultExtWrapper<Cert> {
     })
 }
 
-pub fn parse_ip_port(input: &String) -> Option<(IpAddr, u16)> {
-    match input.rfind(":") {
-        Some(n) => {
-            let ip = input.chars().take(n).collect::<String>();;
-            let port = input.chars()
-                            .skip(n + 1)
-                            .take(input.len())
-                            .collect::<String>();
-            match IpAddr::from_str(&ip) {
-                Ok(ip) => {
-                    match port.parse::<usize>() {
-                        Ok(port) => Some((ip, port as u16)),
-                        _ => None,
-                    }
-                }
-                _ => None,
+pub fn parse_ip_port(input: &str) -> Option<(IpAddr, u16)> {
+    if let Some(n) = input.rfind(":") {
+        let (ip, port) = input.split_at(n);
+
+        if let Ok(ip) = IpAddr::from_str(&ip) {
+            if let Ok(port) = port[1..].parse::<u16>() {
+                return Some((ip, port));
             }
         }
-        _ => None,
     }
+
+    None
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
-    if resolvers.len() > 0 {
-        resolvers.clone()
+pub fn get_resolvers(resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
+    if !resolvers.is_empty() {
+        resolvers.to_owned()
     } else {
         let mut buf = Vec::with_capacity(4096);
+
         match File::open(resolv_conf) {
             Ok(mut f) => {
                 match f.read_to_end(&mut buf) {
@@ -180,8 +172,8 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> 
                                 let ret = conf.nameservers
                                               .iter()
                                               .map(|x| x.to_string())
-                                              .collect::<Vec<String>>();
-                                if ret.len() > 0 {
+                                              .collect::<Vec<_>>();
+                                if !ret.is_empty() {
                                     ret
                                 } else {
                                     panic!("No DNS resolvers found in {}", resolv_conf);
@@ -199,123 +191,119 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> 
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_resolvers(_resolv_conf: &str, resolvers: &Vec<String>) -> Vec<String> {
-    if resolvers.len() > 0 {
-        resolvers.clone()
+pub fn get_resolvers(_resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
+    if !resolvers.is_empty() {
+        resolvers.to_owned()
     } else {
-        let adapters = match ipconfig::get_adapters() {
-            Ok(x) => x,
-            Err(_e) => panic!("Couldn't get adapters. Bailing out!"),
-        };
-        let mut name_servers = vec![];
-        for dns_server in adapters.iter()
-                                  .flat_map(|adapter| adapter.dns_servers().iter())
-        {
-            name_servers.push(dns_server.to_string())
-        }
-        if name_servers.len() == 0 {
+        let adapters = ipconfig::get_adapters().unwrap_or_else(
+            || { panic!("Couldn't get adapters. Bailing out!"); }
+        );
+        let name_servers = adapters.iter()
+                                   .flat_map(|adapter| adapter.dns_servers().iter())
+                                   .map(|dns_server| dns_server.to_string());
+
+        if name_servers.is_empty() {
             panic!("Could not read dns servers!");
         }
         name_servers
     }
 }
 
-pub fn parse_host_port(input: &String,
-                       resolvers: &Vec<String>,
+pub fn parse_host_port(input: &str,
+                       resolvers: &[String],
                        dnssec_fail: bool)
                        -> Option<(IpAddr, u16)> {
-    input.rfind(":").map_or_else(
-        || { None }, // no semicolon
-        |n| {
-            let ip = input.chars().take(n).collect::<String>();;
-            let port = input.chars().skip(n + 1).take(input.len()).collect::<String>();
-            match IpAddr::from_str(&ip) {
-                Err(_) => { // coulnd't parse ip address
-                    match port.parse::<usize>() {
-                        Err(_) => None, // couldn't parse port
-                        Ok(port) => {
-                            let resolver_addresses = resolvers.iter()
-                                .map(|x| IpAddr::from_str(x))
-                                .flat_map(|x| x)
-                                .collect::<Vec<IpAddr>>();
-                            if resolver_addresses.len() != 0 {
-                                match dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail) {
-                                    Err(_) => {},
-                                    Ok(res) => { // resolved by A records
-                                        if res.len() > 0 {
-                                            match IpAddr::from_str(res.get(0).unwrap()) {
-                                                Err(_) => {return None;},
-                                                Ok(ip) => {return Some((ip, port as u16));}
-                                            };
-                                        }
-                                    }
+    if let Some(n) = input.rfind(":") {
+        let (ip, port) = input.split_at(n);
+        let port = &port[1..];
+
+        if let Ok(ip) = IpAddr::from_str(&ip) {
+            if let Ok(port) = port.parse::<u16>() {
+                Some((ip, port))
+            } else {
+                None
+            }
+        } else {
+            match port.parse::<u16>() {
+                Err(_) => None, // couldn't parse port
+                Ok(port) => {
+                    let resolver_addresses = resolvers.iter()
+                        .map(|x| IpAddr::from_str(x))
+                        .flatten()
+                        .collect::<Vec<_>>();
+
+                    if resolver_addresses.len() != 0 {
+                        if let Ok(res) = dns::resolve_dns_a_record(
+                            &ip,
+                            &resolver_addresses,
+                            dnssec_fail
+                        ) { // resolved by A records
+                            if !res.is_empty() {
+                                match IpAddr::from_str(&res[0]) {
+                                    Err(_) => { return None; },
+                                    Ok(ip) => { return Some((ip, port)); }
                                 };
-                                match dns::resolve_dns_aaaa_record(&ip,
-                                                             &resolver_addresses,
-                                                             dnssec_fail) {
+                            }
+                        }
+
+                        if let Ok(res) = dns::resolve_dns_aaaa_record(
+                            &ip,
+                            &resolver_addresses,
+                            dnssec_fail
+                        ) { // resolved by AAAA records
+                            if !res.is_empty() {
+                               match IpAddr::from_str(&res[0]) {
                                     Err(_) => None,
-                                    Ok(res) => { // resolved by AAAA records
-                                        if res.len() > 0 {
-                                           match IpAddr::from_str(res.get(0).unwrap()) {
-                                                Err(_) => None,
-                                                Ok(ip) => Some((ip, port as u16))
-                                            }
-                                        } else {
-                                            None
-                                        }
-                                    }
+                                    Ok(ip) => Some((ip, port))
                                 }
                             } else {
                                 None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
                     }
-                },
-                Ok(ip) => {
-                    match port.parse::<usize>() {
-                        Ok(port) => {
-                            return Some((ip, port as u16));
-                        },
-                        Err(_) => { None }
-                    }
-
                 }
             }
         }
-    )
+    } else {
+        None // no colon in the IP
+    }
 }
 
 pub fn get_bootstrap_nodes(bootstrap_name: String,
-                           resolvers: &Vec<String>,
+                           resolvers: &[String],
                            dnssec_fail: bool,
-                           bootstrap_nodes: Vec<String>)
+                           bootstrap_nodes: &[String])
                            -> Result<Vec<(IpAddr, u16)>, &'static str> {
-    if bootstrap_nodes.len() > 0 {
+    if !bootstrap_nodes.is_empty() {
         debug!("Not using DNS for bootstrapping, we have nodes specified");
         let bootstrap_nodes = bootstrap_nodes.iter()
                                              .map(|x| parse_host_port(x, resolvers, dnssec_fail))
-                                             .flat_map(|x| x)
-                                             .collect::<Vec<(IpAddr, u16)>>();
+                                             .flatten()
+                                             .collect();
         return Ok(bootstrap_nodes);
     } else {
         debug!("No bootstrap nodes given, so attempting DNS");
         let resolver_addresses = resolvers.iter()
                                           .map(|x| IpAddr::from_str(x))
-                                          .flat_map(|x| x)
-                                          .collect::<Vec<IpAddr>>();
-        if resolver_addresses.len() == 0 {
-            return Err(&"No valid resolvers given");
+                                          .flatten()
+                                          .collect::<Vec<_>>();
+        if resolver_addresses.is_empty() {
+            return Err("No valid resolvers given");
         }
         match dns::resolve_dns_txt_record(&bootstrap_name, &resolver_addresses, dnssec_fail) {
             Ok(res) => read_peers_from_dns_entries(res, super::get_dns_public_key()),
-            Err(_) => Err(&"Error looking up bootstrap nodes"),
+            Err(_) => Err("Error looking up bootstrap nodes"),
         }
     }
 }
 
-pub fn serialize_bootstrap_peers(peers: &Vec<String>) -> Result<String, &'static str> {
-    let mut buffer = String::new();
-    buffer.push_str(&format!("{:05}", peers.len()));
+pub fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static str> {
+    let mut buffer = format!("{:05}", peers.len());
+
     for peer in peers {
         match parse_ip_port(peer) {
             Some((ref ip, ref port)) => {
@@ -358,20 +346,18 @@ pub fn serialize_bootstrap_peers(peers: &Vec<String>) -> Result<String, &'static
 
 pub fn generate_bootstrap_dns(input_key: [u8; 32],
                               record_length: usize,
-                              peers: &Vec<String>)
+                              peers: &[String])
                               -> Result<Vec<String>, &'static str> {
-    let secret_key = SecretKey { 0: input_key };
+    let secret_key = SecretKey(input_key);
     let public_key = secret_key.get_public();
 
-    let mut return_buffer = String::new();
-
-    return_buffer.push_str(&hex::encode(&public_key.0.to_vec()));
+    let mut return_buffer = hex::encode(&public_key.0);
 
     match serialize_bootstrap_peers(peers) {
         Ok(ref content) => {
             return_buffer.push_str(content);
             let signature = secret_key.signature(content.as_bytes());
-            return_buffer.push_str(&hex::encode(&signature.0.to_vec()).to_string());
+            return_buffer.push_str(&hex::encode(&(signature.0)[..]));
         }
         Err(_) => {
             return Err("Couldn't parse peers given");
@@ -392,57 +378,45 @@ pub fn generate_bootstrap_dns(input_key: [u8; 32],
                    let ret = format!("{:02} {}", element, str::from_utf8(&buf).unwrap());
                    element += 1;
                    ret
-               })
-          .collect::<Vec<String>>())
+          })
+          .collect())
 }
 
 pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                    public_key_str: &str)
                                    -> Result<Vec<(IpAddr, u16)>, &'static str> {
-    let mut internal_entries = entries.clone();
+    let mut internal_entries = entries;
+    internal_entries.sort();
     let mut ret: Vec<(IpAddr, u16)> = vec![];
-    internal_entries.sort_by(|a, b| a.cmp(b));
     let buffer: String = internal_entries.iter()
                                          .map(|x| if x.len() > 3 { &x[3..] } else { &x })
                                          .collect::<String>();
     if buffer.len() > 4 {
-        match hex::decode(&buffer[..4].to_string()) {
+        match hex::decode(&buffer[..4]) {
             Ok(size_bytes) => {
                 let mut bytes_buf = Cursor::new(size_bytes);;
                 match bytes_buf.read_u16::<NetworkEndian>() {
                     Ok(size) => {
                         if size as usize == buffer.len() - 4 {
-                            if buffer[4..68].to_string().to_lowercase()
-                               != public_key_str.to_string().to_lowercase()
-                            {
+                            if buffer[4..68].to_lowercase() != public_key_str.to_lowercase() {
                                 return Err("Invalid public key");
                             }
-                            match hex::decode(&buffer[4..68].to_string()) {
+                            match hex::decode(&buffer[4..68]) {
                                 Ok(input_pub_key_bytes) => {
-                                    let mut pub_key_bytes: [u8;
-                                                            32] = [0; 32];
-                                    for i in 0..32 {
-                                        pub_key_bytes[i] = input_pub_key_bytes[i];
-                                    }
-                                    let public_key = PublicKey { 0: pub_key_bytes };
+                                    let mut pub_key_bytes: [u8; 32] = Default::default();
+                                    pub_key_bytes.copy_from_slice(&input_pub_key_bytes[..32]);
+                                    let public_key = PublicKey(pub_key_bytes);
                                     let mut bytes_taken_for_nodes = 0;
+
                                     match &buffer[68..73].parse::<u16>() {
                                         Ok(nodes_count) => {
                                             let mut inner_buffer = &buffer[73..];
                                             for _ in 0..*nodes_count {
-                                                match &buffer[(73 + bytes_taken_for_nodes)
-                                                              ..(76 + bytes_taken_for_nodes)]
-                                                {
+                                                match &buffer[bytes_taken_for_nodes..][73..76] {
                                                     "IP4" => {
-                                                        let ip = &inner_buffer
-                                                            [(bytes_taken_for_nodes + 3)
-                                                             ..(bytes_taken_for_nodes + 3 + 12)];
-                                                        let port = &inner_buffer
-                                                            [(bytes_taken_for_nodes + 3 + 12)
-                                                             ..(bytes_taken_for_nodes
-                                                                + 3
-                                                                + 12
-                                                                + 5)];
+                                                        let ip = &inner_buffer[bytes_taken_for_nodes..][3..3 + 12];
+                                                        let port = &inner_buffer[bytes_taken_for_nodes..]
+                                                                                [3 + 12..3 + 12 + 5];
                                                         match IpAddr::from_str(&format!("{}.{}.{}.{}",
                                                                                         &ip[..3],
                                                                                         &ip[3..6],
@@ -450,9 +424,7 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                                                                         &ip[9..12])[..])
                                                         {
                                                             Ok(ip) => match port.parse::<u16>() {
-                                                                Ok(port) => {
-                                                                    ret.push((ip, port));
-                                                                }
+                                                                Ok(port) => ret.push((ip, port)),
                                                                 Err(_) => return Err("Could not parse port for node"),
                                                             },
                                                             Err(_) => return Err("Can't parse IP for node"),
@@ -460,15 +432,9 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                                         bytes_taken_for_nodes += 3 + 12 + 5;
                                                     }
                                                     "IP6" => {
-                                                        let ip = &inner_buffer
-                                                            [(bytes_taken_for_nodes + 3)
-                                                             ..(bytes_taken_for_nodes + 3 + 32)];
-                                                        let port = &inner_buffer
-                                                            [(bytes_taken_for_nodes + 3 + 32)
-                                                             ..(bytes_taken_for_nodes
-                                                                + 3
-                                                                + 32
-                                                                + 5)];
+                                                        let ip = &inner_buffer[bytes_taken_for_nodes..][3..3 + 32];
+                                                        let port = &inner_buffer[bytes_taken_for_nodes..]
+                                                                                [3 + 32..3 + 32 + 5];
                                                         match IpAddr::from_str(&format!("{}:{}:{}:{}:{}:{}:{}:{}",
                                                                                         &ip[..4],
                                                                                         &ip[4..8],
@@ -480,9 +446,7 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                                                                         &ip[28..32])[..])
                                                         {
                                                             Ok(ip) => match port.parse::<u16>() {
-                                                                Ok(port) => {
-                                                                    ret.push((ip, port));
-                                                                }
+                                                                Ok(port) => ret.push((ip, port)),
                                                                 Err(_) => return Err("Could not parse port for node"),
                                                             },
                                                             Err(_) => return Err("Can't parse IP for node"),
@@ -492,15 +456,18 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                                     _ => return Err("Invalid data for node"),
                                                 }
                                             }
-                                            match hex::decode(&buffer[(4 + 64 + 5 + bytes_taken_for_nodes)..].to_string()) {
+                                            match hex::decode(&buffer[(4 + 64 + 5 + bytes_taken_for_nodes)..]) {
                                                 Ok(signature_bytes) => {
                                                     if signature_bytes.len() == 64 {
                                                         let mut sig_bytes: [u8; 64] = [0; 64];
                                                         for i in 0..64 {
                                                             sig_bytes[i] = signature_bytes[i];
                                                         }
-                                                        let signature = Signature { 0: sig_bytes };
-                                                        let content_peers = ret.iter().map(|x| format!("{}:{}", x.0.to_string(), x.1)).collect::<Vec<String>>();
+                                                        let signature = Signature(sig_bytes);
+                                                        let content_peers = ret.iter()
+                                                            .map(|x| format!("{}:{}", x.0.to_string(), x.1))
+                                                            .collect::<Vec<_>>();
+
                                                         match serialize_bootstrap_peers(&content_peers) {
                                                             Ok(content) => {
                                                                 if public_key.verify(content.as_bytes(), &signature) {
@@ -549,10 +516,8 @@ pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str>
                     match serde_json::from_str::<Value>(&text) {
                         Ok(jv) => {
                             if let Some(ref ip) = jv.get("ip") {
-                                match IpAddr::from_str(ip.as_str().unwrap()) {
-                                    Ok(ip) => Ok(ip),
-                                    Err(_) => Err("Invalid IP given"),
-                                }
+                                IpAddr::from_str(ip.as_str().unwrap()).map_err(|_|
+                                    "Invalid IP given")
                             } else {
                                 Err("Missing data field in response")
                             }
@@ -570,25 +535,17 @@ pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str>
 
 pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     let mut ret = Vec::new();
+
     if let Some(ref _path) = path {
         info!("Trying path to find TPS test messages: {}", _path);
-        match fs::read_dir(_path) {
-            Ok(files) => {
-                for file in files {
-                    match file {
-                        Ok(file) => {
-                            if !file.path().is_dir() {
-                                let data = fs::read(file.path()).expect("Unable to read file!");
-                                ret.push(data);
-                            }
-                        }
-                        Err(_) => {}
-                    }
-                }
+        if let Ok(files) = fs::read_dir(_path) {
+            for file in files.filter_map(|f| f.ok()).filter(|f| !f.path().is_dir()) {
+                let data = fs::read(file.path()).expect("Unable to read file!");
+                ret.push(data);
             }
-            Err(_) => {}
         }
-    };
+    }
+
     ret
 }
 

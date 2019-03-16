@@ -78,7 +78,7 @@ impl TlsServerPrivate {
 
     /// It generates a peer statistic list for each connected peer which belongs to
     /// any of networks in `nids`.
-    pub fn get_peer_stats(&self, nids: &Vec<u16>) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &[u16]) -> Vec<PeerStatistic> {
         let mut ret = vec![];
         for (_, ref rc_conn) in &self.connections_by_token {
             let conn = rc_conn.borrow();

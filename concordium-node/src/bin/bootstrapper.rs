@@ -187,7 +187,7 @@ fn run() -> ResultExtWrapper<()> {
                                                   .map_err(|e| error!("{}", e));
                         if ban.is_ok() {
                             db.insert_ban(peer.id().to_string(),
-                                          format!("{}", peer.ip()),
+                                          peer.ip().to_string(),
                                           peer.port());
                             if !_no_trust_bans {
                                 _node_self_clone.send_ban(x.clone())
@@ -205,7 +205,7 @@ fn run() -> ResultExtWrapper<()> {
                                                   .map_err(|e| error!("{}", e));
                         if req.is_ok() {
                             db.delete_ban(peer.id().to_string(),
-                                          format!("{}", peer.ip()),
+                                          peer.ip().to_string(),
                                           peer.port());
                             if !_no_trust_bans {
                                 _node_self_clone.send_unban(x.clone())
@@ -246,13 +246,11 @@ fn run() -> ResultExtWrapper<()> {
     let _max_nodes = conf.max_nodes;
 
     let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                                match node.get_peer_stats(&vec![]) {
-                                    Ok(x) => {
-                                        info!("I currently have {}/{} nodes!", x.len(), _max_nodes);
-                                    }
-                                    Err(e) => error!("Couldn't get node list, {:?}", e),
-                                };
-                            });
+        match node.get_peer_stats(&[]) {
+            Ok(x) => info!("I currently have {}/{} nodes!", x.len(), _max_nodes),
+            Err(e) => error!("Couldn't get node list, {:?}", e),
+        };
+    });
 
     _node_th.join().expect("Node thread panicked!");
 
