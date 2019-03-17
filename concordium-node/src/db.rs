@@ -1,5 +1,5 @@
-use common;
-use common::{ConnectionType, P2PNodeId};
+use crate::common;
+use crate::common::{ConnectionType, P2PNodeId};
 use rusqlite::Connection;
 use rusqlite::types::ToSql;
 use std::path::Path;
@@ -47,7 +47,7 @@ impl P2PDB {
         let mut list = vec![];
         match self.conn {
             Some(ref conn) => {
-                let mut conn_mut = conn.lock().unwrap();
+                let conn_mut = conn.lock().unwrap();
                 let res = conn_mut.prepare("SELECT id, ip, port FROM bans");
                 match res {
                     Ok(mut x) => {

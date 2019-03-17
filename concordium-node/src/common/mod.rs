@@ -1,7 +1,7 @@
 pub mod counter;
 
 #[macro_use] pub mod functor;
-use errors::{ResultExtWrapper, ErrorKindWrapper::ParseError};
+use crate::errors::{ResultExtWrapper, ErrorKindWrapper::ParseError};
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::cmp::Ordering;
@@ -9,9 +9,9 @@ use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
 use time;
-use utils;
+use crate::utils;
 
-use network::{ PROTOCOL_NODE_ID_LENGTH };
+use crate::network::{ PROTOCOL_NODE_ID_LENGTH };
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum ConnectionType {
@@ -243,10 +243,10 @@ pub fn get_current_stamp() -> u64 {
 #[cfg(test)]
 mod tests {
 
-    use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
+    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
 
 
-    use common::*;
+    use crate::common::*;
     #[test]
     pub fn req_ping_test() {
         let self_peer: P2PPeer = P2PPeerBuilder::default().connection_type(ConnectionType::Node)

@@ -4,14 +4,14 @@ use std::sync::mpsc::{ Sender };
 use byteorder::{ NetworkEndian,  WriteBytesExt };
 use atomic_counter::AtomicCounter;
 
-use common::{ P2PPeer, get_current_stamp };
-use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
-use common::functor::{ FunctorResult };
-use network::{ NetworkRequest, NetworkResponse };
-use connection::{ P2PEvent, P2PNodeMode, CommonSession };
-use connection::connection_private::{ ConnectionPrivate };
+use crate::common::{ P2PPeer, get_current_stamp };
+use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
+use crate::common::functor::{ FunctorResult };
+use crate::network::{ NetworkRequest, NetworkResponse };
+use crate::connection::{ P2PEvent, P2PNodeMode, CommonSession };
+use crate::connection::connection_private::{ ConnectionPrivate };
 
-use errors::*;
+use crate::errors::*;
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 

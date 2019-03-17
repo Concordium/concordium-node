@@ -16,8 +16,8 @@ mod tests {
     use std::net::{ IpAddr };
     use std::str::FromStr;
 
-    use network::{ Buckets };
-    use common::{ P2PNodeId, P2PPeer, ConnectionType };
+    use crate::network::{ Buckets };
+    use crate::common::{ P2PNodeId, P2PPeer, ConnectionType };
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {

@@ -1,7 +1,7 @@
 use base64::{encode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use dns::dns;
-use errors::*;
+use ::dns::dns;
+use crate::errors::*;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
@@ -410,7 +410,7 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
 
                                     match &buffer[68..73].parse::<u16>() {
                                         Ok(nodes_count) => {
-                                            let mut inner_buffer = &buffer[73..];
+                                            let inner_buffer = &buffer[73..];
                                             for _ in 0..*nodes_count {
                                                 match &buffer[bytes_taken_for_nodes..][73..76] {
                                                     "IP4" => {
@@ -552,7 +552,7 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use hacl_star::ed25519::SecretKey;
-    use utils::*;
+    use crate::utils::*;
 
     const PRIVATE_TEST_KEY: [u8; 32] = [0xbe, 0xd2, 0x3a, 0xdd, 0x4d, 0x34, 0xab, 0x7a, 0x12,
                                         0xa9, 0xa6, 0xab, 0x2b, 0xaf, 0x97, 0x06, 0xb0, 0xf7,

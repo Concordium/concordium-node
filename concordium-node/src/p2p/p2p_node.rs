@@ -2,12 +2,12 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
-use errors::*;
+use crate::errors::*;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
 use ipconfig;
-use prometheus_exporter::PrometheusServer;
+use crate::prometheus_exporter::PrometheusServer;
 use rustls::{ Certificate, ClientConfig, NoClientAuth, ServerConfig };
 use atomic_counter::{ AtomicCounter };
 use std::net::IpAddr::{V4, V6};
@@ -16,19 +16,19 @@ use std::time::{ Duration };
 use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
 use time::{ Timespec };
-use utils;
+use crate::utils;
 use std::thread;
 
-use common::{ P2PNodeId, P2PPeer, ConnectionType };
-use common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
-use network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
-use connection::{ Connection, P2PEvent, P2PNodeMode, SeenMessagesList, MessageManager,
+use crate::common::{ P2PNodeId, P2PPeer, ConnectionType };
+use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
+use crate::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
+use crate::connection::{ Connection, P2PEvent, P2PNodeMode, SeenMessagesList, MessageManager,
     MessageHandler, RequestHandler, ResponseHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW};
 
-use p2p::tls_server::{ TlsServer };
-use p2p::no_certificate_verification::{ NoCertificateVerification };
-use p2p::peer_statistics::{ PeerStatistic };
-use p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message, forward_network_response };
+use crate::p2p::tls_server::{ TlsServer };
+use crate::p2p::no_certificate_verification::{ NoCertificateVerification };
+use crate::p2p::peer_statistics::{ PeerStatistic };
+use crate::p2p::p2p_node_handlers::{ forward_network_request, forward_network_packet_message, forward_network_response };
 
 const SERVER: Token = Token(0);
 
@@ -311,7 +311,7 @@ impl P2PNode {
     }
 
     pub fn get_version(&self) -> String {
-        ::VERSION.to_string()
+        crate::VERSION.to_string()
     }
 
     pub fn connect(&mut self,

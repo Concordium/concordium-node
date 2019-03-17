@@ -12,7 +12,7 @@ extern crate consensus_sys;
 
 #[cfg(test)]
 mod tests {
-    use grpcio::{ChannelBuilder, EnvBuilder};
+    use ::grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::network::NetworkMessage;
     use p2p_client::connection::{ P2PEvent, P2PNodeMode };
     use p2p_client::p2p::p2p_node::{ P2PNode };

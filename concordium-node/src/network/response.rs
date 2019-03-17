@@ -1,5 +1,5 @@
-use common::{ P2PPeer, get_current_stamp };
-use network::{
+use crate::common::{ P2PPeer, get_current_stamp };
+use crate::network::{
     PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, 
     PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE, PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
     PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST

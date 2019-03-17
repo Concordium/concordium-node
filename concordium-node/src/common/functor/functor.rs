@@ -2,7 +2,7 @@ use std::cell::{ RefCell };
 use std::rc::{ Rc };
 
 use super::{ FunctorCallback, FunctorResult };
-use errors::{ ErrorWrapper, ErrorKindWrapper };
+use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
 
 pub type FunctorCW<T> = Rc< RefCell< FunctorCallback<T>>>;
 

@@ -1,6 +1,6 @@
 use std::net::{ IpAddr };
 
-use common::{ P2PPeer, P2PNodeId };
+use crate::common::{ P2PPeer, P2PNodeId };
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum P2PEvent {
