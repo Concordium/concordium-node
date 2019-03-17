@@ -2,8 +2,8 @@ pub use super::packet::NetworkPacket;
 pub use super::request::NetworkRequest;
 pub use super::response::NetworkResponse;
 
-use common::{ P2PPeer, P2PNodeId, ConnectionType, get_current_stamp };
-use network::{
+use crate::common::{ P2PPeer, P2PNodeId, ConnectionType, get_current_stamp };
+use crate::network::{
     PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_SENT_TIMESTAMP_LENGTH , PROTOCOL_NODE_ID_LENGTH,
     PROTOCOL_MESSAGE_TYPE_REQUEST_PING,
     PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,

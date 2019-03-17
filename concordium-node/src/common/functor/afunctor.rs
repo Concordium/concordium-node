@@ -2,8 +2,8 @@ use std::sync::{ Arc, Mutex };
 
 // use std::sync::atomic::{ AtomicUsize, ATOMIC_USIZE_INIT, Ordering };
 
-use common::functor::{ FunctorCallback, FunctorResult };
-use errors::{ ErrorWrapper, ErrorKindWrapper };
+use crate::common::functor::{ FunctorCallback, FunctorResult };
+use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
 
 // pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
 pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
@@ -151,7 +151,7 @@ impl<T> Fn<(&T,)> for AFunctor<T> {
 #[cfg(test)]
 mod afunctor_unit_test {
 
-    use common::functor::{ AFunctor, FunctorResult };
+    use crate::common::functor::{ AFunctor, FunctorResult };
     use std::rc::{ Rc };
     use std::sync::{ Arc, Mutex };
     use std::cell::{ RefCell };

@@ -3,10 +3,10 @@ use std::sync::mpsc::{ Sender };
 use std::sync::{ Arc, Mutex, RwLock };
 use rustls::{ ServerSession, ClientSession };
 
-use common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
-use connection::{ P2PNodeMode, P2PEvent, CommonSession };
-use network::{ Buckets };
-use prometheus_exporter::{ PrometheusServer };
+use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
+use crate::connection::{ P2PNodeMode, P2PEvent, CommonSession };
+use crate::network::{ Buckets };
+use crate::prometheus_exporter::{ PrometheusServer };
 
 
 /// It is just a helper struct to facilitate sharing information with

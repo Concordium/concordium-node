@@ -1,6 +1,6 @@
-use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
-use network::{ NetworkRequest };
-use network::request::{ NetworkRequest as NRequest };
+use crate::common::functor::{ AFunctor, AFunctorCW, FunctorResult };
+use crate::network::{ NetworkRequest };
+use crate::network::request::{ NetworkRequest as NRequest };
 
 
 pub struct RequestHandler {
@@ -115,9 +115,9 @@ impl_all_fns!( RequestHandler, NRequest);
 
 #[cfg(test)]
 mod request_handler_test {
-    use connection::{ RequestHandler };
-    use common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
-    use network::request::{ NetworkRequest as NRequest };
+    use crate::connection::{ RequestHandler };
+    use crate::common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
+    use crate::network::request::{ NetworkRequest as NRequest };
 
     use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };

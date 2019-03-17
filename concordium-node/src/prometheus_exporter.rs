@@ -1,4 +1,4 @@
-use errors::*;
+use crate::errors::*;
 use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
@@ -270,7 +270,7 @@ impl PrometheusServer {
 
 #[cfg(test)]
 mod tests {
-    use prometheus_exporter::*;
+    use crate::prometheus_exporter::*;
 
     #[test]
     pub fn test_node_mode() {

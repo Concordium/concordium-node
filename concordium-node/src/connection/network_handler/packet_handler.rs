@@ -1,7 +1,7 @@
-use common::functor::{ AFunctor, FunctorResult };
-use network::{ NetworkPacket };
+use crate::common::functor::{ AFunctor, FunctorResult };
+use crate::network::{ NetworkPacket };
 
-use connection::network_handler::{ NetworkPacketCW };
+use crate::connection::network_handler::{ NetworkPacketCW };
 
 pub struct PacketHandler {
     pub direct_parser: AFunctor<NetworkPacket>,

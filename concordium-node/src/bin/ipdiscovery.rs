@@ -182,7 +182,7 @@ fn run() -> ResultExtWrapper<()> {
     } else if conf.prometheus_push_gateway.is_some() {
         info!("Enabling prometheus push gateway at {}",
               &conf.prometheus_push_gateway.clone().unwrap());
-        let mut srv = PrometheusServer::new(PrometheusMode::IpDiscoveryMode);
+        let srv = PrometheusServer::new(PrometheusMode::IpDiscoveryMode);
         let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
             instance_id.clone()
         } else {

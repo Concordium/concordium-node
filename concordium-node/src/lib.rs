@@ -2,61 +2,27 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-extern crate base64;
 #[macro_use]
 extern crate derive_builder;
-extern crate structopt;
-extern crate byteorder;
-extern crate bytes;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
-extern crate hacl_star;
-extern crate libc;
-extern crate mio;
-extern crate num_bigint;
-extern crate num_traits;
-extern crate rand;
-extern crate ring;
-extern crate rustls;
 #[macro_use]
 extern crate log;
-extern crate app_dirs;
-extern crate env_logger;
-extern crate futures;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-extern crate hex;
-extern crate iron;
-extern crate openssl;
-extern crate preferences;
-extern crate protobuf;
-extern crate reqwest;
-extern crate router;
-extern crate rusqlite;
-extern crate serde_json;
-extern crate time;
-extern crate untrusted;
-extern crate webpki;
 #[macro_use]
 extern crate prometheus;
 #[macro_use]
 extern crate lazy_static;
-extern crate atomic_counter;
 #[cfg(not(debug_assertions))]
 #[macro_use]
 extern crate human_panic;
 #[macro_use]
 extern crate cfg_if;
-extern crate dns;
 #[cfg(target_os = "windows")]
 extern crate ipconfig;
-extern crate resolv_conf;
-extern crate semver;
-extern crate vecio;
-extern crate consensus_sys;
-extern crate crypto_sys;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");

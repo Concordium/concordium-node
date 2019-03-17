@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
 use mio::{ Token, Poll, Event };
 
-use errors::{ ErrorKindWrapper, ResultExtWrapper };
-use common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
-use connection::{ Connection, P2PNodeMode };
-use network::{ NetworkMessage, NetworkRequest };
-use prometheus_exporter::{ PrometheusServer };
+use crate::errors::{ ErrorKindWrapper, ResultExtWrapper };
+use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
+use crate::connection::{ Connection, P2PNodeMode };
+use crate::network::{ NetworkMessage, NetworkRequest };
+use crate::prometheus_exporter::{ PrometheusServer };
 
-use p2p::peer_statistics::{ PeerStatistic };
-use p2p::unreachable_nodes::{ UnreachableNodes };
+use crate::p2p::peer_statistics::{ PeerStatistic };
+use crate::p2p::unreachable_nodes::{ UnreachableNodes };
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;

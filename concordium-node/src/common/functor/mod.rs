@@ -1,4 +1,4 @@
-use errors::{ ResultExtWrapper };
+use crate::errors::{ ResultExtWrapper };
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]

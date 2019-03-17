@@ -1,11 +1,11 @@
 use std::sync::{ Arc, RwLock };
-use proto::{
+use crate::proto::{
     SendMessageRequest, PeerConnectRequest, SuccessResponse, Empty, NumberResponse,
     StringResponse, PeerStatsResponse, PeerListResponse, P2PNetworkMessage,
     PeerElement, NetworkChangeRequest, PoCSendTransactionMessage, BestBlockInfoMessage,
     NodeInfoResponse,
 };
-use proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
+use crate::proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
 
 #[derive(Clone)]

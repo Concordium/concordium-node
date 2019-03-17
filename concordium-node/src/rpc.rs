@@ -1,13 +1,13 @@
-use common::{ConnectionType, P2PNodeId, P2PPeer};
-use network::{ NetworkMessage, NetworkPacket };
-use db::P2PDB;
-use errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
-use errors::*;
+use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
+use crate::network::{ NetworkMessage, NetworkPacket };
+use crate::db::P2PDB;
+use crate::errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
+use crate::errors::*;
 use futures::future::Future;
-use grpcio;
-use grpcio::{Environment, ServerBuilder};
-use p2p::P2PNode;
-use proto::*;
+use ::grpcio;
+use ::grpcio::{Environment, ServerBuilder};
+use crate::p2p::P2PNode;
+use crate::proto::*;
 use std::boxed::Box;
 use std::cell::RefCell;
 use std::net::IpAddr;
@@ -18,8 +18,8 @@ use std::time::{ SystemTime , UNIX_EPOCH};
 use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
-use common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
-use errors::ErrorWrapper;
+use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
+use crate::errors::ErrorWrapper;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -368,7 +368,7 @@ impl P2P for RpcServerImpl {
                         })
                         .collect();
                     let mut resp = PeerListResponse::new();
-                    let mut node_type = match &format!("{:?}", borrowed_node.get_node_mode())[..] {
+                    let node_type = match &format!("{:?}", borrowed_node.get_node_mode())[..] {
                         "NormalMode" | "NormalPrivateMode" => {
                             "Normal"
                         }

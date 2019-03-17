@@ -5,7 +5,7 @@ use num_traits::{ pow };
 use num_bigint::{ BigUint, ToBigUint };
 use std::collections::{ HashMap };
 
-use common::{ P2PPeer, ConnectionType, P2PNodeId };
+use crate::common::{ P2PPeer, ConnectionType, P2PNodeId };
 
 const KEY_SIZE: u16 = 256;
 const BUCKET_SIZE: u8 = 20;

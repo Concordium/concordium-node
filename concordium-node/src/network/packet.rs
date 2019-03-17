@@ -1,10 +1,10 @@
-use common::{ P2PPeer, P2PNodeId, get_current_stamp };
-use network:: {
+use crate::common::{ P2PPeer, P2PNodeId, get_current_stamp };
+use crate::network:: {
     PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
 };
 
-use utils;
+use crate::utils;
 use std::sync::{ Mutex };
 use rand::rngs::OsRng;
 use rand::{ RngCore };

@@ -2,12 +2,12 @@ use std::sync::{ Arc, Mutex };
 use std::sync::mpsc::{ Sender };
 use std::collections::{ VecDeque };
 
-use common::{ P2PPeer };
-use common::functor::{ FunctorResult };
-use network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse };
-use prometheus_exporter::PrometheusServer;
-use connection::{ SeenMessagesList };
-use errors::{ ErrorWrapper, ErrorKindWrapper };
+use crate::common::{ P2PPeer };
+use crate::common::functor::{ FunctorResult };
+use crate::network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse };
+use crate::prometheus_exporter::PrometheusServer;
+use crate::connection::{ SeenMessagesList };
+use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
 
 
 /// It forwards network response message into `queue`.

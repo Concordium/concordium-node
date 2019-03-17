@@ -1,5 +1,5 @@
-use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
-use network::{ NetworkResponse };
+use crate::common::functor::{ AFunctor, AFunctorCW, FunctorResult };
+use crate::network::{ NetworkResponse };
 
 pub struct ResponseHandler {
     pub pong_handler: AFunctor<NetworkResponse>,

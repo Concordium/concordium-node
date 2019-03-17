@@ -79,7 +79,7 @@ fn run() -> ResultExtWrapper<()> {
     } else if conf.prometheus_push_gateway.is_some() {
         info!("Enabling prometheus push gateway at {}",
               &conf.prometheus_push_gateway.clone().unwrap());
-        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
+        let srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(Mutex::new(srv)))
     } else {
         None

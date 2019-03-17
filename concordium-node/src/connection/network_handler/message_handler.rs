@@ -1,6 +1,6 @@
 use std::sync::{ Arc, RwLock };
-use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
-use common::functor::{ AFunctor, AFunctorCW, FunctorResult };
+use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
+use crate::common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 
 pub type NetworkMessageCW = AFunctorCW<NetworkMessage>;
 pub type NetworkRequestCW = AFunctorCW<NetworkRequest>;
@@ -136,11 +136,11 @@ pub trait MessageManager {
 
 #[cfg(test)]
 mod message_handler_unit_test {
-    use connection::{ MessageHandler };
-    use network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
-    use common::functor::{ FunctorResult };
+    use crate::connection::{ MessageHandler };
+    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
+    use crate::common::functor::{ FunctorResult };
 
-    use common::{ ConnectionType, P2PPeerBuilder };
+    use crate::common::{ ConnectionType, P2PPeerBuilder };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::{ Arc, Mutex };
 
@@ -172,11 +172,11 @@ mod message_handler_unit_test {
 
 #[cfg(test)]
 mod integration_test {
-    use connection::{ MessageHandler,  PacketHandler };
-    use common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
-    use network::{ NetworkMessage, NetworkRequest, NetworkResponse };
-    use network::packet::{ NetworkPacket as NetworkPacketEnum };
-    use common::functor::{ FunctorResult };
+    use crate::connection::{ MessageHandler,  PacketHandler };
+    use crate::common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
+    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse };
+    use crate::network::packet::{ NetworkPacket as NetworkPacketEnum };
+    use crate::common::functor::{ FunctorResult };
 
     use std::sync::{ Arc, Mutex };
     use std::net::{ IpAddr, Ipv4Addr };
