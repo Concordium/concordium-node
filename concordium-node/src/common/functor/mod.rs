@@ -1,4 +1,5 @@
-use crate::errors::{ ResultExtWrapper };
+use failure::Fallible;
+use super::fails;
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
@@ -16,8 +17,10 @@ macro_rules! make_callback {
     }
 }
 
-pub type FunctorResult = ResultExtWrapper<()>;
+pub type FunctorResult = Fallible<()>;
+pub type FullFunctorResult = Result<(), fails::FunctorResultError>;
 pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
+pub type FullFunctorCallback<T> = (Fn(&T) -> FullFunctorResult);
 
 
 pub mod afunctor;

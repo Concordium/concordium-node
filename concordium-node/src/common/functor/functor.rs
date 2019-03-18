@@ -1,8 +1,10 @@
 use std::cell::{ RefCell };
 use std::rc::{ Rc };
 
-use super::{ FunctorCallback, FunctorResult };
-use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
+use super::{ FullFunctorResult, FunctorCallback };
+use failure::Error;
+use super::fails;
+//use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
 
 pub type FunctorCW<T> = Rc< RefCell< FunctorCallback<T>>>;
 
@@ -32,25 +34,27 @@ impl<T> Functor<T> {
 /// Helper macro to run all callbacks using `message` expression as argument.
 macro_rules! run_callbacks{
     ($handlers:expr, $message:expr, $errorMsg: expr) => {
-        $handlers.iter()
+            (|x: Vec<Error>| if x.is_empty() {
+                Ok(())
+            } else {
+                Err(fails::FunctorResultError{
+                    errors: x
+                })
+            })($handlers.iter()
             .map( |handler| handler.borrow_mut())
             .map( |handler_mut| { (handler_mut)($message) })
-            .fold( Ok(()), |status, handler_result|{
-                match handler_result {
-                    Err(e) => match e {
-                        ErrorWrapper(ErrorKindWrapper::FunctorRunningError(_), _) => { Err(e) },
-                        _ => Err( ErrorWrapper::with_chain( e,
-                                ErrorKindWrapper::FunctorRunningError( $errorMsg))),
-                    }
-                    Ok(_) => status
-                }
-            })
+            .fold(vec![], |mut status, handler_result| {
+                if let Err(e) = handler_result {
+                   status.push(e);
+                };
+                status
+            }))
     }
 }
 
 impl<T> FnOnce<(&T,)> for Functor<T> {
-    type Output = FunctorResult;
-    extern "rust-call" fn call_once(self, args: (&T,)) -> FunctorResult
+    type Output = FullFunctorResult;
+    extern "rust-call" fn call_once(self, args: (&T,)) -> FullFunctorResult
     {
         let msg: &T = args.0;
         run_callbacks!( &self.callbacks, msg, self.name)
@@ -58,7 +62,7 @@ impl<T> FnOnce<(&T,)> for Functor<T> {
 }
 
 impl<T> FnMut<(&T,)> for Functor<T> {
-    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FunctorResult
+    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FullFunctorResult
     {
         let msg: &T = args.0;
         run_callbacks!( &self.callbacks, msg, self.name)
@@ -66,10 +70,9 @@ impl<T> FnMut<(&T,)> for Functor<T> {
 }
 
 impl<T> Fn<(&T,)> for Functor<T> {
-    extern "rust-call" fn call(&self, args: (&T,)) -> FunctorResult
+    extern "rust-call" fn call(&self, args: (&T,)) -> FullFunctorResult
     {
         let msg: &T = args.0;
         run_callbacks!( &self.callbacks, msg, self.name)
     }
 }
-

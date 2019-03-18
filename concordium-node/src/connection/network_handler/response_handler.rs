@@ -1,4 +1,4 @@
-use crate::common::functor::{ AFunctor, AFunctorCW, FunctorResult };
+use crate::common::functor::{ AFunctor, AFunctorCW, FullFunctorResult };
 use crate::network::{ NetworkResponse };
 
 pub struct ResponseHandler {
@@ -22,7 +22,7 @@ impl ResponseHandler {
         }
     }
 
-    fn process_message(&self, msg: &NetworkResponse) -> FunctorResult {
+    fn process_message(&self, msg: &NetworkResponse) -> FullFunctorResult {
         match msg {
             ref pong_inner_pkt @ NetworkResponse::Pong(_) => {
                 (&self.pong_handler)(pong_inner_pkt)

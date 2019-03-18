@@ -1,9 +1,11 @@
+mod fails;
+
 use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
 use crate::network::{ NetworkMessage, NetworkPacket };
 use crate::db::P2PDB;
-use crate::errors::ErrorKindWrapper::{QueueingError};
-use crate::errors::*;
-use crate::fails;
+//use crate::errors::ErrorKindWrapper::{QueueingError};
+//use crate::errors::*;
+use crate::fails as global_fails;
 use crate::failure::Fallible;
 use futures::future::Future;
 use ::grpcio;
@@ -55,10 +57,10 @@ impl RpcServerImpl {
                         consensus:  consensus.clone(),}
     }
 
-    pub fn queue_message(&self, msg: &NetworkMessage) -> ResultExtWrapper<()> {
+    pub fn queue_message(&self, msg: &NetworkMessage) -> Fallible<()> {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
             sender.send(box msg.clone())
-                  .chain_err(|| QueueingError("Can't queue message for Rpc retrieval queue".to_string()))?;
+                .map_err(|_| fails::QueueingError{})?;
         }
         Ok(())
     }
@@ -81,9 +83,9 @@ impl RpcServerImpl {
         info!("RPC started on {}:{}",
               self_clone.listen_addr, self_clone.listen_port);
         let mut server = ServerBuilder::new(env).register_service(service)
-                                                .bind(self_clone.listen_addr, self_clone.listen_port)
-                                                .build()
-                                                .map_err(fails::RpcError::from)?;
+            .bind(self_clone.listen_addr, self_clone.listen_port)
+            .build()
+            .map_err(|_| fails::ServerBuildError{})?;
         server.start();
         self.server = Some(Arc::new(Mutex::new(server)));
         Ok(())
@@ -91,14 +93,14 @@ impl RpcServerImpl {
 
     pub fn stop_server(&mut self) -> Fallible<()> {
         if let Some(ref mut server) = self.server {
-            server.lock().map_err(fails::PoisonError::from)?
-                .shutdown() .wait().map_err(fails::RpcError::from)?;
+            server.lock().map_err(global_fails::PoisonError::from)?
+                .shutdown() .wait().map_err(fails::GeneralRpcError::from)?;
         }
         Ok(())
     }
 
      fn send_message_with_error(&self,
-                                   req: &SendMessageRequest) -> ResultExtWrapper<SuccessResponse> {
+                                   req: &SendMessageRequest) -> Fallible<SuccessResponse> {
             let mut r: SuccessResponse = SuccessResponse::new();
             if req.has_node_id()
                 && req.has_message()
@@ -250,7 +252,7 @@ impl P2P for RpcServerImpl {
 
             let f = match self.send_message_with_error(&req) {
                 Ok(r) => sink.success(r),
-                Err(e) => sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument, Some(e.description().to_string())))
+                Err(e) => sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument, e.name().map(|x| String::from_str(x).expect("Unwrapping of an error name failed"))))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -336,7 +338,7 @@ impl P2P for RpcServerImpl {
                     sink.success(resp)
                 },
                 Err(e) => {
-                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::Aborted, Some(e.description().to_string())))
+                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::Aborted, Some(e.name().expect("Couldn't extract error name").to_string())))
                 }
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
@@ -386,7 +388,7 @@ impl P2P for RpcServerImpl {
                     sink.success(resp)
                 },
                 Err(e) => {
-                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::Aborted, Some(e.description().to_string())))
+                    sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::Aborted, Some(e.name().expect("Couldn't extract error name").to_string())))
                 }
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));

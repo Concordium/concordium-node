@@ -2,8 +2,11 @@ use std::sync::{ Arc, Mutex };
 
 // use std::sync::atomic::{ AtomicUsize, ATOMIC_USIZE_INIT, Ordering };
 
-use crate::common::functor::{ FunctorCallback, FunctorResult };
-use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
+use crate::common::functor::{ FunctorCallback, FullFunctorResult };
+use crate::fails as global_fails;
+use super::fails;
+use failure::Error;
+//use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
 
 // pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
 pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
@@ -74,57 +77,39 @@ impl<T> AFunctor<T> {
 
     /// It executes each callback using `message` as its argument.
     /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
-    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
+    fn run_atomic_callbacks(&self, message: &T) -> FullFunctorResult
     {
-        let mut status = Ok(());
-
-        // DEEP_COUNTER.fetch_add( 1, Ordering::SeqCst);
-        // let indent = String::from_utf8( vec![ b'+'; DEEP_COUNTER.load(Ordering::SeqCst)])
-        //        .unwrap();
+        let mut status = vec![];
 
         for i in 0..self.callbacks.len() {
-            // let cb = & self.callbacks[i];
             let (_fn_id, cb) = self.callbacks[i].clone();
 
-            // Lock callback and run it
-            let status_step = match cb.lock() {
+            if let Err(e) = match cb.lock() {
                 Ok(locked_cb) => {
-                    // debug!( "# {} Run afunctor '{}' callback({}/{}) at {}",
-                    //         indent, self.name, fn_id, i+1, self.callbacks.len());
                     (locked_cb)( message)
                 },
                 Err(_) => {
-                    Err( ErrorWrapper::from_kind(
-                            ErrorKindWrapper::LockingError(
-                                format!( "Atomic callback cannot be locked at {}", self.name))))
+                    Err(Error::from(global_fails::PoisonError::new()))
                 }
+            } {
+                status.push(e);
             };
+        };
 
-            // Fold error.
-            match status_step {
-                Ok(_) => {},
-                Err(step_err) => {
-                    status = match status {
-                        Ok(_) => Err(step_err),
-                        Err(chain_err) => {
-                            Err( ErrorWrapper::with_chain( chain_err,
-                                ErrorKindWrapper::FunctorRunningError( self.name)))
-                        }
-                    }
-                }
-            };
+        if !status.is_empty() {
+            Err(fails::FunctorResultError{
+                errors: status
+            })
+        } else {
+            Ok(())
         }
-
-        // DEEP_COUNTER.fetch_sub( 1, Ordering::SeqCst);
-
-        status
     }
 }
 
 impl<T> FnOnce<(&T,)> for AFunctor<T> {
-    type Output = FunctorResult;
+    type Output = FullFunctorResult;
 
-    extern "rust-call" fn call_once(self, args: (&T,)) -> FunctorResult
+    extern "rust-call" fn call_once(self, args: (&T,)) -> FullFunctorResult
     {
         let msg: &T = args.0;
         self.run_atomic_callbacks( msg)
@@ -132,7 +117,7 @@ impl<T> FnOnce<(&T,)> for AFunctor<T> {
 }
 
 impl<T> FnMut<(&T,)> for AFunctor<T> {
-    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FunctorResult
+    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FullFunctorResult
     {
         let msg: &T = args.0;
         // run_atomic_callbacks!( &self.callbacks, msg, self.name)
@@ -141,7 +126,7 @@ impl<T> FnMut<(&T,)> for AFunctor<T> {
 }
 
 impl<T> Fn<(&T,)> for AFunctor<T> {
-    extern "rust-call" fn call(&self, args: (&T,)) -> FunctorResult
+    extern "rust-call" fn call(&self, args: (&T,)) -> FullFunctorResult
     {
         let msg: &T = args.0;
         self.run_atomic_callbacks( msg)
