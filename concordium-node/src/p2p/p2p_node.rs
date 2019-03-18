@@ -1,8 +1,10 @@
+use failure::Error;
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
 use crate::errors::*;
+use crate::fails;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
@@ -708,14 +710,10 @@ impl P2PNode {
                       self.get_listening_port())
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {
-        match self.tls_server.lock() {
-            Ok(mut x) => {
-                x.ban_node(peer);
-                Ok(())
-            }
-            Err(e) => Err(ErrorWrapper::from(e)),
-        }
+    pub fn ban_node(&mut self, peer: P2PPeer) -> Result<(), Error> {
+        self.tls_server.lock().map_err(fails::PoisonError::from)?
+            .ban_node(peer);
+        Ok(())
     }
 
     pub fn unban_node(&mut self, peer: P2PPeer) -> ResultExtWrapper<()> {

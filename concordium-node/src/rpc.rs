@@ -1,8 +1,10 @@
 use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
 use crate::network::{ NetworkMessage, NetworkPacket };
 use crate::db::P2PDB;
-use crate::errors::ErrorKindWrapper::{ProcessControlError, QueueingError};
+use crate::errors::ErrorKindWrapper::{QueueingError};
 use crate::errors::*;
+use crate::fails;
+use crate::failure::Fallible;
 use futures::future::Future;
 use ::grpcio;
 use ::grpcio::{Environment, ServerBuilder};
@@ -19,7 +21,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
-use crate::errors::ErrorWrapper;
+//use crate::errors::ErrorWrapper;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -72,7 +74,7 @@ impl RpcServerImpl {
         *self.subscription_queue_out.borrow_mut() = None;
     }
 
-    pub fn start_server(&mut self) -> ResultExtWrapper<()> {
+    pub fn start_server(&mut self) -> Fallible<()> {
         let self_clone = self.clone();
         let env = Arc::new(Environment::new(1));
         let service = create_p2_p(self_clone.clone());
@@ -81,16 +83,16 @@ impl RpcServerImpl {
         let mut server = ServerBuilder::new(env).register_service(service)
                                                 .bind(self_clone.listen_addr, self_clone.listen_port)
                                                 .build()
-                                                .chain_err(|| ProcessControlError("can't start server".to_string()))?;
+                                                .map_err(fails::RpcError::from)?;
         server.start();
         self.server = Some(Arc::new(Mutex::new(server)));
         Ok(())
     }
 
-    pub fn stop_server(&mut self) -> ResultExtWrapper<()> {
+    pub fn stop_server(&mut self) -> Fallible<()> {
         if let Some(ref mut server) = self.server {
-            server.lock().map_err(|e| ErrorWrapper::with_chain(ErrorWrapper::from(e), "grpcio server poisoned, unable to lock"))?
-                .shutdown() .wait().chain_err(|| ProcessControlError("can't stop process".to_string()))?;
+            server.lock().map_err(fails::PoisonError::from)?
+                .shutdown() .wait().map_err(fails::RpcError::from)?;
         }
         Ok(())
     }

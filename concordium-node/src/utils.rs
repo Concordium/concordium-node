@@ -29,6 +29,17 @@ use std::str;
 use std::str::FromStr;
 use std::fs;
 
+#[macro_export]
+macro_rules! failing_main {
+    ($main:expr) => {
+        fn main() {
+            if let Err(e) = $main() {
+                error!{"Main function exited with error: {}", e};
+            }
+        }
+    }
+}
+
 pub fn sha256(input: &str) -> [u8; 32] {
     sha256_bytes(input.as_bytes())
 }

@@ -1,5 +1,7 @@
-#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, integer_atomics)]
+#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, integer_atomics, custom_attribute)]
 #![recursion_limit = "1024"]
+
+extern crate failure;
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
@@ -41,6 +43,7 @@ pub mod db;
 // Due to massive changes in std, and possible change away from the error_chain crate,
 // we'll ignore deprecated warnings in this for now.
 #[allow(deprecated)] pub mod errors;
+pub mod fails;
 pub mod p2p;
 pub mod prometheus_exporter;
 pub mod proto;

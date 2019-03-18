@@ -1,6 +1,6 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-extern crate p2p_client;
+#[macro_use] extern crate p2p_client;
 #[macro_use]
 extern crate log;
 extern crate bytes;
@@ -12,8 +12,10 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 extern crate mio;
 extern crate timer;
-#[macro_use]
-extern crate error_chain;
+//#[macro_use]
+//extern crate error_chain;
+//#[macro_use]
+extern crate failure;
 extern crate byteorder;
 extern crate consensus_sys;
 extern crate reqwest;
@@ -30,13 +32,14 @@ use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
-use p2p_client::errors::*;
+//use p2p_client::errors::*;
 use p2p_client::p2p::*;
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use p2p_client::stats_engine::StatsEngine;
+use p2p_client::fails;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -46,10 +49,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
 use std::{ str };
+use failure::{Fallible};
 
-quick_main!(run);
+failing_main!(run);
 
-fn run() -> ResultExtWrapper<()> {
+fn run() -> Fallible<()> {
     let conf = configuration::parse_cli_config();
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
@@ -403,7 +407,7 @@ fn run() -> ResultExtWrapper<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock()?
+            prom.lock().map_err(fails::PoisonError::from)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name.clone(),
