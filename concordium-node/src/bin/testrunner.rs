@@ -201,25 +201,25 @@ impl TestRunner {
                                 }
                                 _ => {
                                     error!("Couldn't send results due to locking issues");
-                                    Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string())))
+                                    Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock")))
                                 }
                             }
                         }
                         _ => {
                             error!("Couldn't send results due to locking issues");
                             Ok(Response::with((status::InternalServerError,
-                                               "Can't retrieve access to inner lock".to_string())))
+                                               "Can't retrieve access to inner lock")))
                         }
                     }
                 } else {
                     Ok(Response::with((status::Ok,
-                                       "Test not running, can't get results now!".to_string())))
+                                       "Test not running, can't get results now!")))
                 }
             }
             _ => {
                 error!("Couldn't send results due to locking issues");
                 Ok(Response::with((status::InternalServerError,
-                                   "Can't retrieve access to inner lock".to_string())))
+                                   "Can't retrieve access to inner lock")))
             }
         }
     }
@@ -247,11 +247,11 @@ impl TestRunner {
                                             _self_clone_3.clone().start_test(size)
                                         }
                                         _ => Ok(Response::with((status::BadRequest,
-                                               "Invalid size for test packet given".to_string())))
+                                               "Invalid size for test packet given")))
                                     }
                                 },
                             _ => Ok(Response::with((status::BadRequest,
-                                               "Missing test packet size".to_string())))
+                                               "Missing test packet size")))
                        }
                    },
                    "start_test_specific");
@@ -303,7 +303,7 @@ fn run() -> ResultExtWrapper<()> {
 
     p2p_client::setup_panics();
 
-    let mut db_path = app_prefs.get_user_app_dir().clone();
+    let mut db_path = app_prefs.get_user_app_dir();
     db_path.push("p2p.db");
 
     let db = P2PDB::new(db_path.as_path());

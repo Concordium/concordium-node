@@ -64,7 +64,7 @@ pub fn run() -> ResultExtWrapper<()> {
     {
         Ok(entries) => {
             for entry in entries {
-                println!("{}", format!("\tIN\tTXT\t{}", entry));
+                println!("\tIN\tTXT\t{}", entry);
             }
         }
         Err(e) => {

@@ -58,7 +58,7 @@ fn run() -> ResultExtWrapper<()> {
     info!("Application config directory: {:?}",
           app_prefs.get_user_config_dir());
 
-    let mut db_path = app_prefs.get_user_app_dir().clone();
+    let mut db_path = app_prefs.get_user_app_dir();
     db_path.push("p2p.db");
 
     let db = P2PDB::new(db_path.as_path());
@@ -70,9 +70,8 @@ fn run() -> ResultExtWrapper<()> {
            .map_err(|e| error!("{}", e))
            .ok();
         Some(Arc::new(Mutex::new(srv)))
-    } else if conf.prometheus_push_gateway.is_some() {
-        info!("Enabling prometheus push gateway at {}",
-              &conf.prometheus_push_gateway.clone().unwrap());
+    } else if let Some(ref gateway) = conf.prometheus_push_gateway {
+        info!("Enabling prometheus push gateway at {}", gateway);
         let srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
         Some(Arc::new(Mutex::new(srv)))
     } else {
