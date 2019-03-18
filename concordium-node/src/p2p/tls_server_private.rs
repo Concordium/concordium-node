@@ -256,8 +256,8 @@ impl TlsServerPrivate {
     /// * `send_status` - It will called after each sent, to notify the result of the operation.
     pub fn send_over_all_connections( &mut self,
             data: &[u8],
-            filter_conn: &Fn( &Connection) -> bool,
-            send_status: &Fn( &Connection, Result<usize, std::io::Error>))
+            filter_conn: &dyn Fn( &Connection) -> bool,
+            send_status: &dyn Fn( &Connection, Result<usize, std::io::Error>))
     {
         for rc_conn in self.connections_by_token.values()
         {

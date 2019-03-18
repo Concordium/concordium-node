@@ -10,7 +10,7 @@ use crate::proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
 #[derive(Clone)]
 pub struct P2PServiceForwarder {
-    pub targets: Arc< RwLock < Vec< Arc < Box< P2P > > > > >,
+    pub targets: Arc< RwLock < Vec< Arc < Box< dyn P2P > > > > >,
     service: Arc< Option< ::grpcio::Service > >
 }
 
@@ -58,78 +58,78 @@ macro_rules! forward_to_targets {
 }
 
 impl P2P for P2PServiceForwarder {
-    fn peer_connect(&self, ctx: ::grpcio::RpcContext, req: PeerConnectRequest, sink: ::grpcio::UnarySink<SuccessResponse>) {
+    fn peer_connect(&self, ctx: ::grpcio::RpcContext<'_>, req: PeerConnectRequest, sink: ::grpcio::UnarySink<SuccessResponse>) {
         forward_to_targets!( self.targets, peer_connect, ctx, req, sink);
     }
 
-    fn peer_uptime(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
+    fn peer_uptime(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
         forward_to_targets!( self.targets, peer_uptime, ctx, req, sink);
     }
 
-    fn peer_total_sent(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
+    fn peer_total_sent(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
         forward_to_targets!( self.targets, peer_total_sent, ctx, req, sink);
     }
 
-    fn peer_total_received(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
+    fn peer_total_received(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<NumberResponse>) {
         forward_to_targets!( self.targets, peer_total_received, ctx, req, sink);
     }
 
-    fn peer_version(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<StringResponse>){
+    fn peer_version(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<StringResponse>){
         forward_to_targets!( self.targets, peer_version, ctx, req, sink);
     }
 
-    fn send_message(&self, ctx: ::grpcio::RpcContext, req: SendMessageRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn send_message(&self, ctx: ::grpcio::RpcContext<'_>, req: SendMessageRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, send_message, ctx, req, sink);
     }
 
-    fn peer_stats(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<PeerStatsResponse>){
+    fn peer_stats(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<PeerStatsResponse>){
         forward_to_targets!( self.targets, peer_stats, ctx, req, sink);
     }
 
-    fn peer_list(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<PeerListResponse>){
+    fn peer_list(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<PeerListResponse>){
         forward_to_targets!( self.targets, peer_list, ctx, req, sink);
     }
-    fn subscription_start(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn subscription_start(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, subscription_start, ctx, req, sink);
     }
 
-    fn subscription_stop(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn subscription_stop(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, subscription_stop, ctx, req, sink);
     }
 
-    fn node_info(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<NodeInfoResponse>) {
+    fn node_info(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<NodeInfoResponse>) {
         forward_to_targets!( self.targets, node_info, ctx, req, sink);
     }
 
-    fn subscription_poll(&self, ctx: ::grpcio::RpcContext, req: Empty, sink: ::grpcio::UnarySink<P2PNetworkMessage>){
+    fn subscription_poll(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<P2PNetworkMessage>){
         forward_to_targets!( self.targets, subscription_poll, ctx, req, sink);
     }
 
-    fn ban_node(&self, ctx: ::grpcio::RpcContext, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn ban_node(&self, ctx: ::grpcio::RpcContext<'_>, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, ban_node, ctx, req, sink);
     }
 
-    fn unban_node(&self, ctx: ::grpcio::RpcContext, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn unban_node(&self, ctx: ::grpcio::RpcContext<'_>, req: PeerElement, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, unban_node, ctx, req, sink);
     }
 
-    fn join_network(&self, ctx: ::grpcio::RpcContext, req: NetworkChangeRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn join_network(&self, ctx: ::grpcio::RpcContext<'_>, req: NetworkChangeRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, join_network, ctx, req, sink);
     }
 
-    fn leave_network(&self, ctx: ::grpcio::RpcContext, req: NetworkChangeRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
+    fn leave_network(&self, ctx: ::grpcio::RpcContext<'_>, req: NetworkChangeRequest, sink: ::grpcio::UnarySink<SuccessResponse>){
         forward_to_targets!( self.targets, leave_network, ctx, req, sink);
     }
 
     fn get_best_block_info(&self,
-        ctx: ::grpcio::RpcContext,
+        ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
             forward_to_targets!( self.targets, get_best_block_info, ctx, req, sink);
     }
 
     fn po_c_send_transaction(&self,
-                  ctx: ::grpcio::RpcContext,
+                  ctx: ::grpcio::RpcContext<'_>,
                   req: PoCSendTransactionMessage,
                   sink: ::grpcio::UnarySink<SuccessResponse>) {
         forward_to_targets!( self.targets, po_c_send_transaction, ctx, req, sink);

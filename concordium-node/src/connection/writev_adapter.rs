@@ -5,12 +5,12 @@ use std::io::{ Result };
 
 #[cfg(not(target_os = "windows"))]
 pub struct WriteVAdapter<'a> {
-    rawv: &'a mut Rawv,
+    rawv: &'a mut dyn Rawv,
 }
 
 #[cfg(not(target_os = "windows"))]
 impl<'a> WriteVAdapter<'a> {
-    pub fn new(rawv: &'a mut Rawv) -> WriteVAdapter<'a> {
+    pub fn new(rawv: &'a mut dyn Rawv) -> WriteVAdapter<'a> {
         WriteVAdapter { rawv }
     }
 }
