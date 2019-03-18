@@ -1,12 +1,7 @@
-extern crate iron;
-extern crate p2p_client;
-extern crate router;
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
-extern crate hostname;
 #[macro_use]
 extern crate serde_json;
 
@@ -71,7 +66,7 @@ impl IpDiscoveryServer {
 
     fn get_ip_discovery(&self, req: &mut Request) -> IronResult<Response> {
         let remote_ip = if let Some(ref value) = req.headers.get_raw(&self.header_name) {
-            if value.len() == 1 && value[0].len() > 0 {
+            if value.len() == 1 && !value[0].is_empty() {
                 match String::from_utf8((*value[0]).to_vec()) {
                     Ok(str_val) => {
                         match IpAddr::from_str(&str_val) {
@@ -105,8 +100,7 @@ impl IpDiscoveryServer {
                 .ok();
             {
                 let mut uniques = self.unique_ips.lock().unwrap();
-                if !uniques.contains(&remote_ip) {
-                    uniques.insert(remote_ip.clone());
+                if uniques.insert(remote_ip.clone()) {
                     prom.lock()
                         .unwrap()
                         .unique_ips_inc()
@@ -186,10 +180,7 @@ fn run() -> ResultExtWrapper<()> {
         let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
             instance_id.clone()
         } else {
-            match get_hostname() {
-                Some(val) => val,
-                None => "UNKNOWN-HOST-FIX-ME".to_string(),
-            }
+            get_hostname().unwrap_or_else(|| "UNKNOWN-HOST-FIX-ME".to_owned())
         };
         srv.start_push_to_gateway(conf.prometheus_push_gateway.unwrap().clone(),
                                   conf.prometheus_push_interval,

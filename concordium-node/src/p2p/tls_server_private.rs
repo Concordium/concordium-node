@@ -82,20 +82,17 @@ impl TlsServerPrivate {
         let mut ret = vec![];
         for (_, ref rc_conn) in &self.connections_by_token {
             let conn = rc_conn.borrow();
-            match conn.peer() {
-                Some(ref x) => {
-                    if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
-                        ret.push(
-                            PeerStatistic::new(
-                                x.id().to_string(),
-                                x.ip().clone(),
-                                x.port(),
-                                conn.get_messages_sent(),
-                                conn.get_messages_received(),
-                                conn.get_last_latency_measured()));
-                    }
+            if let Some(ref x) = conn.peer() {
+                if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
+                    ret.push(
+                        PeerStatistic::new(
+                            x.id().to_string(),
+                            x.ip().clone(),
+                            x.port(),
+                            conn.get_messages_sent(),
+                            conn.get_messages_received(),
+                            conn.get_last_latency_measured()));
                 }
-                None => {}
             }
         }
 
@@ -258,7 +255,7 @@ impl TlsServerPrivate {
     /// * `filter_conn` - It will send using all connection, where this function returns `true`.
     /// * `send_status` - It will called after each sent, to notify the result of the operation.
     pub fn send_over_all_connections( &mut self,
-            data: &Vec<u8>,
+            data: &[u8],
             filter_conn: &Fn( &Connection) -> bool,
             send_status: &Fn( &Connection, Result<usize, std::io::Error>))
     {

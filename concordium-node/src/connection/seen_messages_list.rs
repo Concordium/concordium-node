@@ -22,9 +22,9 @@ impl SeenMessagesList {
             if !list.contains(msgid) {
                 if list.len() >= 1000 {
                     list.remove(0);
-                    list.push(msgid.clone().to_owned());
+                    list.push(msgid.to_owned());
                 } else {
-                    list.push(msgid.clone().to_owned());
+                    list.push(msgid.to_owned());
                 }
             }
             true

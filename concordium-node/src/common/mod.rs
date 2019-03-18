@@ -53,12 +53,11 @@ impl P2PPeerBuilder {
                 Err(e)
             }
             Ok(x) => {
-                match x {
-                    Some(id) => {self.id(id);},
-                    None => {}
+                if let Some(id) = x {
+                    self.id(id);
                 }
-                if self.connection_type.is_some() & self.id.is_some() &
-                    self.ip.is_some() & self.port.is_some() {
+                if self.connection_type.is_some() && self.id.is_some() &&
+                    self.ip.is_some() && self.port.is_some() {
                         Ok(P2PPeer { connection_type: self.connection_type.unwrap(),
                                      ip: self.ip.unwrap(),
                                      port: self. port.unwrap(),
@@ -129,15 +128,15 @@ impl P2PPeer {
                 "IP6" => {
                     if &buf.len() >= &(PROTOCOL_NODE_ID_LENGTH + 3 + 32 + 5) {
                         let ip_addr = IpAddr::from_str(&format!("{}:{}:{}:{}:{}:{}:{}:{}",
-                                                                &buf[ip_start..(ip_start + 4)],
-                                                                &buf[(ip_start + 4)..(ip_start + 8)],
-                                                                &buf[(ip_start + 8)..(ip_start + 12)],
-                                                                &buf[(ip_start + 12)..(ip_start + 16)],
-                                                                &buf[(ip_start + 16)..(ip_start + 20)],
-                                                                &buf[(ip_start + 20)..(ip_start + 24)],
-                                                                &buf[(ip_start + 24)..(ip_start + 28)],
-                                                                &buf[(ip_start + 28)..(ip_start + 32)])[..])?;
-                        let port = buf[(ip_start + 32)..(ip_start + 37)].parse::<u16>()?;
+                                                                &buf[ip_start..][..4],
+                                                                &buf[ip_start..][4..8],
+                                                                &buf[ip_start..][8..12],
+                                                                &buf[ip_start..][12..16],
+                                                                &buf[ip_start..][16..20],
+                                                                &buf[ip_start..][20..24],
+                                                                &buf[ip_start..][24..28],
+                                                                &buf[ip_start..][28..32])[..])?;
+                        let port = buf[ip_start..][32..37].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
                         return Err(ParseError("Invalid length for the specified IP type".to_string()).into())
@@ -214,7 +213,7 @@ impl P2PNodeId {
     pub fn from_string(sid: &String) -> ResultExtWrapper<P2PNodeId> {
         BigUint::from_str_radix(&sid, 16)
             .map_err(|_| ParseError(format!("Can't parse {} as base16 number", &sid)).into())
-            .map(|x| P2PNodeId { id: x })
+            .map(|id| P2PNodeId { id })
     }
 
     pub fn get_id(&self) -> &BigUint {

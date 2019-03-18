@@ -424,13 +424,10 @@ impl Connection {
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter() {
-            match prom.lock() {
-                Err(_) => {}
-                Ok(mut plock) => {
-                    plock.pkt_received_inc()
-                        .map_err(|e| error!("{}", e))
-                        .ok();
-                }
+            if let Ok(mut plock) = prom.lock() {
+                plock.pkt_received_inc()
+                    .map_err(|e| error!("{}", e))
+                    .ok();
             }
         };
 
@@ -451,25 +448,22 @@ impl Connection {
             } else {
                 None
             };
-            match buff {
-                Some(ref bufdata) => {
-                    if self.mode() == P2PNodeMode::BootstrapperMode
-                       || self.mode() == P2PNodeMode::BootstrapperPrivateMode
+            if let Some(ref bufdata) = buff {
+                if self.mode() == P2PNodeMode::BootstrapperMode
+                   || self.mode() == P2PNodeMode::BootstrapperPrivateMode
+                {
+                    let msg_num = String::from_utf8(bufdata.to_vec()).expect("Unable to get string from utf8");
+                    if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
+                       || msg_num == PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
                     {
-                        let msg_num = String::from_utf8(bufdata.to_vec()).expect("Unable to get string from utf8");
-                        if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
-                           || msg_num == PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
-                        {
-                            info!("Received network packet message, not wanted - disconnecting peer");
-                            &self.clear_buffer();
-                            &self.close(poll);
-                        }
-                    } else {
-                        self.set_valid();
-                        self.set_validated();
+                        info!("Received network packet message, not wanted - disconnecting peer");
+                        &self.clear_buffer();
+                        &self.close(poll);
                     }
+                } else {
+                    self.set_valid();
+                    self.set_validated();
                 }
-                _ => {}
             }
         }
     }
