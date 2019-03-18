@@ -427,63 +427,77 @@ fn run() -> ResultExtWrapper<()> {
     let _no_trust_bans = conf.no_trust_bans;
     let _no_trust_broadcasts = conf.no_trust_broadcasts;
     let _desired_nodes_clone = conf.desired_nodes;
-    let _guard_pkt = thread::spawn(move || {
-                                       loop {
-                                           if let Ok(full_msg) = pkt_out.recv() {
-                                               match *full_msg.clone() {
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
-                                                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                               }
-                                               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
-                                                   if !_no_trust_broadcasts {
-                                                       info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                                       _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
-                                                   }
-                                               }
-                                               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
-                                                   info!("Ban node request for {:?}", x);
-                                                   let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
-                                                   if ban.is_ok() {
-                                                       db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                                                       if !_no_trust_bans {
-                                                           _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
-                                                       }
-                                                   }
-                                               }
-                                               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), _, _) => {
-                                                   info!("Unban node requets for {:?}", x);
-                                                   let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
-                                                   if req.is_ok() {
-                                                       db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                                                       if !_no_trust_bans {
-                                                           _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
-                                                       }
-                                                   }
-                                               }
-                                               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), _, _) => {
-                                                   info!("Received PeerList response, attempting to satisfy desired peers");
-                                                   let mut new_peers = 0;
-                                                   match _node_self_clone.get_peer_stats(&vec![]) {
-                                                       Ok(x) => {
-                                                           for peer_node in peers {
-                                                               if _node_self_clone.connect(ConnectionType::Node, peer_node.ip(), peer_node.port(), Some(peer_node.id())).map_err(|e| error!("{}", e)).is_ok() {
-                                                                   new_peers += 1;
-                                                               }
-                                                               if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                                                   break;
-                                                               }
-                                                           }
-                                                       }
-                                                       _ => {
-                                                           error!("Can't get nodes - so not trying to connect to new peers!");
-                                                       }
-                                                   }
-                                               }
-                                               _ => {}
-                                           }
-                                           }
-                                       }
-                                   });
+    let _guard_pkt = thread::spawn(move || { loop {
+        if let Ok(full_msg) = pkt_out.recv() {
+            match *full_msg.clone() {
+                box NetworkMessage::NetworkPacket(
+                    NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) =>
+                {
+                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
+                }
+                box NetworkMessage::NetworkPacket(
+                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) =>
+                {
+                    if !_no_trust_broadcasts {
+                        info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
+                        _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true)
+                                        .map_err(|e| error!("Error sending message {}", e)).ok();
+                    }
+                }
+                box NetworkMessage::NetworkRequest(
+                    NetworkRequest::BanNode(ref peer, ref x), _, _) =>
+                {
+                    info!("Ban node request for {:?}", x);
+                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
+                    if ban.is_ok() {
+                        db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                        if !_no_trust_bans {
+                            _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                        }
+                    }
+                }
+                box NetworkMessage::NetworkRequest(
+                    NetworkRequest::UnbanNode(ref peer, ref x), _, _) =>
+                {
+                    info!("Unban node requets for {:?}", x);
+                    let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
+                    if req.is_ok() {
+                        db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                        if !_no_trust_bans {
+                            _node_self_clone.send_unban(x.clone()).map_err(|e| error!("{}", e)).ok();
+                        }
+                    }
+                }
+                box NetworkMessage::NetworkResponse(
+                    NetworkResponse::PeerList(_, ref peers), _, _) =>
+                {
+                    info!("Received PeerList response, attempting to satisfy desired peers");
+                    let mut new_peers = 0;
+                    match _node_self_clone.get_peer_stats(&vec![]) {
+                        Ok(x) => {
+                            for peer_node in peers {
+                                if _node_self_clone.connect(ConnectionType::Node,
+                                                            peer_node.ip(),
+                                                            peer_node.port(),
+                                                            Some(peer_node.id())
+                                ).map_err(|e| error!("{}", e)).is_ok()
+                                {
+                                   new_peers += 1;
+                                }
+                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {
+                            error!("Can't get nodes - so not trying to connect to new peers!");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }});
 
     for connect_to in conf.connect_to {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
@@ -512,7 +526,8 @@ fn run() -> ResultExtWrapper<()> {
         };
     }
 
-    let mut testrunner = TestRunner::new(node.clone(), *conf.network_ids.first().unwrap()); //defaulted so it is always set
+    // defaulted so it is always set
+    let mut testrunner = TestRunner::new(node.clone(), *conf.network_ids.first().unwrap());
 
     let timer = Timer::new();
 
@@ -525,53 +540,53 @@ fn run() -> ResultExtWrapper<()> {
     let _node_clone = node.clone();
     let _guard_timer =
         timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-                 match node.get_peer_stats(&vec![]) {
-                     Ok(ref x) => {
-                         info!("I currently have {}/{} nodes!",
-                               x.len(),
-                               _desired_nodes_count);
-                         let mut count = 0;
-                         for i in x {
-                             info!("Peer {}: {}/{}:{}",
-                                   count,
-                                   i.id().to_string(),
-                                   i.ip().to_string(),
-                                   i.port());
-                             count += 1;
-                         }
-                         if _desired_nodes_count > x.len() as u8 {
-                             if x.len() == 0 {
-                                 info!("No nodes at all - retrying bootstrapping");
-                                 match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
-                                                                  &_dns_resolvers,
-                                                                  _dnssec,
-                                                                  &_bootstrap_node)
-                                 {
-                                     Ok(nodes) => {
-                                         for (ip, port) in nodes {
-                                             info!("Found bootstrap node IP: {} and port: {}",
-                                                   ip, port);
-                                             node.connect(ConnectionType::Bootstrapper,
-                                                          ip,
-                                                          port,
-                                                          None)
-                                                 .map_err(|e| error!("{}", e))
-                                                 .ok();
-                                         }
-                                     }
-                                     _ => error!("Can't find any bootstrap nodes - check DNS!"),
+         match node.get_peer_stats(&vec![]) {
+             Ok(ref x) => {
+                 info!("I currently have {}/{} nodes!",
+                       x.len(),
+                       _desired_nodes_count);
+                 let mut count = 0;
+                 for i in x {
+                     info!("Peer {}: {}/{}:{}",
+                           count,
+                           i.id().to_string(),
+                           i.ip().to_string(),
+                           i.port());
+                     count += 1;
+                 }
+                 if _desired_nodes_count > x.len() as u8 {
+                     if x.len() == 0 {
+                         info!("No nodes at all - retrying bootstrapping");
+                         match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
+                                                          &_dns_resolvers,
+                                                          _dnssec,
+                                                          &_bootstrap_node)
+                         {
+                             Ok(nodes) => {
+                                 for (ip, port) in nodes {
+                                     info!("Found bootstrap node IP: {} and port: {}",
+                                           ip, port);
+                                     node.connect(ConnectionType::Bootstrapper,
+                                                  ip,
+                                                  port,
+                                                  None)
+                                         .map_err(|e| error!("{}", e))
+                                         .ok();
                                  }
-                             } else {
-                                 info!("Not enough nodes, sending GetPeers requests");
-                                 node.send_get_peers(_nids.clone())
-                                     .map_err(|e| error!("{}", e))
-                                     .ok();
                              }
+                             _ => error!("Can't find any bootstrap nodes - check DNS!"),
                          }
+                     } else {
+                         info!("Not enough nodes, sending GetPeers requests");
+                         node.send_get_peers(_nids.clone())
+                             .map_err(|e| error!("{}", e))
+                             .ok();
                      }
-                     Err(e) => error!("Couldn't get node list, {:?}", e),
-                 };
-             });
+                 }
+             }
+             Err(e) => error!("Couldn't get node list, {:?}", e),
+         };
+     });
 
     let _th = testrunner.start_server(&conf.listen_http_address, conf.listen_http_port);
 
