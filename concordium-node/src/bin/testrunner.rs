@@ -345,7 +345,7 @@ fn run() -> ResultExtWrapper<()> {
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
     };
 
-    let mut node = if conf.debug {
+    let node_sender = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard =
             thread::spawn(move || {
@@ -381,32 +381,25 @@ fn run() -> ResultExtWrapper<()> {
                                   }
                               }
                           });
-        P2PNode::new(node_id,
-                     conf.listen_address,
-                     conf.listen_port,
-                     external_ip,
-                     conf.external_port,
-                     pkt_in,
-                     Some(sender),
-                     mode_type,
-                     None,
-                     conf.network_ids.clone(),
-                     conf.min_peers_bucket,
-                     false)
+        Some(sender)
     } else {
-        P2PNode::new(node_id,
-                     conf.listen_address,
-                     conf.listen_port,
-                     external_ip,
-                     conf.external_port,
-                     pkt_in,
-                     None,
-                     mode_type,
-                     None,
-                     conf.network_ids.clone(),
-                     conf.min_peers_bucket,
-                     false)
+        None
     };
+
+    let mut node = P2PNode::new(
+        node_id,
+        conf.listen_address,
+        conf.listen_port,
+        external_ip,
+        conf.external_port,
+        pkt_in,
+        node_sender,
+        mode_type,
+        None,
+        conf.network_ids.clone(),
+        conf.min_peers_bucket,
+        false
+    );
 
     let _node_th = node.spawn();
 
