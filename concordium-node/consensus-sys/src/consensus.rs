@@ -67,8 +67,8 @@ impl ConsensusBaker {
                        on_log_emited)
         };
         ConsensusBaker { id: baker_id,
-                         genesis_data: genesis_data,
-                         private_data: private_data,
+                         genesis_data,
+                         private_data,
                          runner: Arc::new(Mutex::new(baker)) }
     }
 
@@ -93,7 +93,7 @@ impl ConsensusBaker {
         unsafe {
             let baker = &*self.runner.lock().unwrap();
             let len = data.len();
-            let c_string = CString::from_vec_unchecked(data.to_vec());
+            let c_string = CString::from_vec_unchecked(data);
             receiveFinalization(*baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
@@ -102,15 +102,15 @@ impl ConsensusBaker {
         unsafe {
             let baker = &*self.runner.lock().unwrap();
             let len = data.len();
-            let c_string = CString::from_vec_unchecked(data.to_vec());
+            let c_string = CString::from_vec_unchecked(data);
             receiveFinalizationRecord(*baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
-    pub fn send_transaction(&self, data: &String) -> i64 {
+    pub fn send_transaction(&self, data: &str) -> i64 {
         unsafe {
             let baker = &*self.runner.lock().unwrap();
-            let c_string = CString::new(data.as_str()).unwrap();
+            let c_string = CString::new(data).unwrap();
             receiveTransaction(*baker, c_string.as_ptr() as *const u8)
         }
     }
@@ -273,7 +273,7 @@ impl ConsensusContainer {
             .lock()
             .unwrap()
             .insert(baker_id,
-                    ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data.clone()));
+                    ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data));
     }
 
     pub fn stop_baker(&mut self, baker_id: u64) {
@@ -283,7 +283,7 @@ impl ConsensusContainer {
                 None => error!("Can't find baker"),
             }
             bakers.remove(&baker_id);
-            if bakers.len() == 0 {
+            if bakers.is_empty() {
                 CALLBACK_QUEUE.clone().clear();
             }
         } else {
@@ -371,7 +371,7 @@ extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
     unsafe {
         let s = str::from_utf8_unchecked(slice::from_raw_parts(genesis_data as *const u8,
                                                                data_length as usize));
-        *GENERATED_GENESIS_DATA.lock().unwrap() = Some(s.as_bytes().to_vec().clone());
+        *GENERATED_GENESIS_DATA.lock().unwrap() = Some(s.to_owned().into_bytes());
     }
 }
 
@@ -381,7 +381,7 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
                                                                data_length as usize));
         GENERATED_PRIVATE_DATA.lock()
                               .unwrap()
-                              .insert(baker_id, s.as_bytes().to_vec().clone());
+                              .insert(baker_id, s.to_owned().into_bytes());
     }
 }
 
@@ -406,7 +406,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             }
             1 => {
                 match CALLBACK_QUEUE.clone()
-                                    .send_finalization(Box::new(s.as_bytes().to_vec()))
+                                    .send_finalization(Box::new(s.to_owned().into_bytes()))
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization", s.len());
@@ -416,7 +416,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             }
             2 => {
                 match CALLBACK_QUEUE.clone()
-                                    .send_finalization_record(Box::new(s.as_bytes().to_vec()))
+                                    .send_finalization_record(Box::new(s.to_owned().into_bytes()))
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization record", s.len());
@@ -475,20 +475,20 @@ pub struct Block {
 impl Block {
     pub fn deserialize(data: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
-        let mut slot_id_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let mut slot_id_bytes = Cursor::new(&data[curr_pos..][..8]);
         let slot_id = match slot_id_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
         curr_pos += 8 + 32;
-        let mut baker_id_bytes = Cursor::new(&data[curr_pos..(curr_pos + 8)]);
+        let mut baker_id_bytes = Cursor::new(&data[curr_pos..][..8]);
         let baker_id = match baker_id_bytes.read_u64::<BigEndian>() {
             Ok(num) => num,
             _ => return None,
         };
-        Some(Block { slot_id: slot_id,
-                     baker_id: baker_id,
-                     data: data.to_vec() })
+        Some(Block { slot_id,
+                     baker_id,
+                     data: data.to_owned() })
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
