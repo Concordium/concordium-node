@@ -1,11 +1,8 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-extern crate structopt;
 #[macro_use]
 extern crate arrayref;
-extern crate hacl_star;
-extern crate p2p_client;
 
 use p2p_client::errors::*;
 use p2p_client::utils::generate_bootstrap_dns;

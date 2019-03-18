@@ -1,9 +1,7 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-extern crate hacl_star;
-extern crate p2p_client;
-extern crate structopt;
+
 use hacl_star::ed25519::SecretKey;
 use p2p_client::errors::*;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};

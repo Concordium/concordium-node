@@ -1,12 +1,7 @@
-extern crate iron;
-extern crate p2p_client;
-extern crate router;
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
-extern crate hostname;
 #[macro_use]
 extern crate serde_json;
 

@@ -1,11 +1,6 @@
 #![recursion_limit = "1024"]
-extern crate structopt;
 #[macro_use]
 extern crate error_chain;
-extern crate p2p_client;
-extern crate reqwest;
-extern crate serde;
-extern crate serde_json;
 
 use p2p_client::errors::*;
 use serde_json::{json, Value};

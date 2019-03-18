@@ -1,21 +1,13 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-extern crate iron;
-extern crate p2p_client;
-extern crate router;
 #[macro_use]
 extern crate error_chain;
-extern crate chrono;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 #[macro_use]
 extern crate serde_json;
-extern crate rand;
-extern crate timer;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;

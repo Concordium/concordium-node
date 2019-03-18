@@ -1,5 +1,3 @@
-extern crate crypto_sys;
-
 use std::result::Result;
 use crypto_sys::KeyPair;
 

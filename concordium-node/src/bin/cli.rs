@@ -1,22 +1,13 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-extern crate p2p_client;
 #[macro_use]
 extern crate log;
-extern crate bytes;
-extern crate chrono;
-extern crate env_logger;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-extern crate mio;
-extern crate timer;
 #[macro_use]
 extern crate error_chain;
-extern crate byteorder;
-extern crate consensus_sys;
-extern crate reqwest;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
