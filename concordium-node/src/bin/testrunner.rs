@@ -55,8 +55,7 @@ struct Measurement {
 
 impl Measurement {
     pub fn new(received_time: u64, node_id: String) -> Self {
-        Measurement { received_time: received_time,
-                      node_id: node_id, }
+        Measurement { received_time, node_id }
     }
 }
 
@@ -68,7 +67,7 @@ impl TestRunner {
                      test_running: Arc::new(Mutex::new(false)),
                      registered_times: Arc::new(Mutex::new(vec![])),
                      node: Arc::new(Mutex::new(node)),
-                     nid: nid,
+                     nid,
                      packet_size: Arc::new(Mutex::new(None)), }
     }
 

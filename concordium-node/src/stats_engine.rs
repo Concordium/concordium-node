@@ -50,15 +50,8 @@ impl StatsEngine {
     pub fn calculate_total_tps_average(&self) -> f64 {
         //Get the first element and the last element in the queue.
         //We use their time fields to calculate total elapsed amount of time.
-        let front_time = match self.datapoints.front() {
-            Some(x) => x.time,
-            None => 0
-        };
-
-        let back_time = match self.datapoints.back() {
-            Some(x) => x.time,
-            None => 0
-        };
+        let front_time = self.datapoints.front().map_or(0, |x| x.time);
+        let back_time = self.datapoints.back().map_or(0, |x| x.time);
 
         let _dur = back_time-front_time;
 
@@ -81,15 +74,8 @@ impl StatsEngine {
             }
         }
 
-        let front_time = match within_slot.front() {
-            Some(x) => x.time,
-            None => 0
-        };
-
-        let back_time = match within_slot.back() {
-            Some(x) => x.time,
-            None => 0
-        };
+        let front_time = within_slot.front().map_or(0, |x| x.time);
+        let back_time = within_slot.back().map_or(0, |x| x.time);
 
         let _dur = back_time-front_time;
 
@@ -103,23 +89,13 @@ impl StatsEngine {
     pub fn calculate_total_transferred_data_per_second(&self) -> f64 {
         //Get the first element and the last element in the queue.
         //We use their time fields to calculate total elapsed amount of time.
-        let front_time = match self.datapoints.front() {
-            Some(x) => x.time,
-            None => 0
-        };
-
-        let back_time = match self.datapoints.back() {
-            Some(x) => x.time,
-            None => 0
-        };
+        let front_time = self.datapoints.front().map_or(0, |x| x.time);
+        let back_time = self.datapoints.back().map_or(0, |x| x.time);
 
         let _dur = back_time-front_time;
 
-        let mut total_size = 0;
         //Calculate total amount of data
-        for i in 0..self.datapoints.len() {
-            total_size += self.datapoints[i].size;
-        }
+        let total_size = self.datapoints.iter().map(|dp| dp.size).sum::<u64>();
 
         let calculated = ((_dur as f64) / (total_size as f64)) / 1000 as f64;
 

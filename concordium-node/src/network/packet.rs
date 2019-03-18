@@ -23,40 +23,32 @@ impl NetworkPacket {
     pub fn serialize(&self) -> Vec<u8> {
         match self {
             NetworkPacket::DirectMessage(_, msgid, receiver, nid, msg) => {
-                let mut pkt: Vec<u8> = Vec::new();
-                for byte in format!("{}{}{:016x}{}{:x}{}{:05}{:010}",
-                                    PROTOCOL_NAME,
-                                    PROTOCOL_VERSION,
-                                    get_current_stamp(),
-                                    PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-                                    receiver.get_id(),
-                                    msgid,
-                                    nid,
-                                    msg.len()).as_bytes()
-                {
-                    pkt.push(*byte);
-                }
-                for byte in msg.iter() {
-                    pkt.push(*byte);
-                }
+                let mut pkt = format!("{}{}{:016x}{}{:x}{}{:05}{:010}",
+                    PROTOCOL_NAME,
+                    PROTOCOL_VERSION,
+                    get_current_stamp(),
+                    PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
+                    receiver.get_id(),
+                    msgid,
+                    nid,
+                    msg.len()
+                ).into_bytes();
+                pkt.extend(msg.iter());
+
                 pkt
             }
             NetworkPacket::BroadcastedMessage(_, msgid, nid, msg) => {
-                let mut pkt: Vec<u8> = Vec::new();
-                for byte in format!("{}{}{:016x}{}{}{:05}{:010}",
-                                    PROTOCOL_NAME,
-                                    PROTOCOL_VERSION,
-                                    get_current_stamp(),
-                                    PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
-                                    msgid,
-                                    nid,
-                                    msg.len()).as_bytes()
-                {
-                    pkt.push(*byte);
-                }
-                for byte in msg.iter() {
-                    pkt.push(*byte);
-                }
+                let mut pkt = format!("{}{}{:016x}{}{}{:05}{:010}",
+                    PROTOCOL_NAME,
+                    PROTOCOL_VERSION,
+                    get_current_stamp(),
+                    PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
+                    msgid,
+                    nid,
+                    msg.len()
+                ).into_bytes();
+                pkt.extend(msg.iter());
+
                 pkt
             }
         }

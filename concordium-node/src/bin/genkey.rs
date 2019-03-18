@@ -37,7 +37,7 @@ pub fn run() -> ResultExtWrapper<()> {
         {
             Ok(mut file) => {
                 let key: [u8; 32] = generate_ed25519_key();
-                let secret_key = SecretKey { 0: key };
+                let secret_key = SecretKey(key);
                 let public_key = secret_key.get_public();
                 match file.write_all(&key) {
                     Ok(_) => {

@@ -43,12 +43,9 @@ pub fn run() -> ResultExtWrapper<()> {
     let mut private_key_bytes: Vec<u8> = vec![];
     match File::open(&conf.keyfile) {
         Ok(ref mut file) => {
-            match file.read_to_end(&mut private_key_bytes) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("Error while reading {} {}", &conf.keyfile, e);
-                    exit(1);
-                }
+            if let Err(e) = file.read_to_end(&mut private_key_bytes) {
+                println!("Error while reading {} {}", &conf.keyfile, e);
+                exit(1);
             }
         }
         Err(e) => {

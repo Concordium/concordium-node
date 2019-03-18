@@ -35,11 +35,8 @@ impl Buckets {
     pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
         let dist = self.distance(&own_id, &node.id());
         for i in 0..KEY_SIZE {
-            match self.buckets.get_mut(&i) {
-                Some(x) => {
-                    x.retain(|ref ele| ele.0 != *node);
-                }
-                _ => {}
+            if let Some(x) = self.buckets.get_mut(&i) {
+                x.retain(|ref ele| ele.0 != *node);
             }
             if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
@@ -141,7 +138,7 @@ impl Buckets {
         }
     }
 
-    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &Vec<u16>) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &[u16]) -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
         match sender {
             Some(sender_peer) => {
@@ -173,21 +170,21 @@ impl Buckets {
     }
 
     pub fn len(&self) -> usize {
-        self.buckets.iter().map(|(_, y)| y.len() as usize).sum()
+        self.buckets.iter().map(|(_, y)| y.len()).sum()
     }
 
     pub fn get_random_nodes(&self,
                             sender: &P2PPeer,
                             amount: usize,
-                            nids: &Vec<u16>)
+                            nids: &[u16])
                             -> Vec<P2PPeer> {
         match RNG.lock() {
             Ok(ref mut rng) => self.get_all_nodes(Some(sender), nids)
                 .choose_multiple(&mut **rng, amount)
-                .map(|x| x.clone())
+                .cloned()
                 .collect(),
             _ => vec![],
         }
-        
+
     }
 }
