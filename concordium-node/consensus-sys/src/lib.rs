@@ -4,12 +4,9 @@
 extern crate curryrsunix as curryrs;
 #[cfg(windows)]
 extern crate curryrswin as curryrs;
-extern crate libc;
 #[macro_use]
 extern crate lazy_static;
-extern crate byteorder;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 
 pub mod consensus;

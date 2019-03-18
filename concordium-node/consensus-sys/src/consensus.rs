@@ -506,7 +506,7 @@ impl Block {
 
 #[cfg(test)]
 mod tests {
-    use consensus::*;
+    use crate::consensus::*;
     use std::sync::{Once, ONCE_INIT};
     use std::time::Duration;
 
