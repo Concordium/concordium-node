@@ -1,8 +1,7 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[macro_use] extern crate p2p_client;
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]

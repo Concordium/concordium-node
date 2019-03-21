@@ -1,15 +1,15 @@
 #![recursion_limit = "1024"]
-#[macro_use]
-extern crate error_chain;
+#[macro_use] extern crate p2p_client;
+#[macro_use] extern crate log;
 #[macro_use]
 extern crate arrayref;
 
-use p2p_client::errors::*;
 use p2p_client::utils::generate_bootstrap_dns;
 use std::fs::File;
 use std::io::Read;
 use std::process::exit;
 use structopt::StructOpt;
+use failure::Fallible;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Record Generator")]
@@ -28,9 +28,9 @@ struct ConfigCli {
     dns_record_length: usize,
 }
 
-quick_main!(run);
+failing_main!(run);
 
-pub fn run() -> ResultExtWrapper<()> {
+pub fn run() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     if !std::path::Path::new(&conf.keyfile).exists() {
         println!("Key {} doesn't exist, please specify valid file",

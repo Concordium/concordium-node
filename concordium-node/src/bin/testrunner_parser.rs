@@ -1,13 +1,13 @@
 #![recursion_limit = "1024"]
-#[macro_use]
-extern crate error_chain;
+#[macro_use] extern crate p2p_client;
+#[macro_use] extern crate log;
 
-use p2p_client::errors::*;
 use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::prelude::*;
 use structopt::StructOpt;
+use failure::{ Fallible, Error, err_msg };
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "TestRunner Results Parser")]
@@ -20,9 +20,9 @@ struct ConfigCli {
     pub csv: bool,
 }
 
-quick_main!(run);
+failing_main!(run);
 
-pub fn run() -> ResultExtWrapper<()> {
+pub fn run() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     p2p_client::setup_panics();
     let results =
@@ -68,10 +68,10 @@ pub fn run() -> ResultExtWrapper<()> {
                                     v["received_time"].as_u64().unwrap() - start_time,
                                     v["received_time"].as_u64().unwrap()))
                             } else {
-                                Err(ErrorKindWrapper::ParseError("Json not correct format".to_string()).into())
+                                Err(err_msg("Json not correct format"))
                             }
                     })
-                    .collect::<Result<Vec<(String, u64, u64)>, ErrorKindWrapper>>()?;
+                    .collect::<Result<Vec<(String, u64, u64)>, Error>>()?;
                 measurements.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
                 if conf.csv {
                     for ele in measurements {
@@ -89,9 +89,9 @@ pub fn run() -> ResultExtWrapper<()> {
                 }
                 Ok(())
             } else {
-                Err(ErrorKindWrapper::ParseError("Json not correct format".to_string()).into())
+                Err(err_msg("Json not correct format"))
             }
     } else {
-        Err(ErrorKindWrapper::ParseError("Json not correct format".to_string()).into())
+        Err(err_msg("Json not correct format"))
     }
 }

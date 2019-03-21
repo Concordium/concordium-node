@@ -1,14 +1,14 @@
 #![recursion_limit = "1024"]
-#[macro_use]
-extern crate error_chain;
+#[macro_use] extern crate p2p_client;
+#[macro_use] extern crate log;
 
 use hacl_star::ed25519::SecretKey;
-use p2p_client::errors::*;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process::exit;
 use structopt::StructOpt;
+use failure::Fallible;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Key Generator")]
@@ -24,9 +24,9 @@ struct ConfigCli {
     force_overwrite: bool,
 }
 
-quick_main!(run);
+failing_main!(run);
 
-pub fn run() -> ResultExtWrapper<()> {
+pub fn run() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     p2p_client::setup_panics();
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {

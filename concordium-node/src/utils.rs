@@ -1,7 +1,7 @@
 use base64::{encode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use ::dns::dns;
-use crate::errors::*;
+use failure::{Fallible};
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
@@ -102,7 +102,7 @@ pub fn crypto_key_to_pem(input: &crypto_sys::KeyPair) -> Vec<u8> {
     [pemheader, pemcontent.as_bytes(), pemfooter].concat()
 }
 
-pub fn generate_certificate(id: String) -> ResultExtWrapper<Cert> {
+pub fn generate_certificate(id: String) -> Fallible<Cert> {
     // let ec_kp = crypto_sys::KeyPair::new();
     //
     // We can generate a KeyPair using our crypto_sys crate and we have functions to sign with it

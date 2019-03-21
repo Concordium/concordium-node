@@ -1,7 +1,5 @@
-#[macro_use]
-extern crate error_chain;
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate p2p_client;
+#[macro_use] extern crate log;
 #[macro_use]
 extern crate serde_json;
 
@@ -16,7 +14,6 @@ use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
 use p2p_client::configuration;
-use p2p_client::errors::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use router::Router;
 use std::collections::HashSet;
@@ -24,8 +21,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use failure::Fallible;
 
-quick_main!(run);
+failing_main!(run);
 
 #[derive(Clone)]
 struct IpDiscoveryServer {
@@ -137,7 +135,7 @@ impl IpDiscoveryServer {
     }
 }
 
-fn run() -> ResultExtWrapper<()> {
+fn run() -> Fallible<()> {
     let conf = configuration::parse_ipdiscovery_config();
     let app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());

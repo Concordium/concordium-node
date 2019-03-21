@@ -3,8 +3,6 @@
 
 extern crate failure;
 #[macro_use]
-extern crate error_chain;
-#[macro_use]
 extern crate derive_builder;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
@@ -41,9 +39,6 @@ pub fn get_dns_public_key() -> &'static str {
 pub mod connection;
 pub mod configuration;
 pub mod db;
-// Due to massive changes in std, and possible change away from the error_chain crate,
-// we'll ignore deprecated warnings in this for now.
-#[allow(deprecated)] pub mod errors;
 
 pub mod p2p;
 pub mod prometheus_exporter;
