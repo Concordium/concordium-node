@@ -1,7 +1,6 @@
-#[macro_use] extern crate p2p_client;
-#[macro_use] extern crate log;
 #[macro_use]
 extern crate serde_json;
+#[macro_use] extern crate log;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -14,6 +13,7 @@ use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
 use p2p_client::configuration;
+use p2p_client::failing_main;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use router::Router;
 use std::collections::HashSet;

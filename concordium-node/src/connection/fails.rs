@@ -4,19 +4,19 @@ use failure::{Fail, Backtrace};
 pub enum ConnectionError {
     #[fail(display = "Message processing error: {}", message)]
     MessageProcessError {
-        message: String,
+        message: &'static str,
         backtrace: Backtrace
     },
     #[fail(display = "Peer error: {}", message)]
     PeerError {
-        message: String,
+        message: &'static str,
     },
     #[fail(display = "Log error: {}", message)]
     LogError {
-        message: String,
+        message: &'static str,
     },
     #[fail(display = "Prometheus error: {}", message)]
     PrometheusError {
-        message: String,
+        message: &'static str,
     }
 }

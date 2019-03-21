@@ -38,12 +38,7 @@ macro_rules! run_callbacks {
             })($handlers.iter()
             .map( |handler| handler.borrow_mut())
             .map( |handler_mut| { (handler_mut)($message) })
-            .fold(vec![], |mut status, handler_result| {
-                if let Err(e) = handler_result {
-                   status.push(e);
-                };
-                status
-            }))
+            .filter_map(|handler_result| handler_result.err()).collect())
     }
 }
 

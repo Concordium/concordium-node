@@ -1,5 +1,4 @@
 #![recursion_limit = "1024"]
-#[macro_use] extern crate p2p_client;
 #[macro_use] extern crate log;
 
 use serde_json::{json, Value};
@@ -8,6 +7,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use structopt::StructOpt;
 use failure::{ Fallible, Error, err_msg };
+use p2p_client::failing_main;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "TestRunner Results Parser")]
@@ -68,7 +68,7 @@ pub fn run() -> Fallible<()> {
                                     v["received_time"].as_u64().unwrap() - start_time,
                                     v["received_time"].as_u64().unwrap()))
                             } else {
-                                Err(err_msg("Json not correct format"))
+                                Err(err_msg("invalid JSON format"))
                             }
                     })
                     .collect::<Result<Vec<(String, u64, u64)>, Error>>()?;
@@ -89,9 +89,9 @@ pub fn run() -> Fallible<()> {
                 }
                 Ok(())
             } else {
-                Err(err_msg("Json not correct format"))
+                Err(err_msg("invalid JSON format"))
             }
     } else {
-        Err(err_msg("Json not correct format"))
+        Err(err_msg("invalid JSON format"))
     }
 }

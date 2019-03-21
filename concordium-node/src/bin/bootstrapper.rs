@@ -1,15 +1,12 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-#[macro_use] extern crate p2p_client;
-#[macro_use]
-extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 extern crate mio;
 extern crate timer;
-extern crate failure;
+#[macro_use] extern crate log;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -23,6 +20,7 @@ use p2p_client::db::P2PDB;
 use failure::Error;
 use p2p_client::p2p::*;
 use p2p_client::fails;
+use p2p_client::failing_main;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;

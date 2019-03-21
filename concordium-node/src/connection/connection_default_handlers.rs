@@ -28,20 +28,20 @@ fn serialize_bytes( session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> Functor
     Ok(())
 }
 
-fn make_msg_error(e: String) -> FunctorError  {
+fn make_msg_error(e: &'static str) -> FunctorError  {
     FunctorError::new(vec![Error::from(ConnectionError::MessageProcessError {
-        message: e.to_string(),
+        message: e,
         backtrace: Backtrace::new()
     })])
 }
 
-fn make_fn_error_peer(e: String) -> FunctorError {
+fn make_fn_error_peer(e: &'static str) -> FunctorError {
     FunctorError::new(vec![Error::from(ConnectionError::PeerError {
         message: e
     })])
 }
 
-fn make_log_error(e: String) -> FunctorError {
+fn make_log_error(e: &'static str) -> FunctorError {
     FunctorError::new(vec![Error::from(ConnectionError::LogError {
         message: e
     })])
@@ -49,7 +49,7 @@ fn make_log_error(e: String) -> FunctorError {
 
 fn make_fn_error_prometheus() -> FunctorError {
     FunctorError::new(vec![Error::from(ConnectionError::PrometheusError {
-        message: "Prometheus failed".to_string(),
+        message: "Prometheus failed",
     })])
 }
 
@@ -70,7 +70,7 @@ pub fn default_network_request_ping_handle(
 
         // Make `Pong` response and send
         let peer = priv_conn_borrow.peer().clone()
-            .ok_or_else( || make_fn_error_peer("Couldn't get peer".to_string()))?;
+            .ok_or_else( || make_fn_error_peer("Couldn't get peer"))?;
 
         NetworkResponse::Pong(peer.clone()).serialize()
     };
@@ -92,7 +92,7 @@ pub fn default_network_request_find_node_handle(
         let response_data = {
             let priv_conn_borrow = priv_conn.borrow();
             let peer = priv_conn_borrow.peer().clone()
-                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer"))?;
             let nodes = priv_conn_borrow.buckets.read()
                 .map_err(global_fails::PoisonError::from)?
                 .closest_nodes(node_id);
@@ -101,7 +101,7 @@ pub fn default_network_request_find_node_handle(
 
         Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &response_data)?)
      } else {
-        Err(make_msg_error( "Find node handler cannot handler this packet".to_string()))?
+        Err(make_msg_error( "Find node handler cannot handler this packet"))?
     }
 }
 
@@ -127,14 +127,14 @@ pub fn default_network_request_get_peers(
                     .map_err(global_fails::PoisonError::from)?.pkt_sent_inc()?;
             };
 
-            let peer = priv_conn_borrow.peer().clone().ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+            let peer = priv_conn_borrow.peer().clone().ok_or_else( || make_fn_error_peer("Couldn't borrow peer"))?;
             NetworkResponse::PeerList(peer, nodes)
                 .serialize()
         };
 
         Ok(serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &peer_list_packet)?)
     } else {
-            Err(make_msg_error( "Get peers handler cannot handler this packet".to_string()))?
+            Err(make_msg_error( "Get peers handler cannot handler this packet"))?
     }
 }
 
@@ -155,7 +155,7 @@ pub fn default_network_response_find_node (
 
         Ok(())
     } else {
-        Err(make_msg_error( "Response find node handler cannot handler this packet".to_string()))?
+        Err(make_msg_error( "Response find node handler cannot handler this packet"))?
     }
 }
 
@@ -196,7 +196,7 @@ fn log_as_joined_network(
     if let Some(ref log) = event_log {
         for ele in networks.iter() {
             log.send( P2PEvent::JoinedNetwork(peer.clone(), *ele))
-                .map_err(|_| make_log_error("Join Network Event cannot be sent to log".to_string()))?;
+                .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
         }
     }
     Ok(())
@@ -209,7 +209,7 @@ fn log_as_leave_network(
         network: u16) -> FunctorResult {
     if let Some(ref log) = event_log {
         log.send( P2PEvent::LeftNetwork( sender.clone(), network))
-            .map_err(|_| make_log_error("Left Network Event cannot be sent to log".to_string()))?;
+            .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
     };
     Ok(())
 }
@@ -260,7 +260,7 @@ pub fn default_network_request_join_network(
 
         let priv_conn_borrow = priv_conn.borrow();
         let peer = priv_conn_borrow.peer().clone()
-            .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+            .ok_or_else( || make_fn_error_peer("Couldn't borrow peer"))?;
         let priv_conn_networks = priv_conn_borrow.networks.clone();
 
         priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
@@ -281,7 +281,7 @@ pub fn default_network_request_leave_network(
         priv_conn.borrow_mut().remove_network( network);
         let priv_conn_borrow = priv_conn.borrow();
         let peer = priv_conn_borrow.peer().clone()
-            .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+            .ok_or_else( || make_fn_error_peer("Couldn't borrow peer"))?;
 
         priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
             .update_network_ids( &peer, priv_conn_borrow.networks.clone());

@@ -1,14 +1,12 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-#[macro_use] extern crate p2p_client;
-#[macro_use] extern crate log;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
+#[macro_use] extern crate log;
 extern crate rand;
 extern crate timer;
-extern crate failure;
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]
@@ -18,7 +16,7 @@ use env_logger::{Builder, Env};
 use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
-use p2p_client::common;
+use p2p_client::{failing_main, common};
 use p2p_client::common::{ ConnectionType };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;

@@ -35,12 +35,12 @@ pub struct P2PPeer {
 
 impl P2PPeerBuilder {
     pub fn build(&mut self) -> Fallible<P2PPeer> {
-        let id_bc = match self.clone().id {
+        let id_bc = match &self.id {
             None => {
-                if self.ip.is_none() | self.port.is_none() {
-                    Err(fails::EmptyIpPortError{})
-                } else {
+                if self.ip.is_some() && self.port.is_some() {
                     Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
+                } else {
+                    Err(fails::EmptyIpPortError{})
                 }
             },
             Some(id) => {
@@ -54,12 +54,12 @@ impl P2PPeerBuilder {
         if let Some(id) = id_bc {
             self.id(id);
         }
-        if self.connection_type.is_some() & self.id.is_some() &
-            self.ip.is_some() & self.port.is_some() {
+        if self.connection_type.is_some() && self.id.is_some() &&
+            self.ip.is_some() && self.port.is_some() {
                 Ok(P2PPeer { connection_type: self.connection_type.unwrap(),
                              ip: self.ip.unwrap(),
                              port: self. port.unwrap(),
-                             id: self.id.to_owned().unwrap(),
+                             id: self.id.clone().unwrap(),
                              last_seen: get_current_stamp()})
             } else {
                 Err(fails::MissingFieldsError::new(
@@ -217,8 +217,8 @@ impl PartialEq for P2PNodeId {
 impl Eq for P2PNodeId {}
 
 impl P2PNodeId {
-    pub fn from_string(sid: &String) -> Fallible<P2PNodeId> {
-        Ok(P2PNodeId { id: BigUint::from_str_radix(&sid, 16)? })
+    pub fn from_string(sid: &str) -> Fallible<P2PNodeId> {
+        Ok(P2PNodeId { id: BigUint::from_str_radix(sid, 16)? })
     }
 
     pub fn get_id(&self) -> &BigUint {

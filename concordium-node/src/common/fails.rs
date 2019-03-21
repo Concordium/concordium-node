@@ -5,7 +5,7 @@ use num_bigint::ParseBigIntError;
 
 #[derive(Debug, Fail)]
 #[fail(display = "Empty IP or Port on P2PPeer building")]
-pub struct EmptyIpPortError{}
+pub struct EmptyIpPortError;
 
 #[derive(Debug, Fail)]
 #[fail(display = "Missing fields on P2PPeer build: conn<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>", connection_type, id, ip, port)]
@@ -60,11 +60,11 @@ impl InvalidIpType {
 
 #[derive(Debug, Fail)]
 #[fail(display = "Invalid length for serialized P2PPeer")]
-pub struct InvalidLength {}
+pub struct InvalidLength;
 
 #[derive(Debug, Fail)]
 #[fail(display = "Error when parsing P2PNodeId")]
-pub struct P2PNodeIdError {}
+pub struct P2PNodeIdError;
 
 impl From<ParseBigIntError> for P2PNodeIdError {
    fn from(_: ParseBigIntError) -> Self {

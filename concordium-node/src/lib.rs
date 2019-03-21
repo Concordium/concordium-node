@@ -1,13 +1,11 @@
 #![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, integer_atomics, custom_attribute)]
 #![recursion_limit = "1024"]
 
-extern crate failure;
+#[macro_use] extern crate log;
 #[macro_use]
 extern crate derive_builder;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
-#[macro_use]
-extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
@@ -24,6 +22,8 @@ extern crate cfg_if;
 #[cfg(target_os = "windows")]
 extern crate ipconfig;
 
+use failure;
+
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
 const DEFAULT_DNS_PUBLIC_KEY: &'static str =
@@ -34,7 +34,7 @@ pub fn get_dns_public_key() -> &'static str {
     ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY)
 }
 
-#[macro_use]pub mod fails;
+#[macro_use] pub mod fails;
 #[macro_use] pub mod common;
 pub mod connection;
 pub mod configuration;
