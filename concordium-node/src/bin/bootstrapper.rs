@@ -9,8 +9,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 extern crate mio;
 extern crate timer;
-//#[macro_use]
-extern crate error_chain;
 extern crate failure;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
@@ -23,7 +21,6 @@ use p2p_client::network::{NetworkMessage, NetworkRequest};
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use failure::Error;
-//use p2p_client::fails;
 use p2p_client::p2p::*;
 use p2p_client::fails;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };

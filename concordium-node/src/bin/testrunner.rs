@@ -1,10 +1,7 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[macro_use] extern crate p2p_client;
-//#[macro_use]
-extern crate error_chain;
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate log;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -26,8 +23,6 @@ use p2p_client::common::{ ConnectionType };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
-//e p2p_client::errors::*;
-//use p2p_client::fails;
 use p2p_client::p2p::*;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::utils;

@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
-//use crate::errors::*;
 use super::fails;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;

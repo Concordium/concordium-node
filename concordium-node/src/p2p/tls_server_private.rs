@@ -5,7 +5,6 @@ use std::collections::{ HashMap, HashSet };
 use mio::{ Token, Poll, Event };
 use failure::{Fallible};
 
-//use crate::errors::{ ErrorKindWrapper, ResultExtWrapper };
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
 use crate::connection::{ Connection, P2PNodeMode };
 use crate::fails as global_fails;

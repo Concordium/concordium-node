@@ -12,8 +12,6 @@ use mio::{ Poll, PollOpt, Ready, Token, Event, net::TcpStream };
 use rustls::{ ServerSession, ClientSession };
 use crate::prometheus_exporter::{ PrometheusServer };
 
-//use crate::errors::{ ResultExtWrapper, ErrorKindWrapper, ErrorWrapper };
-//use error_chain::ChainedError;
 use failure::{Error, Fallible};
 
 use crate::common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };

@@ -46,8 +46,6 @@ pub struct AFunctor<T> {
 unsafe impl<T> Send for AFunctor<T> {}
 unsafe impl<T> Sync for AFunctor<T> {}
 
-// static DEEP_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
-
 impl<T> AFunctor<T> {
 
     pub fn new( name: &'static str) -> Self {

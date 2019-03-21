@@ -8,9 +8,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 extern crate mio;
 extern crate timer;
-//#[macro_use]
-//extern crate error_chain;
-//#[macro_use]
 extern crate failure;
 extern crate byteorder;
 extern crate consensus_sys;
@@ -28,7 +25,6 @@ use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
-//use p2p_client::errors::*;
 use p2p_client::p2p::*;
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};

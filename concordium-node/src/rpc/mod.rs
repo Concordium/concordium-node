@@ -3,8 +3,6 @@ mod fails;
 use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
 use crate::network::{ NetworkMessage, NetworkPacket };
 use crate::db::P2PDB;
-//use crate::errors::ErrorKindWrapper::{QueueingError};
-//use crate::errors::*;
 use crate::failure::Fallible;
 use crate::fails as global_fails;
 use futures::future::Future;
@@ -23,7 +21,6 @@ use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
-//use crate::errors::ErrorWrapper;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {

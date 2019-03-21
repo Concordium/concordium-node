@@ -12,7 +12,6 @@ use crate::connection::{ P2PEvent, P2PNodeMode, CommonSession };
 use crate::connection::connection_private::{ ConnectionPrivate };
 use crate::fails as global_fails;
 
-//use crate::errors::*;
 use super::fails::ConnectionError;
 use failure::{Backtrace, Error };
 

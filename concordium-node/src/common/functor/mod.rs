@@ -15,7 +15,6 @@ pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
 #[macro_export]
 macro_rules! make_atomic_callback {
     ($callback:expr) => {
-        // Arc::new( Mutex::new( Box::new( $callback)))
         ( format!( "{}:{}",file!(), line!()), Arc::new( Mutex::new( Box::new( $callback))))
     }
 }
