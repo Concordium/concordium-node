@@ -4,27 +4,63 @@ use std::net::IpAddr;
 use num_bigint::ParseBigIntError;
 
 #[derive(Debug, Fail)]
-pub enum P2PPeerParseError {
-    #[fail(display = "Empty IP or Port on P2PPeer building")]
-    EmptyIpPortError(),
-    #[fail(display = "Missing fields on P2PPeer build: conn<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>", connection_type, id, ip, port)]
-    MissingFieldsError {
+#[fail(display = "Empty IP or Port on P2PPeer building")]
+pub struct EmptyIpPortError{}
+
+#[derive(Debug, Fail)]
+#[fail(display = "Missing fields on P2PPeer build: conn<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>", connection_type, id, ip, port)]
+pub struct MissingFieldsError {
         connection_type: Option<ConnectionType>,
         id: Option<P2PNodeId>,
         ip: Option<IpAddr>,
         port: Option<u16>
-    },
-    #[fail(display = "Invalid length for specified IP type: type<{}>", ip_type)]
-    InvalidLengthForIP {
-        ip_type: String
-    },
-    #[fail(display = "Invalid IP type specified: type<{}>", ip_type)]
-    InvalidIpType {
-        ip_type: String
-    },
-    #[fail(display = "Invalid length for serialized P2PPeer")]
-    InvalidLength ()
 }
+
+impl MissingFieldsError {
+    pub fn new(connection_type: Option<ConnectionType>,
+               id: Option<P2PNodeId>,
+               ip: Option<IpAddr>,
+               port: Option<u16>) -> MissingFieldsError {
+        MissingFieldsError {
+            connection_type,
+            id,
+            ip,
+            port
+        }
+    }
+}
+
+#[derive(Debug, Fail)]
+#[fail(display = "Invalid length for specified IP type: type<{}>", ip_type)]
+pub struct InvalidLengthForIP {
+    ip_type: String
+}
+
+impl InvalidLengthForIP {
+    pub fn new(ip_type: String) -> InvalidLengthForIP {
+        InvalidLengthForIP {
+            ip_type
+        }
+    }
+}
+
+#[derive(Debug, Fail)]
+#[fail(display = "Invalid IP type specified: type<{}>", ip_type)]
+pub struct InvalidIpType {
+    ip_type: String
+}
+
+impl InvalidIpType {
+    pub fn new(ip_type: String) -> InvalidIpType {
+        InvalidIpType {
+            ip_type
+        }
+    }
+}
+
+#[derive(Debug, Fail)]
+#[fail(display = "Invalid length for serialized P2PPeer")]
+pub struct InvalidLength {}
 
 #[derive(Debug, Fail)]
 #[fail(display = "Error when parsing P2PNodeId")]
@@ -34,24 +70,4 @@ impl From<ParseBigIntError> for P2PNodeIdError {
    fn from(_: ParseBigIntError) -> Self {
         P2PNodeIdError{}
     }
-}
-
-#[derive(Debug, Fail)]
-#[fail(display = "Error running functor {}", name)]
-pub struct FunctorRunningError {
-    name: String
-}
-
-impl FunctorRunningError {
-    pub fn new(n: String) -> Self {
-        FunctorRunningError {
-            name: n
-        }
-    }
-}
-
-#[derive(Debug, Fail)]
-#[fail(display = "Error in functor result {:?}", errors)]
-pub struct FunctorResultError {
-    pub errors: std::vec::Vec<failure::Error>
 }

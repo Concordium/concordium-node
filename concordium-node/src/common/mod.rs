@@ -11,7 +11,7 @@ use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
 use time;
-use failure::{Fallible, Error};
+use failure::{Fallible};
 use crate::utils;
 
 use crate::network::{ PROTOCOL_NODE_ID_LENGTH };
@@ -38,7 +38,7 @@ impl P2PPeerBuilder {
         let id_bc = match self.clone().id {
             None => {
                 if self.ip.is_none() | self.port.is_none() {
-                    Err(fails::P2PPeerParseError::EmptyIpPortError())
+                    Err(fails::EmptyIpPortError{})
                 } else {
                     Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
                 }
@@ -62,12 +62,12 @@ impl P2PPeerBuilder {
                              id: self.id.to_owned().unwrap(),
                              last_seen: get_current_stamp()})
             } else {
-                Err(Error::from(fails::P2PPeerParseError::MissingFieldsError{
-                    connection_type: self.connection_type,
-                    id: self.id.clone(),
-                    ip: self.ip.clone(),
-                    port: self.port
-                }))
+                Err(fails::MissingFieldsError::new(
+                    self.connection_type,
+                    self.id.clone(),
+                    self.ip.clone(),
+                    self.port
+                ))?
             }
     }
 }
@@ -123,9 +123,9 @@ impl P2PPeer {
                         let port = buf[(ip_start + 12)..(ip_start + 17)].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
-                        return Err(Error::from(fails::P2PPeerParseError::InvalidLengthForIP{
-                            ip_type: ip_type.to_string()
-                        }))
+                        Err(fails::InvalidLengthForIP::new(
+                            ip_type.to_string()
+                        ))?
                     }
                 }
                 "IP6" => {
@@ -142,14 +142,14 @@ impl P2PPeer {
                         let port = buf[(ip_start + 32)..(ip_start + 37)].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
-                        return Err(Error::from(fails::P2PPeerParseError::InvalidLengthForIP{
-                            ip_type: ip_type.to_string()
-                        }))
+                        Err(fails::InvalidLengthForIP::new(
+                            ip_type.to_string()
+                        ))?
                     }
                 }
-                _ => return Err(Error::from(fails::P2PPeerParseError::InvalidIpType{
-                    ip_type: ip_type.to_string()
-                }))
+                _ => Err(fails::InvalidIpType::new(
+                   ip_type.to_string()
+                ))?
             };
             P2PPeerBuilder::default()
                 .id(P2PNodeId::from_string(&node_id.to_string())?)
@@ -158,7 +158,7 @@ impl P2PPeer {
                 .connection_type(ConnectionType::Node)
                 .build()
         } else {
-            Err(Error::from(fails::P2PPeerParseError::InvalidLength()))
+            Err(fails::InvalidLength{})?
         }
     }
 
@@ -218,9 +218,7 @@ impl Eq for P2PNodeId {}
 
 impl P2PNodeId {
     pub fn from_string(sid: &String) -> Fallible<P2PNodeId> {
-        BigUint::from_str_radix(&sid, 16)
-            .map_err(|x| Error::from(fails::P2PNodeIdError::from(x)))
-            .map(|x| P2PNodeId { id: x })
+        Ok(P2PNodeId { id: BigUint::from_str_radix(&sid, 16)? })
     }
 
     pub fn get_id(&self) -> &BigUint {

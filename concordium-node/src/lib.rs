@@ -36,6 +36,7 @@ pub fn get_dns_public_key() -> &'static str {
     ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY)
 }
 
+#[macro_use]pub mod fails;
 #[macro_use] pub mod common;
 pub mod connection;
 pub mod configuration;
@@ -43,7 +44,7 @@ pub mod db;
 // Due to massive changes in std, and possible change away from the error_chain crate,
 // we'll ignore deprecated warnings in this for now.
 #[allow(deprecated)] pub mod errors;
-pub mod fails;
+
 pub mod p2p;
 pub mod prometheus_exporter;
 pub mod proto;

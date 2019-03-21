@@ -1,17 +1,22 @@
 use failure::{Fail, Backtrace};
 
 #[derive(Debug,Fail)]
-#[fail(display = "Message processing error")]
-pub struct MessageProcessError {
-    message: String,
-    backtrace: Backtrace
-}
-
-impl MessageProcessError {
-    pub fn new(e: String) -> Self {
-        MessageProcessError {
-            message: e,
-            backtrace: Backtrace::new()
-        }
+pub enum ConnectionError {
+    #[fail(display = "Message processing error: {}", message)]
+    MessageProcessError {
+        message: String,
+        backtrace: Backtrace
+    },
+    #[fail(display = "Peer error: {}", message)]
+    PeerError {
+        message: String,
+    },
+    #[fail(display = "Log error: {}", message)]
+    LogError {
+        message: String,
+    },
+    #[fail(display = "Prometheus error: {}", message)]
+    PrometheusError {
+        message: String,
     }
 }

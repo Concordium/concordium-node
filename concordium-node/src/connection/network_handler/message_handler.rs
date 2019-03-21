@@ -1,6 +1,6 @@
 use std::sync::{ Arc, RwLock };
 use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
-use crate::common::functor::{ AFunctor, AFunctorCW, FullFunctorResult };
+use crate::common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 
 pub type NetworkMessageCW = AFunctorCW<NetworkMessage>;
 pub type NetworkRequestCW = AFunctorCW<NetworkRequest>;
@@ -99,7 +99,7 @@ impl MessageHandler {
         self
     }
 
-    fn process_message(&self, msg: &NetworkMessage) -> FullFunctorResult
+    fn process_message(&self, msg: &NetworkMessage) -> FunctorResult
     {
         // General
         let general_status = (&self.general_parser)(msg);

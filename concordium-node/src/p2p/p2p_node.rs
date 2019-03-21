@@ -5,7 +5,6 @@ use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
 //use crate::errors::*;
 use super::fails;
-use crate::fails as global_fails;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
@@ -20,6 +19,7 @@ use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
 use time::{ Timespec };
 use crate::utils;
+use crate::fails as global_fails;
 use std::thread;
 
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType };
@@ -324,8 +324,8 @@ impl P2PNode {
                    peer_id: Option<P2PNodeId>)
                    -> Fallible<()> {
         self.log_event(P2PEvent::InitiatingConnection(ip.clone(), port));
-        let mut locked_server = self.tls_server.lock().map_err(|_| global_fails::PoisonError::new().to_err())?;
-        let mut locked_poll = self.poll.lock().map_err(|_| global_fails::PoisonError::new().to_err())?;
+        let mut locked_server = self.tls_server.lock().map_err(global_fails::PoisonError::from)?;
+        let mut locked_poll = self.poll.lock().map_err(global_fails::PoisonError::from)?;
         locked_server.connect(connection_type,
                               &mut locked_poll,
                               ip,
@@ -366,7 +366,7 @@ impl P2PNode {
         (time::get_time() - self.start_time).num_milliseconds()
     }
 
-    fn check_sent_status(&self, conn: &Connection, status: Result<usize, std::io::Error>) {
+    fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
         if let Some(ref peer) = conn.peer().clone() {
             match status {
                 Ok(_) => {
@@ -381,10 +381,8 @@ impl P2PNode {
         }
     }
 
-    pub fn process_messages(&mut self) -> Fallible<()> {
-        {
-            let mut send_q = self.send_queue.lock()
-                .map_err(global_fails::PoisonError::from)?;
+    pub fn process_messages(&mut self) -> Fallible<()>  {
+            let mut send_q = self.send_queue.lock().map_err(global_fails::PoisonError::from)?;
             if send_q.len() == 0 {
                 return Ok(());
             }
@@ -404,7 +402,7 @@ impl P2PNode {
                         };
                         trace!("Got message to process!");
                         let check_sent_status_fn =
-                            |conn: &Connection, status: Result<usize, std::io::Error>|
+                            |conn: &Connection, status: Fallible<usize>|
                                 self.check_sent_status( conn, status);
 
                         match *x.clone() {
@@ -414,8 +412,7 @@ impl P2PNode {
                                     let data = inner_pkt.serialize();
                                     let filter = |conn: &Connection|{ is_conn_peer_id( conn, receiver)};
 
-                                    self.tls_server.lock()
-                                        .map_err(global_fails::PoisonError::from)?
+                                    self.tls_server.lock().map_err(global_fails::PoisonError::from)?
                                         .send_over_all_connections( &data, &filter,
                                                                     &check_sent_status_fn);
                                 }
@@ -427,8 +424,7 @@ impl P2PNode {
                                         is_valid_connection_in_broadcast( conn, sender, network_id)
                                     };
 
-                                    self.tls_server.lock()
-                                        .map_err(global_fails::PoisonError::from)?
+                                    self.tls_server.lock().map_err(global_fails::PoisonError::from)?
                                         .send_over_all_connections( &data, &filter,
                                                                     &check_sent_status_fn);
                                 }
@@ -439,8 +435,7 @@ impl P2PNode {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
 
-                                self.tls_server.lock()
-                                    .map_err(global_fails::PoisonError::from)?
+                                self.tls_server.lock().map_err(global_fails::PoisonError::from)?
                                     .send_over_all_connections( &data, &no_filter,
                                                                 &check_sent_status_fn);
                             }
@@ -448,8 +443,7 @@ impl P2PNode {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
 
-                                let mut locked_tls_server = self.tls_server.lock()
-                                    .map_err(global_fails::PoisonError::from)?;
+                                let mut locked_tls_server = self.tls_server.lock().map_err(global_fails::PoisonError::from)?;
                                 locked_tls_server
                                     .send_over_all_connections( &data, &no_filter,
                                                                 &check_sent_status_fn);
@@ -463,8 +457,7 @@ impl P2PNode {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
 
-                                let mut locked_tls_server = self.tls_server.lock()
-                                    .map_err(global_fails::PoisonError::from)?;
+                                let mut locked_tls_server = self.tls_server.lock().map_err(global_fails::PoisonError::from)?;
                                 locked_tls_server
                                     .send_over_all_connections( &data, &no_filter,
                                                                 &check_sent_status_fn);
@@ -499,9 +492,9 @@ impl P2PNode {
                     }
                 }
             }
+           Ok(())
         }
-        Ok(())
-    }
+
 
     fn queue_size_inc(&self) -> Fallible<()> {
         if let Some(ref prom) = &self.prometheus_exporter {
@@ -536,8 +529,7 @@ impl P2PNode {
                         -> Fallible<()> {
         debug!("Queueing message!");
         if broadcast {
-            self.send_queue.lock()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?
+            self.send_queue.lock().map_err(global_fails::PoisonError::from)?
                 .push_back( Arc::new(
                     box NetworkMessage::NetworkPacket(
                         NetworkPacket::BroadcastedMessage(
@@ -551,10 +543,9 @@ impl P2PNode {
             Ok(())
         } else {
             id.map_or_else(
-                || Err(fails::EmptyIdInSendRequest{}.to_err()),
+                || Err(fails::EmptyIdInSendRequest{})?,
                 |x| {
-                    self.send_queue.lock()
-                        .map_err(|_| global_fails::PoisonError::new().to_err())?
+                    self.send_queue.lock().map_err(global_fails::PoisonError::from)?
                         .push_back( Arc::new(
                             box NetworkMessage::NetworkPacket(
                                 NetworkPacket::DirectMessage(
@@ -573,8 +564,7 @@ impl P2PNode {
     }
 
     pub fn send_ban(&mut self, id: P2PPeer) -> Fallible<()> {
-        self.send_queue.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        self.send_queue.lock().map_err(global_fails::PoisonError::from)?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id),
                                                                None,
                                                                None)));
@@ -583,8 +573,7 @@ impl P2PNode {
     }
 
     pub fn send_unban(&mut self, id: P2PPeer) -> Fallible<()> {
-        self.send_queue.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        self.send_queue.lock().map_err(global_fails::PoisonError::from)?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(), id),
                                                                None,
                                                                None)));
@@ -593,8 +582,7 @@ impl P2PNode {
     }
 
     pub fn send_joinnetwork(&mut self, network_id: u16) -> Fallible<()> {
-        self.send_queue.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        self.send_queue.lock().map_err(global_fails::PoisonError::from)?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
                                                                None,
                                                                None)));
@@ -603,8 +591,7 @@ impl P2PNode {
     }
 
     pub fn send_leavenetwork(&mut self, network_id: u16) -> Fallible<()> {
-        self.send_queue.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        self.send_queue.lock().map_err(global_fails::PoisonError::from)?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),
                                                                None,
                                                                None)));
@@ -613,8 +600,7 @@ impl P2PNode {
     }
 
     pub fn send_get_peers(&mut self, nids: Vec<u16>) -> Fallible<()> {
-        self.send_queue.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        self.send_queue.lock().map_err(global_fails::PoisonError::from)?
             .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer(),nids.clone() ),
                                                                None,
                                                                None)));
@@ -632,8 +618,7 @@ impl P2PNode {
     }
 
     pub fn get_peer_stats(&self, nids: &[u16]) -> Fallible<Vec<PeerStatistic>> {
-        Ok(self.tls_server.lock()
-            .map_err(global_fails::PoisonError::from)?
+        Ok(self.tls_server.lock().map_err(global_fails::PoisonError::from)?
             .get_peer_stats(nids))
 
     }
@@ -705,39 +690,32 @@ impl P2PNode {
                       self.get_listening_port())
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> Result<(), Error> {
-        self.tls_server.lock()
-            .map_err(|_| global_fails::PoisonError::new())?
+    pub fn ban_node(&mut self, peer: P2PPeer) -> Fallible<()> {
+        self.tls_server.lock().map_err(global_fails::PoisonError::from)?
             .ban_node(peer);
         Ok(())
     }
 
     pub fn unban_node(&mut self, peer: P2PPeer) -> Fallible<()> {
-        self.tls_server.lock()
-            .map_err(|_| global_fails::PoisonError::new())?
+        self.tls_server.lock().map_err(global_fails::PoisonError::from)?
             .unban_node(&peer);
         Ok(())
     }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
-        self.poll
-            .lock()
-            .map_err(|_| global_fails::PoisonError::new())?
+        self.poll.lock().map_err(global_fails::PoisonError::from)?
             .poll(events, Some(Duration::from_millis(1000)))?;
 
         if self.mode != P2PNodeMode::BootstrapperMode
            && self.mode != P2PNodeMode::BootstrapperPrivateMode
         {
-            self.tls_server.lock()
-                .map_err(|_| global_fails::PoisonError::new())?
+            self.tls_server.lock().map_err(global_fails::PoisonError::from)?
                 .liveness_check()?;
         }
 
         for event in events.iter() {
-            let mut tls_ref = self.tls_server.lock()
-                .map_err(|_| global_fails::PoisonError::new())?;
-            let mut poll_ref = self.poll.lock()
-                .map_err(|_| global_fails::PoisonError::new())?;
+            let mut tls_ref = self.tls_server.lock().map_err(global_fails::PoisonError::from)?;
+            let mut poll_ref = self.poll.lock().map_err(global_fails::PoisonError::from)?;
             match event.token() {
                 SERVER => {
                     debug!("Got new connection!");
@@ -745,8 +723,7 @@ impl P2PNode {
                            .map_err(|e| error!("{}", e))
                            .ok();
                     if let Some(ref prom) = &self.prometheus_exporter {
-                        prom.lock()
-                            .map_err(|_| global_fails::PoisonError::new())?
+                        prom.lock().map_err(global_fails::PoisonError::from)?
                             .conn_received_inc()
                             .map_err(|e| error!("{}", e))
                             .ok();
@@ -766,16 +743,13 @@ impl P2PNode {
         events.clear();
 
         {
-            let tls_ref = self.tls_server.lock()
-                .map_err(|_| global_fails::PoisonError::new())?;
-            let mut poll_ref = self.poll.lock()
-                .map_err(|_| global_fails::PoisonError::new())?;
+            let tls_ref = self.tls_server.lock().map_err(global_fails::PoisonError::from)?;
+            let mut poll_ref = self.poll.lock().map_err(global_fails::PoisonError::from)?;
             tls_ref.cleanup_connections(&mut poll_ref)?;
             if self.mode == P2PNodeMode::BootstrapperMode
                || self.mode == P2PNodeMode::BootstrapperPrivateMode
             {
-                let mut buckets_ref = self.buckets.write()
-                    .map_err(|_| global_fails::PoisonError::new())?;
+                let mut buckets_ref = self.buckets.write().map_err(global_fails::PoisonError::from)?;
                 buckets_ref.clean_peers(self.minimum_per_bucket);
             }
         }

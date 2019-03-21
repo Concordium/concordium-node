@@ -7,7 +7,7 @@ mod writev_adapter;
 
 mod connection_default_handlers;
 mod connection_private;
-mod fails;
+pub mod fails;
 pub mod connection;
 
 use rustls::Session;

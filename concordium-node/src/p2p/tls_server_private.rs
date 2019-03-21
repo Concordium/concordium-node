@@ -3,17 +3,19 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
 use mio::{ Token, Poll, Event };
-use failure::Fallible;
+use failure::{Fallible};
 
 //use crate::errors::{ ErrorKindWrapper, ResultExtWrapper };
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
 use crate::connection::{ Connection, P2PNodeMode };
+use crate::fails as global_fails;
 use crate::network::{ NetworkMessage, NetworkRequest };
 use crate::prometheus_exporter::{ PrometheusServer };
-use crate::fails as global_fails;
 
 use crate::p2p::peer_statistics::{ PeerStatistic };
 use crate::p2p::unreachable_nodes::{ UnreachableNodes };
+
+use super::fails;
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
@@ -63,23 +65,19 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.
     pub fn remove_network(&mut self, network_id: &u16) -> Fallible<()> {
-        self.networks.lock()
-            .map_err(|_| global_fails::PoisonError::new())?
+        self.networks.lock().map_err(global_fails::PoisonError::from)?
             .retain(|x| x == network_id);
         Ok(())
     }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: &u16) -> Fallible<()> {
-        {
-            let mut networks = self.networks.lock()
-                .map_err(|_| global_fails::PoisonError::new())?;
+    pub fn add_network(&mut self, network_id: &u16) -> Fallible<()>  {
+            let mut networks = self.networks.lock().map_err(global_fails::PoisonError::from)?;
             if !networks.contains(network_id) {
                 networks.push(*network_id)
             }
+            Ok(())
         }
-        Ok(())
-    }
 
     /// It generates a peer statistic list for each connected peer which belongs to
     /// any of networks in `nids`.
@@ -151,8 +149,8 @@ impl TlsServerPrivate {
         let token = event.token();
         let mut rc_conn_to_be_removed : Option<_> = None;
 
-        if let Some(rc_conn) = self.connections_by_token.get(&token)
-        {
+        if let Some(rc_conn) = self.connections_by_token.get(&token) {
+
             let mut conn = rc_conn.borrow_mut();
             conn.ready(poll, event, &packet_queue)?;
 
@@ -160,7 +158,7 @@ impl TlsServerPrivate {
                 rc_conn_to_be_removed = Some( Rc::clone(rc_conn));
             }
         } else {
-                return Err(global_fails::PoisonError::new().to_err());
+            Err(fails::PeerNotFoundError{})?
         }
 
         if let Some(rc_conn) = rc_conn_to_be_removed {
@@ -169,6 +167,7 @@ impl TlsServerPrivate {
         }
 
         Ok(())
+
     }
 
     pub fn cleanup_connections(&mut self, mode: P2PNodeMode, mut poll: &mut Poll) -> Fallible<()>
@@ -222,8 +221,7 @@ impl TlsServerPrivate {
             let closing_with_peer = closing_conns.iter()
                     .filter( |ref rc_conn| { rc_conn.borrow().peer().is_some() })
                     .count();
-            prom.lock()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?
+            prom.lock().map_err(global_fails::PoisonError::from)?
                 .peers_dec_by( closing_with_peer as i64)?;
         }
 
@@ -267,7 +265,7 @@ impl TlsServerPrivate {
     pub fn send_over_all_connections( &mut self,
             data: &Vec<u8>,
             filter_conn: &Fn( &Connection) -> bool,
-            send_status: &Fn( &Connection, Result<usize, std::io::Error>))
+            send_status: &Fn( &Connection, Fallible<usize>))
     {
         for rc_conn in self.connections_by_token.values()
         {

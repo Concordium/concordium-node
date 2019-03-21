@@ -5,7 +5,7 @@ use std::sync::mpsc::{ Sender };
 use std::net::{Shutdown, IpAddr };
 use std::rc::{ Rc };
 use std::cell::{ RefCell };
-use std::io::{ Cursor, Result };
+use std::io::{ Cursor };
 use atomic_counter::AtomicCounter;
 
 use mio::{ Poll, PollOpt, Ready, Token, Event, net::TcpStream };
@@ -14,8 +14,7 @@ use crate::prometheus_exporter::{ PrometheusServer };
 
 //use crate::errors::{ ResultExtWrapper, ErrorKindWrapper, ErrorWrapper };
 //use error_chain::ChainedError;
-use failure::{Fallible, Error};
-use crate::fails as global_fails;
+use failure::{Error, Fallible};
 
 use crate::common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER };
@@ -301,12 +300,11 @@ impl Connection {
 
     /// It registers the connection socket, for read and write ops using *edge* notifications.
     pub fn register(&self, poll: &mut Poll) -> Fallible<()> {
-        poll.register(
+        into_err!(poll.register(
                 &self.socket,
                 self.token,
                 Ready::readable() | Ready::writable(),
-                PollOpt::edge())
-            .map_err(|x| global_fails::IOError::new(x).to_err())
+                PollOpt::edge()))
     }
 
     #[allow(unused)]
@@ -373,7 +371,7 @@ impl Connection {
             {
                 Ok(size) => {
                     if size > 0 {
-                        lptr.tls_session.process_new_packets()?;
+                        into_err!(lptr.tls_session.process_new_packets())?;
                     }
                     Ok(size)
                 },
@@ -382,7 +380,7 @@ impl Connection {
                         Ok(0)
                     } else {
                         self.closing = true;
-                        Err(global_fails::IOError::new(read_err).to_err())
+                        into_err!(Err(read_err))
                     }
                 }
             }
@@ -414,10 +412,10 @@ impl Connection {
         }
     }
 
-    fn write_to_tls(&mut self, bytes: &[u8]) -> Result<()>
+    fn write_to_tls(&mut self, bytes: &[u8]) -> Fallible<()>
     {
         self.messages_sent += 1;
-        self.dptr.borrow_mut().tls_session.write_all(bytes)
+        into_err!(self.dptr.borrow_mut().tls_session.write_all(bytes))
     }
 
     /// It decodes message from `buf` and processes it using its message handlers.
@@ -546,7 +544,7 @@ impl Connection {
         }
     }
 
-    pub fn serialize_bytes(&mut self, pkt: &[u8]) -> Result<usize> {
+    pub fn serialize_bytes(&mut self, pkt: &[u8]) -> Fallible<usize> {
         trace!("Serializing data to connection {} bytes", pkt.len());
         let mut size_vec = Vec::with_capacity(4);
 
@@ -557,7 +555,7 @@ impl Connection {
         self.flush_tls()
     }
 
-    fn flush_tls(&mut self) -> Result<usize>
+    fn flush_tls(&mut self) -> Fallible<usize>
     {
         let rc = {
             let mut lptr = self.dptr.borrow_mut();
@@ -574,7 +572,7 @@ impl Connection {
             self.closing = true;
         }
 
-        rc
+        into_err!(rc)
     }
 
     pub fn prometheus_exporter(&self) -> Option<Arc<Mutex<PrometheusServer>>> {

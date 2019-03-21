@@ -1,6 +1,10 @@
 use failure::{Fail, Error};
 
 #[derive(Debug,Fail)]
+#[fail(display = "Peer not found")]
+pub struct PeerNotFoundError {}
+
+#[derive(Debug,Fail)]
 #[fail(display = "Peer marked as unreachable, won't try it")]
 pub struct UnreachablePeerError {}
 

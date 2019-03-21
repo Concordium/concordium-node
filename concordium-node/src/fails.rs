@@ -1,4 +1,4 @@
-use failure::{Error, Fail, Backtrace};
+use failure::{Fail, Backtrace};
 
 #[derive(Debug, Fail)]
 #[fail(display = "Resource was poisoned")]
@@ -6,44 +6,18 @@ pub struct PoisonError {
     backtrace: Backtrace
 }
 
-impl PoisonError {
-    pub fn new() -> PoisonError {
+impl<T> From<std::sync::PoisonError<T>> for PoisonError {
+    fn from(_: std::sync::PoisonError<T>) -> Self {
         PoisonError {
             backtrace: Backtrace::new()
         }
     }
 }
 
-impl<T> From<std::sync::PoisonError<T>> for PoisonError {
-    fn from(_: std::sync::PoisonError<T>) -> Self {
-        PoisonError::new()
-    }
-}
+pub type FallibleByPoison<T> = Result<T, PoisonError>;
 
-impl PoisonError {
-    pub fn to_err(self) -> Error {
-        Error::from(self)
-    }
-}
-
-#[derive(Debug, Fail)]
-#[fail(display = "IO error")]
-pub struct IOError {
-    #[cause] cause: std::io::Error,
-    backtrace: Backtrace
-}
-
-impl IOError {
-    pub fn new(e: std::io::Error) -> IOError {
-        IOError {
-            cause: e,
-            backtrace: Backtrace::new()
-        }
-    }
-}
-
-impl IOError {
-    pub fn to_err(self) -> Error {
-        Error::from(self)
+macro_rules! into_err {
+    ($e:expr) => {
+        $e.map_err(|x| Error::from_boxed_compat(Box::new(x)))
     }
 }

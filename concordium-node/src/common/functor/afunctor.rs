@@ -1,15 +1,10 @@
 use std::sync::{ Arc, Mutex };
-
-// use std::sync::atomic::{ AtomicUsize, ATOMIC_USIZE_INIT, Ordering };
-
-use crate::common::functor::{ FunctorCallback, FullFunctorResult };
+use failure::{ Error };
 use crate::fails as global_fails;
-use super::fails;
-use failure::Error;
-//use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
 
-// pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
-pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
+use super::{ FunctorResult, FunctorCallback, FunctorError };
+
+pub type AFunctorCW<T> = (String, Arc<Mutex<Box<FunctorCallback<T>>>>);
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -45,7 +40,7 @@ pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
 #[derive(Clone)]
 pub struct AFunctor<T> {
     name: &'static str,
-    callbacks: Vec< AFunctorCW<T> >,
+    callbacks: Vec<AFunctorCW<T>>,
 }
 
 unsafe impl<T> Send for AFunctor<T> {}
@@ -65,9 +60,9 @@ impl<T> AFunctor<T> {
     /// It adds new callback into this functor.
     ///
     /// Callbacks are executed in the same order they were introduced.
-    pub fn add_callback(&mut self, callback: AFunctorCW<T> ) -> &mut Self {
+    pub fn add_callback(&mut self, callback: AFunctorCW<T>) -> &mut Self {
         // debug!( "# Functor '{}': Callback added from {}", self.name, callback.0);
-        self.callbacks.push( callback);
+        self.callbacks.push(callback);
         self
     }
 
@@ -77,29 +72,25 @@ impl<T> AFunctor<T> {
 
     /// It executes each callback using `message` as its argument.
     /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
-    fn run_atomic_callbacks(&self, message: &T) -> FullFunctorResult
+    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
     {
-        let mut status = vec![];
+        let mut status : Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
             let (_fn_id, cb) = self.callbacks[i].clone();
 
             if let Err(e) = match cb.lock() {
                 Ok(locked_cb) => {
-                    (locked_cb)( message)
+                    (locked_cb)(message)
                 },
-                Err(_) => {
-                    Err(Error::from(global_fails::PoisonError::new()))
-                }
+                Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
             } {
                 status.push(e);
             };
         };
 
         if !status.is_empty() {
-            Err(fails::FunctorResultError{
-                errors: status
-            })
+            Err(FunctorError::new(status))?
         } else {
             Ok(())
         }
@@ -107,9 +98,9 @@ impl<T> AFunctor<T> {
 }
 
 impl<T> FnOnce<(&T,)> for AFunctor<T> {
-    type Output = FullFunctorResult;
+    type Output = FunctorResult;
 
-    extern "rust-call" fn call_once(self, args: (&T,)) -> FullFunctorResult
+    extern "rust-call" fn call_once(self, args: (&T,)) -> FunctorResult
     {
         let msg: &T = args.0;
         self.run_atomic_callbacks( msg)
@@ -117,7 +108,7 @@ impl<T> FnOnce<(&T,)> for AFunctor<T> {
 }
 
 impl<T> FnMut<(&T,)> for AFunctor<T> {
-    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FullFunctorResult
+    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FunctorResult
     {
         let msg: &T = args.0;
         // run_atomic_callbacks!( &self.callbacks, msg, self.name)
@@ -126,7 +117,7 @@ impl<T> FnMut<(&T,)> for AFunctor<T> {
 }
 
 impl<T> Fn<(&T,)> for AFunctor<T> {
-    extern "rust-call" fn call(&self, args: (&T,)) -> FullFunctorResult
+    extern "rust-call" fn call(&self, args: (&T,)) -> FunctorResult
     {
         let msg: &T = args.0;
         self.run_atomic_callbacks( msg)

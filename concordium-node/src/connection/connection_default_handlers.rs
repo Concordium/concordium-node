@@ -4,18 +4,17 @@ use std::sync::mpsc::{ Sender };
 use byteorder::{ NetworkEndian,  WriteBytesExt };
 use atomic_counter::AtomicCounter;
 
-use crate::common::{ P2PPeer, get_current_stamp, fails as common_fails };
+use crate::common::{ P2PPeer, get_current_stamp };
 use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
-use crate::common::functor::{ FunctorResult};
+use crate::common::functor::{ FunctorResult, FunctorError };
 use crate::network::{ NetworkRequest, NetworkResponse };
 use crate::connection::{ P2PEvent, P2PNodeMode, CommonSession };
 use crate::connection::connection_private::{ ConnectionPrivate };
+use crate::fails as global_fails;
 
 //use crate::errors::*;
-use crate::fails as global_fails;
-use super::fails;
-use failure::{Error, Fallible};
-
+use super::fails::ConnectionError;
+use failure::{Backtrace, Error };
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
@@ -30,21 +29,29 @@ fn serialize_bytes( session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> Functor
     Ok(())
 }
 
-fn make_msg_error( e:&'static str) -> Error {
-    Error::from(fails::MessageProcessError::new(e.to_string()))
+fn make_msg_error(e: String) -> FunctorError  {
+    FunctorError::new(vec![Error::from(ConnectionError::MessageProcessError {
+        message: e.to_string(),
+        backtrace: Backtrace::new()
+    })])
 }
 
-/// It returns a `FunctorRunningError` with the specific message.
-fn make_fn_err( e: &'static str) -> Error {
-    Error::from(common_fails::FunctorRunningError::new(e.to_string()))
+fn make_fn_error_peer(e: String) -> FunctorError {
+    FunctorError::new(vec![Error::from(ConnectionError::PeerError {
+        message: e
+    })])
 }
 
-fn make_fn_error_peer() -> Error {
-    make_fn_err( "Peer not found")
+fn make_log_error(e: String) -> FunctorError {
+    FunctorError::new(vec![Error::from(ConnectionError::LogError {
+        message: e
+    })])
 }
 
-fn make_fn_error_prometheus() -> Error {
-    make_fn_err( "Prometheus has faild")
+fn make_fn_error_prometheus() -> FunctorError {
+    FunctorError::new(vec![Error::from(ConnectionError::PrometheusError {
+        message: "Prometheus failed".to_string(),
+    })])
 }
 
 /// Default `NetworkRequest::Ping` handler.
@@ -59,13 +66,12 @@ pub fn default_network_request_ping_handle(
     let pong_data = {
         let priv_conn_borrow = priv_conn.borrow();
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-            prom.lock().map_err(|_| global_fails::PoisonError::new().to_err())?
-                .pkt_sent_inc()?
+            prom.lock().map_err(global_fails::PoisonError::from)?.pkt_sent_inc()?
         };
 
         // Make `Pong` response and send
         let peer = priv_conn_borrow.peer().clone()
-            .ok_or_else( || make_fn_error_peer())?;
+            .ok_or_else( || make_fn_error_peer("Couldn't get peer".to_string()))?;
 
         NetworkResponse::Pong(peer.clone()).serialize()
     };
@@ -80,26 +86,23 @@ pub fn default_network_request_find_node_handle(
         req: &NetworkRequest
     ) -> FunctorResult {
 
-    match req {
-        NetworkRequest::FindNode(_, node_id) => {
-            priv_conn.borrow_mut().update_last_seen();
+    if let NetworkRequest::FindNode(_, node_id) = req {
+        priv_conn.borrow_mut().update_last_seen();
 
-            //Return list of nodes
-            let response_data = {
-                let priv_conn_borrow = priv_conn.borrow();
-                let peer = priv_conn_borrow.peer().clone()
-                    .ok_or_else( || make_fn_error_peer())?;
-                let nodes = priv_conn_borrow.buckets.read()
-                    .map_err(|_| global_fails::PoisonError::new().to_err())?
-                    .closest_nodes(node_id);
-                NetworkResponse::FindNode( peer, nodes).serialize()
-            };
+        //Return list of nodes
+        let response_data = {
+            let priv_conn_borrow = priv_conn.borrow();
+            let peer = priv_conn_borrow.peer().clone()
+                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+            let nodes = priv_conn_borrow.buckets.read()
+                .map_err(global_fails::PoisonError::from)?
+                .closest_nodes(node_id);
+            NetworkResponse::FindNode( peer, nodes).serialize()
+        };
 
-            Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &response_data)?)
-        }
-        _ => {
-            Err( make_msg_error( "Find node handler cannot handler this packet"))
-        }
+        Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &response_data)?)
+     } else {
+        Err(make_msg_error( "Find node handler cannot handler this packet".to_string()))?
     }
 }
 
@@ -107,58 +110,53 @@ pub fn default_network_request_get_peers(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest) -> FunctorResult {
 
-    match req {
-        NetworkRequest::GetPeers(ref sender, ref networks) => {
-            debug!("Got request for GetPeers");
+    if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
 
-            priv_conn.borrow_mut().update_last_seen();
-            TOTAL_MESSAGES_SENT_COUNTER.inc();
+        debug!("Got request for GetPeers");
 
-            let peer_list_packet = {
-                let priv_conn_borrow = priv_conn.borrow();
-                let nodes = priv_conn_borrow.buckets.read()
-                    .map_err(|_| global_fails::PoisonError::new().to_err())?
-                    .get_all_nodes(Some(&sender), networks);
+        priv_conn.borrow_mut().update_last_seen();
+        TOTAL_MESSAGES_SENT_COUNTER.inc();
 
-                if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-                    prom.lock().map_err(|_| global_fails::PoisonError::new().to_err())?
-                        .pkt_sent_inc()?;
-                };
+        let peer_list_packet = {
+            let priv_conn_borrow = priv_conn.borrow();
+            let nodes = priv_conn_borrow.buckets.read()
+                .map_err(global_fails::PoisonError::from)?
+                .get_all_nodes(Some(&sender), networks);
 
-                let peer = priv_conn_borrow.peer().clone().ok_or_else( || make_fn_error_peer())?;
-                NetworkResponse::PeerList(peer, nodes)
-                    .serialize()
+            if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+                prom.lock()
+                    .map_err(global_fails::PoisonError::from)?.pkt_sent_inc()?;
             };
 
-            Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &peer_list_packet)?)
-        },
-        _ => {
-            Err( make_msg_error( "Get peers handler cannot handler this packet"))
-        }
+            let peer = priv_conn_borrow.peer().clone().ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+            NetworkResponse::PeerList(peer, nodes)
+                .serialize()
+        };
+
+        Ok(serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &peer_list_packet)?)
+    } else {
+            Err(make_msg_error( "Get peers handler cannot handler this packet".to_string()))?
     }
 }
+
 
 pub fn default_network_response_find_node (
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkResponse) -> FunctorResult {
 
-    match res {
-        NetworkResponse::FindNode(_, ref peers) => {
-            debug!("Got response to FindNode");
+    if let NetworkResponse::FindNode(_, ref peers) = res {
+        debug!("Got response to FindNode");
 
-            let priv_conn_borrow = priv_conn.borrow();
-            //Process the received node list
-            let mut ref_buckets = priv_conn_borrow.buckets.write()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?;
-            for peer in peers.iter() {
-                ref_buckets.insert_into_bucket(peer, &priv_conn_borrow.own_id, vec![]);
-            }
-
-            Ok(())
-        },
-        _ => {
-            Err( make_msg_error( "Response find node handler cannot handler this packet"))
+        let priv_conn_borrow = priv_conn.borrow();
+        //Process the received node list
+        let mut ref_buckets = priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?;
+        for peer in peers.iter() {
+            ref_buckets.insert_into_bucket(peer, &priv_conn_borrow.own_id, vec![]);
         }
+
+        Ok(())
+    } else {
+        Err(make_msg_error( "Response find node handler cannot handler this packet".to_string()))?
     }
 }
 
@@ -181,16 +179,12 @@ pub fn default_network_response_pong(
 pub fn default_network_response_peer_list(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkResponse) -> FunctorResult {
-    match res {
-        NetworkResponse::PeerList( _, ref peers) => {
-            let priv_conn_borrow = priv_conn.borrow();
-            let mut locked_buckets = priv_conn_borrow.buckets.write()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?;
-            for peer in peers.iter() {
-                locked_buckets.insert_into_bucket( peer, &priv_conn_borrow.own_id, vec![]);
-            }
-        },
-        _ => {}
+    if let NetworkResponse::PeerList( _, ref peers) = res {
+        let priv_conn_borrow = priv_conn.borrow();
+        let mut locked_buckets = priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?;
+        for peer in peers.iter() {
+            locked_buckets.insert_into_bucket( peer, &priv_conn_borrow.own_id, vec![]);
+        }
     };
     Ok(())
 }
@@ -199,11 +193,11 @@ pub fn default_network_response_peer_list(
 fn log_as_joined_network(
         event_log: &Option<Sender<P2PEvent>>,
         peer: &P2PPeer,
-        networks: &Vec<u16>) -> Fallible<()> {
+        networks: &Vec<u16>) -> FunctorResult {
     if let Some(ref log) = event_log {
         for ele in networks.iter() {
             log.send( P2PEvent::JoinedNetwork(peer.clone(), *ele))
-                .map_err(|_| make_fn_err("Join Network Event cannot be sent to log"))?;
+                .map_err(|_| make_log_error("Join Network Event cannot be sent to log".to_string()))?;
         }
     }
     Ok(())
@@ -213,13 +207,12 @@ fn log_as_joined_network(
 fn log_as_leave_network(
         event_log: &Option<Sender<P2PEvent>>,
         sender: &P2PPeer,
-        network: u16) -> Fallible<()> {
+        network: u16) -> FunctorResult {
     if let Some(ref log) = event_log {
         log.send( P2PEvent::LeftNetwork( sender.clone(), network))
-            .map_err(|_| make_fn_err("Left Network Event cannot be sent to log"))
-    } else {
-        Ok(())
-    }
+            .map_err(|_| make_log_error("Left Network Event cannot be sent to log".to_string()))?;
+    };
+    Ok(())
 }
 
 /// In handshake:
@@ -247,13 +240,11 @@ pub fn default_network_response_handshake(
                                               rpeer.id().clone(),
                                               rpeer.ip().clone(),
                                               rpeer.port());
-            priv_conn_borrow.buckets.write()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?
+           priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
                 .insert_into_bucket(&bucket_sender, &own_id, nets.clone());
 
             if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-                prom.lock().map_err(|_| global_fails::PoisonError::new().to_err())?
-                    .peers_inc()?;
+               prom.lock().map_err(global_fails::PoisonError::from)?.peers_inc()?;
             };
 
             log_as_joined_network( &priv_conn_borrow.event_log, &rpeer, &nets)?;
@@ -275,11 +266,10 @@ pub fn default_network_request_join_network(
 
             let priv_conn_borrow = priv_conn.borrow();
             let peer = priv_conn_borrow.peer().clone()
-                .ok_or_else( || make_fn_error_peer())?;
+                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
             let priv_conn_networks = priv_conn_borrow.networks.clone();
 
-            priv_conn_borrow.buckets.write()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?
+            priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
                 .update_network_ids(&peer, priv_conn_networks);
 
             log_as_joined_network( &priv_conn_borrow.event_log, &peer,  &networks)?;
@@ -301,10 +291,9 @@ pub fn default_network_request_leave_network(
 
             let priv_conn_borrow = priv_conn.borrow();
             let peer = priv_conn_borrow.peer().clone()
-                .ok_or_else( || make_fn_error_peer())?;
+                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
 
-            priv_conn_borrow.buckets.write()
-                .map_err(|_| global_fails::PoisonError::new().to_err())?
+            priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
                 .update_network_ids( &peer, priv_conn_borrow.networks.clone());
 
             log_as_leave_network( &priv_conn_borrow.event_log, &sender, *network)?;
@@ -321,8 +310,7 @@ fn send_handshake_and_ping(
 
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = priv_conn_borrow.own_networks.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?.clone();
+        let my_nets = priv_conn_borrow.own_networks.lock().map_err(global_fails::PoisonError::from)?.clone();
         let self_peer = priv_conn_borrow.self_peer.clone();
         (my_nets, self_peer)
     };
@@ -357,8 +345,7 @@ fn send_peer_list(
 
     let data = {
         let priv_conn_borrow = priv_conn.borrow();
-        let random_nodes = priv_conn_borrow.buckets.read()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        let random_nodes = priv_conn_borrow.buckets.read().map_err(global_fails::PoisonError::from)?
             .get_random_nodes(&sender, BOOTSTRAP_PEER_COUNT, &nets);
 
         let self_peer = & priv_conn_borrow.self_peer;
@@ -368,9 +355,7 @@ fn send_peer_list(
     serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &data)?;
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        prom.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
-            .pkt_sent_inc()
+        prom.lock().map_err(global_fails::PoisonError::from)?.pkt_sent_inc()
             .map_err(|_| make_fn_error_prometheus())?;
     };
 
@@ -392,21 +377,18 @@ fn update_buckets(
     let sender_ip = sender.ip();
 
     if valid_mode {
-        buckets.write()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        buckets.write().map_err(global_fails::PoisonError::from)?
             .insert_into_bucket( sender, &own_id, nets.clone());
     } else if sender_ip.is_global()
             && !sender_ip.is_multicast()
             && !sender_ip.is_documentation() {
-                buckets.write()
-                    .map_err(|_| global_fails::PoisonError::new().to_err())?
+                buckets.write().map_err(global_fails::PoisonError::from)?
                     .insert_into_bucket( sender, &own_id, nets.clone());
     }
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
     if let Some(ref prom) = prometheus_exporter {
-        let mut locked_prom = prom.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?;
+        let mut locked_prom = prom.lock().map_err(global_fails::PoisonError::from)?;
         locked_prom.peers_inc()
             .map_err(|_| make_fn_error_prometheus())?;
         locked_prom.pkt_sent_inc_by(2)
@@ -481,8 +463,7 @@ pub fn default_unknown_message(
     //        String::from_utf8(buf.to_vec()).unwrap());
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        prom.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+        prom.lock().map_err(global_fails::PoisonError::from)?
             .unknown_pkts_received_inc()?;
     }
     Ok(())
@@ -503,8 +484,7 @@ pub fn default_invalid_message(
     //        String::from_utf8(buf.to_vec()).unwrap());
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        prom.lock()
-            .map_err(|_| global_fails::PoisonError::new().to_err())?
+       prom.lock().map_err(global_fails::PoisonError::from)?
             .invalid_pkts_received_inc()?;
     }
 

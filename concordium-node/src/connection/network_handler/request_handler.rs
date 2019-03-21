@@ -1,4 +1,4 @@
-use crate::common::functor::{ AFunctor, AFunctorCW, FullFunctorResult };
+use crate::common::functor::{ AFunctor, AFunctorCW, FunctorResult };
 use crate::network::{ NetworkRequest };
 use crate::network::request::{ NetworkRequest as NRequest };
 
@@ -77,7 +77,7 @@ impl RequestHandler {
         self
     }
 
-    fn process_message(&self, msg: &NetworkRequest) -> FullFunctorResult {
+    fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
 
         let spec_status = match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {

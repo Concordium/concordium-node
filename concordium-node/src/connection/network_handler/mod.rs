@@ -3,23 +3,23 @@ macro_rules! impl_all_fns {
     ($type:ident, $msg:ident) => {
 
         impl FnOnce<(&$msg,)> for $type {
-            type Output = FullFunctorResult;
+            type Output = FunctorResult;
 
-            extern "rust-call" fn call_once(self, args: (&$msg,)) -> FullFunctorResult
+            extern "rust-call" fn call_once(self, args: (&$msg,)) -> FunctorResult
             {
                 self.process_message( args.0)
             }
         }
 
         impl FnMut<(&$msg,)> for $type{
-            extern "rust-call" fn call_mut(&mut self, args: (&$msg,)) -> FullFunctorResult
+            extern "rust-call" fn call_mut(&mut self, args: (&$msg,)) -> FunctorResult
             {
                 self.process_message( args.0)
             }
         }
 
         impl Fn<(&$msg,)> for $type{
-            extern "rust-call" fn call(&self, args: (&$msg,)) -> FullFunctorResult
+            extern "rust-call" fn call(&self, args: (&$msg,)) -> FunctorResult
             {
                 self.process_message( args.0)
             }
