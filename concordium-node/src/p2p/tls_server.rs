@@ -94,11 +94,11 @@ impl TlsServer {
         self.dptr.borrow().networks.clone()
     }
 
-    pub fn remove_network(&mut self, network_id: &u16) -> Fallible<()> {
+    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
         self.dptr.borrow_mut().remove_network( network_id)
     }
 
-    pub fn add_network(&mut self, network_id: &u16) -> Fallible<()> {
+    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
         self.dptr.borrow_mut().add_network( network_id)
     }
 
@@ -127,7 +127,7 @@ impl TlsServer {
     pub fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
         debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_id.ip(), self_id.port());
-        self.log_event(P2PEvent::ConnectEvent(format!("{}", addr.ip()), addr.port()));
+        self.log_event(P2PEvent::ConnectEvent(addr.ip().to_string(), addr.port()));
 
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));

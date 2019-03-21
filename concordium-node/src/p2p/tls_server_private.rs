@@ -63,17 +63,17 @@ impl TlsServerPrivate {
 
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.
-    pub fn remove_network(&mut self, network_id: &u16) -> Fallible<()> {
+    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
         self.networks.lock().map_err(global_fails::PoisonError::from)?
-            .retain(|x| x == network_id);
+            .retain(|x| *x == network_id);
         Ok(())
     }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: &u16) -> Fallible<()>  {
+    pub fn add_network(&mut self, network_id: u16) -> Fallible<()>  {
             let mut networks = self.networks.lock().map_err(global_fails::PoisonError::from)?;
-            if !networks.contains(network_id) {
-                networks.push(*network_id)
+            if !networks.contains(&network_id) {
+                networks.push(network_id)
             }
             Ok(())
         }

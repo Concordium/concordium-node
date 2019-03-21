@@ -192,7 +192,7 @@ pub fn default_network_response_peer_list(
 fn log_as_joined_network(
         event_log: &Option<Sender<P2PEvent>>,
         peer: &P2PPeer,
-        networks: &Vec<u16>) -> FunctorResult {
+        networks: &[u16]) -> FunctorResult {
     if let Some(ref log) = event_log {
         for ele in networks.iter() {
             log.send( P2PEvent::JoinedNetwork(peer.clone(), *ele))

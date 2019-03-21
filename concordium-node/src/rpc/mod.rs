@@ -249,7 +249,7 @@ impl P2P for RpcServerImpl {
 
             let f = match self.send_message_with_error(&req) {
                 Ok(r) => sink.success(r),
-                Err(e) => sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument, e.name().map(|x| String::from_str(x).expect("Unwrapping of an error name failed"))))
+                Err(e) => sink.fail(grpcio::RpcStatus::new(grpcio::RpcStatusCode::InvalidArgument, Some(e.name().expect("Unwrapping of an error name failed").to_string())))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);

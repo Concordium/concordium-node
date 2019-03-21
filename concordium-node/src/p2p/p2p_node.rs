@@ -437,7 +437,7 @@ impl P2PNode {
                                                                 &check_sent_status_fn);
 
                                 if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
-                                    locked_tls_server.add_network(network_id)
+                                    locked_tls_server.add_network(*network_id)
                                         .map_err(|e| error!("{}", e)).ok();
                                 }
                             }
@@ -451,7 +451,7 @@ impl P2PNode {
                                                                 &check_sent_status_fn);
 
                                 if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
-                                   locked_tls_server.remove_network(network_id)
+                                   locked_tls_server.remove_network(*network_id)
                                             .map_err(|e| error!("{}", e)).ok();
                                 }
                             }
