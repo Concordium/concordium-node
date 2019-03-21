@@ -1,10 +1,8 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-#[macro_use]
-extern crate error_chain;
 extern crate bytes;
 extern crate mio;
-extern crate p2p_client;
+#[macro_use] extern crate p2p_client;
 #[macro_use]
 extern crate log;
 extern crate chrono;
@@ -20,9 +18,8 @@ use env_logger::{Builder, Env};
 use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
-use p2p_client::configuration;
+use p2p_client::{ configuration, fails as global_fails };
 use p2p_client::db::P2PDB;
-use p2p_client::errors::*;
 use p2p_client::p2p::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::utils;
@@ -30,10 +27,11 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
 use timer::Timer;
+use failure::Fallible;
 
-quick_main!(run);
+failing_main!(run);
 
-fn run() -> ResultExtWrapper<()> {
+fn run() -> Fallible<()> {
     let conf = configuration::parse_cli_config();
     let app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
@@ -195,7 +193,7 @@ fn run() -> ResultExtWrapper<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock()?
+            prom.lock().map_err(global_fails::PoisonError::from)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name,

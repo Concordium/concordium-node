@@ -1,16 +1,5 @@
 use failure::Error;
 
-pub mod fails;
-pub mod afunctor;
-pub mod functor;
-
-pub use self::functor::{ FunctorCW, Functor };
-pub use self::afunctor::{ AFunctorCW, AFunctor };
-pub use self::fails::{ FunctorError };
-
-pub type FunctorResult = Result<(), Error>;
-pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
-
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
 macro_rules! make_atomic_callback {
@@ -25,3 +14,14 @@ macro_rules! make_callback {
         Rc::new( RefCell:new( $callback ))
     }
 }
+
+pub mod fails;
+pub mod afunctor;
+pub mod functor;
+
+pub use self::functor::{ FunctorCW, Functor };
+pub use self::afunctor::{ AFunctorCW, AFunctor };
+pub use self::fails::{ FunctorError };
+
+pub type FunctorResult = Result<(), Error>;
+pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);

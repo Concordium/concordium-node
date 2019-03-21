@@ -14,8 +14,7 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
     }
 }
 
-pub type FallibleByPoison<T> = Result<T, PoisonError>;
-
+#[macro_export]
 macro_rules! into_err {
     ($e:expr) => {
         $e.map_err(|x| Error::from_boxed_compat(Box::new(x)))

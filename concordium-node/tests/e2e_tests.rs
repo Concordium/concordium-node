@@ -17,14 +17,13 @@ mod tests {
     use p2p_client::connection::{ P2PEvent, P2PNodeMode, MessageManager };
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
-    use p2p_client::errors::*;
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex };
     use std::sync::atomic::{ AtomicUsize, Ordering};
     use std::cell::{ RefCell };
     use std::{thread, time};
     use rand::{ Rng };
-
+    use failure::{ Fallible, Error };
 
     #[derive(Debug, Clone)]
     pub enum NetworkStep {
@@ -39,9 +38,10 @@ mod tests {
         use std::cell::{ RefCell };
         use std::sync::atomic::{ AtomicUsize, Ordering};
         use std::time;
+        use failure::{ Fallible, Error };
 
-        use p2p_client::errors::{ ErrorWrapper, ErrorKindWrapper, ResultExtWrapper };
         use p2p_client::common::{ ConnectionType };
+        use p2p_client::{ fails as global_fails };
         use p2p_client::p2p::p2p_node::{ P2PNode };
         use p2p_client::connection::{ P2PNodeMode, MessageManager };
         use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkResponse };
@@ -108,7 +108,7 @@ mod tests {
         /// As `make_node_and_sync`, this returns a tuple but it contains list of objects instead of
         /// just one.
         pub fn make_nodes_from_port( port: u16, count: usize, networks: &Vec<u16>)
-            -> ResultExtWrapper<(Vec<RefCell<P2PNode>>, Vec<Receiver<NetworkMessage>>)>
+            -> Fallible<(Vec<RefCell<P2PNode>>, Vec<Receiver<NetworkMessage>>)>
         {
             let mut nodes = Vec::with_capacity( count);
             let mut receivers = Vec::with_capacity( count);
@@ -129,7 +129,7 @@ mod tests {
         pub fn make_node_and_sync(
                 port: u16,
                 networks: &Vec<u16>,
-                blind_trusted_broadcast: bool ) -> ResultExtWrapper<(P2PNode, Receiver<NetworkMessage>)>
+                blind_trusted_broadcast: bool ) -> Fallible<(P2PNode, Receiver<NetworkMessage>)>
         {
             let (net_tx, _) = std::sync::mpsc::channel();
             let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::channel();
@@ -140,14 +140,9 @@ mod tests {
                 networks.clone(), 100, blind_trusted_broadcast);
 
             let mh = node.message_handler();
-            mh.write()?.add_callback(
+            mh.write().map_err(global_fails::PoisonError::from)?.add_callback(
                 make_atomic_callback!( move |m: &NetworkMessage|{
-                    msg_wait_tx.send( m.clone()).map_err( |e| {
-                        ErrorWrapper::with_chain(
-                            e,
-                            ErrorKindWrapper::FunctorRunningError( "Message cannot be forwarded to channel"))
-                    })
-                }));
+                    into_err!(msg_wait_tx.send(m.clone()))}));
 
             node.spawn();
             Ok((node, msg_wait_rx))
@@ -159,7 +154,7 @@ mod tests {
         pub fn connect_and_wait_handshake(
             source: &mut P2PNode,
             target: &P2PNode,
-            receiver: &Receiver<NetworkMessage>) -> ResultExtWrapper<()>
+            receiver: &Receiver<NetworkMessage>) -> Fallible<()>
         {
             source.connect(
                 ConnectionType::Node,
@@ -177,7 +172,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn wait_broadcast_message( waiter: &Receiver<NetworkMessage>) -> ResultExtWrapper<Vec<u8>>
+        pub fn wait_broadcast_message( waiter: &Receiver<NetworkMessage>) -> Fallible<Vec<u8>>
         {
             let payload;
             loop
@@ -195,7 +190,7 @@ mod tests {
             Ok(payload)
         }
 
-        pub fn wait_direct_message( waiter: &Receiver<NetworkMessage>) -> ResultExtWrapper<Vec<u8>>
+        pub fn wait_direct_message( waiter: &Receiver<NetworkMessage>) -> Fallible<Vec<u8>>
         {
             let payload;
             loop
@@ -275,7 +270,7 @@ mod tests {
 
 
     #[test]
-    pub fn e2e_000_two_nodes() -> ResultExtWrapper<()> {
+    pub fn e2e_000_two_nodes() -> Fallible<()> {
         utils::setup();
 
         let msg = b"Hello other brother!".to_vec();
@@ -295,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_001_two_nodes_wrong_net() -> ResultExtWrapper<()> {
+    pub fn e2e_001_two_nodes_wrong_net() -> Fallible<()> {
         utils::setup();
 
         let port = utils::next_port_offset(5);
@@ -320,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_001_trust_broadcast() -> ResultExtWrapper<()>
+    pub fn e2e_001_trust_broadcast() -> Fallible<()>
     {
         utils::setup();
 
@@ -342,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_001_trust_broadcast_wrong_net() -> ResultExtWrapper<()>
+    pub fn e2e_001_trust_broadcast_wrong_net() -> Fallible<()>
     {
         utils::setup();
 
@@ -781,7 +776,7 @@ mod tests {
 
     /// This test has been used in
     #[test]
-    fn e2e_006_rustls_ready_writeable() -> ResultExtWrapper<()>
+    fn e2e_006_rustls_ready_writeable() -> Fallible<()>
     {
         utils::setup();
         let msg = b"Direct message between nodes".to_vec();
@@ -821,7 +816,7 @@ mod tests {
     fn no_relay_broadcast_to_sender_on_tree_network(
             levels: usize,
             min_node_per_level: usize,
-            max_node_per_level: usize) -> ResultExtWrapper<()> {
+            max_node_per_level: usize) -> Fallible<()> {
         let network_id = 100 as u16;
         let networks = vec![network_id];
         let test_port_added = utils::next_port_offset( levels * max_node_per_level);
@@ -840,9 +835,7 @@ mod tests {
             mh.write().unwrap().add_packet_callback(
                 make_atomic_callback!( move |pac: &NetworkPacket| {
                     debug!( "Root node is forwarding Packet to channel");
-                    bcast_tx.send( pac.clone())
-                        .map_err( |e| ErrorWrapper::with_chain( e,
-                                ErrorKindWrapper::FunctorRunningError("Packet cannot be sent into bcast_tx")))
+                    into_err!(bcast_tx.send( pac.clone()))
                 }));
         }
 
@@ -948,7 +941,7 @@ mod tests {
     /// `Node 1` will receive that message.
     ///
     #[test]
-    pub fn e2e_005_001_no_relay_broadcast_to_sender_on_linear_network() -> ResultExtWrapper<()> {
+    pub fn e2e_005_001_no_relay_broadcast_to_sender_on_linear_network() -> Fallible<()> {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network( 3, 1, 2)
     }
@@ -957,7 +950,7 @@ mod tests {
     /// It creates a tree network structure of 3 levels, using between 2 and 3 nodes
     /// per level.
     #[test]
-    pub fn e2e_005_002_no_relay_broadcast_to_sender_on_tree_network() -> ResultExtWrapper<()> {
+    pub fn e2e_005_002_no_relay_broadcast_to_sender_on_tree_network() -> Fallible<()> {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network( 3, 2, 4)
     }
@@ -965,7 +958,7 @@ mod tests {
     /// It create a *complex* network structure of 5 levels, using between 4 and 9 nodes
     /// per level.
     #[test]
-    pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() -> ResultExtWrapper<()> {
+    pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() -> Fallible<()> {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network( 5, 4, 10)
     }
