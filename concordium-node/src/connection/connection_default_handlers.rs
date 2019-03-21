@@ -224,33 +224,29 @@ pub fn default_network_response_handshake(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkResponse) -> FunctorResult {
 
-    match res {
-        NetworkResponse::Handshake(ref rpeer, ref nets, _) => {
-            {
-                let mut priv_conn_mut = priv_conn.borrow_mut();
-                priv_conn_mut.sent_handshake = get_current_stamp();
-                priv_conn_mut.add_networks( nets);
-                priv_conn_mut.set_peer( rpeer.clone());
-            }
+    if let NetworkResponse::Handshake(ref rpeer, ref nets, _) = res {
+        {
+            let mut priv_conn_mut = priv_conn.borrow_mut();
+            priv_conn_mut.sent_handshake = get_current_stamp();
+            priv_conn_mut.add_networks( nets);
+            priv_conn_mut.set_peer( rpeer.clone());
+        }
 
-            let priv_conn_borrow = priv_conn.borrow();
-            let conn_type = priv_conn_borrow.connection_type;
-            let own_id = priv_conn_borrow.own_id.clone();
-            let bucket_sender = P2PPeer::from( conn_type,
-                                              rpeer.id().clone(),
-                                              rpeer.ip().clone(),
-                                              rpeer.port());
-           priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
-                .insert_into_bucket(&bucket_sender, &own_id, nets.clone());
+        let priv_conn_borrow = priv_conn.borrow();
+        let conn_type = priv_conn_borrow.connection_type;
+        let own_id = priv_conn_borrow.own_id.clone();
+        let bucket_sender = P2PPeer::from( conn_type,
+                                           rpeer.id().clone(),
+                                           rpeer.ip().clone(),
+                                           rpeer.port());
+        priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
+            .insert_into_bucket(&bucket_sender, &own_id, nets.clone());
 
-            if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-               prom.lock().map_err(global_fails::PoisonError::from)?.peers_inc()?;
-            };
+        if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+            prom.lock().map_err(global_fails::PoisonError::from)?.peers_inc()?;
+        };
+    }
 
-            log_as_joined_network( &priv_conn_borrow.event_log, &rpeer, &nets)?;
-        },
-        _ => {}
-    };
     Ok(())
 }
 
@@ -259,23 +255,20 @@ pub fn default_network_request_join_network(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkRequest) -> FunctorResult {
 
-    match res {
-        NetworkRequest::JoinNetwork( ref _sender, ref network) => {
-            let networks = vec![*network];
-            priv_conn.borrow_mut().add_networks(&networks);
+    if let NetworkRequest::JoinNetwork(ref _sender, ref network) = res {
+        let networks = vec![*network];
+        priv_conn.borrow_mut().add_networks(&networks);
 
-            let priv_conn_borrow = priv_conn.borrow();
-            let peer = priv_conn_borrow.peer().clone()
-                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
-            let priv_conn_networks = priv_conn_borrow.networks.clone();
+        let priv_conn_borrow = priv_conn.borrow();
+        let peer = priv_conn_borrow.peer().clone()
+            .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+        let priv_conn_networks = priv_conn_borrow.networks.clone();
 
-            priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
-                .update_network_ids(&peer, priv_conn_networks);
+        priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
+            .update_network_ids(&peer, priv_conn_networks);
 
-            log_as_joined_network( &priv_conn_borrow.event_log, &peer,  &networks)?;
-        },
-        _ => {}
-    };
+        log_as_joined_network( &priv_conn_borrow.event_log, &peer,  &networks)?;
+    }
 
     Ok(())
 }
@@ -285,21 +278,18 @@ pub fn default_network_request_leave_network(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest) -> FunctorResult {
 
-    match req {
-        NetworkRequest::LeaveNetwork( sender, network) => {
-            priv_conn.borrow_mut().remove_network( network);
+    if let NetworkRequest::LeaveNetwork(sender, network) = req {
+        priv_conn.borrow_mut().remove_network( network);
+        let priv_conn_borrow = priv_conn.borrow();
+        let peer = priv_conn_borrow.peer().clone()
+            .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
 
-            let priv_conn_borrow = priv_conn.borrow();
-            let peer = priv_conn_borrow.peer().clone()
-                .ok_or_else( || make_fn_error_peer("Couldn't borrow peer".to_string()))?;
+        priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
+            .update_network_ids( &peer, priv_conn_borrow.networks.clone());
 
-            priv_conn_borrow.buckets.write().map_err(global_fails::PoisonError::from)?
-                .update_network_ids( &peer, priv_conn_borrow.networks.clone());
+        log_as_leave_network( &priv_conn_borrow.event_log, &sender, *network)?;
+    }
 
-            log_as_leave_network( &priv_conn_borrow.event_log, &sender, *network)?;
-        },
-        _ => {}
-    };
     Ok(())
 }
 
@@ -336,7 +326,7 @@ fn send_handshake_and_ping(
 fn send_peer_list(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         sender: &P2PPeer,
-        nets: &Vec<u16>
+        nets: &[u16]
     ) -> FunctorResult {
 
     debug!(
@@ -367,7 +357,7 @@ fn send_peer_list(
 fn update_buckets(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         sender: &P2PPeer,
-        nets: &Vec<u16>,
+        nets: &[u16],
         valid_mode: bool
     ) -> FunctorResult {
 
@@ -378,12 +368,12 @@ fn update_buckets(
 
     if valid_mode {
         buckets.write().map_err(global_fails::PoisonError::from)?
-            .insert_into_bucket( sender, &own_id, nets.clone());
+            .insert_into_bucket( sender, &own_id, nets.to_owned());
     } else if sender_ip.is_global()
             && !sender_ip.is_multicast()
             && !sender_ip.is_documentation() {
                 buckets.write().map_err(global_fails::PoisonError::from)?
-                    .insert_into_bucket( sender, &own_id, nets.clone());
+                    .insert_into_bucket( sender, &own_id, nets.to_owned());
     }
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
@@ -414,33 +404,31 @@ fn is_valid_mode(
 pub fn default_network_request_handshake(
         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest) -> FunctorResult {
-    match req {
-        NetworkRequest::Handshake(sender, nets, _) => {
-            debug!("Got request for Handshake");
+    if let NetworkRequest::Handshake(sender, nets, _) = req {
+        debug!("Got request for Handshake");
 
-            // Setup peer and networks before send Handshake.
-            {
-                let mut priv_conn_mut = priv_conn.borrow_mut();
-                priv_conn_mut.add_networks(nets);
-                priv_conn_mut.set_peer( sender.clone());
+        // Setup peer and networks before send Handshake.
+        {
+            let mut priv_conn_mut = priv_conn.borrow_mut();
+            priv_conn_mut.add_networks(nets);
+            priv_conn_mut.set_peer( sender.clone());
 
-            }
-            send_handshake_and_ping( priv_conn)?;
-            {
-                let mut priv_conn_mut = priv_conn.borrow_mut();
-                priv_conn_mut.update_last_seen();
-                priv_conn_mut.set_measured_ping_sent();
-            }
-
-            let valid_mode: bool = is_valid_mode( priv_conn);
-            update_buckets( priv_conn, sender, nets, valid_mode)?;
-
-            if valid_mode {
-                send_peer_list( priv_conn, sender, nets)?;
-            }
         }
-        _ => {}
+        send_handshake_and_ping( priv_conn)?;
+        {
+            let mut priv_conn_mut = priv_conn.borrow_mut();
+            priv_conn_mut.update_last_seen();
+            priv_conn_mut.set_measured_ping_sent();
+        }
+
+        let valid_mode: bool = is_valid_mode( priv_conn);
+        update_buckets( priv_conn, sender, nets, valid_mode)?;
+
+        if valid_mode {
+            send_peer_list( priv_conn, sender, nets)?;
+        }
     }
+
     Ok(())
 }
 

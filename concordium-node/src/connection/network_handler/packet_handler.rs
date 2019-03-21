@@ -32,10 +32,10 @@ impl PacketHandler {
     fn process_message(&self, msg: &NetworkPacket) -> FunctorResult {
 
         let spec_status = match msg {
-            NetworkPacket::DirectMessage(_, _, _, _, _) => {
+            NetworkPacket::DirectMessage(..) => {
                 (&self.direct_parser)( &msg)
             },
-            NetworkPacket::BroadcastedMessage( _, _, _, _) => {
+            NetworkPacket::BroadcastedMessage(..) => {
                 (&self.broadcast_parser)( &msg)
             }
         };

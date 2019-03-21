@@ -66,9 +66,9 @@ impl TlsServer {
                     own_id,
                     event_log,
                     self_peer,
-                    mode: mode,
-                    prometheus_exporter: prometheus_exporter,
-                    buckets: buckets,
+                    mode,
+                    prometheus_exporter,
+                    buckets,
                     message_handler: Arc::new( RwLock::new( MessageHandler::new())),
                     dptr: mdptr,
                     blind_trusted_broadcast,
@@ -79,14 +79,10 @@ impl TlsServer {
     }
 
     pub fn log_event(&mut self, event: P2PEvent) {
-        match self.event_log {
-            Some(ref mut x) => {
-                match x.send(event) {
-                    Ok(_) => {}
-                    Err(e) => error!("Couldn't send error {:?}", e),
-                };
+        if let Some(ref mut x) = self.event_log {
+            if let Err(e) = x.send(event) {
+                error!("Couldn't send error {:?}", e)
             }
-            _ => {}
         }
     }
 
@@ -197,13 +193,12 @@ impl TlsServer {
                         .map_err(|e| error!("{}", e))
                         .ok();
                 };
-                let tls_session =
-                    ClientSession::new(&self.client_tls_config,
-                                       match DNSNameRef::try_from_ascii_str(&"node.concordium.com")
-                                       {
-                                           Ok(x) => x,
-                                           Err(e) => panic!("The error is: {:?}", e),
-                                       });
+                let tls_session = ClientSession::new(
+                    &self.client_tls_config,
+                    DNSNameRef::try_from_ascii_str(&"node.concordium.com").unwrap_or_else(|e|
+                        panic!("The error is: {:?}", e),
+                    )
+                );
 
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 

@@ -1,9 +1,7 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-extern crate hacl_star;
-extern crate p2p_client;
-extern crate structopt;
+
 use hacl_star::ed25519::SecretKey;
 use p2p_client::errors::*;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};
@@ -39,7 +37,7 @@ pub fn run() -> ResultExtWrapper<()> {
         {
             Ok(mut file) => {
                 let key: [u8; 32] = generate_ed25519_key();
-                let secret_key = SecretKey { 0: key };
+                let secret_key = SecretKey(key);
                 let public_key = secret_key.get_public();
                 match file.write_all(&key) {
                     Ok(_) => {

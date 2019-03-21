@@ -10,6 +10,7 @@ exclude = [
 ]
 publish = false
 build = "build.rs"
+edition = "2018"
 
 [features]
 default = []

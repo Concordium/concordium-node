@@ -1,11 +1,8 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-extern crate structopt;
 #[macro_use]
 extern crate arrayref;
-extern crate hacl_star;
-extern crate p2p_client;
 
 use p2p_client::errors::*;
 use p2p_client::utils::generate_bootstrap_dns;
@@ -46,12 +43,9 @@ pub fn run() -> ResultExtWrapper<()> {
     let mut private_key_bytes: Vec<u8> = vec![];
     match File::open(&conf.keyfile) {
         Ok(ref mut file) => {
-            match file.read_to_end(&mut private_key_bytes) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("Error while reading {} {}", &conf.keyfile, e);
-                    exit(1);
-                }
+            if let Err(e) = file.read_to_end(&mut private_key_bytes) {
+                println!("Error while reading {} {}", &conf.keyfile, e);
+                exit(1);
             }
         }
         Err(e) => {
@@ -67,7 +61,7 @@ pub fn run() -> ResultExtWrapper<()> {
     {
         Ok(entries) => {
             for entry in entries {
-                println!("{}", format!("\tIN\tTXT\t{}", entry));
+                println!("\tIN\tTXT\t{}", entry);
             }
         }
         Err(e) => {

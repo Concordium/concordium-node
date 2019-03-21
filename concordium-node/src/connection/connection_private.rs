@@ -78,7 +78,7 @@ impl ConnectionPrivate {
             tls_session: tls_session,
 
             last_seen: AtomicU64::new( get_current_stamp()),
-            failed_pkts: 0 as u32,
+            failed_pkts: 0,
             prometheus_exporter: prometheus_exporter,
             event_log: event_log,
 
@@ -100,7 +100,7 @@ impl ConnectionPrivate {
         self.last_seen.load( Ordering::Relaxed)
     }
 
-    pub fn add_networks(&mut self, networks: &Vec<u16>) {
+    pub fn add_networks(&mut self, networks: &[u16]) {
         for ele in networks {
             if !self.networks.contains(ele) {
                 self.networks.push(*ele);

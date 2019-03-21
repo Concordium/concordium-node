@@ -1,11 +1,6 @@
 #![recursion_limit = "1024"]
-extern crate structopt;
 #[macro_use]
 extern crate error_chain;
-extern crate p2p_client;
-extern crate reqwest;
-extern crate serde;
-extern crate serde_json;
 
 use p2p_client::errors::*;
 use serde_json::{json, Value};
@@ -34,10 +29,7 @@ pub fn run() -> ResultExtWrapper<()> {
         if conf.to_analyze.starts_with("https://") || conf.to_analyze.starts_with("http://") {
             match reqwest::get(&conf.to_analyze) {
                 Ok(ref mut res) if res.status().is_success() => {
-                    match res.text() {
-                        Ok(text) => text,
-                        _ => panic!("Can't read file from URL"),
-                    }
+                    res.text().unwrap_or_else(|_| panic!("Can't read file from URL"))
                 }
                 _ => panic!("Can't read file from URL"),
             }

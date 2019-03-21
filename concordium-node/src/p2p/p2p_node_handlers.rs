@@ -31,10 +31,9 @@ pub fn forward_network_request(
     let cloned_req = req.clone();
     let outer = Arc::new( box NetworkMessage::NetworkRequest( cloned_req, None, None));
 
-    match packet_queue.send( outer) {
-        Err(e) => warn!( "Network request cannot be forward by packet queue: {}", e.to_string()),
-        _ => {}
-    };
+    if let Err(e) = packet_queue.send(outer) {
+        warn!("Network request cannot be forward by packet queue: {}", e.to_string())
+    }
 
     Ok(())
 }
@@ -87,7 +86,7 @@ fn forward_network_packet_message_common(
         sender: &P2PPeer,
         msg_id: &String,
         network_id: &u16,
-        msg: &Vec<u8>,
+        msg: &[u8],
         drop_message: &str,
         blind_trust_broadcast: bool,
         ) -> FunctorResult {
@@ -101,7 +100,7 @@ fn forward_network_packet_message_common(
 
             seen_messages.append(&msg_id);
             if blind_trust_broadcast {
-                if let NetworkPacket::BroadcastedMessage(_,_,_,_) = pac {
+                if let NetworkPacket::BroadcastedMessage(..) = pac {
 
                     send_queue.lock().map_err(global_fails::PoisonError::from)?
                         .push_back( outer.clone());

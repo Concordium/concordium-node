@@ -27,8 +27,7 @@ impl NetworkRequest {
                         PROTOCOL_NAME,
                         PROTOCOL_VERSION,
                         get_current_stamp(),
-                        PROTOCOL_MESSAGE_TYPE_REQUEST_PING).as_bytes()
-                                                           .to_vec()
+                        PROTOCOL_MESSAGE_TYPE_REQUEST_PING).into_bytes()
             }
             NetworkRequest::JoinNetwork(_, nid) => {
                 format!("{}{}{:016x}{}{:05}",
@@ -36,8 +35,7 @@ impl NetworkRequest {
                         PROTOCOL_VERSION,
                         get_current_stamp(),
                         PROTOCOL_MESSAGE_TYPE_REQUEST_JOINNETWORK,
-                        nid).as_bytes()
-                            .to_vec()
+                        nid).into_bytes()
             }
             NetworkRequest::LeaveNetwork(_, nid) => {
                 format!("{}{}{:016x}{}{:05}",
@@ -45,8 +43,7 @@ impl NetworkRequest {
                         PROTOCOL_VERSION,
                         get_current_stamp(),
                         PROTOCOL_MESSAGE_TYPE_REQUEST_LEAVENETWORK,
-                        nid).as_bytes()
-                            .to_vec()
+                        nid).into_bytes()
             }
             NetworkRequest::FindNode(_, id) => {
                 format!("{}{}{:016x}{}{:064x}",
@@ -54,8 +51,7 @@ impl NetworkRequest {
                         PROTOCOL_VERSION,
                         get_current_stamp(),
                         PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,
-                        id.get_id()).as_bytes()
-                                    .to_vec()
+                        id.get_id()).into_bytes()
             }
             NetworkRequest::BanNode(_, node_data) => {
                 format!("{}{}{:016x}{}{}",
@@ -63,8 +59,7 @@ impl NetworkRequest {
                         PROTOCOL_VERSION,
                         get_current_stamp(),
                         PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,
-                        node_data.serialize()).as_bytes()
-                                              .to_vec()
+                        node_data.serialize()).into_bytes()
             }
             NetworkRequest::UnbanNode(_, node_data) => {
                 format!("{}{}{:016x}{}{}",
@@ -72,27 +67,22 @@ impl NetworkRequest {
                         PROTOCOL_VERSION,
                         get_current_stamp(),
                         PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE,
-                        node_data.serialize()).as_bytes()
-                                              .to_vec()
+                        node_data.serialize()).into_bytes()
             }
             NetworkRequest::Handshake(me, nids, zk) => {
-                let mut pkt: Vec<u8> = Vec::new();
-                for byte in format!("{}{}{:016x}{}{}{:05}{:05}{}{:010}",
-                                    PROTOCOL_NAME,
-                                    PROTOCOL_VERSION,
-                                    get_current_stamp(),
-                                    PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
-                                    me.id().to_string(),
-                                    me.port(),
-                                    nids.len(),
-                                    nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
-                                    zk.len()).as_bytes()
-                {
-                    pkt.push(*byte);
-                }
-                for byte in zk.iter() {
-                    pkt.push(*byte);
-                }
+                let mut pkt = format!("{}{}{:016x}{}{}{:05}{:05}{}{:010}",
+                    PROTOCOL_NAME,
+                    PROTOCOL_VERSION,
+                    get_current_stamp(),
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
+                    me.id().to_string(),
+                    me.port(),
+                    nids.len(),
+                    nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
+                    zk.len()
+                ).into_bytes();
+                pkt.extend(zk.iter());
+
                 pkt
             }
             NetworkRequest::GetPeers(_, networks) => {
@@ -104,8 +94,8 @@ impl NetworkRequest {
                         networks.len(),
                         networks.iter()
                                 .map(|x| format!("{:05}", x))
-                                .collect::<String>()).as_bytes()
-                                                     .to_vec()
+                                .collect::<String>()
+                ).into_bytes()
             }
         }
     }

@@ -74,13 +74,10 @@ impl P2PNode {
                blind_trusted_broadcast: bool,)
                -> Self {
         let addr = if let Some(ref addy) = listen_address {
-            match format!("{}:{}", addy, listen_port).parse() {
-                Ok(a) => a,
-                Err(_) => {
-                    warn!("Supplied listen address coulnd't be parsed");
-                    format!("0.0.0.0:{}", listen_port).parse().unwrap()
-                }
-            }
+            format!("{}:{}", addy, listen_port).parse().unwrap_or_else(|_| {
+                warn!("Supplied listen address coulnd't be parsed");
+                format!("0.0.0.0:{}", listen_port).parse().unwrap()
+            })
         } else {
             format!("0.0.0.0:{}", listen_port).parse().unwrap()
         };
@@ -89,10 +86,9 @@ impl P2PNode {
 
         //Retrieve IP address octets, format to IP and SHA256 hash it
         let ip = if let Some(ref addy) = listen_address {
-            match IpAddr::from_str(addy) {
-                Ok(x) => x,
-                _ => P2PNode::get_ip().expect("Couldn't retrieve my own ip"),
-            }
+            IpAddr::from_str(addy).unwrap_or_else(|_|
+                P2PNode::get_ip().expect("Couldn't retrieve my own ip")
+            )
         } else {
             P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
@@ -114,19 +110,16 @@ impl P2PNode {
 
         let _id = P2PNodeId::from_string(&id).expect("Couldn't parse the id");
 
-        let poll = match Poll::new() {
-            Ok(x) => x,
-            _ => panic!("Couldn't create poll"),
-        };
+        let poll = Poll::new().unwrap_or_else(|_|
+            panic!("Couldn't create poll")
+        );
 
-        let server = match TcpListener::bind(&addr) {
-            Ok(x) => x,
-            _ => panic!("Couldn't listen on port!"),
-        };
+        let server = TcpListener::bind(&addr).unwrap_or_else(|_|
+            panic!("Couldn't listen on port!")
+        );
 
-        match poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()) {
-            Ok(_x) => (),
-            _ => panic!("Couldn't register server with poll!"),
+        if poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()).is_err() {
+            panic!("Couldn't register server with poll!")
         };
 
         //Generate key pair and cert
@@ -351,14 +344,10 @@ impl P2PNode {
     }
 
     fn log_event(&mut self, event: P2PEvent) {
-        match self.event_log {
-            Some(ref mut x) => {
-                match x.send(event) {
-                    Ok(_) => {}
-                    Err(e) => error!("Couldn't send event {:?}", e),
-                };
+        if let Some(ref mut x) = self.event_log {
+            if let Err(e) = x.send(event) {
+                error!("Couldn't send event {:?}", e)
             }
-            _ => {}
         }
     }
 
@@ -407,7 +396,7 @@ impl P2PNode {
 
                         match *x.clone() {
                             box NetworkMessage::NetworkPacket(ref inner_pkt
-                                    @ NetworkPacket::DirectMessage(_, _, _, _, _), _, _) => {
+                                    @ NetworkPacket::DirectMessage(..), _, _) => {
                                 if let NetworkPacket::DirectMessage(_, _msgid, receiver, _network_id,  _) = inner_pkt {
                                     let data = inner_pkt.serialize();
                                     let filter = |conn: &Connection|{ is_conn_peer_id( conn, receiver)};
