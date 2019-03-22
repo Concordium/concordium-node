@@ -1,8 +1,6 @@
  #![recursion_limit = "1024"]
-#[macro_use] extern crate log;
 
 use hacl_star::ed25519::SecretKey;
-use p2p_client::failing_main;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -24,9 +22,7 @@ struct ConfigCli {
     force_overwrite: bool,
 }
 
-failing_main!(run);
-
-pub fn run() -> Fallible<()> {
+pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     p2p_client::setup_panics();
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {

@@ -23,7 +23,8 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 /// and have to be converted into an intermediate type (in this
 /// case `crate::fails::PoisonError`).
 ///
-/// This allows to use the `?` operator in a much more concise way and
+/// This allows to use the `?` operator in a much more concise way in functions
+/// that expect to return `failure::Fallible` and
 /// reduces the boilerplate as `lock()` is a commonly used function.
 ///
 /// # Examples
@@ -32,9 +33,12 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 /// use p2p_client::safe_lock; // just import the macro
 /// use std::sync::{ Arc, Mutex };
 ///
-/// let data = Arc::new(Mutex::new(0));
-/// // `let locked_data = data.lock().map_err(p2p_client::fails::PoisonError::from)?;` gets replaced by:
-/// let locked_data = safe_lock!(data)?;
+/// fn foo() -> failure::Fallible<T> {
+///     let data = Arc::new(Mutex::new(0));
+///     // `let locked_data = data.lock().map_err(p2p_client::fails::PoisonError::from)?;` gets replaced by:
+///     let locked_data = safe_lock!(data)?;
+///     // ...
+/// }
 /// ```
 
 #[macro_export]
@@ -46,25 +50,7 @@ macro_rules! safe_lock {
 
 /// Wrap a `read()` call to map a `PoisonError` into a `failure::Fail`
 ///
-/// This macro is intended to be used with `std::sync::PoisonErrors`.
-/// Standard poison errors are usually not convertible into
-/// `failure::Error` because they lack implementations for `Send`
-/// and `Sync`. That's the reason why they can't be directly converted
-/// and have to be converted into an intermediate type (in this
-/// case `crate::fails::PoisonError`).
-///
-/// This allows to use the `?` operator in a much more concise way and
-/// reduces the boilerplate as `lock()` is a commonly used function.
-///
-/// # Examples
-/// ```
-/// use p2p_client::safe_read; // just import the macro
-/// use std::sync::{ Arc, RwLock };
-///
-/// let data = Arc::new(RwLock::new(HashMap<u16, u16>));
-/// // `let readable_data = data.read().map_err(p2p_client::fails::PoisonError::from)?;` gets replaced by:
-/// let readable_data = safe_read!(data)?;
-/// ```
+/// See [safe_lock] for further documentation.
 #[macro_export]
 macro_rules! safe_read {
     ($e:expr) => {
@@ -74,25 +60,7 @@ macro_rules! safe_read {
 
 /// Wrap a `write()` call to map a `PoisonError` into a `failure::Fail`
 ///
-/// This macro is intended to be used with `std::sync::PoisonErrors`.
-/// Standard poison errors are usually not convertible into
-/// `failure::Error` because they lack implementations for `Send`
-/// and `Sync`. That's the reason why they can't be directly converted
-/// and have to be converted into an intermediate type (in this
-/// case `crate::fails::PoisonError`).
-///
-/// This allows to use the `?` operator in a much more concise way and
-/// reduces the boilerplate as `lock()` is a commonly used function.
-///
-/// # Examples
-/// ```
-/// use p2p_client::safe_write; // just import the macro
-/// use std::sync::{ Arc, RwLock };
-///
-/// let data = Arc::new(RwLock::new(HashMap<u16, u16>));
-/// // `let writable_data = data.write().map_err(p2p_client::fails::PoisonError::from)?;` gets replaced by:
-/// let writable_data = safe_write!(data)?;
-/// ```
+/// See [safe_lock] for further documentation.
 #[macro_export]
 macro_rules! safe_write {
     ($e:expr) => {
@@ -106,7 +74,8 @@ macro_rules! safe_write {
 /// `Send + Sync` so it can be directly boxed and converted into
 /// `failure::Error`.
 ///
-/// This allows to use the `?` operator upwards.
+/// This allows to use the `?` operator inside functions that expect to return
+/// `failure::Fallible`.
 ///
 /// # Examples
 /// ```

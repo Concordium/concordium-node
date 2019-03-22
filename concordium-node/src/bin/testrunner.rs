@@ -16,7 +16,7 @@ use env_logger::{Builder, Env};
 use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
-use p2p_client::{failing_main, common};
+use p2p_client::common;
 use p2p_client::common::{ ConnectionType };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
@@ -32,8 +32,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
 use failure::Fallible;
-
-failing_main!(run);
 
 #[derive(Clone)]
 struct TestRunner {
@@ -271,7 +269,7 @@ impl TestRunner {
     }
 }
 
-fn run() -> Fallible<()> {
+fn main() -> Fallible<()> {
     let conf = configuration::parse_testrunner_config();
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());

@@ -13,7 +13,6 @@ use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
 use p2p_client::configuration;
-use p2p_client::failing_main;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use router::Router;
 use std::collections::HashSet;
@@ -22,8 +21,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use failure::Fallible;
-
-failing_main!(run);
 
 #[derive(Clone)]
 struct IpDiscoveryServer {
@@ -135,7 +132,7 @@ impl IpDiscoveryServer {
     }
 }
 
-fn run() -> Fallible<()> {
+fn main() -> Fallible<()> {
     let conf = configuration::parse_ipdiscovery_config();
     let app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());

@@ -1,5 +1,4 @@
 #![recursion_limit = "1024"]
-#[macro_use] extern crate log;
 
 use serde_json::{json, Value};
 use std::cmp::Ordering;
@@ -7,7 +6,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use structopt::StructOpt;
 use failure::{ Fallible, Error, err_msg };
-use p2p_client::failing_main;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "TestRunner Results Parser")]
@@ -20,9 +18,7 @@ struct ConfigCli {
     pub csv: bool,
 }
 
-failing_main!(run);
-
-pub fn run() -> Fallible<()> {
+pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     p2p_client::setup_panics();
     let results =

@@ -20,7 +20,6 @@ use p2p_client::db::P2PDB;
 use failure::Error;
 use p2p_client::p2p::*;
 use p2p_client::safe_lock;
-use p2p_client::failing_main;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;
@@ -28,9 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
 
-failing_main!(run);
-
-fn run() -> Result<(), Error> {
+fn main() -> Result<(), Error> {
     let conf = configuration::parse_bootstrapper_config();
     let app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());

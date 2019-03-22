@@ -24,7 +24,7 @@ use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, Networ
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
-use p2p_client::{ failing_main, safe_lock };
+use p2p_client::safe_lock;
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
@@ -41,9 +41,7 @@ use timer::Timer;
 use std::{ str };
 use failure::{Fallible};
 
-failing_main!(run);
-
-fn run() -> Fallible<()> {
+fn main() -> Fallible<()> {
     let conf = configuration::parse_cli_config();
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
