@@ -7,6 +7,7 @@ mod writev_adapter;
 
 mod connection_default_handlers;
 mod connection_private;
+pub mod fails;
 pub mod connection;
 
 use rustls::Session;
@@ -27,4 +28,3 @@ pub use self::network_handler::{
     RequestHandler, PacketHandler, ResponseHandler, MessageHandler,
     NetworkRequestCW, NetworkResponseCW, NetworkPacketCW, EmptyCW,
     MessageManager };
-

@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
 use mio::{ Token, Poll, Event };
+use failure::{Fallible, bail};
 
-use crate::errors::{ ErrorKindWrapper, ResultExtWrapper };
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
 use crate::connection::{ Connection, P2PNodeMode };
 use crate::network::{ NetworkMessage, NetworkRequest };
@@ -12,6 +12,8 @@ use crate::prometheus_exporter::{ PrometheusServer };
 
 use crate::p2p::peer_statistics::{ PeerStatistic };
 use crate::p2p::unreachable_nodes::{ UnreachableNodes };
+
+use super::fails;
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
@@ -60,21 +62,20 @@ impl TlsServerPrivate {
 
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.
-    pub fn remove_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
-        self.networks.lock()?.retain(|x| x == network_id);
+    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
+        safe_lock!(self.networks)?
+            .retain(|x| *x == network_id);
         Ok(())
     }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: &u16) -> ResultExtWrapper<()> {
-        {
-            let mut networks = self.networks.lock()?;
-            if !networks.contains(network_id) {
-                networks.push(*network_id)
+    pub fn add_network(&mut self, network_id: u16) -> Fallible<()>  {
+            let mut networks = safe_lock!(self.networks)?;
+            if !networks.contains(&network_id) {
+                networks.push(network_id)
             }
+            Ok(())
         }
-        Ok(())
-    }
 
     /// It generates a peer statistic list for each connected peer which belongs to
     /// any of networks in `nids`.
@@ -139,12 +140,12 @@ impl TlsServerPrivate {
                   poll: &mut Poll,
                   event: &Event,
                   packet_queue: &Sender<Arc<Box<NetworkMessage>>>)
-                  -> ResultExtWrapper<()> {
+                  -> Fallible<()> {
         let token = event.token();
         let mut rc_conn_to_be_removed : Option<_> = None;
 
-        if let Some(rc_conn) = self.connections_by_token.get(&token)
-        {
+        if let Some(rc_conn) = self.connections_by_token.get(&token) {
+
             let mut conn = rc_conn.borrow_mut();
             conn.ready(poll, event, &packet_queue)?;
 
@@ -152,7 +153,7 @@ impl TlsServerPrivate {
                 rc_conn_to_be_removed = Some( Rc::clone(rc_conn));
             }
         } else {
-                return Err(ErrorKindWrapper::LockingError("Couldn't get lock for connection".to_string()).into())
+            bail!(fails::PeerNotFoundError)
         }
 
         if let Some(rc_conn) = rc_conn_to_be_removed {
@@ -161,9 +162,10 @@ impl TlsServerPrivate {
         }
 
         Ok(())
+
     }
 
-    pub fn cleanup_connections(&mut self, mode: P2PNodeMode, mut poll: &mut Poll) -> ResultExtWrapper<()>
+    pub fn cleanup_connections(&mut self, mode: P2PNodeMode, mut poll: &mut Poll) -> Fallible<()>
     {
         let curr_stamp = get_current_stamp();
 
@@ -214,7 +216,8 @@ impl TlsServerPrivate {
             let closing_with_peer = closing_conns.iter()
                     .filter( |ref rc_conn| { rc_conn.borrow().peer().is_some() })
                     .count();
-            prom.lock()?.peers_dec_by( closing_with_peer as i64)?;
+            safe_lock!(prom)?
+                .peers_dec_by( closing_with_peer as i64)?;
         }
 
         for rc_conn in closing_conns.iter()
@@ -226,7 +229,7 @@ impl TlsServerPrivate {
         Ok(())
     }
 
-    pub fn liveness_check(&mut self) -> ResultExtWrapper<()> {
+    pub fn liveness_check(&mut self) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
 
         self.connections_by_token.values()
@@ -257,7 +260,7 @@ impl TlsServerPrivate {
     pub fn send_over_all_connections( &mut self,
             data: &[u8],
             filter_conn: &dyn Fn( &Connection) -> bool,
-            send_status: &dyn Fn( &Connection, Result<usize, std::io::Error>))
+            send_status: &dyn Fn( &Connection, Fallible<usize>))
     {
         for rc_conn in self.connections_by_token.values()
         {

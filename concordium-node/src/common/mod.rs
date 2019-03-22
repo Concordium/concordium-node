@@ -1,15 +1,18 @@
 pub mod counter;
 
 #[macro_use] pub mod functor;
-use crate::errors::{ResultExtWrapper, ErrorKindWrapper::ParseError};
+
+pub mod fails;
+
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::cmp::Ordering;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
-use chrono::prelude::*;
+use failure::{Fallible, bail};
 use crate::utils;
+use chrono::prelude::*;
 
 use crate::network::{ PROTOCOL_NODE_ID_LENGTH };
 
@@ -31,43 +34,41 @@ pub struct P2PPeer {
 }
 
 impl P2PPeerBuilder {
-    pub fn build(&mut self) -> ResultExtWrapper<P2PPeer> {
-        let id_bc = self.clone().id.map_or_else(
-            || {
-                if self.ip.is_none() | self.port.is_none() {
-                    Err(ParseError("No id set and no ip nor port supplied".to_string()).into())
-                } else {
+    pub fn build(&mut self) -> Fallible<P2PPeer> {
+        let id_bc = match &self.id {
+            None => {
+                if self.ip.is_some() && self.port.is_some() {
                     Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
+                } else {
+                    Err(fails::EmptyIpPortError)
                 }
             },
-            |id| {
+            Some(id) => {
                 if id.id == BigUint::default() {
                     Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
                 } else {
                     Ok(None)
                 }
             }
-        );
-        match id_bc {
-            Err(e) => {
-                Err(e)
-            }
-            Ok(x) => {
-                if let Some(id) = x {
-                    self.id(id);
-                }
-                if self.connection_type.is_some() && self.id.is_some() &&
-                    self.ip.is_some() && self.port.is_some() {
-                        Ok(P2PPeer { connection_type: self.connection_type.unwrap(),
-                                     ip: self.ip.unwrap(),
-                                     port: self. port.unwrap(),
-                                     id: self.id.to_owned().unwrap(),
-                                     last_seen: get_current_stamp()})
-                    } else {
-                        Err(ParseError(format!("Missing fields on P2PPeer build: {:?},{:?},{:?},{:?}", self.connection_type, self.id, self.ip, self.port).to_string()).into())
-                    }
-            }
+        }?;
+        if let Some(id) = id_bc {
+            self.id(id);
         }
+        if self.connection_type.is_some() && self.id.is_some() &&
+            self.ip.is_some() && self.port.is_some() {
+                Ok(P2PPeer { connection_type: self.connection_type.unwrap(),
+                             ip: self.ip.unwrap(),
+                             port: self. port.unwrap(),
+                             id: self.id.clone().unwrap(),
+                             last_seen: get_current_stamp()})
+            } else {
+                bail!(fails::MissingFieldsError::new(
+                    self.connection_type,
+                    self.id.clone(),
+                    self.ip.clone(),
+                    self.port
+                ))
+            }
     }
 }
 
@@ -106,7 +107,7 @@ impl P2PPeer {
         }
     }
 
-    pub fn deserialize(buf: &str) -> ResultExtWrapper<P2PPeer> {
+    pub fn deserialize(buf: &str) -> Fallible<P2PPeer> {
         if &buf.len() > &(PROTOCOL_NODE_ID_LENGTH + 3) {
             let node_id = &buf[..PROTOCOL_NODE_ID_LENGTH];
             let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..(PROTOCOL_NODE_ID_LENGTH + 3)];
@@ -122,7 +123,9 @@ impl P2PPeer {
                         let port = buf[(ip_start + 12)..(ip_start + 17)].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
-                        return Err(ParseError("Invalid length for the specified IP type".to_string()).into())
+                        bail!(fails::InvalidLengthForIP::new(
+                            ip_type.to_string()
+                        ))
                     }
                 }
                 "IP6" => {
@@ -139,10 +142,14 @@ impl P2PPeer {
                         let port = buf[ip_start..][32..37].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
-                        return Err(ParseError("Invalid length for the specified IP type".to_string()).into())
+                        bail!(fails::InvalidLengthForIP::new(
+                            ip_type.to_string()
+                        ))
                     }
                 }
-                _ => return Err(ParseError("Invalid IP type".to_string()).into())
+                _ => bail!(fails::InvalidIpType::new(
+                   ip_type.to_string()
+                ))
             };
             P2PPeerBuilder::default()
                 .id(P2PNodeId::from_string(&node_id.to_string())?)
@@ -151,7 +158,7 @@ impl P2PPeer {
                 .connection_type(ConnectionType::Node)
                 .build()
         } else {
-            Err(ParseError("Invalid length".to_string()).into())
+            bail!(fails::InvalidLength)
         }
     }
 
@@ -210,10 +217,8 @@ impl PartialEq for P2PNodeId {
 impl Eq for P2PNodeId {}
 
 impl P2PNodeId {
-    pub fn from_string(sid: &String) -> ResultExtWrapper<P2PNodeId> {
-        BigUint::from_str_radix(&sid, 16)
-            .map_err(|_| ParseError(format!("Can't parse {} as base16 number", &sid)).into())
-            .map(|id| P2PNodeId { id })
+    pub fn from_string(sid: &str) -> Fallible<P2PNodeId> {
+        Ok(P2PNodeId { id: BigUint::from_str_radix(sid, 16)? })
     }
 
     pub fn get_id(&self) -> &BigUint {
@@ -224,12 +229,12 @@ impl P2PNodeId {
         format!("{:064x}", self.id)
     }
 
-    pub fn from_ip_port(ip: IpAddr, port: u16) -> ResultExtWrapper<P2PNodeId> {
+    pub fn from_ip_port(ip: IpAddr, port: u16) -> Fallible<P2PNodeId> {
         let ip_port = format!("{}:{}", ip, port);
         P2PNodeId::from_string(&utils::to_hex_string(&utils::sha256(&ip_port)))
     }
 
-    pub fn from_ipstring(ip_port: String) -> ResultExtWrapper<P2PNodeId> {
+    pub fn from_ipstring(ip_port: String) -> Fallible<P2PNodeId> {
         P2PNodeId::from_string(&utils::to_hex_string(&utils::sha256(&ip_port)))
     }
 }

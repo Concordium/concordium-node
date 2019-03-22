@@ -2,7 +2,7 @@ use rustls::{ ServerCertVerifier, RootCertStore, Certificate, TLSError, ServerCe
 use webpki::DNSNameRef;
 
 //Disable certificate verification
-pub struct NoCertificateVerification {}
+pub struct NoCertificateVerification;
 
 impl ServerCertVerifier for NoCertificateVerification {
     fn verify_server_cert(&self,
@@ -14,5 +14,3 @@ impl ServerCertVerifier for NoCertificateVerification {
         Ok(ServerCertVerified::assertion())
     }
 }
-
-

@@ -1,12 +1,10 @@
 use std::sync::{ Arc, Mutex };
+use failure::{ Error, bail };
+use crate::fails as global_fails;
 
-// use std::sync::atomic::{ AtomicUsize, ATOMIC_USIZE_INIT, Ordering };
+use super::{ FunctorResult, FunctorCallback, FunctorError };
 
-use crate::common::functor::{ FunctorCallback, FunctorResult };
-use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
-
-// pub type AFunctorCW<T> = Arc< Mutex< Box< FunctorCallback<T>>>>;
-pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
+pub type AFunctorCW<T> = (String, Arc<Mutex<Box<FunctorCallback<T>>>>);
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -42,13 +40,11 @@ pub type AFunctorCW<T> = (String, Arc< Mutex< Box< FunctorCallback<T>>>>);
 #[derive(Clone)]
 pub struct AFunctor<T> {
     name: &'static str,
-    callbacks: Vec< AFunctorCW<T> >,
+    callbacks: Vec<AFunctorCW<T>>,
 }
 
 unsafe impl<T> Send for AFunctor<T> {}
 unsafe impl<T> Sync for AFunctor<T> {}
-
-// static DEEP_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
 impl<T> AFunctor<T> {
 
@@ -62,9 +58,9 @@ impl<T> AFunctor<T> {
     /// It adds new callback into this functor.
     ///
     /// Callbacks are executed in the same order they were introduced.
-    pub fn add_callback(&mut self, callback: AFunctorCW<T> ) -> &mut Self {
+    pub fn add_callback(&mut self, callback: AFunctorCW<T>) -> &mut Self {
         // debug!( "# Functor '{}': Callback added from {}", self.name, callback.0);
-        self.callbacks.push( callback);
+        self.callbacks.push(callback);
         self
     }
 
@@ -76,48 +72,26 @@ impl<T> AFunctor<T> {
     /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
     fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
     {
-        let mut status = Ok(());
-
-        // DEEP_COUNTER.fetch_add( 1, Ordering::SeqCst);
-        // let indent = String::from_utf8( vec![ b'+'; DEEP_COUNTER.load(Ordering::SeqCst)])
-        //        .unwrap();
+        let mut status : Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
-            // let cb = & self.callbacks[i];
             let (_fn_id, cb) = self.callbacks[i].clone();
 
-            // Lock callback and run it
-            let status_step = match cb.lock() {
+            if let Err(e) = match cb.lock() {
                 Ok(locked_cb) => {
-                    // debug!( "# {} Run afunctor '{}' callback({}/{}) at {}",
-                    //         indent, self.name, fn_id, i+1, self.callbacks.len());
-                    (locked_cb)( message)
+                    (locked_cb)(message)
                 },
-                Err(_) => {
-                    Err( ErrorWrapper::from_kind(
-                            ErrorKindWrapper::LockingError(
-                                format!( "Atomic callback cannot be locked at {}", self.name))))
-                }
+                Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
+            } {
+                status.push(e);
             };
+        };
 
-            // Fold error.
-            match status_step {
-                Ok(_) => {},
-                Err(step_err) => {
-                    status = match status {
-                        Ok(_) => Err(step_err),
-                        Err(chain_err) => {
-                            Err( ErrorWrapper::with_chain( chain_err,
-                                ErrorKindWrapper::FunctorRunningError( self.name)))
-                        }
-                    }
-                }
-            };
+        if !status.is_empty() {
+            bail!(FunctorError::new(status))
+        } else {
+            Ok(())
         }
-
-        // DEEP_COUNTER.fetch_sub( 1, Ordering::SeqCst);
-
-        status
     }
 }
 

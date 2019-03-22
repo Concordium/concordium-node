@@ -1,14 +1,10 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[macro_use]
-extern crate error_chain;
-#[macro_use]
-extern crate log;
-#[macro_use]
 extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
-
+#[macro_use] extern crate log;
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]
@@ -23,7 +19,6 @@ use p2p_client::common::{ ConnectionType };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
-use p2p_client::errors::*;
 use p2p_client::p2p::*;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::utils;
@@ -34,8 +29,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
-
-quick_main!(run);
+use failure::Fallible;
 
 #[derive(Clone)]
 struct TestRunner {
@@ -273,7 +267,7 @@ impl TestRunner {
     }
 }
 
-fn run() -> ResultExtWrapper<()> {
+fn main() -> Fallible<()> {
     let conf = configuration::parse_testrunner_config();
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());

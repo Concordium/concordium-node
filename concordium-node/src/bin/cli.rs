@@ -1,13 +1,10 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-#[macro_use]
-extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-#[macro_use]
-extern crate error_chain;
+#[macro_use] extern crate log;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -21,8 +18,8 @@ use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
-use p2p_client::errors::*;
 use p2p_client::p2p::*;
+use p2p_client::safe_lock;
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
@@ -37,10 +34,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use timer::Timer;
 use std::{ str };
+use failure::{Fallible};
 
-quick_main!(run);
-
-fn run() -> ResultExtWrapper<()> {
+fn main() -> Fallible<()> {
     let conf = configuration::parse_cli_config();
     let mut app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
@@ -394,7 +390,7 @@ fn run() -> ResultExtWrapper<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock()?
+            safe_lock!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name.clone(),

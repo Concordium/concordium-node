@@ -45,4 +45,3 @@ impl PacketHandler {
 }
 
 impl_all_fns!( PacketHandler, NetworkPacket);
-

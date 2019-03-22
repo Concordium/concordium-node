@@ -6,6 +6,7 @@ pub mod peer_statistics;
 pub mod p2p_service_forwarder;
 pub mod p2p_node;
 pub mod p2p_node_handlers;
+pub mod fails;
 
 pub use self::p2p_service_forwarder::*;
 

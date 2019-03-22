@@ -1,4 +1,4 @@
-use crate::errors::*;
+use failure::Fallible;
 use iron::headers::ContentType;
 use iron::prelude::*;
 use iron::status;
@@ -115,87 +115,87 @@ impl PrometheusServer {
                            queue_resent: qrs.clone(), }
     }
 
-    pub fn peers_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn peers_inc(&mut self) -> Fallible<()> {
         self.peers_gauge.inc();
         Ok(())
     }
 
-    pub fn unique_ips_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn unique_ips_inc(&mut self) -> Fallible<()> {
         self.unique_ips_seen.inc();
         Ok(())
     }
 
-    pub fn peers_dec(&mut self) -> ResultExtWrapper<()> {
+    pub fn peers_dec(&mut self) -> Fallible<()> {
         self.peers_gauge.dec();
         Ok(())
     }
 
-    pub fn peers_dec_by(&mut self, value: i64) -> ResultExtWrapper<()> {
+    pub fn peers_dec_by(&mut self, value: i64) -> Fallible<()> {
         self.peers_gauge.sub( value);
         Ok(())
     }
 
-    pub fn pkt_received_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn pkt_received_inc(&mut self) -> Fallible<()> {
         self.pkts_received_counter.inc();
         Ok(())
     }
 
-    pub fn pkt_received_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
+    pub fn pkt_received_inc_by(&mut self, to_add: i64) -> Fallible<()> {
         self.pkts_received_counter.inc_by(to_add);
         Ok(())
     }
 
-    pub fn pkt_sent_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn pkt_sent_inc(&mut self) -> Fallible<()> {
         self.pkts_sent_counter.inc();
         Ok(())
     }
 
-    pub fn pkt_sent_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
+    pub fn pkt_sent_inc_by(&mut self, to_add: i64) -> Fallible<()> {
         self.pkts_sent_counter.inc_by(to_add);
         Ok(())
     }
 
-    pub fn conn_received_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn conn_received_inc(&mut self) -> Fallible<()> {
         &self.connections_received.inc();
         Ok(())
     }
 
-    pub fn invalid_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn invalid_pkts_received_inc(&mut self) -> Fallible<()> {
         self.invalid_packets_received.inc();
         Ok(())
     }
 
-    pub fn invalid_network_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn invalid_network_pkts_received_inc(&mut self) -> Fallible<()> {
         self.invalid_network_packets_received.inc();
         Ok(())
     }
 
-    pub fn unknown_pkts_received_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn unknown_pkts_received_inc(&mut self) -> Fallible<()> {
         self.unknown_packets_received.inc();
         Ok(())
     }
 
-    pub fn queue_size_inc(&mut self) -> ResultExtWrapper<()> {
+    pub fn queue_size_inc(&mut self) -> Fallible<()> {
         self.queue_size.inc();
         Ok(())
     }
 
-    pub fn queue_size_dec(&mut self) -> ResultExtWrapper<()> {
+    pub fn queue_size_dec(&mut self) -> Fallible<()> {
         self.queue_size.dec();
         Ok(())
     }
 
-    pub fn queue_size_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
+    pub fn queue_size_inc_by(&mut self, to_add: i64) -> Fallible<()> {
         self.queue_size.add(to_add);
         Ok(())
     }
 
-    pub fn queue_resent_inc_by(&mut self, to_add: i64) -> ResultExtWrapper<()> {
+    pub fn queue_resent_inc_by(&mut self, to_add: i64) -> Fallible<()> {
         self.queue_resent.inc_by(to_add);
         Ok(())
     }
 
-    pub fn queue_size(&self) -> ResultExtWrapper<(i64)> {
+    pub fn queue_size(&self) -> Fallible<(i64)> {
         Ok(self.queue_size.get())
     }
 
@@ -218,7 +218,7 @@ impl PrometheusServer {
         Ok(resp)
     }
 
-    pub fn start_server(&mut self, listen_ip: &String, port: u16) -> ResultExtWrapper<()> {
+    pub fn start_server(&mut self, listen_ip: &String, port: u16) -> Fallible<()> {
         let mut router = Router::new();
         let _self_clone = Arc::new(self.clone());
         let _self_clone_2 = _self_clone.clone();
@@ -243,7 +243,7 @@ impl PrometheusServer {
                                  prometheus_instance_name: String,
                                  prometheus_push_username: Option<String>,
                                  prometheus_push_password: Option<String>)
-                                 -> ResultExtWrapper<()> {
+                                 -> Fallible<()> {
         let _registry = self.registry.clone();
         let _mode = self.mode.clone();
         let _th = thread::spawn(move || {

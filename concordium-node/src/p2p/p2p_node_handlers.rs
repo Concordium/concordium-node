@@ -3,11 +3,11 @@ use std::sync::mpsc::{ Sender };
 use std::collections::{ VecDeque };
 
 use crate::common::{ P2PPeer };
-use crate::common::functor::{ FunctorResult };
+use crate::common::functor::{ FunctorResult, fails as functor_fails };
 use crate::network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse };
 use crate::prometheus_exporter::PrometheusServer;
 use crate::connection::{ SeenMessagesList };
-use crate::errors::{ ErrorWrapper, ErrorKindWrapper };
+use failure::{err_msg};
 
 
 /// It forwards network response message into `queue`.
@@ -65,13 +65,12 @@ pub fn forward_network_packet_message(
 }
 
 /// It returns a `FunctorRunningError` with the specific message.
-fn make_fn_err( e: &'static str) -> ErrorWrapper {
-    ErrorWrapper::from_kind(
-        ErrorKindWrapper::FunctorRunningError( e))
+fn make_fn_err( e: &'static str) -> functor_fails::FunctorError {
+    functor_fails::FunctorError::new(vec![err_msg(e)])
 }
 
-fn make_fn_error_prometheus() -> ErrorWrapper {
-    make_fn_err( "Prometheus has faild")
+fn make_fn_error_prometheus() -> functor_fails::FunctorError {
+    make_fn_err( "Prometheus has failed")
 }
 
 /// # TODO
@@ -93,7 +92,8 @@ fn forward_network_packet_message_common(
 
     debug!("### Forward Broadcast Message: msgid: {}", msg_id);
     if !seen_messages.contains(msg_id) {
-        if own_networks.lock()?.contains(network_id) {
+        if safe_lock!(own_networks)?
+            .contains(network_id) {
             debug!("Received direct message of size {}", msg.len());
             let outer = Arc::new( box NetworkMessage::NetworkPacket( pac.clone(), None, None));
 
@@ -101,9 +101,11 @@ fn forward_network_packet_message_common(
             if blind_trust_broadcast {
                 if let NetworkPacket::BroadcastedMessage(..) = pac {
 
-                    send_queue.lock()?.push_back( outer.clone());
+                    safe_lock!(send_queue)?
+                        .push_back( outer.clone());
                     if let Some(ref prom) = prometheus_exporter {
-                        prom.lock()?.queue_size_inc()
+                        safe_lock!(prom)?
+                            .queue_size_inc()
                             .map_err(|_| make_fn_error_prometheus())?;
                     };
                 }
@@ -114,7 +116,8 @@ fn forward_network_packet_message_common(
             }
         } else {
             if let Some(ref prom) = prometheus_exporter {
-                prom.lock()?.invalid_network_pkts_received_inc()
+                safe_lock!(prom)?
+                    .invalid_network_pkts_received_inc()
                     .map_err(|e| error!("{}", e)).ok();
             }
         }

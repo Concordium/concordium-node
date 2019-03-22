@@ -1,14 +1,11 @@
-#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, integer_atomics)]
+#![feature(box_syntax, box_patterns, ip, unboxed_closures, fn_traits, integer_atomics, custom_attribute)]
 #![recursion_limit = "1024"]
 
-#[macro_use]
-extern crate error_chain;
+#[macro_use] extern crate log;
 #[macro_use]
 extern crate derive_builder;
 #[cfg(not(target_os = "windows"))]
 extern crate get_if_addrs;
-#[macro_use]
-extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
@@ -25,6 +22,8 @@ extern crate cfg_if;
 #[cfg(target_os = "windows")]
 extern crate ipconfig;
 
+use failure;
+
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
 const DEFAULT_DNS_PUBLIC_KEY: &'static str =
@@ -35,13 +34,12 @@ pub fn get_dns_public_key() -> &'static str {
     ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY)
 }
 
+#[macro_use] pub mod fails;
 #[macro_use] pub mod common;
 pub mod connection;
 pub mod configuration;
 pub mod db;
-// Due to massive changes in std, and possible change away from the error_chain crate,
-// we'll ignore deprecated warnings in this for now.
-#[allow(deprecated)] pub mod errors;
+
 pub mod p2p;
 pub mod prometheus_exporter;
 pub mod proto;
