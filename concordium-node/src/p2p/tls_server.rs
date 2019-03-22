@@ -138,7 +138,7 @@ impl TlsServer {
                                        Some(tls_session),
                                        None,
                                        self.own_id.clone(),
-                                       self_id.clone(),
+                                       self_id,
                                        addr.ip().clone(),
                                        addr.port().clone(),
                                        self.mode,
