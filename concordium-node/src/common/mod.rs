@@ -10,7 +10,6 @@ use std::cmp::Ordering;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
-use time;
 use failure::{Fallible, bail};
 use crate::utils;
 
@@ -240,8 +239,7 @@ impl P2PNodeId {
 }
 
 pub fn get_current_stamp() -> u64 {
-    let current_time = time::get_time();
-    (current_time.sec as u64 * 1000) + (current_time.nsec as u64 / 1000 / 1000)
+    Utc::now().timestamp_millis() as u64
 }
 
 #[cfg(test)]

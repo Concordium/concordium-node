@@ -1,13 +1,11 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-extern crate bytes;
-extern crate mio;
 #[macro_use] extern crate p2p_client;
 #[macro_use]
 extern crate log;
-extern crate chrono;
-extern crate env_logger;
-extern crate timer;
+
+use p2p_client;
+use chrono;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;

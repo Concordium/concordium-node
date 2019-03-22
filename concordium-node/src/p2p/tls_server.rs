@@ -276,8 +276,8 @@ impl TlsServer {
     /// * `send_status` - It will called after each sent, to notify the result of the operation.
     pub fn send_over_all_connections( &self,
             data: &Vec<u8>,
-            filter_conn: &Fn( &Connection) -> bool,
-            send_status: &Fn( &Connection, Fallible<usize>))
+            filter_conn: &dyn Fn( &Connection) -> bool,
+            send_status: &dyn Fn( &Connection, Fallible<usize>))
     {
         self.dptr.borrow_mut()
             .send_over_all_connections( data, filter_conn, send_status)

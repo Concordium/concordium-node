@@ -1,12 +1,7 @@
 #![feature(box_syntax, box_patterns)]
-extern crate bytes;
-extern crate mio;
 #[macro_use] extern crate p2p_client;
 #[macro_use]
 extern crate log;
-extern crate atomic_counter;
-extern crate env_logger;
-extern crate rand;
 
 #[cfg(test)]
 mod tests {

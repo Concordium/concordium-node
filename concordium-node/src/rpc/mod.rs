@@ -164,7 +164,7 @@ macro_rules! authenticate {
 
 impl P2P for RpcServerImpl {
     fn peer_connect(&self,
-                    ctx: ::grpcio::RpcContext,
+                    ctx: ::grpcio::RpcContext<'_>,
                     req: PeerConnectRequest,
                     sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -187,7 +187,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_version(&self,
-                    ctx: ::grpcio::RpcContext,
+                    ctx: ::grpcio::RpcContext<'_>,
                     req: Empty,
                     sink: ::grpcio::UnarySink<StringResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -200,7 +200,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_uptime(&self,
-                   ctx: ::grpcio::RpcContext,
+                   ctx: ::grpcio::RpcContext<'_>,
                    req: Empty,
                    sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -213,7 +213,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_total_received(&self,
-                           ctx: ::grpcio::RpcContext,
+                           ctx: ::grpcio::RpcContext<'_>,
                            req: Empty,
                            sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -226,7 +226,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_total_sent(&self,
-                       ctx: ::grpcio::RpcContext,
+                       ctx: ::grpcio::RpcContext<'_>,
                        req: Empty,
                        sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -241,7 +241,7 @@ impl P2P for RpcServerImpl {
 
 
     fn send_message(&self,
-                    ctx: ::grpcio::RpcContext,
+                    ctx: ::grpcio::RpcContext<'_>,
                     req: SendMessageRequest,
                     sink: ::grpcio::UnarySink<SuccessResponse>) {
 
@@ -257,7 +257,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn join_network(&self,
-                    ctx: ::grpcio::RpcContext,
+                    ctx: ::grpcio::RpcContext<'_>,
                     req: NetworkChangeRequest,
                     sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -283,7 +283,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn leave_network(&self,
-                     ctx: ::grpcio::RpcContext,
+                     ctx: ::grpcio::RpcContext<'_>,
                      req: NetworkChangeRequest,
                      sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -309,7 +309,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_stats(&self,
-                  ctx: ::grpcio::RpcContext,
+                  ctx: ::grpcio::RpcContext<'_>,
                   req: Empty,
                   sink: ::grpcio::UnarySink<PeerStatsResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -344,7 +344,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn peer_list(&self,
-                 ctx: ::grpcio::RpcContext,
+                 ctx: ::grpcio::RpcContext<'_>,
                  req: Empty,
                  sink: ::grpcio::UnarySink<PeerListResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -394,7 +394,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn node_info(&self,
-                 ctx: ::grpcio::RpcContext,
+                 ctx: ::grpcio::RpcContext<'_>,
                  req: Empty,
                  sink: ::grpcio::UnarySink<NodeInfoResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -424,7 +424,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_start(&self,
-                          ctx: ::grpcio::RpcContext,
+                          ctx: ::grpcio::RpcContext<'_>,
                           req: Empty,
                           sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -438,7 +438,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_stop(&self,
-                         ctx: ::grpcio::RpcContext,
+                         ctx: ::grpcio::RpcContext<'_>,
                          req: Empty,
                          sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -452,7 +452,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn subscription_poll(&self,
-                         ctx: ::grpcio::RpcContext,
+                         ctx: ::grpcio::RpcContext<'_>,
                          req: Empty,
                          sink: ::grpcio::UnarySink<P2PNetworkMessage>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -519,7 +519,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn ban_node(&self,
-                ctx: ::grpcio::RpcContext,
+                ctx: ::grpcio::RpcContext<'_>,
                 req: PeerElement,
                 sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -565,7 +565,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn po_c_send_transaction(&self,
-                  ctx: ::grpcio::RpcContext,
+                  ctx: ::grpcio::RpcContext<'_>,
                   req: PoCSendTransactionMessage,
                   sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
@@ -600,7 +600,7 @@ impl P2P for RpcServerImpl {
     }
 
     fn get_best_block_info(&self,
-        ctx: ::grpcio::RpcContext,
+        ctx: ::grpcio::RpcContext<'_>,
         req: Empty,
         sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
             authenticate!(ctx, req, sink, &self.access_token, {
@@ -625,7 +625,7 @@ impl P2P for RpcServerImpl {
         }
 
     fn unban_node(&self,
-                  ctx: ::grpcio::RpcContext,
+                  ctx: ::grpcio::RpcContext<'_>,
                   req: PeerElement,
                   sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {

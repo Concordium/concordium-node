@@ -16,7 +16,7 @@ use std::str::FromStr;
 use std::time::{ Duration };
 use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
-use time::{ Timespec };
+use chrono::prelude::*;
 use crate::utils;
 use std::thread;
 
@@ -44,7 +44,7 @@ pub struct P2PNode {
     port: u16,
     incoming_pkts: Sender<Arc<Box<NetworkMessage>>>,
     event_log: Option<Sender<P2PEvent>>,
-    start_time: Timespec,
+    start_time: DateTime<Utc>,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
     mode: P2PNodeMode,
     external_ip: IpAddr,
@@ -101,8 +101,11 @@ impl P2PNode {
                 x
             }
             _ => {
-                let instant = time::get_time();
-                utils::to_hex_string(&utils::sha256(&format!("{}.{}", instant.sec, instant.nsec)))
+                let current_time = Utc::now();
+                utils::to_hex_string(&utils::sha256(&format!("{}.{}",
+                    current_time.timestamp(),
+                    current_time.timestamp_subsec_nanos()
+                )))
             }
         };
 
@@ -215,7 +218,7 @@ impl P2PNode {
                   port: listen_port,
                   incoming_pkts: pkt_queue,
                   event_log,
-                  start_time: time::get_time(),
+                  start_time: Utc::now(),
                   prometheus_exporter: prometheus_exporter,
                   external_ip: own_peer_ip,
                   external_port: own_peer_port,
@@ -350,7 +353,7 @@ impl P2PNode {
     }
 
     pub fn get_uptime(&self) -> i64 {
-        (time::get_time() - self.start_time).num_milliseconds()
+        Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {

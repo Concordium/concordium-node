@@ -59,7 +59,7 @@ impl IpDiscoveryServer {
         Ok(resp)
     }
 
-    fn get_ip_discovery(&self, req: &mut Request) -> IronResult<Response> {
+    fn get_ip_discovery(&self, req: &mut Request<'_, '_>) -> IronResult<Response> {
         let remote_ip = if let Some(ref value) = req.headers.get_raw(&self.header_name) {
             if value.len() == 1 && !value[0].is_empty() {
                 match String::from_utf8((*value[0]).to_vec()) {
@@ -119,10 +119,10 @@ impl IpDiscoveryServer {
         let _self_clone = Arc::new(self.clone());
         let _self_clone_2 = _self_clone.clone();
         router.get("/",
-                   move |_: &mut Request| _self_clone.clone().index(),
+                   move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
                    "index");
         router.get("/discovery",
-                   move |req: &mut Request| _self_clone_2.clone().get_ip_discovery(req),
+                   move |req: &mut Request<'_, '_>| _self_clone_2.clone().get_ip_discovery(req),
                    "discovery");
         let _listen = listen_ip.clone();
         thread::spawn(move || {

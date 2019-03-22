@@ -1,14 +1,10 @@
 #![feature(box_syntax, box_patterns)]
-extern crate bytes;
-extern crate mio;
-extern crate p2p_client;
 #[macro_use]
 extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-
 
 #[cfg(test)]
 #[allow(unused_variables, unused_mut)]

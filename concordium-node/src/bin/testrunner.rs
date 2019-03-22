@@ -73,7 +73,7 @@ impl TestRunner {
         Ok(resp)
     }
 
-    fn register_receipt(&self, req: &mut Request) -> IronResult<Response> {
+    fn register_receipt(&self, req: &mut Request<'_, '_>) -> IronResult<Response> {
         match req.extensions.get::<Router>().expect("Malformed Iron request, lacks Router").find("node_id") {
             Some(node_id) => {
                 match req.extensions.get::<Router>().expect("Malformed Iron request, lacks Router").find("packet_id") {
@@ -228,13 +228,13 @@ impl TestRunner {
         let _self_clone_5 = _self_clone.clone();
         let _self_clone_6 = _self_clone.clone();
         router.get("/",
-                   move |_: &mut Request| _self_clone.clone().index(),
+                   move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
                    "index");
         router.get("/register/:node_id/:packet_id",
-                   move |req: &mut Request| _self_clone_2.clone().register_receipt(req),
+                   move |req: &mut Request<'_, '_>| _self_clone_2.clone().register_receipt(req),
                    "register");
         router.get("/start_test/:test_packet_size",
-                   move |req: &mut Request| {
+                   move |req: &mut Request<'_, '_>| {
                        match req.extensions.get::<Router>().unwrap().find("test_packet_size") {
                             Some(size_str) => {
                                     match size_str.parse::<usize>() {
@@ -251,15 +251,15 @@ impl TestRunner {
                    },
                    "start_test_specific");
         router.get("/start_test",
-                   move |_: &mut Request| {
+                   move |_: &mut Request<'_, '_>| {
                        _self_clone_4.clone().start_test(DEFAULT_TEST_PACKET_SIZE)
                    },
                    "start_test_generic");
         router.get("/reset_test",
-                   move |_: &mut Request| _self_clone_5.clone().reset_test(),
+                   move |_: &mut Request<'_, '_>| _self_clone_5.clone().reset_test(),
                    "reset_test");
         router.get("/get_results",
-                   move |_: &mut Request| _self_clone_6.clone().get_results(),
+                   move |_: &mut Request<'_, '_>| _self_clone_6.clone().get_results(),
                    "get_results");
         let _listen = listen_ip.clone();
         thread::spawn(move || {
