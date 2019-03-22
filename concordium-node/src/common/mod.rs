@@ -12,6 +12,7 @@ use std::str;
 use std::str::FromStr;
 use failure::{Fallible, bail};
 use crate::utils;
+use chrono::prelude::*;
 
 use crate::network::{ PROTOCOL_NODE_ID_LENGTH };
 
@@ -61,12 +62,12 @@ impl P2PPeerBuilder {
                              id: self.id.clone().unwrap(),
                              last_seen: get_current_stamp()})
             } else {
-                Err(fails::MissingFieldsError::new(
+                bail!(fails::MissingFieldsError::new(
                     self.connection_type,
                     self.id.clone(),
                     self.ip.clone(),
                     self.port
-                ))?
+                ))
             }
     }
 }

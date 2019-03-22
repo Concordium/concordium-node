@@ -4,8 +4,6 @@
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-extern crate mio;
-extern crate timer;
 #[macro_use] extern crate log;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc

@@ -5,8 +5,6 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 #[macro_use] extern crate log;
-extern crate rand;
-extern crate timer;
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]

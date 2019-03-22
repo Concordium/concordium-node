@@ -63,11 +63,11 @@ impl InvalidIpType {
 pub struct InvalidLength;
 
 #[derive(Debug, Fail)]
-#[fail(display = "Error when parsing P2PNodeId")]
+#[fail(display = "Error while parsing P2PNodeId")]
 pub struct P2PNodeIdError;
 
 impl From<ParseBigIntError> for P2PNodeIdError {
    fn from(_: ParseBigIntError) -> Self {
-        P2PNodeIdError{}
+        P2PNodeIdError
     }
 }
