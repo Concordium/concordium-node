@@ -17,7 +17,7 @@ macro_rules! make_callback {
 }
 
 pub type FunctorResult = ResultExtWrapper<()>;
-pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
+pub type FunctorCallback<T> = (dyn Fn(&T) -> FunctorResult);
 
 
 pub mod afunctor;

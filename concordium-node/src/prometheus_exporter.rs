@@ -18,7 +18,7 @@ pub enum PrometheusMode {
 }
 
 impl fmt::Display for PrometheusMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             PrometheusMode::BootstrapperMode => write!(f, "bootstrapper"),
             PrometheusMode::NodeMode => write!(f, "node"),
@@ -223,10 +223,10 @@ impl PrometheusServer {
         let _self_clone = Arc::new(self.clone());
         let _self_clone_2 = _self_clone.clone();
         router.get("/",
-                   move |_: &mut Request| _self_clone.clone().index(),
+                   move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
                    "index");
         router.get("/metrics",
-                   move |_: &mut Request| _self_clone_2.clone().metrics(),
+                   move |_: &mut Request<'_, '_>| _self_clone_2.clone().metrics(),
                    "metrics");
         let _listen = listen_ip.clone();
         let _th = thread::spawn(move || {
