@@ -18,7 +18,7 @@ use env_logger::{Builder, Env};
 use p2p_client::common::{ ConnectionType, P2PNodeId };
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
-use p2p_client::{ configuration, fails as global_fails };
+use p2p_client::{ configuration };
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
@@ -29,9 +29,7 @@ use std::{thread, time};
 use timer::Timer;
 use failure::Fallible;
 
-failing_main!(run);
-
-fn run() -> Fallible<()> {
+fn main() -> Fallible<()> {
     let conf = configuration::parse_cli_config();
     let app_prefs =
         configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
@@ -193,7 +191,7 @@ fn run() -> Fallible<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock().map_err(global_fails::PoisonError::from)?
+            safe_lock!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name,

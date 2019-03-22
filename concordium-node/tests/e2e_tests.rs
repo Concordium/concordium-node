@@ -41,7 +41,6 @@ mod tests {
         use failure::{ Fallible };
 
         use p2p_client::common::{ ConnectionType };
-        use p2p_client::{ fails as global_fails };
         use p2p_client::p2p::p2p_node::{ P2PNode };
         use p2p_client::connection::{ P2PNodeMode, MessageManager };
         use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkResponse };
@@ -140,7 +139,7 @@ mod tests {
                 networks.clone(), 100, blind_trusted_broadcast);
 
             let mh = node.message_handler();
-            mh.write().map_err(global_fails::PoisonError::from)?.add_callback(
+            safe_write!(mh)?.add_callback(
                 make_atomic_callback!( move |m: &NetworkMessage|{
                     into_err!(msg_wait_tx.send(m.clone()))}));
 
