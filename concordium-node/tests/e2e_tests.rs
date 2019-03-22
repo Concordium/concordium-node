@@ -23,7 +23,7 @@ mod tests {
     use std::cell::{ RefCell };
     use std::{thread, time};
     use rand::{ Rng };
-    use failure::{ Fallible, Error };
+    use failure::{ Fallible  };
 
     #[derive(Debug, Clone)]
     pub enum NetworkStep {
@@ -38,7 +38,7 @@ mod tests {
         use std::cell::{ RefCell };
         use std::sync::atomic::{ AtomicUsize, Ordering};
         use std::time;
-        use failure::{ Fallible, Error };
+        use failure::{ Fallible };
 
         use p2p_client::common::{ ConnectionType };
         use p2p_client::{ fails as global_fails };
