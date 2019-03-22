@@ -129,4 +129,3 @@ impl ConnectionPrivate {
         self.blind_trusted_broadcast
     }
 }
-

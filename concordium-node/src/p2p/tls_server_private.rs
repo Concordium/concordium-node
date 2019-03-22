@@ -7,7 +7,6 @@ use failure::{Fallible};
 
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
 use crate::connection::{ Connection, P2PNodeMode };
-use crate::fails as global_fails;
 use crate::network::{ NetworkMessage, NetworkRequest };
 use crate::prometheus_exporter::{ PrometheusServer };
 
@@ -64,14 +63,14 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.networks.lock().map_err(global_fails::PoisonError::from)?
+        safe_lock!(self.networks)?
             .retain(|x| *x == network_id);
         Ok(())
     }
 
     /// It adds this server to `network_id` network.
     pub fn add_network(&mut self, network_id: u16) -> Fallible<()>  {
-            let mut networks = self.networks.lock().map_err(global_fails::PoisonError::from)?;
+            let mut networks = safe_lock!(self.networks)?;
             if !networks.contains(&network_id) {
                 networks.push(network_id)
             }
@@ -217,7 +216,7 @@ impl TlsServerPrivate {
             let closing_with_peer = closing_conns.iter()
                     .filter( |ref rc_conn| { rc_conn.borrow().peer().is_some() })
                     .count();
-            prom.lock().map_err(global_fails::PoisonError::from)?
+            safe_lock!(prom)?
                 .peers_dec_by( closing_with_peer as i64)?;
         }
 

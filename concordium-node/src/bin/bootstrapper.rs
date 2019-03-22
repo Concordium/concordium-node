@@ -19,7 +19,7 @@ use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use failure::Error;
 use p2p_client::p2p::*;
-use p2p_client::fails;
+use p2p_client::safe_lock;
 use p2p_client::failing_main;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
@@ -221,7 +221,7 @@ fn run() -> Result<(), Error> {
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock().map_err(fails::PoisonError::from)?
+            safe_lock!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name,

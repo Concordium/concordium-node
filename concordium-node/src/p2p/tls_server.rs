@@ -8,7 +8,7 @@ use mio::{ Token, Poll, Event };
 use std::sync::mpsc::Sender;
 use rustls::{ ClientConfig, ServerConfig, ServerSession, ClientSession };
 use webpki::{ DNSNameRef };
-use failure::{Fallible, Error};
+use failure::{Fallible};
 use super::fails;
 
 use crate::prometheus_exporter::PrometheusServer;
@@ -17,7 +17,6 @@ use crate::connection::{
     Connection, P2PNodeMode, P2PEvent, MessageHandler,
     MessageManager };
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType };
-use crate::fails as global_fails;
 use crate::network::{ NetworkRequest, NetworkMessage, Buckets };
 
 use crate::p2p::peer_statistics::{ PeerStatistic };
@@ -188,7 +187,7 @@ impl TlsServer {
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
             Ok(x) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
-                    prom.lock().map_err(global_fails::PoisonError::from)?
+                    safe_lock!(prom)?
                         .conn_received_inc()
                         .map_err(|e| error!("{}", e))
                         .ok();
@@ -234,7 +233,7 @@ impl TlsServer {
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
                         &NetworkRequest::Handshake(self_peer,
-                                                   networks.lock().map_err(global_fails::PoisonError::from)?
+                                                   safe_lock!(networks)?
                                                    .clone(),
                             vec![]).serialize())?;
                     conn.set_measured_handshake_sent();

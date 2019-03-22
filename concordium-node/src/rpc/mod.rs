@@ -4,7 +4,7 @@ use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
 use crate::network::{ NetworkMessage, NetworkPacket };
 use crate::db::P2PDB;
 use crate::failure::Fallible;
-use crate::fails as global_fails;
+
 use futures::future::Future;
 use ::grpcio;
 use ::grpcio::{Environment, ServerBuilder};
@@ -90,7 +90,7 @@ impl RpcServerImpl {
 
     pub fn stop_server(&mut self) -> Fallible<()> {
         if let Some(ref mut server) = self.server {
-            server.lock().map_err(global_fails::PoisonError::from)?
+            safe_lock!(server)?
                 .shutdown() .wait().map_err(fails::GeneralRpcError::from)?;
         }
         Ok(())

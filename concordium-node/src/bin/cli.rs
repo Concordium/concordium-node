@@ -24,13 +24,12 @@ use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, Networ
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
-use p2p_client::failing_main;
+use p2p_client::{ failing_main, safe_lock };
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
 use p2p_client::utils;
 use p2p_client::stats_engine::StatsEngine;
-use p2p_client::fails;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Cursor;
@@ -398,7 +397,7 @@ fn run() -> Fallible<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            prom.lock().map_err(fails::PoisonError::from)?
+            safe_lock!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name.clone(),

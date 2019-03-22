@@ -29,6 +29,20 @@ use std::str;
 use std::str::FromStr;
 use std::fs;
 
+/// Create a `main()` function wrapping other function that returns
+/// `failure::Fallible`.
+///
+/// # Example
+/// ```
+/// use p2p_client::failing_main;
+///
+/// failing_main!(run);
+///
+/// fn run() -> Fallible<()> {
+/// //...
+/// }
+/// ```
+
 #[macro_export]
 macro_rules! failing_main {
     ($main:expr) => {

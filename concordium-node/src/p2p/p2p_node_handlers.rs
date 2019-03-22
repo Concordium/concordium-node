@@ -4,7 +4,6 @@ use std::collections::{ VecDeque };
 
 use crate::common::{ P2PPeer };
 use crate::common::functor::{ FunctorResult, fails as functor_fails };
-use crate::fails as global_fails;
 use crate::network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse };
 use crate::prometheus_exporter::PrometheusServer;
 use crate::connection::{ SeenMessagesList };
@@ -93,7 +92,7 @@ fn forward_network_packet_message_common(
 
     debug!("### Forward Broadcast Message: msgid: {}", msg_id);
     if !seen_messages.contains(msg_id) {
-        if own_networks.lock().map_err(global_fails::PoisonError::from)?
+        if safe_lock!(own_networks)?
             .contains(network_id) {
             debug!("Received direct message of size {}", msg.len());
             let outer = Arc::new( box NetworkMessage::NetworkPacket( pac.clone(), None, None));
@@ -102,10 +101,10 @@ fn forward_network_packet_message_common(
             if blind_trust_broadcast {
                 if let NetworkPacket::BroadcastedMessage(..) = pac {
 
-                    send_queue.lock().map_err(global_fails::PoisonError::from)?
+                    safe_lock!(send_queue)?
                         .push_back( outer.clone());
                     if let Some(ref prom) = prometheus_exporter {
-                        prom.lock().map_err(global_fails::PoisonError::from)?
+                        safe_lock!(prom)?
                             .queue_size_inc()
                             .map_err(|_| make_fn_error_prometheus())?;
                     };
@@ -117,7 +116,7 @@ fn forward_network_packet_message_common(
             }
         } else {
             if let Some(ref prom) = prometheus_exporter {
-                prom.lock().map_err(global_fails::PoisonError::from)?
+                safe_lock!(prom)?
                     .invalid_network_pkts_received_inc()
                     .map_err(|e| error!("{}", e)).ok();
             }
