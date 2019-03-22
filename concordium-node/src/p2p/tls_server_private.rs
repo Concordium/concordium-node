@@ -153,7 +153,7 @@ impl TlsServerPrivate {
                 rc_conn_to_be_removed = Some( Rc::clone(rc_conn));
             }
         } else {
-            Err(fails::PeerNotFoundError{})?
+            Err(fails::PeerNotFoundError)?
         }
 
         if let Some(rc_conn) = rc_conn_to_be_removed {

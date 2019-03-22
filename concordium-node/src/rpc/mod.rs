@@ -57,7 +57,7 @@ impl RpcServerImpl {
     pub fn queue_message(&self, msg: &NetworkMessage) -> Fallible<()> {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
             sender.send(box msg.clone())
-                .map_err(|_| fails::QueueingError{})?;
+                .map_err(|_| fails::QueueingError)?;
         }
         Ok(())
     }
@@ -82,7 +82,7 @@ impl RpcServerImpl {
         let mut server = ServerBuilder::new(env).register_service(service)
             .bind(self_clone.listen_addr, self_clone.listen_port)
             .build()
-            .map_err(|_| fails::ServerBuildError{})?;
+            .map_err(|_| fails::ServerBuildError)?;
         server.start();
         self.server = Some(Arc::new(Mutex::new(server)));
         Ok(())

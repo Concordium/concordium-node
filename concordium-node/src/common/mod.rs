@@ -40,7 +40,7 @@ impl P2PPeerBuilder {
                 if self.ip.is_some() && self.port.is_some() {
                     Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
                 } else {
-                    Err(fails::EmptyIpPortError{})
+                    Err(fails::EmptyIpPortError)
                 }
             },
             Some(id) => {
@@ -158,7 +158,7 @@ impl P2PPeer {
                 .connection_type(ConnectionType::Node)
                 .build()
         } else {
-            Err(fails::InvalidLength{})?
+            Err(fails::InvalidLength)?
         }
     }
 

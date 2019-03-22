@@ -8,7 +8,7 @@ use mio::{ Token, Poll, Event };
 use std::sync::mpsc::Sender;
 use rustls::{ ClientConfig, ServerConfig, ServerSession, ClientSession };
 use webpki::{ DNSNameRef };
-use failure::{Fallible};
+use failure::{Fallible, bail};
 use super::fails;
 
 use crate::prometheus_exporter::PrometheusServer;
@@ -165,22 +165,22 @@ impl TlsServer {
                -> Fallible<()> {
         if connection_type == ConnectionType::Node && self.is_unreachable(ip, port) {
             error!("Node marked as unreachable, so not allowing the connection");
-            Err(fails::UnreachablePeerError{})?;
+            bail!(fails::UnreachablePeerError);
         }
         let self_peer = self.get_self_peer();
         if self_peer.ip() == ip && self_peer.port() == port {
-            Err(fails::DuplicatePeerError{})?;
+            bail!(fails::DuplicatePeerError);
         }
 
         if let Ok(target_id) = P2PNodeId::from_ip_port( ip, port) {
             if let Some(_rc_conn) = self.dptr.borrow().find_connection_by_id( &target_id) {
-                Err(fails::DuplicatePeerError{})?;
+                bail!(fails::DuplicatePeerError);
             }
         }
 
         if let Some(ref peer_id) = peer_id_opt {
             if let Some(_rc_conn) = self.dptr.borrow().find_connection_by_id( peer_id) {
-                Err(fails::DuplicatePeerError{})?;
+                bail!(fails::DuplicatePeerError);
             }
         }
 

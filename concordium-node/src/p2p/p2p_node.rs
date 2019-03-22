@@ -167,7 +167,7 @@ impl P2PNode {
 
         let mut client_conf = ClientConfig::new();
         client_conf.dangerous()
-                   .set_certificate_verifier(Arc::new(NoCertificateVerification {}));
+                   .set_certificate_verifier(Arc::new(NoCertificateVerification));
 
         let own_peer_ip = if let Some(ref own_ip) = external_ip {
             match IpAddr::from_str(own_ip) {
@@ -526,7 +526,7 @@ impl P2PNode {
             Ok(())
         } else {
             id.map_or_else(
-                || Err(fails::EmptyIdInSendRequest{})?,
+                || Err(fails::EmptyIdInSendRequest)?,
                 |x| {
                     safe_lock!(self.send_queue)?
                         .push_back( Arc::new(
