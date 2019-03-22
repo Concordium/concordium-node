@@ -123,9 +123,9 @@ impl P2PPeer {
                         let port = buf[(ip_start + 12)..(ip_start + 17)].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
-                        Err(fails::InvalidLengthForIP::new(
+                        bail!(fails::InvalidLengthForIP::new(
                             ip_type.to_string()
-                        ))?
+                        ))
                     }
                 }
                 "IP6" => {
@@ -142,14 +142,14 @@ impl P2PPeer {
                         let port = buf[ip_start..][32..37].parse::<u16>()?;
                         (ip_addr, port)
                     } else {
-                        Err(fails::InvalidLengthForIP::new(
+                        bail!(fails::InvalidLengthForIP::new(
                             ip_type.to_string()
-                        ))?
+                        ))
                     }
                 }
-                _ => Err(fails::InvalidIpType::new(
+                _ => bail!(fails::InvalidIpType::new(
                    ip_type.to_string()
-                ))?
+                ))
             };
             P2PPeerBuilder::default()
                 .id(P2PNodeId::from_string(&node_id.to_string())?)
