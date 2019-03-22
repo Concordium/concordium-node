@@ -1,5 +1,5 @@
 use std::sync::{ Arc, Mutex };
-use failure::{ Error };
+use failure::{ Error, bail };
 use crate::fails as global_fails;
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
@@ -88,7 +88,7 @@ impl<T> AFunctor<T> {
         };
 
         if !status.is_empty() {
-            Err(FunctorError::new(status))?
+            bail!(FunctorError::new(status))
         } else {
             Ok(())
         }

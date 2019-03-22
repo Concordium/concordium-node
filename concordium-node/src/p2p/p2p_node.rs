@@ -1,4 +1,4 @@
-use failure::{Error, Fallible};
+use failure::{Error, Fallible, bail};
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc::Sender;
 use std::collections::{ VecDeque };
@@ -526,7 +526,7 @@ impl P2PNode {
             Ok(())
         } else {
             id.map_or_else(
-                || Err(fails::EmptyIdInSendRequest)?,
+                || bail!(fails::EmptyIdInSendRequest),
                 |x| {
                     safe_lock!(self.send_queue)?
                         .push_back( Arc::new(

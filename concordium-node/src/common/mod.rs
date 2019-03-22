@@ -11,7 +11,7 @@ use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
 use time;
-use failure::{Fallible};
+use failure::{Fallible, bail};
 use crate::utils;
 
 use crate::network::{ PROTOCOL_NODE_ID_LENGTH };
@@ -158,7 +158,7 @@ impl P2PPeer {
                 .connection_type(ConnectionType::Node)
                 .build()
         } else {
-            Err(fails::InvalidLength)?
+            bail!(fails::InvalidLength)
         }
     }
 

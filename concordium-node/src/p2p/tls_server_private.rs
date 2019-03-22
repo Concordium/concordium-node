@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
 use mio::{ Token, Poll, Event };
-use failure::{Fallible};
+use failure::{Fallible, bail};
 
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
 use crate::connection::{ Connection, P2PNodeMode };
@@ -153,7 +153,7 @@ impl TlsServerPrivate {
                 rc_conn_to_be_removed = Some( Rc::clone(rc_conn));
             }
         } else {
-            Err(fails::PeerNotFoundError)?
+            bail!(fails::PeerNotFoundError)
         }
 
         if let Some(rc_conn) = rc_conn_to_be_removed {

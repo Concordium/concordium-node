@@ -12,7 +12,7 @@ use crate::connection::{ P2PEvent, P2PNodeMode, CommonSession };
 use crate::connection::connection_private::{ ConnectionPrivate };
 
 use super::fails::ConnectionError;
-use failure::{Backtrace, Error };
+use failure::{Backtrace, Error, bail };
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
@@ -99,7 +99,7 @@ pub fn default_network_request_find_node_handle(
 
         Ok( serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &response_data)?)
      } else {
-        Err(make_msg_error( "Find node handler cannot handler this packet"))?
+        bail!(make_msg_error( "Find node handler cannot handler this packet"))
     }
 }
 
@@ -130,7 +130,7 @@ pub fn default_network_request_get_peers(
 
         Ok(serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &peer_list_packet)?)
     } else {
-            Err(make_msg_error( "Get peers handler cannot handler this packet"))?
+        bail!(make_msg_error( "Get peers handler cannot handler this packet"))
     }
 }
 
@@ -151,7 +151,7 @@ pub fn default_network_response_find_node (
 
         Ok(())
     } else {
-        Err(make_msg_error( "Response find node handler cannot handler this packet"))?
+        bail!(make_msg_error( "Response find node handler cannot handler this packet"))
     }
 }
 

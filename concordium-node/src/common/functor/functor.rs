@@ -1,6 +1,6 @@
 use std::cell::{ RefCell };
 use std::rc::{ Rc };
-use failure::{ Error };
+use failure::{ Error, bail };
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
 
@@ -34,7 +34,7 @@ macro_rules! run_callbacks {
             (|x: Vec<Error>| if x.is_empty() {
                 Ok(())
             } else {
-                Err(FunctorError::new(x))?
+                bail!(FunctorError::new(x))
             })($handlers.iter()
             .map( |handler| handler.borrow_mut())
             .map( |handler_mut| { (handler_mut)($message) })
