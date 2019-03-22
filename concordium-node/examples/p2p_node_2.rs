@@ -1,10 +1,9 @@
 #![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
-#[macro_use] extern crate p2p_client;
 #[macro_use]
 extern crate log;
 
-use p2p_client;
+use p2p_client::safe_lock;
 use chrono;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc

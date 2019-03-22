@@ -101,20 +101,18 @@ mod tests {
         /// # Return
         /// As `make_node_and_sync`, this returns a tuple but it contains list of objects instead of
         /// just one.
-        pub fn make_nodes_from_port( port: u16, count: usize, networks: &Vec<u16>)
-            -> Fallible<(Vec<RefCell<P2PNode>>, Vec<Receiver<NetworkMessage>>)>
+        pub fn make_nodes_from_port( port: u16, count: usize, networks: &[u16])
+            -> Fallible<Vec<(RefCell<P2PNode>, Receiver<NetworkMessage>)>>
         {
-            let mut nodes = Vec::with_capacity( count);
-            let mut receivers = Vec::with_capacity( count);
+            let mut nodes_and_receivers = Vec::with_capacity(count);
 
             for i in 0..count {
                 let (node, receiver) = make_node_and_sync( port + i as u16, networks, true)?;
 
-                nodes.push( RefCell::new(node));
-                receivers.push( receiver);
+                nodes_and_receivers.push((RefCell::new(node), receiver));
             }
 
-            Ok((nodes, receivers))
+            Ok(nodes_and_receivers)
         }
 
         /// It creates a pair of `P2PNode` and a `Receiver` which can be used to wait for specific
@@ -122,7 +120,7 @@ mod tests {
         /// Using this approach protocol tests will be easier and cleaner.
         pub fn make_node_and_sync(
                 port: u16,
-                networks: &Vec<u16>,
+                networks: &[u16],
                 blind_trusted_broadcast: bool ) -> Fallible<(P2PNode, Receiver<NetworkMessage>)>
         {
             let (net_tx, _) = std::sync::mpsc::channel();
@@ -131,7 +129,7 @@ mod tests {
             let mut node = P2PNode::new(
                 None, Some("127.0.0.1".to_string()), port,
                 None, None, net_tx, None, P2PNodeMode::NormalPrivateMode, None,
-                networks.clone(), 100, blind_trusted_broadcast);
+                networks.to_owned(), 100, blind_trusted_broadcast);
 
             let mh = node.message_handler();
             safe_write!(mh)?.add_callback(
@@ -157,9 +155,9 @@ mod tests {
 
             // Wait for Handshake response on source node
             loop {
-                match receiver.recv()? {
-                    NetworkMessage::NetworkResponse( NetworkResponse::Handshake(_, _, _) , _, _) => break,
-                    _ => {}
+                if let NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) = receiver.recv()?
+                {
+                    break;
                 }
             }
 
@@ -172,12 +170,10 @@ mod tests {
             loop
             {
                 let msg = waiter.recv()?;
-                match msg {
-                    NetworkMessage::NetworkPacket( NetworkPacket::BroadcastedMessage(_, _, _, data), _, _) => {
-                        payload = data;
-                        break;
-                    },
-                    _ => { }
+                if let NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(.., data), ..) = msg
+                {
+                    payload = data;
+                    break;
                 };
             }
 
@@ -190,35 +186,26 @@ mod tests {
             loop
             {
                 let msg = waiter.recv()?;
-                match msg {
-                    NetworkMessage::NetworkPacket( NetworkPacket::DirectMessage(_, _, _, _, data) , _, _) => {
-                        payload = data;
-                        break;
-                    },
-                    _ => { }
+                if let NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(.., data), ..) = msg
+                {
+                    payload = data;
+                    break;
                 };
             }
 
             Ok(payload)
         }
 
-
-
         pub fn wait_direct_message_timeout(
-                waiter: &Receiver<NetworkMessage>,
-                timeout: std::time::Duration) -> Option<Vec<u8>>
+            waiter: &Receiver<NetworkMessage>,
+            timeout: std::time::Duration) -> Option<Vec<u8>>
         {
             let mut payload = None;
-            loop
-            {
-                match waiter.recv_timeout( timeout)
-                {
-                    Ok(msg) => match msg {
-                        NetworkMessage::NetworkPacket( NetworkPacket::DirectMessage(_, _, _, _, data) , _, _) => {
-                            payload = Some(data);
-                            break;
-                        },
-                        _ => { }
+            loop {
+                match waiter.recv_timeout(timeout) {
+                    Ok(msg) => if let NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(.., data), ..) = msg {
+                        payload = Some(data);
+                        break;
                     },
                     Err(_timeout_error) => break
                 }
@@ -228,12 +215,11 @@ mod tests {
         }
 
         #[allow(dead_code)]
-        pub fn consume_pending_messages( waiter: &Receiver<NetworkMessage>)
-        {
+        pub fn consume_pending_messages( waiter: &Receiver<NetworkMessage>) {
             let max_wait_time = time::Duration::from_millis(250);
             loop {
-                if let Err(_) = waiter.recv_timeout(max_wait_time) {
-                    break
+                if waiter.recv_timeout(max_wait_time).is_err() {
+                    break;
                 }
             }
 
@@ -260,8 +246,6 @@ mod tests {
             self.0.fetch_add(ticks, Ordering::SeqCst);
         }
     }
-
-
 
     #[test]
     pub fn e2e_000_two_nodes() -> Fallible<()> {
@@ -349,14 +333,12 @@ mod tests {
         utils::consume_pending_messages( &msg_waiter_3);
 
         node_1.send_message(None, 100, None, &msg, true)?;
-        if let Ok(msg) = msg_waiter_3.recv_timeout( time::Duration::from_secs(5))
-        {
-            match msg
-            {
-                NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, _, _, _), _, _) => {
+        if let Ok(msg) = msg_waiter_3.recv_timeout( time::Duration::from_secs(5)) {
+            match msg {
+                NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(..), ..) => {
                     panic!("Got message this should not happen!");
                 }
-                ref x => {
+                x => {
                     panic!("Didn't get message from node_1 on node_3, but got {:?}", x);
                 }
             }
@@ -373,50 +355,49 @@ mod tests {
 
         let (sender, receiver) = mpsc::channel();
 
-        let _guard =
-            thread::spawn(move || {
-                              loop {
-                                  if let Ok(msg) = receiver.recv() {
-                                      match msg {
-                                          P2PEvent::ConnectEvent(ip, port) => {
-                                              info!("Received connection from {}:{}", ip, port)
-                                          }
-                                          P2PEvent::DisconnectEvent(msg) => {
-                                              info!("Received disconnect for {}", msg)
-                                          }
-                                          P2PEvent::ReceivedMessageEvent(node_id) => {
-                                              info!("Received message from {:?}", node_id)
-                                          }
-                                          P2PEvent::SentMessageEvent(node_id) => {
-                                              info!("Sent message to {:?}", node_id)
-                                          }
-                                          P2PEvent::InitiatingConnection(ip, port) => {
-                                              info!("Initiating connection to {}:{}", ip, port)
-                                          }
-                                          P2PEvent::JoinedNetwork(peer, network_id) => {
-                                              info!("Peer {} joined network {}",
-                                                    peer.id().to_string(),
-                                                    network_id);
-                                          }
-                                          P2PEvent::LeftNetwork(peer, network_id) => {
-                                              info!("Peer {} left network {}",
-                                                    peer.id().to_string(),
-                                                    network_id);
-                                          }
-                                      }
-                                  }
-                              }
-                          });
+        let _guard = thread::spawn(move || {
+            loop {
+                if let Ok(msg) = receiver.recv() {
+                    match msg {
+                        P2PEvent::ConnectEvent(ip, port) => {
+                            info!("Received connection from {}:{}", ip, port)
+                        }
+                        P2PEvent::DisconnectEvent(msg) => {
+                            info!("Received disconnect for {}", msg)
+                        }
+                        P2PEvent::ReceivedMessageEvent(node_id) => {
+                            info!("Received message from {:?}", node_id)
+                        }
+                        P2PEvent::SentMessageEvent(node_id) => {
+                            info!("Sent message to {:?}", node_id)
+                        }
+                        P2PEvent::InitiatingConnection(ip, port) => {
+                            info!("Initiating connection to {}:{}", ip, port)
+                        }
+                        P2PEvent::JoinedNetwork(peer, network_id) => {
+                            info!("Peer {} joined network {}",
+                                  peer.id().to_string(),
+                                  network_id);
+                        }
+                        P2PEvent::LeftNetwork(peer, network_id) => {
+                            info!("Peer {} left network {}",
+                                  peer.id().to_string(),
+                                  network_id);
+                        }
+                    }
+                }
+            }
+        });
 
-        let mut peers: Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer)> = vec![];
-        let mut peer_ports: Vec<usize> = vec![];
+        let message_count_estimated = mesh_node_count;
+        let mut peers: Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer)> = Vec::with_capacity(mesh_node_count);
+        let mut peer_ports: Vec<usize> = Vec::with_capacity(mesh_node_count);
 
         let message_counter = Arc::new(RelaxedCounter::new(0));
-        let message_count_estimated = mesh_node_count;
 
         let mut peer = 0;
 
-        for instance_port in test_port_added..(test_port_added + mesh_node_count) {
+        for instance_port in test_port_added..(test_port_added + mesh_node_count as u16) {
             let (inner_sender, inner_receiver) = mpsc::channel();
             let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
             let mut node = P2PNode::new(None,
@@ -436,13 +417,12 @@ mod tests {
             let _guard_pkt = thread::spawn(move || {
                 loop {
                     if let Ok(full_msg) = inner_receiver.recv() {
-                        match *full_msg.clone() {
-                            box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
-                                info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                _node_self_clone.send_message(None, *nid, Some(msgid.clone()),&msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
-                                _msg_counter.inc();
-                            }
-                            _ => { /*ignored for test*/ }
+                        if let box NetworkMessage::NetworkPacket(
+                            NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) = *full_msg
+                        {
+                            info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
+                            _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
+                            _msg_counter.inc();
                         }
                     }
                 }
@@ -496,55 +476,55 @@ mod tests {
 
             let _guard =
                 thread::spawn(move || {
-                                loop {
-                                    if let Ok(msg) = receiver.recv() {
-                                        match msg {
-                                            P2PEvent::ConnectEvent(ip, port) => {
-                                                info!("Received connection from {}:{}", ip, port)
-                                            }
-                                            P2PEvent::DisconnectEvent(msg) => {
-                                                info!("Received disconnect for {}", msg)
-                                            }
-                                            P2PEvent::ReceivedMessageEvent(node_id) => {
-                                                info!("Received message from {:?}", node_id)
-                                            }
-                                            P2PEvent::SentMessageEvent(node_id) => {
-                                                info!("Sent message to {:?}", node_id)
-                                            }
-                                            P2PEvent::InitiatingConnection(ip, port) => {
-                                                info!("Initiating connection to {}:{}", ip, port)
-                                            }
-                                            P2PEvent::JoinedNetwork(peer, network_id) => {
-                                                info!("Peer {} joined network {}",
-                                                        peer.id().to_string(),
-                                                        network_id);
-                                            }
-                                            P2PEvent::LeftNetwork(peer, network_id) => {
-                                                info!("Peer {} left network {}",
-                                                        peer.id().to_string(),
-                                                        network_id);
-                                            }
-                                        }
-                                    }
+                    loop {
+                        if let Ok(msg) = receiver.recv() {
+                            match msg {
+                                P2PEvent::ConnectEvent(ip, port) => {
+                                    info!("Received connection from {}:{}", ip, port)
                                 }
-                            });
+                                P2PEvent::DisconnectEvent(msg) => {
+                                    info!("Received disconnect for {}", msg)
+                                }
+                                P2PEvent::ReceivedMessageEvent(node_id) => {
+                                    info!("Received message from {:?}", node_id)
+                                }
+                                P2PEvent::SentMessageEvent(node_id) => {
+                                    info!("Sent message to {:?}", node_id)
+                                }
+                                P2PEvent::InitiatingConnection(ip, port) => {
+                                    info!("Initiating connection to {}:{}", ip, port)
+                                }
+                                P2PEvent::JoinedNetwork(peer, network_id) => {
+                                    info!("Peer {} joined network {}",
+                                          peer.id().to_string(),
+                                          network_id);
+                                }
+                                P2PEvent::LeftNetwork(peer, network_id) => {
+                                    info!("Peer {} left network {}",
+                                          peer.id().to_string(),
+                                          network_id);
+                                }
+                            }
+                        }
+                    }
+                });
 
-            let mut islands: Vec<(Vec<usize>, Vec<(usize,
-                                        thread::JoinHandle<()>,
-                                        P2PNode,
-                                        PrometheusServer)>)> = vec![];
+            let mut islands: Vec<(
+                Vec<usize>,
+                Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer)>
+            )> = Vec::with_capacity(islands_count);
 
             for island in 0..islands_count {
                 let mut peers_island: Vec<(usize,
-                                        thread::JoinHandle<()>,
-                                        P2PNode,
-                                        PrometheusServer)> = vec![];
-                let mut peer_ports_island: Vec<usize> = vec![];
+                                           thread::JoinHandle<()>,
+                                           P2PNode,
+                                           PrometheusServer)> = Vec::with_capacity(island_size);
+                let mut peer_ports_island: Vec<usize> = Vec::with_capacity(island_size);
 
                 let mut peer = 0;
 
                 for instance_port in (test_port_added + (island_size * island))
-                                    ..(test_port_added + island_size + (island_size * island))
+                                   ..(test_port_added + (island_size * island) + island_size)
                 {
                     let (inner_sender, inner_receiver) = mpsc::channel();
                     let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
@@ -566,21 +546,21 @@ mod tests {
                     let _guard_pkt = thread::spawn(move || {
                         loop {
                             if let Ok(full_msg) = inner_receiver.recv() {
-                                match *full_msg.clone() {
-                                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) => {
-                                        info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                                        _inner_counter.tick(1);
-                                        _node_self_clone.send_message(None, *nid, Some(msgid.clone()),&msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
-                                    }
-                                    _ => { /*ignored for test*/ }
+                                if let box NetworkMessage::NetworkPacket(
+                                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) = *full_msg
+                                {
+                                    info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
+                                    _inner_counter.tick(1);
+                                    _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
                                 }
                             }
                         }
                     });
                     let th = node.spawn();
                     if peer > 0 {
+                        let localhost = "127.0.0.1".parse().unwrap();
                         for i in 0..peer {
-                            node.connect(ConnectionType::Node, "127.0.0.1".parse().unwrap(), (instance_port-1-(i)) as u16, None).ok();
+                            node.connect(ConnectionType::Node, localhost, (instance_port-1-(i)) as u16, None).ok();
                         }
                     }
                     peer += 1;
@@ -593,26 +573,27 @@ mod tests {
             thread::sleep(time::Duration::from_secs(5));
 
             if let Some((_,ref mut peers)) = islands.get_mut(0) {
-                if let Some((_,_, ref mut central_peer,_)) = peers.get_mut(0) {
+                if let Some((.., ref mut central_peer, _)) = peers.get_mut(0) {
                     for i in 1..islands_count {
+                        let localhost = "127.0.0.1".parse().unwrap();
                         central_peer.connect(ConnectionType::Node,
-                                             "127.0.0.1".parse().unwrap(),
+                                             localhost,
                                              (test_port_added+(island_size*i)) as u16, None)
-                            .map_err(|e| println!("{}", e)).ok();
+                                    .map_err(|e| println!("{}", e)).ok();
                     }
                 };
             };
 
             thread::sleep(time::Duration::from_secs(30));
 
-            let msg = "Hello other mother's brother".to_string();
+            let msg = b"Hello other mother's brother";
 
             for island in &mut islands {
                 let (_,ref mut peers) = island;
                 if let Some((_, _, ref mut node_sender_ref, _)) = peers.get_mut(0) {
-                node_sender_ref.send_message(None, 100, None, &msg.as_bytes().to_vec(), true)
-                            .map_err(|e| panic!(e))
-                            .ok();
+                node_sender_ref.send_message(None, 100, None, msg, true)
+                                .map_err(|e| panic!(e))
+                                .ok();
                 };
             }
 
@@ -669,8 +650,8 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
 
-        let mut nodes: Vec<P2PNode> = Vec::new();
-        let mut node_threads = vec![];
+        let mut nodes: Vec<P2PNode> = Vec::with_capacity(num_nodes);
+        let mut node_threads = Vec::with_capacity(num_nodes);
 
         // 0. Create P2PNodes
         for n in 0..num_nodes {
@@ -708,7 +689,7 @@ mod tests {
 
             for received in rx {
                 match *received{
-                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref nid, ref msg), _,_) => {
+                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref nid, ref msg), ..) => {
                         exp_broadcast -= 1;
                         assert!( exp_broadcast >= 0);
 
@@ -720,7 +701,7 @@ mod tests {
                         assert_eq!( ga_root_id, sender.id());
                         assert_eq!( ga_network_id, *nid);
                     },
-                    box NetworkMessage::NetworkRequest( NetworkRequest::Handshake(_,_,_), _,_) => {
+                    box NetworkMessage::NetworkRequest( NetworkRequest::Handshake(..), ..) => {
                         exp_handshake -= 1;
                         assert!( exp_handshake >= 0);
 
@@ -744,7 +725,7 @@ mod tests {
 
         match net_rx_msg_1 {
             NetworkStep::Handshake(count) =>  assert_eq!( (num_nodes -1) as u16, count),
-            ref e => panic!( "Unexpected message while handshake waiting: {:?}", e)
+            e => panic!( "Unexpected message while handshake waiting: {:?}", e)
         };
 
         // 2. Send broadcast message.
@@ -762,7 +743,7 @@ mod tests {
 
         match net_rx_msg_2 {
             NetworkStep::Broadcast( count ) => assert_eq!( (num_nodes -1) as u16, count),
-            ref e => panic!( "Unexpected message while broadcast waiting: {:?}", e)
+            e => panic!( "Unexpected message while broadcast waiting: {:?}", e)
         };
 
         gather_agent.join().expect( "Gather agent has failed");
@@ -841,13 +822,14 @@ mod tests {
             // 1.2.1. Make nodes
             let count_nodes: usize = rng.gen_range( min_node_per_level, max_node_per_level);
             debug!( "Creating level {} with {} nodes", level, count_nodes);
-            let (nodes, conn_waiters) =  utils::make_nodes_from_port(
-                    test_port_added + (level * max_node_per_level) as u16,
-                    count_nodes,
-                    &networks)?;
+            let nodes_and_conn_waiters = utils::make_nodes_from_port(
+                test_port_added + (level * max_node_per_level) as u16,
+                count_nodes,
+                &networks)?;
 
-            nodes_per_level.push( nodes);
-            conn_waiters_per_level.push( conn_waiters);
+            let (nodes, waiters) = nodes_and_conn_waiters.into_iter().unzip();
+            nodes_per_level.push(nodes);
+            conn_waiters_per_level.push(waiters);
 
             // 1.2.2 Connect one to previous level.
             let root_previous_level_idx: usize = rng.gen_range( 0, nodes_per_level[level-1].len());
@@ -858,8 +840,8 @@ mod tests {
                 let src_node = &nodes_per_level[level][root_curr_level_idx];
                 let src_waiter = &conn_waiters_per_level[level][root_curr_level_idx];
                 utils::connect_and_wait_handshake( &mut *src_node.borrow_mut(),
-                               &*target_node.borrow(),
-                               src_waiter)?;
+                   &*target_node.borrow(),
+                   src_waiter)?;
             }
             debug!( "Connected to previous level: Node[{}][{}] to Node[{}][{}]",
                     level, root_curr_level_idx, level-1, root_previous_level_idx);
@@ -871,9 +853,9 @@ mod tests {
                     let src_waiter = &conn_waiters_per_level[level][i];
                     let tgt_node = &nodes_per_level[level][root_curr_level_idx];
                     utils::connect_and_wait_handshake(
-                            &mut *src_node.borrow_mut(),
-                            &*tgt_node.borrow(),
-                            src_waiter)?;
+                        &mut *src_node.borrow_mut(),
+                        &*tgt_node.borrow(),
+                        src_waiter)?;
                 }
             }
         }
@@ -892,7 +874,6 @@ mod tests {
 
         let mut wait_loop = true;
         while wait_loop {
-
             // 3. Select random node in last level and send a broadcast.
             let bcast_content = "Hello from last level node";
             {
@@ -914,13 +895,10 @@ mod tests {
             debug!( "Waiting broadcast message");
             if let Ok(bcast_msg) = bcast_rx.recv_timeout( time::Duration::from_secs(2)) {
                 debug!( "Waiting broadcast message - finished");
-                match bcast_msg {
-                    NetworkPacket::BroadcastedMessage(ref _sender, ref _msgid, ref _nid, ref msg) => {
-                        let str_msg = std::str::from_utf8( msg).unwrap();
-                        assert_eq!( str_msg, bcast_content);
-                        wait_loop = false;
-                    },
-                    _ => {}
+                if let NetworkPacket::BroadcastedMessage(.., ref msg) = bcast_msg {
+                    let str_msg = std::str::from_utf8( msg).unwrap();
+                    assert_eq!( str_msg, bcast_content);
+                    wait_loop = false;
                 }
             }
         }
