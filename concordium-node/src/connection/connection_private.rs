@@ -58,9 +58,9 @@ impl ConnectionPrivate {
 
         let u64_max_value: u64 = u64::max_value();
         let tls_session = if let Some(s) = tls_server_session {
-                box s as Box<dyn CommonSession>
+                Box::new(s) as Box<dyn CommonSession>
             } else if let Some(c) = tls_client_session {
-                box c as Box<dyn CommonSession>
+                Box::new(c) as Box<dyn CommonSession>
             } else {
                 panic!( "Connection needs one session");
         };

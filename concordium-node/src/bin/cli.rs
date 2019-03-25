@@ -1,4 +1,3 @@
-#![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
@@ -321,6 +320,7 @@ fn main() -> Fallible<()> {
                    };
                    send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                }
+
                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
                    info!("Ban node request for {:?}", x);
                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
