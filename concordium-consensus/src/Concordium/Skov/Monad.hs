@@ -5,6 +5,8 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.IO.Class
 import Data.Maybe
+import Data.Time
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Concordium.Types
 
@@ -54,3 +56,8 @@ getGenesisTime = genesisTime <$> getGenesisData
 
 getFinalizationParameters :: (SkovMonad m) => m FinalizationParameters
 getFinalizationParameters = genesisFinalizationParameters <$> getGenesisData
+
+getSlotTime :: (SkovMonad m) => Slot -> m UTCTime
+getSlotTime s = do
+        genData <- getGenesisData
+        return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + genesisSlotDuration genData * fromIntegral s))

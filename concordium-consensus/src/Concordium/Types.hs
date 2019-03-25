@@ -9,6 +9,8 @@ import Data.Serialize.Put
 import Data.Serialize
 import Data.Hashable
 import Control.Monad
+import Data.Time
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -23,7 +25,7 @@ type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
 type BlockNonce = (VRF.Hash, VRF.Proof)
 type BlockData = ByteString
-newtype BlockHeight = BlockHeight Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
+newtype BlockHeight = BlockHeight {theBlockHeight :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 type LeadershipElectionNonce = ByteString
 type BakerSignVerifyKey = Sig.VerifyKey
@@ -132,7 +134,11 @@ data BlockPointer = BlockPointer {
     bpParent :: BlockPointer,
     bpLastFinalized :: BlockPointer,
     bpHeight :: !BlockHeight,
-    bpState :: !GlobalState
+    bpState :: !GlobalState,
+    -- |Time at which the block was first received
+    bpReceiveTime :: UTCTime,
+    -- |Time at which the block was first considered part of the tree (validated)
+    bpArriveTime :: UTCTime
 }
 
 instance Eq BlockPointer where
@@ -240,3 +246,5 @@ makeGenesisBlockPointer genData = theBlockPointer
         bpLastFinalized = theBlockPointer
         bpHeight = 0
         bpState = initState 2
+        bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+        bpArriveTime = bpReceiveTime

@@ -1,12 +1,22 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 module Concordium.Getters where
 
 import GHC.Generics(Generic)
 
+import Lens.Micro.Platform hiding ((.=))
+import Control.Monad.Trans.State
+
 import Concordium.Payload.Transaction
 import Concordium.Types as T
+import Concordium.MonadImplementation
+import Concordium.Kontrol.BestBlock
+import Concordium.Skov.Monad
+
+import Data.IORef
+import Text.Read hiding (get)
 
 -- import Data.String
 
@@ -103,3 +113,48 @@ txOutToTransaction (TxOut nonce sndr addr msg) = undefined
   -- where dec = fst . BS16.decode . encodeUtf8
   --       decSender = dec sndr
   --       decAddr = dec addr
+
+hsh :: BlockPointer -> String
+hsh = show . bpHash
+
+getConsensusStatus :: IORef SkovFinalizationState -> IO Value
+getConsensusStatus sfsRef = do
+    sfs <- readIORef sfsRef
+    flip evalStateT (sfs ^. sfsSkov) $ do
+        bb <- bestBlock
+        lfb <- lastFinalizedBlock
+        return $ object [
+                "blocksReceivedCount" .= (sfs ^. statistics . blocksReceivedCount),
+                "bestBlock" .= hsh bb,
+                "genesisBlock" .= hsh (sfs ^. genesisBlockPointer),
+                "lastFinalizedBlock" .= hsh lfb,
+                "bestBlockHeight" .= theBlockHeight (bpHeight bb),
+                "lastFinalizedBlockHeight" .= theBlockHeight (bpHeight lfb),
+                "blockReceiveLatencyEMA" .= (sfs ^. statistics . blockReceiveLatencyEMA),
+                "blockReceiveLatencyEMSD" .= sqrt (sfs ^. statistics . blockReceiveLatencyEMVar),
+                "blockArriveLatencyEMA" .= (sfs ^. statistics . blockArriveLatencyEMA),
+                "blockArriveLatencyEMSD" .= sqrt (sfs ^. statistics . blockArriveLatencyEMVar)
+            ]
+
+getBlockInfo :: IORef SkovFinalizationState -> String -> IO Value
+getBlockInfo sfsRef blockHash = case readMaybe blockHash of
+        Nothing -> return Null
+        Just bh -> do
+            sfs <- readIORef sfsRef
+            flip evalStateT (sfs ^. sfsSkov) $
+                resolveBlock bh >>= \case
+                    Nothing -> return Null
+                    Just bp -> do
+                        bfin <- isFinalized bh
+                        return $ object [
+                            "blockHash" .= hsh bp,
+                            "blockParent" .= hsh (bpParent bp),
+                            "blockLastFinalized" .= hsh (bpLastFinalized bp),
+                            "blockHeight" .= theBlockHeight (bpHeight bp),
+                            "blockReceiveTime" .= bpReceiveTime bp,
+                            "blockArriveTime" .= bpArriveTime bp,
+                            "blockSlot" .= (fromIntegral (blockSlot (bpBlock bp)) :: Word64),
+                            "blockBaker" .= T.blockBaker (bpBlock bp),
+                            "finalized" .= bfin
+                            ]
+        

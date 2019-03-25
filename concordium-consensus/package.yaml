@@ -47,6 +47,8 @@ library:
       - -shared
       - -Wall
       - -Wcompat
+      - -Werror=missing-fields
+      - -Wredundant-constraints
   when:
     - condition: os(windows)
       then:

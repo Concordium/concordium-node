@@ -12,6 +12,7 @@ import Lens.Micro.Platform
 import Data.Foldable
 import Data.Maybe
 import Data.List(intercalate)
+import Data.Time
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -35,10 +36,35 @@ data BlockStatus =
 
 data PendingBlock = PendingBlock {
     pbHash :: !BlockHash,
-    pbBlock :: !Block
+    pbBlock :: !Block,
+    pbReceiveTime :: !UTCTime
 }
 instance Eq PendingBlock where
     pb1 == pb2 = pbHash pb1 == pbHash pb2
+
+-- |Weight factor to use in computing exponentially-weighted moving averages.
+emaWeight :: Double
+emaWeight = 0.1
+
+data SkovStatistics = SkovStatistics {
+    _blocksReceivedCount :: Int,
+    _blocksVerifiedCount :: Int,
+    _blockReceiveLatencyEMA :: Double,
+    _blockReceiveLatencyEMVar :: Double,
+    _blockArriveLatencyEMA :: Double,
+    _blockArriveLatencyEMVar :: Double
+}
+makeLenses ''SkovStatistics
+
+initialSkovStatistics :: SkovStatistics
+initialSkovStatistics = SkovStatistics {
+    _blocksReceivedCount = 0,
+    _blocksVerifiedCount = 0,
+    _blockReceiveLatencyEMA = 0,
+    _blockReceiveLatencyEMVar = 0,
+    _blockArriveLatencyEMA = 0,
+    _blockArriveLatencyEMVar = 0
+}
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
@@ -52,7 +78,8 @@ data SkovData = SkovData {
     _skovGenesisData :: GenesisData,
     _skovGenesisBlockPointer :: BlockPointer,
     _skovTransactionsFinalized :: Map.Map TransactionNonce Transaction,
-    _skovTransactionsPending :: Map.Map TransactionNonce Transaction
+    _skovTransactionsPending :: Map.Map TransactionNonce Transaction,
+    _skovStatistics :: SkovStatistics
 }
 makeLenses ''SkovData
 
@@ -84,6 +111,8 @@ class SkovLenses s where
     transactionsFinalized = skov . skovTransactionsFinalized
     transactionsPending :: Lens' s (Map.Map TransactionNonce Transaction)
     transactionsPending = skov . skovTransactionsPending
+    statistics :: Lens' s SkovStatistics
+    statistics = skov . skovStatistics
 
 instance SkovLenses SkovData where
     skov = id
@@ -100,7 +129,8 @@ initialSkovData gd = SkovData {
             _skovGenesisData = gd,
             _skovGenesisBlockPointer = gb,
             _skovTransactionsFinalized = Map.empty,
-            _skovTransactionsPending = Map.empty
+            _skovTransactionsPending = Map.empty,
+            _skovStatistics = initialSkovStatistics
         }
     where
         gb = makeGenesisBlockPointer gd
@@ -237,7 +267,7 @@ processFinalizationPool sl@SkovListeners{..} = do
             
 
 addBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => SkovListeners m -> PendingBlock -> m ()
-addBlock sl@SkovListeners{..} pb@(PendingBlock cbp _) = do
+addBlock sl@SkovListeners{..} pb@(PendingBlock cbp _ _) = do
     res <- runMaybeT (tryAddBlock pb)
     case res of
         Nothing -> blockArriveDead cbp
@@ -251,11 +281,9 @@ addBlock sl@SkovListeners{..} pb@(PendingBlock cbp _) = do
                 forM_ children $ \childpb -> do
                     childStatus <- use (blockTable . at (pbHash childpb))
                     when (isNothing childStatus) $ addBlock sl childpb
-    s <- use skov
-    return ()
 
 tryAddBlock :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> MaybeT m (Maybe BlockPointer)
-tryAddBlock pb@(PendingBlock cbp block) = do
+tryAddBlock pb@(PendingBlock cbp block recTime) = do
         lfs <- use (skov . to lastFinalizedSlot)
         -- The block must be later than the last finalized block
         guard $ lfs < blockSlot block
@@ -318,15 +346,26 @@ tryAddBlock pb@(PendingBlock cbp block) = do
                     case executeBlockForState ts (bpState parentP) of
                         ATypes.BlockInvalid _ -> mzero -- Execution failed
                         ATypes.BlockSuccess _ gs -> do
+                            curTime <- liftIO getCurrentTime
                             let blockP = BlockPointer {
                                 bpHash = cbp,
                                 bpBlock = block,
                                 bpParent = parentP,
                                 bpLastFinalized = lfBlockP,
                                 bpHeight = height,
-                                bpState = gs
+                                bpState = gs,
+                                bpReceiveTime = recTime,
+                                bpArriveTime = curTime
                             }
                             blockTable . at cbp ?= BlockAlive blockP
+                            -- Update the statistics
+                            statistics . blocksVerifiedCount += 1
+                            slotTime <- getSlotTime (blockSlot block)
+                            oldEMA <- use $ statistics . blockArriveLatencyEMA
+                            let delta = realToFrac (diffUTCTime curTime slotTime)
+                            statistics . blockArriveLatencyEMA .= oldEMA + emaWeight * delta
+                            statistics . blockArriveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+                            -- Add to the branches
                             finHght <- use (skov . to lastFinalizedHeight)
                             brs <- use branches
                             let branchLen = fromIntegral $ Seq.length brs
@@ -359,9 +398,16 @@ doStoreBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => SkovListeners m -
 doStoreBlock sl block0 = do
     let cbp = hashBlock block0
     oldBlock <- use (blockTable . at cbp)
-    when (isNothing oldBlock) $
+    when (isNothing oldBlock) $ do
         -- The block is new, so we have some work to do.
-        addBlock sl (PendingBlock cbp block0)
+        curTime <- liftIO getCurrentTime
+        addBlock sl (PendingBlock cbp block0 curTime)
+        statistics . blocksReceivedCount += 1
+        slotTime <- getSlotTime (blockSlot block0)
+        oldEMA <- use $ statistics . blockReceiveLatencyEMA
+        let delta = realToFrac (diffUTCTime curTime slotTime) - oldEMA
+        statistics . blockReceiveLatencyEMA .= oldEMA + emaWeight * delta
+        statistics . blockReceiveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
     return cbp
 
 doFinalizeBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => SkovListeners m -> FinalizationRecord -> m ()
@@ -479,10 +525,7 @@ initialSkovFinalizationState finInst gen = SkovFinalizationState{..}
 sfsSkovListeners :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => SkovListeners m
 sfsSkovListeners = SkovListeners {
     onBlock = notifyBlockArrival,
-    onFinalize = \fr bp -> do
-        notifyBlockFinalized fr bp
-        fs <- use finState
-        return ()
+    onFinalize = notifyBlockFinalized
 }
 
 instance MonadIO m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where

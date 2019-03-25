@@ -9,5 +9,4 @@ EXPORTS
  receiveFinalizationRecord
  printBlock
  receiveTransaction
- getBestBlockInfo
  freeCStr

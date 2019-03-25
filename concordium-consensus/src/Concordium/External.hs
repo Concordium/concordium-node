@@ -20,6 +20,7 @@ import Concordium.Birk.Bake
 import Concordium.Payload.Transaction
 import Concordium.Runner
 import Concordium.Show
+import Concordium.MonadImplementation (SkovFinalizationState)
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
@@ -60,7 +61,7 @@ import qualified Concordium.Startup as S
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
     bakerOutChan :: Chan OutMessage,
-    bakerBestBlock :: IORef Get.BlockInfo
+    bakerState :: IORef SkovFinalizationState
 }
 
 type CStringCallback = CString -> Int64 -> IO ()
@@ -200,11 +201,13 @@ receiveTransaction bptr tdata = do
       Just tx ->
         writeChan cin (MsgTransactionReceived tx) >> return 0
 
+{-
 getBestBlockInfo :: StablePtr BakerRunner -> IO CString
 getBestBlockInfo bptr = do
   blockInfo <- readIORef =<< bakerBestBlock <$> deRefStablePtr bptr
   let outStr = LT.unpack . AET.encodeToLazyText $ blockInfo
   newCString outStr
+-}
 
 freeCStr :: CString -> IO ()
 freeCStr = free
@@ -217,5 +220,5 @@ foreign export ccall receiveFinalization :: StablePtr BakerRunner -> CString -> 
 foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
-foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
+-- foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
