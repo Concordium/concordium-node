@@ -1,22 +1,32 @@
 use failure::{Fail, Backtrace};
 
 #[derive(Debug,Fail)]
-pub enum ConnectionError {
-    #[fail(display = "Message processing error: {}", message)]
-    MessageProcessError {
-        message: &'static str,
-        backtrace: Backtrace
-    },
-    #[fail(display = "Peer error: {}", message)]
-    PeerError {
-        message: &'static str,
-    },
-    #[fail(display = "Log error: {}", message)]
-    LogError {
-        message: &'static str,
-    },
-    #[fail(display = "Prometheus error: {}", message)]
-    PrometheusError {
-        message: &'static str,
-    }
+#[fail(display = "Message processing error: {}", message)]
+pub struct MessageProcessError {
+    pub message: &'static str,
+    pub backtrace: Backtrace
+}
+
+#[derive(Debug,Fail)]
+#[fail(display = "Peer error: {}", message)]
+pub struct PeerError {
+    pub message: &'static str,
+}
+
+#[derive(Debug,Fail)]
+#[fail(display = "Log error: {}", message)]
+pub struct LogError {
+    pub message: &'static str,
+}
+
+#[derive(Debug,Fail)]
+#[fail(display = "Prometheus error: {}", message)]
+pub struct PrometheusError {
+    pub message: &'static str,
+}
+
+#[derive(Debug,Fail)]
+#[fail(display = "Unwanted message: {}", message)]
+pub struct UnwantedMessageError {
+    pub message: String,
 }

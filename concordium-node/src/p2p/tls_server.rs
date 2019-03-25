@@ -313,7 +313,7 @@ impl TlsServer {
         let cloned_dptr = self.dptr.clone();
         make_atomic_callback!(
             move |sockaddr: &SocketAddr| {
-                if !cloned_dptr.borrow().addr_is_banned(sockaddr)? {
+                if cloned_dptr.borrow().addr_is_banned(sockaddr)? {
                     bail!(fails::BannedNodeRequestedConnectionError);
                 }
                 Ok(())

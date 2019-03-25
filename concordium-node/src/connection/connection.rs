@@ -12,7 +12,7 @@ use mio::{ Poll, PollOpt, Ready, Token, Event, net::TcpStream };
 use rustls::{ ServerSession, ClientSession };
 use crate::prometheus_exporter::{ PrometheusServer };
 
-use failure::{Error, Fallible};
+use failure::{Error, Fallible, bail };
 
 use crate::common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER };
@@ -28,6 +28,8 @@ use crate::connection::connection_private::{ ConnectionPrivate };
 #[cfg(not(target_os = "windows"))]
 use crate::connection::writev_adapter::{ WriteVAdapter };
 use crate::connection::connection_default_handlers::*;
+use crate::connection::connection_handshake_handlers::*;
+use super::fails;
 
 
 /// This macro clones `dptr` and moves it into callback closure.
@@ -40,6 +42,13 @@ macro_rules! handle_by_private {
         })
     }}
 }
+
+#[derive(PartialEq)]
+pub enum ConnectionStatus {
+    Untrusted,
+    Established
+}
+
 
 pub struct Connection {
     socket: TcpStream,
@@ -63,7 +72,8 @@ pub struct Connection {
     /// handler's function will only need two arguments: this shared object, and
     /// the message which is going to be processed.
     dptr: Rc< RefCell< ConnectionPrivate >>,
-    pub message_handler: MessageHandler
+    pub message_handler: MessageHandler,
+    status: ConnectionStatus
 }
 
 impl Connection {
@@ -108,10 +118,23 @@ impl Connection {
                      dptr: priv_conn,
                      message_handler: MessageHandler::new(),
                      blind_trusted_broadcast,
+                     status: ConnectionStatus::Untrusted
         };
 
-        lself.setup_message_handler();
+        lself.setup_handshake_handler();
+//        lself.setup_message_handler();
         lself
+    }
+
+    // Setup handshake handler
+    fn setup_handshake_handler(&mut self) {
+        self.message_handler
+        .add_request_callback(handle_by_private!(
+            self.dptr, &NetworkRequest,
+            handshake_request_handle))
+            .add_response_callback(handle_by_private!(
+           self.dptr, &NetworkResponse,
+            handshake_response_handle));
     }
 
     // Setup message handler
@@ -181,6 +204,7 @@ impl Connection {
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
 
+        self.message_handler = MessageHandler::new();
         self.message_handler
             .add_request_callback( make_atomic_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req).map_err(Error::from) }))
@@ -337,7 +361,7 @@ impl Connection {
                 if size == 0 {
                     break;
                 }
-                self.try_plain_read(poll, &packets_queue);
+                self.try_plain_read(poll, &packets_queue)?;
             }
         }
 
@@ -390,7 +414,7 @@ impl Connection {
 
     fn try_plain_read(&mut self,
                       poll: &mut Poll,
-                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>) {
+                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>) -> Fallible<()> {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
@@ -400,12 +424,14 @@ impl Connection {
             Ok(_) => {
                 if !buf.is_empty() {
                     trace!("plaintext read {:?}", buf.len());
-                    self.incoming_plaintext(poll, &packets_queue, &buf);
+                    self.incoming_plaintext(poll, &packets_queue, &buf)
+                } else {
+                    Ok(())
                 }
             },
             Err(read_err) => {
-                error!("plaintext read failed: {:?}", read_err);
                 self.closing = true;
+                bail!(read_err);
             }
         }
     }
@@ -417,7 +443,7 @@ impl Connection {
     }
 
     /// It decodes message from `buf` and processes it using its message handlers.
-    fn process_complete_packet(&mut self, buf: &[u8]) {
+    fn process_complete_packet(&mut self, buf: &[u8]) -> FunctorResult {
         let outer = Arc::new(box NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf));
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
@@ -430,9 +456,7 @@ impl Connection {
         };
 
         // Process message by message handler.
-        if let Err(e) = (self.message_handler)(&outer) {
-            warn!( "Message handler {}", e);
-        }
+        (self.message_handler)(&outer)
     }
 
     fn validate_packet(&mut self, poll: &mut Poll) {
@@ -469,7 +493,7 @@ impl Connection {
     fn incoming_plaintext(&mut self,
                           poll: &mut Poll,
                           packets_queue: &Sender<Arc<Box<NetworkMessage>>>,
-                          buf: &[u8]) {
+                          buf: &[u8]) -> Fallible<()> {
         trace!("Received plaintext");
         self.validate_packet(poll);
         if self.expected_size > 0 && self.currently_read == self.expected_size {
@@ -479,10 +503,22 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                self.process_complete_packet( &buffered);
+                if let Err(e) = self.process_complete_packet( &buffered) {
+                   match e.downcast::<fails::UnwantedMessageError>() {
+                            Ok(f) => {
+                                error!("{}", f);
+                                self.close(poll)?;
+                            }
+                            Err(e) => {error!("{}", e);}
+                        }
+                } else if self.status == ConnectionStatus::Untrusted {
+                    self.setup_message_handler();
+                    self.status = ConnectionStatus::Established;
+                }
             }
+
             self.clear_buffer();
-            self.incoming_plaintext(poll, packets_queue, buf);
+            self.incoming_plaintext(poll, packets_queue, buf)?;
         } else if self.expected_size > 0
                   && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
         {
@@ -498,7 +534,17 @@ impl Connection {
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
                     }
-                    self.process_complete_packet( &buffered);
+                    if let Err(e) = self.process_complete_packet( &buffered) {
+                        match e.downcast::<fails::UnwantedMessageError>() {
+                            Ok(f) => {
+                                error!("{}", f);
+                                self.close(poll)?;
+                            }
+                            Err(e) => {error!("{}", e);}
+                        }
+                } else if self.status == ConnectionStatus::Untrusted {
+                    self.setup_message_handler();
+                }
                 }
                 self.clear_buffer();
             }
@@ -513,10 +559,20 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                self.process_complete_packet( &buffered);
+                if let Err(e) = self.process_complete_packet( &buffered) {
+                    match e.downcast::<fails::UnwantedMessageError>() {
+                            Ok(f) => {
+                                error!("{}", f);
+                                self.close(poll)?;
+                            }
+                            Err(e) => {error!("{}", e);}
+                        }
+                } else if self.status == ConnectionStatus::Untrusted {
+                    self.setup_message_handler();
+                }
             }
             self.clear_buffer();
-            self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..]);
+            self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;
         } else if buf.len() >= 4 {
             trace!("Trying to read size");
             let _buf = &buf[..4].to_vec();
@@ -525,16 +581,17 @@ impl Connection {
             if self.expected_size > 268_435_456 {
                 error!("Packet can't be bigger than 256MB");
                 self.expected_size = 0;
-                self.incoming_plaintext(poll, &packets_queue, &buf[4..]);
+                self.incoming_plaintext(poll, &packets_queue, &buf[4..])?;
             } else {
                 self.setup_buffer();
                 if buf.len() > 4 {
                     trace!("Got enough to read it...");
-                    self.incoming_plaintext(poll, &packets_queue, &buf[4..]);
+                    self.incoming_plaintext(poll, &packets_queue, &buf[4..])?;
                 }
             }
         }
-    }
+        Ok(())
+}
 
     pub fn serialize_bytes(&mut self, pkt: &[u8]) -> Fallible<usize> {
         trace!("Serializing data to connection {} bytes", pkt.len());
