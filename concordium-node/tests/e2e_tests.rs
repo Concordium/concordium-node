@@ -417,8 +417,8 @@ mod tests {
             let _guard_pkt = thread::spawn(move || {
                 loop {
                     if let Ok(full_msg) = inner_receiver.recv() {
-                        if let box NetworkMessage::NetworkPacket(
-                            NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) = *full_msg
+                        if let NetworkMessage::NetworkPacket(
+                            NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), ..) = *full_msg
                         {
                             info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
                             _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
@@ -546,8 +546,8 @@ mod tests {
                     let _guard_pkt = thread::spawn(move || {
                         loop {
                             if let Ok(full_msg) = inner_receiver.recv() {
-                                if let box NetworkMessage::NetworkPacket(
-                                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) = *full_msg
+                                if let NetworkMessage::NetworkPacket(
+                                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), ..) = *full_msg
                                 {
                                     info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                     _inner_counter.tick(1);
@@ -689,7 +689,7 @@ mod tests {
 
             for received in rx {
                 match *received{
-                    box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref nid, ref msg), ..) => {
+                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref nid, ref msg), ..) => {
                         exp_broadcast -= 1;
                         assert!( exp_broadcast >= 0);
 
@@ -701,7 +701,7 @@ mod tests {
                         assert_eq!( ga_root_id, sender.id());
                         assert_eq!( ga_network_id, *nid);
                     },
-                    box NetworkMessage::NetworkRequest( NetworkRequest::Handshake(..), ..) => {
+                    NetworkMessage::NetworkRequest( NetworkRequest::Handshake(..), ..) => {
                         exp_handshake -= 1;
                         assert!( exp_handshake >= 0);
 

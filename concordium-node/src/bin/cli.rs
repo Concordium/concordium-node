@@ -105,7 +105,7 @@ fn main() -> Fallible<()> {
         P2PNodeMode::NormalMode
     };
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let external_ip = if conf.external_ip.is_some() {
         conf.external_ip.clone()
@@ -290,8 +290,8 @@ fn main() -> Fallible<()> {
        }
        loop {
            if let Ok(full_msg) = pkt_out.recv() {
-               match *full_msg.clone() {
-               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
+               match *full_msg {
+               NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), ..) => {
                    if _tps_test_enabled {
                        _stats_engine.add_stat(msg.len() as u64);
                        _msg_count += 1;
@@ -308,7 +308,7 @@ fn main() -> Fallible<()> {
                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                    send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                }
-               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), _, _) => {
+               NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), ..) => {
                    if let Some(ref mut rpc) = _rpc_clone {
                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                    }
@@ -321,8 +321,7 @@ fn main() -> Fallible<()> {
                    };
                    send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                }
-
-               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
+               NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
                    info!("Ban node request for {:?}", x);
                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
                    if ban.is_ok() {
@@ -332,7 +331,7 @@ fn main() -> Fallible<()> {
                        }
                    }
                }
-               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), _, _) => {
+               NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), ..) => {
                    info!("Unban node requets for {:?}", x);
                    let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
                    if req.is_ok() {
@@ -342,7 +341,7 @@ fn main() -> Fallible<()> {
                        }
                    }
                }
-               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
+               NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), ..) => {
                    info!("Received PeerList response, attempting to satisfy desired peers");
                    let mut new_peers = 0;
                    match _node_self_clone.get_peer_stats(&[]) {

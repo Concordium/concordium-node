@@ -254,7 +254,7 @@ impl TlsServer {
     pub fn conn_event(&mut self,
                   poll: &mut Poll,
                   event: &Event,
-                  packet_queue: &Sender<Arc<Box<NetworkMessage>>>)
+                  packet_queue: &Sender<Arc<NetworkMessage>>)
                   -> Fallible<()> {
         self.dptr.borrow_mut().conn_event( poll, event, packet_queue)
     }

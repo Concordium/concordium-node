@@ -324,7 +324,7 @@ impl Connection {
     pub fn ready(&mut self,
              poll: &mut Poll,
              ev: &Event,
-             packets_queue: &Sender<Arc<Box<NetworkMessage>>>)
+             packets_queue: &Sender<Arc<NetworkMessage>>)
              -> Fallible<()>
     {
         let ev_readiness = ev.readiness();
@@ -390,7 +390,7 @@ impl Connection {
 
     fn try_plain_read(&mut self,
                       poll: &mut Poll,
-                      packets_queue: &Sender<Arc<Box<NetworkMessage>>>) {
+                      packets_queue: &Sender<Arc<NetworkMessage>>) {
         // Read and process all available plaintext.
         let mut buf = Vec::new();
 
@@ -468,7 +468,7 @@ impl Connection {
 
     fn incoming_plaintext(&mut self,
                           poll: &mut Poll,
-                          packets_queue: &Sender<Arc<Box<NetworkMessage>>>,
+                          packets_queue: &Sender<Arc<NetworkMessage>>,
                           buf: &[u8]) {
         trace!("Received plaintext");
         self.validate_packet(poll);
