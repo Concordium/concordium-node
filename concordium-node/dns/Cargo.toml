@@ -9,6 +9,7 @@ exclude = [
     "test/**/*"
 ]
 publish = false
+edition = "2018"
 
 [features]
 default = []

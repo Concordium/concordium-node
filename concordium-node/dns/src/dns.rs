@@ -124,7 +124,7 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
 
 #[cfg(test)]
 mod tests {
-    use dns::*;
+    use crate::dns::*;
     use std::str::FromStr;
 
     #[test]
