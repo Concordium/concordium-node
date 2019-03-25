@@ -39,10 +39,10 @@ pub struct P2PNode {
     poll: Arc<Mutex<Poll>>,
     id: P2PNodeId,
     buckets: Arc<RwLock<Buckets>>,
-    send_queue: Arc<Mutex<VecDeque<Arc<Box<NetworkMessage>>>>>,
+    send_queue: Arc<Mutex<VecDeque<Arc<NetworkMessage>>>>,
     ip: IpAddr,
     port: u16,
-    incoming_pkts: Sender<Arc<Box<NetworkMessage>>>,
+    incoming_pkts: Sender<Arc<NetworkMessage>>,
     event_log: Option<Sender<P2PEvent>>,
     start_time: DateTime<Utc>,
     prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
@@ -63,7 +63,7 @@ impl P2PNode {
                listen_port: u16,
                external_ip: Option<String>,
                external_port: Option<u16>,
-               pkt_queue: Sender<Arc<Box<NetworkMessage>>>,
+               pkt_queue: Sender<Arc<NetworkMessage>>,
                event_log: Option<Sender<P2PEvent>>,
                mode: P2PNodeMode,
                prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
@@ -376,7 +376,7 @@ impl P2PNode {
             if send_q.len() == 0 {
                 return Ok(());
             }
-            let mut resend_queue: VecDeque<Arc<Box<NetworkMessage>>> = VecDeque::new();
+            let mut resend_queue: VecDeque<Arc<NetworkMessage>> = VecDeque::new();
             loop {
                 trace!("Processing messages!");
                 let outer_pkt = send_q.pop_front();
@@ -391,9 +391,9 @@ impl P2PNode {
                             |conn: &Connection, status: Fallible<usize>|
                                 self.check_sent_status( conn, status);
 
-                        match *x.clone() {
-                            box NetworkMessage::NetworkPacket(ref inner_pkt
-                                    @ NetworkPacket::DirectMessage(..), _, _) => {
+                        match **x {
+                            NetworkMessage::NetworkPacket(ref inner_pkt
+                                    @ NetworkPacket::DirectMessage(..), ..) => {
                                 if let NetworkPacket::DirectMessage(_, _msgid, receiver, _network_id,  _) = inner_pkt {
                                     let data = inner_pkt.serialize();
                                     let filter = |conn: &Connection|{ is_conn_peer_id( conn, receiver)};
@@ -403,7 +403,7 @@ impl P2PNode {
                                                                     &check_sent_status_fn);
                                 }
                             }
-                            box NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(_, _, _, _), _, _) => {
+                            NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(..), ..) => {
                                 if let NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref network_id, _ ) = inner_pkt {
                                     let data = inner_pkt.serialize();
                                     let filter = |conn: &Connection| {
@@ -415,9 +415,9 @@ impl P2PNode {
                                                                     &check_sent_status_fn);
                                 }
                             }
-                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(_, _), _, _)
-                            | box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(_,_), _, _)
-                            | box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(_, _), _, _) => {
+                            NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(..), ..)
+                            | NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(..), ..)
+                            | NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(..), ..) => {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
 
@@ -425,7 +425,7 @@ impl P2PNode {
                                     .send_over_all_connections( &data, &no_filter,
                                                                 &check_sent_status_fn);
                             }
-                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::JoinNetwork(_, _), _, _) => {
+                            NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::JoinNetwork(..), ..) => {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
 
@@ -439,7 +439,7 @@ impl P2PNode {
                                         .map_err(|e| error!("{}", e)).ok();
                                 }
                             }
-                            box NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::LeaveNetwork(_,_), _, _) => {
+                            NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::LeaveNetwork(..), ..) => {
                                 let data = inner_pkt.serialize();
                                 let no_filter = |_: &Connection| true;
 
@@ -517,7 +517,7 @@ impl P2PNode {
         if broadcast {
             safe_lock!(self.send_queue)?
                 .push_back( Arc::new(
-                    box NetworkMessage::NetworkPacket(
+                    NetworkMessage::NetworkPacket(
                         NetworkPacket::BroadcastedMessage(
                             self.get_self_peer(),
                             msg_id.unwrap_or(NetworkPacket::generate_message_id()),
@@ -533,7 +533,7 @@ impl P2PNode {
                 |x| {
                     safe_lock!(self.send_queue)?
                         .push_back( Arc::new(
-                            box NetworkMessage::NetworkPacket(
+                            NetworkMessage::NetworkPacket(
                                 NetworkPacket::DirectMessage(
                                     self.get_self_peer(),
                                     msg_id.unwrap_or(NetworkPacket::generate_message_id()),
@@ -551,7 +551,7 @@ impl P2PNode {
 
     pub fn send_ban(&mut self, id: P2PPeer) -> Fallible<()> {
         safe_lock!(self.send_queue)?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id),
+            .push_back(Arc::new(NetworkMessage::NetworkRequest(NetworkRequest::BanNode(self.get_self_peer(), id),
                                                                None,
                                                                None)));
         self.queue_size_inc()?;
@@ -560,7 +560,7 @@ impl P2PNode {
 
     pub fn send_unban(&mut self, id: P2PPeer) -> Fallible<()> {
         safe_lock!(self.send_queue)?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(), id),
+            .push_back(Arc::new(NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(self.get_self_peer(), id),
                                                                None,
                                                                None)));
         self.queue_size_inc()?;
@@ -569,7 +569,7 @@ impl P2PNode {
 
     pub fn send_joinnetwork(&mut self, network_id: u16) -> Fallible<()> {
         safe_lock!(self.send_queue)?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
+            .push_back(Arc::new(NetworkMessage::NetworkRequest(NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
                                                                None,
                                                                None)));
         self.queue_size_inc()?;
@@ -578,7 +578,7 @@ impl P2PNode {
 
     pub fn send_leavenetwork(&mut self, network_id: u16) -> Fallible<()> {
         safe_lock!(self.send_queue)?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),
+            .push_back(Arc::new(NetworkMessage::NetworkRequest(NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),
                                                                None,
                                                                None)));
         self.queue_size_inc()?;
@@ -587,7 +587,7 @@ impl P2PNode {
 
     pub fn send_get_peers(&mut self, nids: Vec<u16>) -> Fallible<()> {
         safe_lock!(self.send_queue)?
-            .push_back(Arc::new(box NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer(),nids.clone() ),
+            .push_back(Arc::new(NetworkMessage::NetworkRequest(NetworkRequest::GetPeers(self.get_self_peer(),nids.clone() ),
                                                                None,
                                                                None)));
         self.queue_size_inc()?;

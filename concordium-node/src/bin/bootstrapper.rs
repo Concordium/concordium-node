@@ -76,7 +76,7 @@ fn main() -> Result<(), Error> {
 
     info!("Debugging enabled {}", conf.debug);
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let mode_type = if conf.private_node {
         P2PNodeMode::BootstrapperPrivateMode
@@ -166,11 +166,8 @@ fn main() -> Result<(), Error> {
     let _guard_pkt = thread::spawn(move || {
         loop {
             if let Ok(full_msg) = pkt_out.recv() {
-                match *full_msg.clone() {
-                    box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer,
-                                                                               ref x),
-                                                       _,
-                                                       _) => {
+                match *full_msg {
+                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
                         info!("Ban node request for {:?}", x);
                         let ban = _node_self_clone.ban_node(x.clone())
                                                   .map_err(|e| error!("{}", e));
@@ -185,10 +182,7 @@ fn main() -> Result<(), Error> {
                             }
                         }
                     }
-                    box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer,
-                                                                                 ref x),
-                                                       _,
-                                                       _) => {
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), ..) => {
                         info!("Unban node requets for {:?}", x);
                         let req = _node_self_clone.unban_node(x.clone())
                                                   .map_err(|e| error!("{}", e));

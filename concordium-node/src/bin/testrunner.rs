@@ -320,7 +320,7 @@ fn main() -> Fallible<()> {
         P2PNodeMode::NormalMode
     };
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let external_ip = if conf.external_ip.is_some() {
         conf.external_ip
@@ -423,14 +423,14 @@ fn main() -> Fallible<()> {
     let _desired_nodes_clone = conf.desired_nodes;
     let _guard_pkt = thread::spawn(move || { loop {
         if let Ok(full_msg) = pkt_out.recv() {
-            match *full_msg.clone() {
-                box NetworkMessage::NetworkPacket(
-                    NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) =>
+            match *full_msg {
+                NetworkMessage::NetworkPacket(
+                    NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), ..) =>
                 {
                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                 }
-                box NetworkMessage::NetworkPacket(
-                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) =>
+                NetworkMessage::NetworkPacket(
+                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), ..) =>
                 {
                     if !_no_trust_broadcasts {
                         info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
@@ -438,8 +438,8 @@ fn main() -> Fallible<()> {
                                         .map_err(|e| error!("Error sending message {}", e)).ok();
                     }
                 }
-                box NetworkMessage::NetworkRequest(
-                    NetworkRequest::BanNode(ref peer, ref x), _, _) =>
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::BanNode(ref peer, ref x), ..) =>
                 {
                     info!("Ban node request for {:?}", x);
                     let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
@@ -450,8 +450,8 @@ fn main() -> Fallible<()> {
                         }
                     }
                 }
-                box NetworkMessage::NetworkRequest(
-                    NetworkRequest::UnbanNode(ref peer, ref x), _, _) =>
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::UnbanNode(ref peer, ref x), ..) =>
                 {
                     info!("Unban node requets for {:?}", x);
                     let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
@@ -462,8 +462,8 @@ fn main() -> Fallible<()> {
                         }
                     }
                 }
-                box NetworkMessage::NetworkResponse(
-                    NetworkResponse::PeerList(_, ref peers), _, _) =>
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::PeerList(_, ref peers), ..) =>
                 {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;

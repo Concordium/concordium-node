@@ -47,10 +47,9 @@ mod tests {
     }
 
     pub fn test_grpc_consensus() {
-
         let port_node = next_port_offset( 2);
 
-        let (pkt_in, _pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+        let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
         let (genesis_data, private_data) =
             match ConsensusContainer::generate_data(0, 1) {

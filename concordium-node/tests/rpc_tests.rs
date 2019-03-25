@@ -41,7 +41,7 @@ mod tests {
     // The port number is safe as it uses a AtomicUsize for respecting the order.
     macro_rules! create_node_rpc_call_option_mode {
         ( $c:ident, $r:ident, $co:ident, $nt:ident , $id:expr ) => (
-            let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+            let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
             let (sender, receiver) = mpsc::channel();
             let _guard =

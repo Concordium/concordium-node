@@ -139,7 +139,7 @@ impl TlsServerPrivate {
     pub fn conn_event(&mut self,
                   poll: &mut Poll,
                   event: &Event,
-                  packet_queue: &Sender<Arc<Box<NetworkMessage>>>)
+                  packet_queue: &Sender<Arc<NetworkMessage>>)
                   -> Fallible<()> {
         let token = event.token();
         let mut rc_conn_to_be_removed : Option<_> = None;
