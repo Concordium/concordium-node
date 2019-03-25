@@ -418,7 +418,7 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message handlers.
     fn process_complete_packet(&mut self, buf: &[u8]) {
-        let outer = Arc::new(box NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf));
+        let outer = Arc::new(Box::new(NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf)));
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter() {

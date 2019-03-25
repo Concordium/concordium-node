@@ -56,7 +56,7 @@ impl RpcServerImpl {
 
     pub fn queue_message(&self, msg: &NetworkMessage) -> Fallible<()> {
         if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
-            sender.send(box msg.clone())
+            sender.send(Box::new(msg.to_owned()))
                 .map_err(|_| fails::QueueingError)?;
         }
         Ok(())
@@ -461,51 +461,55 @@ impl P2P for RpcServerImpl {
                 match receiver.lock() {
                     Err(_) => {r.set_message_none(MessageNone::new()); } ,
                     Ok(rec) => {
-                        match rec.try_recv() {
-                            Ok(box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
-                                                                                              msgid,
-                                                                                              _,
-                                                                                              network_id,
-                                                                                              msg),
-                                                                 sent,
-                                                                 received)) => {
-                                let mut i_msg = MessageDirect::new();
-                                i_msg.set_data(msg);
-                                r.set_message_direct(i_msg);
-                                sent.map_or_else(
-                                    || {},
-                                    |sent| {r.set_sent_at(sent);}
-                                );
-                                received.map_or_else(
-                                    || {},
-                                    |val| {r.set_received_at(val);}
-                                );
-                                r.set_network_id(network_id as u32);
-                                r.set_message_id(msgid);
-                                r.set_sender(format!("{:064x}", sender.id().get_id()));
+                        if let Ok(msg) = rec.try_recv() {
+                            match *msg {
+                                NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
+                                                                                           msgid,
+                                                                                           _,
+                                                                                           network_id,
+                                                                                           msg),
+                                                              sent,
+                                                              received) => {
+                                    let mut i_msg = MessageDirect::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_direct(i_msg);
+                                    sent.map_or_else(
+                                        || {},
+                                        |sent| {r.set_sent_at(sent);}
+                                    );
+                                    received.map_or_else(
+                                        || {},
+                                        |val| {r.set_received_at(val);}
+                                    );
+                                    r.set_network_id(network_id as u32);
+                                    r.set_message_id(msgid);
+                                    r.set_sender(format!("{:064x}", sender.id().get_id()));
+                                }
+                                NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
+                                                                                                msg_id,
+                                                                                                network_id,
+                                                                                                msg),
+                                                              sent,
+                                                              received) => {
+                                    let mut i_msg = MessageBroadcast::new();
+                                    i_msg.set_data(msg);
+                                    r.set_message_broadcast(i_msg);
+                                    sent.map_or_else(
+                                        || {},
+                                        |sent| {r.set_sent_at(sent);}
+                                    );
+                                    received.map_or_else(
+                                        || {},
+                                        |val| {r.set_received_at(val);}
+                                    );
+                                    r.set_network_id(network_id as u32);
+                                    r.set_message_id(msg_id);
+                                    r.set_sender(format!("{:064x}", sender.id().get_id()));
+                                }
+                                _ => r.set_message_none(MessageNone::new())
                             }
-                            Ok(box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
-                                                                                                   msg_id,
-                                                                                                   network_id,
-                                                                                                   msg),
-                                                                 sent,
-                                                                 received)) => {
-                                let mut i_msg = MessageBroadcast::new();
-                                i_msg.set_data(msg);
-                                r.set_message_broadcast(i_msg);
-                                sent.map_or_else(
-                                    || {},
-                                    |sent| {r.set_sent_at(sent);}
-                                );
-                                received.map_or_else(
-                                    || {},
-                                    |val| {r.set_received_at(val);}
-                                );
-                                r.set_network_id(network_id as u32);
-                                r.set_message_id(msg_id);
-                                r.set_sender(format!("{:064x}", sender.id().get_id()));
-                            }
-                            _ => r.set_message_none(MessageNone::new()),
+                        } else {
+                            r.set_message_none(MessageNone::new());
                         }
                     }
                 }

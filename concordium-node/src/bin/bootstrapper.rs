@@ -1,4 +1,3 @@
-#![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
