@@ -2,10 +2,11 @@ use std::sync::{ Arc, Mutex, mpsc::Sender };
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
+use std::net::SocketAddr;
 use mio::{ Token, Poll, Event };
 use failure::{Fallible, bail};
 
-use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
+use crate::common::{ P2PNodeId, P2PPeer, P2PPeerBuilder, ConnectionType, get_current_stamp };
 use crate::connection::{ Connection, P2PNodeMode };
 use crate::network::{ NetworkMessage, NetworkRequest };
 use crate::prometheus_exporter::{ PrometheusServer };
@@ -59,6 +60,21 @@ impl TlsServerPrivate {
     pub fn unban_node(&mut self, peer: &P2PPeer) -> bool {
         self.banned_peers.remove(peer)
     }
+
+    pub fn is_banned(&self, peer: &P2PPeer) -> bool {
+        self.banned_peers.contains( peer)
+    }
+
+    pub fn addr_is_banned(&self, sockaddr: &SocketAddr) -> Fallible<bool> {
+        let p2p_peer = P2PPeerBuilder::default()
+                        .ip(sockaddr.ip().clone())
+                        .port(sockaddr.port())
+                        .connection_type(ConnectionType::Node)
+                        .build()?;
+        Ok(self.banned_peers.contains(&p2p_peer))
+    }
+
+
 
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.

@@ -4,7 +4,6 @@
 #[macro_use]
 extern crate log;
 
-use p2p_client;
 use chrono;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc

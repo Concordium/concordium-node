@@ -21,3 +21,7 @@ impl EmptyIdInSendRequest {
         Error::from(self)
     }
 }
+
+#[derive(Debug,Fail)]
+#[fail(display = "Connection requested by banned node")]
+pub struct BannedNodeRequestedConnectionError;
