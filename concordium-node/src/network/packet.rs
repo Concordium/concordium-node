@@ -33,7 +33,7 @@ impl NetworkPacket {
                     nid,
                     msg.len()
                 ).into_bytes();
-                pkt.extend(msg.iter());
+                pkt.extend(msg.into_iter());
 
                 pkt
             }
@@ -47,7 +47,7 @@ impl NetworkPacket {
                     nid,
                     msg.len()
                 ).into_bytes();
-                pkt.extend(msg.iter());
+                pkt.extend(msg.into_iter());
 
                 pkt
             }
@@ -57,8 +57,8 @@ impl NetworkPacket {
     pub fn generate_message_id() -> String {
         let mut secure_bytes = vec![0u8; 256];
         match RNG.lock() {
-            Ok(mut l) => {l.fill_bytes(&mut secure_bytes);}
-            Err(_) => {return String::new();}
+            Ok(mut l) => l.fill_bytes(&mut secure_bytes),
+            Err(_) => return String::new()
         }
         utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
     }
