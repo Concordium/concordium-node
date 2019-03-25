@@ -1,4 +1,4 @@
-#![feature(ip, unboxed_closures, fn_traits, custom_attribute)]
+#![feature(ip, unboxed_closures, fn_traits)]
 #![recursion_limit = "1024"]
 
 #[macro_use] extern crate log;
