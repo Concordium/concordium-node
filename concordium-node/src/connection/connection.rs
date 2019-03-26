@@ -73,6 +73,7 @@ pub struct Connection {
     /// the message which is going to be processed.
     dptr: Rc< RefCell< ConnectionPrivate >>,
     pub message_handler: MessageHandler,
+    pub common_message_handler: Rc<RefCell<MessageHandler>>,
     status: ConnectionStatus
 }
 
@@ -117,24 +118,29 @@ impl Connection {
                      last_ping_sent: curr_stamp,
                      dptr: priv_conn,
                      message_handler: MessageHandler::new(),
+                     common_message_handler: Rc::new(RefCell::new(MessageHandler::new())),
                      blind_trusted_broadcast,
                      status: ConnectionStatus::Untrusted
         };
 
         lself.setup_handshake_handler();
-//        lself.setup_message_handler();
         lself
     }
 
     // Setup handshake handler
     fn setup_handshake_handler(&mut self) {
+        let cloned_message_handler = self.common_message_handler.clone();
         self.message_handler
-        .add_request_callback(handle_by_private!(
-            self.dptr, &NetworkRequest,
-            handshake_request_handle))
+            .add_callback(make_atomic_callback!(
+                move |msg: &NetworkMessage| {
+                    (cloned_message_handler.borrow())(msg).map_err(Error::from)
+                }))
+            .add_request_callback(handle_by_private!(
+                self.dptr, &NetworkRequest,
+                handshake_request_handle))
             .add_response_callback(handle_by_private!(
-           self.dptr, &NetworkResponse,
-            handshake_response_handle));
+                self.dptr, &NetworkResponse,
+                handshake_response_handle));
     }
 
     // Setup message handler
@@ -203,9 +209,14 @@ impl Connection {
         let response_handler = self.make_response_handler();
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
+        let cloned_message_handler = self.common_message_handler.clone();
 
         self.message_handler = MessageHandler::new();
         self.message_handler
+            .add_callback(make_atomic_callback!(
+                move |msg: &NetworkMessage| {
+                    (cloned_message_handler.borrow())(msg).map_err(Error::from)
+                }))
             .add_request_callback( make_atomic_callback!(
                 move |req: &NetworkRequest| { (request_handler)(req).map_err(Error::from) }))
             .add_response_callback(  make_atomic_callback!(
@@ -506,13 +517,14 @@ impl Connection {
                 if let Err(e) = self.process_complete_packet( &buffered) {
                    match e.downcast::<fails::UnwantedMessageError>() {
                             Ok(f) => {
-                                error!("{}", f);
+                                error!("Dropping connection: {}", f);
                                 self.close(poll)?;
                             }
                             Err(e) => {error!("{}", e);}
                         }
                 } else if self.status == ConnectionStatus::Untrusted {
                     self.setup_message_handler();
+                    debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
                     self.status = ConnectionStatus::Established;
                 }
             }
@@ -537,14 +549,16 @@ impl Connection {
                     if let Err(e) = self.process_complete_packet( &buffered) {
                         match e.downcast::<fails::UnwantedMessageError>() {
                             Ok(f) => {
-                                error!("{}", f);
+                                error!("Dropping connection: {}", f);
                                 self.close(poll)?;
                             }
                             Err(e) => {error!("{}", e);}
                         }
-                } else if self.status == ConnectionStatus::Untrusted {
-                    self.setup_message_handler();
-                }
+                    } else if self.status == ConnectionStatus::Untrusted {
+                        self.setup_message_handler();
+                        debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
+                        self.status = ConnectionStatus::Established;
+                    }
                 }
                 self.clear_buffer();
             }
@@ -562,13 +576,15 @@ impl Connection {
                 if let Err(e) = self.process_complete_packet( &buffered) {
                     match e.downcast::<fails::UnwantedMessageError>() {
                             Ok(f) => {
-                                error!("{}", f);
+                                error!("Dropping connection: {}", f);
                                 self.close(poll)?;
                             }
                             Err(e) => {error!("{}", e);}
                         }
                 } else if self.status == ConnectionStatus::Untrusted {
                     self.setup_message_handler();
+                    debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
+                    self.status = ConnectionStatus::Established;
                 }
             }
             self.clear_buffer();

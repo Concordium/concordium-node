@@ -12,13 +12,13 @@ pub type EmptyCW = AFunctorCW<()>;
 /// It is a handler for `NetworkMessage`.
 #[derive(Clone)]
 pub struct MessageHandler {
-    request_parser: AFunctor<NetworkRequest>,
-    response_parser: AFunctor<NetworkResponse>,
-    packet_parser: AFunctor<NetworkPacket>,
-    unknown_parser: AFunctor<()>,
-    invalid_parser: AFunctor<()>,
+    pub request_parser: AFunctor<NetworkRequest>,
+    pub response_parser: AFunctor<NetworkResponse>,
+    pub packet_parser: AFunctor<NetworkPacket>,
+    pub unknown_parser: AFunctor<()>,
+    pub invalid_parser: AFunctor<()>,
 
-    general_parser: AFunctor<NetworkMessage>
+    pub general_parser: AFunctor<NetworkMessage>
 }
 
 impl MessageHandler {

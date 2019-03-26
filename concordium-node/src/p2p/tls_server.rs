@@ -302,7 +302,24 @@ impl TlsServer {
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
         let mh = self.message_handler.read().expect("Couldn't read when registering message handlers");
-        conn.message_handler.merge( &mh);
+        for  cb in mh.request_parser.callbacks().iter() {
+            conn.common_message_handler.clone().borrow_mut().add_request_callback( cb.clone());
+        }
+        for  cb in mh.response_parser.callbacks().iter() {
+            conn.common_message_handler.clone().borrow_mut().add_response_callback( cb.clone());
+        }
+        for  cb in mh.packet_parser.callbacks().iter() {
+            conn.common_message_handler.clone().borrow_mut().add_packet_callback( cb.clone());
+        }
+        for  cb in mh.unknown_parser.callbacks().iter() {
+            conn.common_message_handler.clone().borrow_mut().add_unknown_callback( cb.clone());
+        }
+        for  cb in mh.invalid_parser.callbacks().iter() {
+            conn.common_message_handler.clone().borrow_mut().add_invalid_callback( cb.clone());
+        }
+        for  cb in mh.general_parser.callbacks().iter() {
+            conn.common_message_handler.clone().borrow_mut().add_callback( cb.clone());
+        }
     }
 
     fn add_default_prehandshake_validations(&mut self) {
