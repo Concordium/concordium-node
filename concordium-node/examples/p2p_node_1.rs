@@ -22,6 +22,7 @@ use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::utils;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 use std::thread;
 use timer::Timer;
 use failure::Fallible;
@@ -205,7 +206,9 @@ fn main() -> Fallible<()> {
         }
     }
 
-    let _th = node.spawn();
+    node.spawn();
+
+    let _th = Rc::try_unwrap(node.process_th().unwrap()).ok().unwrap().into_inner();
 
     if !conf.no_network {
         for connect_to in conf.connect_to {

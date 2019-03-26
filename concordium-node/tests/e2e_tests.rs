@@ -20,12 +20,6 @@ mod tests {
     use rand::{ Rng };
     use failure::{ Fallible  };
 
-    #[derive(Debug, Clone)]
-    pub enum NetworkStep {
-        Handshake(u16),
-        Broadcast(u16),
-    }
-
     mod utils
     {
         use std::sync::mpsc::{ Receiver };
@@ -280,6 +274,7 @@ mod tests {
         let msg_recv = utils::wait_direct_message( &msg_waiter_1)?;
         assert_eq!( msg, msg_recv);
 
+
         Ok(())
     }
 
@@ -408,7 +403,7 @@ mod tests {
                               }
                           });
 
-        let mut peers: Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer)> = vec![];
+        let mut peers: Vec<(usize, P2PNode, PrometheusServer)> = vec![];
         let mut peer_ports: Vec<usize> = vec![];
 
         let message_counter = Arc::new(RelaxedCounter::new(0));
@@ -447,7 +442,7 @@ mod tests {
                     }
                 }
             });
-            let th = node.spawn();
+            node.spawn();
             if peer > 0 {
                 for i in 0..peer {
                     node.connect(ConnectionType::Node,
@@ -458,7 +453,7 @@ mod tests {
                 }
             }
             peer += 1;
-            peers.push((instance_port as usize, th, node, prometheus));
+            peers.push((instance_port as usize, node, prometheus));
             peer_ports.push(instance_port as usize);
         }
 
@@ -466,7 +461,7 @@ mod tests {
 
         let msg = "Hello other mother's brother".to_string();
 
-        if let Some((_, _, ref mut node_sender_ref, _)) = peers.get_mut(0) {
+        if let Some((_, ref mut node_sender_ref, _)) = peers.get_mut(0) {
             node_sender_ref.send_message(None, 100, None, &msg.as_bytes().to_vec(), true)
                            .map_err(|e| panic!(e))
                            .ok();
@@ -475,7 +470,7 @@ mod tests {
         thread::sleep(time::Duration::from_secs(30));
 
         for peer in &peers {
-            match peer.3.queue_size() {
+            match peer.2.queue_size() {
                 Ok(size) => assert_eq!(0, size),
                 _ => panic!("Can't read queue size!"),
             }
@@ -530,13 +525,11 @@ mod tests {
                             });
 
             let mut islands: Vec<(Vec<usize>, Vec<(usize,
-                                        thread::JoinHandle<()>,
                                         P2PNode,
                                         PrometheusServer)>)> = vec![];
 
             for island in 0..islands_count {
                 let mut peers_island: Vec<(usize,
-                                        thread::JoinHandle<()>,
                                         P2PNode,
                                         PrometheusServer)> = vec![];
                 let mut peer_ports_island: Vec<usize> = vec![];
@@ -577,14 +570,14 @@ mod tests {
                             }
                         }
                     });
-                    let th = node.spawn();
+                    node.spawn();
                     if peer > 0 {
                         for i in 0..peer {
                             node.connect(ConnectionType::Node, "127.0.0.1".parse().unwrap(), (instance_port-1-(i)) as u16, None).ok();
                         }
                     }
                     peer += 1;
-                    peers_island.push((instance_port, th, node, prometheus));
+                    peers_island.push((instance_port, node, prometheus));
                     peer_ports_island.push(instance_port);
                 }
                 islands.push((peer_ports_island, peers_island));
@@ -593,7 +586,7 @@ mod tests {
             thread::sleep(time::Duration::from_secs(5));
 
             if let Some((_,ref mut peers)) = islands.get_mut(0) {
-                if let Some((_,_, ref mut central_peer,_)) = peers.get_mut(0) {
+                if let Some((_,ref mut central_peer,_)) = peers.get_mut(0) {
                     for i in 1..islands_count {
                         central_peer.connect(ConnectionType::Node,
                                              "127.0.0.1".parse().unwrap(),
@@ -609,7 +602,7 @@ mod tests {
 
             for island in &mut islands {
                 let (_,ref mut peers) = island;
-                if let Some((_, _, ref mut node_sender_ref, _)) = peers.get_mut(0) {
+                if let Some((_, ref mut node_sender_ref, _)) = peers.get_mut(0) {
                 node_sender_ref.send_message(None, 100, None, &msg.as_bytes().to_vec(), true)
                             .map_err(|e| panic!(e))
                             .ok();
@@ -620,7 +613,7 @@ mod tests {
 
             for island in &islands {
                 for peer in &island.1 {
-                    match peer.3.queue_size() {
+                    match peer.2.queue_size() {
                         Ok(size) => assert_eq!(0, size),
                         _ => panic!("Can't read queue size!"),
                     }

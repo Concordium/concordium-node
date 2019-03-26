@@ -1,6 +1,8 @@
+use std::rc::Rc;
 use failure::{Error, Fallible, bail};
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::mpsc::Sender;
+use std::cell::Cell;
+use std::sync::mpsc::{ Sender, channel };
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
 use super::fails;
@@ -52,6 +54,8 @@ pub struct P2PNode {
     seen_messages: SeenMessagesList,
     minimum_per_bucket: usize,
     blind_trusted_broadcast: bool,
+    process_th: Option<Rc<Cell<thread::JoinHandle<()>>>>,
+    quit_tx: Option<Sender<bool>>
 }
 
 unsafe impl Send for P2PNode {}
@@ -226,6 +230,8 @@ impl P2PNode {
                   seen_messages: seen_messages,
                   minimum_per_bucket: minimum_per_bucket,
                   blind_trusted_broadcast,
+                  process_th: None,
+                  quit_tx: None
         };
         mself.add_default_message_handlers();
         mself
@@ -295,16 +301,20 @@ impl P2PNode {
         handler
     }
 
-    pub fn spawn(&mut self) -> thread::JoinHandle<()> {
+    pub fn spawn(&mut self) {
         let mut self_clone = self.clone();
-        thread::spawn(move || {
+        let (tx, rx) = channel();
+        self.quit_tx = Some(tx);
+        self.process_th = Some(Rc::new(Cell::new(thread::spawn(move || {
                           let mut events = Events::with_capacity(1024);
                           loop {
                               self_clone.process(&mut events)
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
-                          }
-                      })
+                                  .map_err(|e| error!("{}", e))
+                                  .ok();
+                              if let Ok(_) = rx.try_recv() {
+                                  break;
+                              }
+                          }}))));
     }
 
     pub fn get_version(&self) -> String {
@@ -741,6 +751,20 @@ impl P2PNode {
 
         self.process_messages()?;
         Ok(())
+    }
+
+    pub fn process_th(&self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
+        self.process_th.clone()
+    }
+
+    pub fn close_and_join(&mut self) {
+        if let Some(ref q) = self.quit_tx {
+            let _ = q.send(true);
+            let p_th = self.process_th.take();
+            if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {
+                let _ = r.into_inner().join();
+            };
+        }
     }
 }
 
