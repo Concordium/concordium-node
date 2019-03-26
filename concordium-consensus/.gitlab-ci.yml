@@ -14,5 +14,6 @@ build-and-test:
   script:
     - "apt-get update && apt-get install -y moreutils curl"
     - "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly"
+    - "source $HOME/.cargo/env"
     - "LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack build --ghc-options -j4 | ts '[%Y-%m-%d %H:%M:%.S]'"
     - "LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$LD_LIBRARY_PATH stack test | ts '[%Y-%m-%d %H:%M:%.S]'"
