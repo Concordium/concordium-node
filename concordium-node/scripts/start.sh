@@ -77,10 +77,6 @@ elif [ "$MODE" == "basic" ]; then
 
     heaptrack /build-project/target/debug/p2p_client-cli --listen-port $LISTEN_PORT --desired-nodes $DESIRED_PEERS --num-bakers $NUM_BAKERS --baker-id $(echo $BAKER_ID | cut -d'-' -f2) --prometheus-server $PROMETHEUS_METRICS_SERVER --prometheus-listen-port $PROMETHEUS_METRICS_PORT --prometheus-listen-addr $PROMETHEUS_METRICS_IP --override-config-dir $CONFIG_DIR --override-data-dir $DATA_DIR --bootstrap-node $BOOTSTRAP_FIRST_NODE --bootstrap-node $BOOTSTRAP_SECOND_NODE --rpc-server-addr $RPC_SERVER_ADDR $EXTRA_ARGS
 
-elif [ "$MODE" == "ipdiscovery" ]; then
-
-    /build-project/target/debug/ip_discovery --listen-port $LISTEN_PORT --prometheus-server $PROMETHEUS_METRICS_SERVER --prometheus-listen-port $PROMETHEUS_METRICS_PORT --prometheus-listen-addr $PROMETHEUS_METRICS_IP $EXTRA_ARGS
-
 elif [ "$MODE" == "bootstrapper" ]; then
 
     # Create dirs

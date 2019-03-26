@@ -323,11 +323,6 @@ fn main() -> Fallible<()> {
 
     let external_ip = if conf.external_ip.is_some() {
         conf.external_ip
-    } else if conf.ip_discovery_service {
-        match utils::discover_external_ip(&conf.ip_discovery_service_host) {
-            Ok(ip) => Some(ip.to_string()),
-            Err(_) => None,
-        }
     } else {
         None
     };

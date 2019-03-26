@@ -14,11 +14,8 @@ use openssl::pkey::{PKey, Private};
 use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use rand::rngs::OsRng;
-use reqwest;
 #[cfg(not(target_os = "windows"))]
 use resolv_conf::Config as ResolverConfig;
-use serde_json;
-use serde_json::Value;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::io::Cursor;
@@ -506,31 +503,6 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
 
 pub fn generate_ed25519_key() -> [u8; 32] {
     (keypair(OsRng::new().unwrap()).0).0
-}
-
-pub fn discover_external_ip(discovery_url: &str) -> Result<IpAddr, &'static str> {
-    match reqwest::get(&format!("http://{}/discovery", discovery_url)) {
-        Ok(ref mut res) if res.status().is_success() => {
-            match res.text() {
-                Ok(text) => {
-                    match serde_json::from_str::<Value>(&text) {
-                        Ok(jv) => {
-                            if let Some(ref ip) = jv.get("ip") {
-                                IpAddr::from_str(ip.as_str().unwrap()).map_err(|_|
-                                    "Invalid IP given")
-                            } else {
-                                Err("Missing data field in response")
-                            }
-                        }
-                        Err(_) => Err("Can't parse discovery data"),
-                    }
-                }
-                Err(_) => Err("Can't read text from response"),
-            }
-        }
-        Ok(_) => Err("Can't fetch discovery data"),
-        Err(_) => Err("Can't fetch discovery data"),
-    }
 }
 
 pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
