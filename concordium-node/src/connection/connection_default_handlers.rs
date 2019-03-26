@@ -361,14 +361,12 @@ fn update_buckets(
     let buckets = & priv_conn_borrow.buckets;
     let sender_ip = sender.ip();
 
-    if valid_mode {
+    if valid_mode || sender_ip.is_global()
+        && !sender_ip.is_multicast()
+        && !sender_ip.is_documentation()
+    {
         safe_write!(buckets)?
             .insert_into_bucket( sender, &own_id, nets.to_owned());
-    } else if sender_ip.is_global()
-            && !sender_ip.is_multicast()
-            && !sender_ip.is_documentation() {
-                safe_write!(buckets)?
-                    .insert_into_bucket( sender, &own_id, nets.to_owned());
     }
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
