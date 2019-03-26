@@ -343,9 +343,9 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
                     let height = bpHeight parentP + 1
                     ts <- MaybeT $ pure $ toTransactions (blockData block)
-                    case executeBlockForState ts (bpState parentP) of
-                        ATypes.BlockInvalid _ -> mzero -- Execution failed
-                        ATypes.BlockSuccess _ gs -> do
+                    case executeBlockForState ts (makeChainMeta (blockSlot block) parentP lfBlockP) (bpState parentP) of
+                        Left _ -> mzero -- FIXME: Report the errors somewhere, e.g., log to file.
+                        Right gs -> do
                             curTime <- liftIO getCurrentTime
                             let blockP = BlockPointer {
                                 bpHash = cbp,

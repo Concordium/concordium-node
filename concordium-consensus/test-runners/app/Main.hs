@@ -28,10 +28,13 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Acorn.Utils.Init.Example(update)
-import Acorn.Types(lState, instances, BlockResult(..), instances)
+import Acorn.Utils.Init.Example(update, initialState)
+import Acorn.Types(lState, instances, instances)
+import Concordium.GlobalState.Types
 
 import Data.Maybe(fromJust)
+
+import Debug.Trace
 
 nAccounts = 2
 
@@ -91,7 +94,7 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re l [] = []
 
-gsToString gs = let keys = map (\n -> (n, lState $ fromJust (HashMap.lookup (fromString ("Tid-" ++ show n)) (instances gs)))) $ enumFromTo 0 (nAccounts-1)
+gsToString gs = let keys = map (\n -> (n, lState $ (instances gs) HashMap.! ContractAddress (fromIntegral n) 0)) $ enumFromTo 0 (nAccounts-1)
                 in intercalate "\\l" . map show $ keys
 
 main :: IO ()
@@ -112,14 +115,14 @@ main = do
         return (cin, cout, out)) bis
     monitorChan <- newChan
     mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
-    let iState = initState nAccounts
+    let iState = initialState nAccounts
     let loop gsMap = do
             readChan monitorChan >>= \case
                 Left block -> do
                     let bh = hashBlock block
                     let (Just ts) = (toTransactions (blockData block))
                     let gs = Map.findWithDefault iState (blockPointer block) gsMap
-                    let BlockSuccess _ gs' = executeBlockForState ts gs
+                    let Right gs' = executeBlockForState ts (makeChainMeta (blockSlot block) undefined undefined) gs
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"

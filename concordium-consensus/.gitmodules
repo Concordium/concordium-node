@@ -5,3 +5,6 @@
 	path = acorn
 	url = ../../oak/acorn.git
 	branch = experiments
+[submodule "globalstate-mockup"]
+	path = globalstate-mockup
+	url = git@gitlab.com:Concordium/consensus/globalstate-mockup.git

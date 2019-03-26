@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, DeriveGeneric, GeneralizedNewtypeDeriving #-}
-module Concordium.Types where
+module Concordium.Types (module Concordium.Types, Slot(..), BlockHeight(..)) where
 
 import GHC.Generics
 import qualified Data.Map as Map
@@ -16,16 +16,16 @@ import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 
+import Concordium.GlobalState.Types(Slot(..), BlockHeight(..), ChainMetadata(..))
+
 import Concordium.Payload.Transaction(GlobalState, initState)
 
-newtype Slot = Slot Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 type BlockHash = Hash.Hash
 type BakerId = Word64
 type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
 type BlockNonce = (VRF.Hash, VRF.Proof)
 type BlockData = ByteString
-newtype BlockHeight = BlockHeight {theBlockHeight :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 type LeadershipElectionNonce = ByteString
 type BakerSignVerifyKey = Sig.VerifyKey
@@ -248,3 +248,14 @@ makeGenesisBlockPointer genData = theBlockPointer
         bpState = initState 2
         bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
         bpArriveTime = bpReceiveTime
+
+
+-- |Given the slot number the __parent__ block pointer and the last finalized
+-- block pointer make a ChainMetadata struct. The reason we are only given the
+-- parent block pointer is that is the only one we have access to when making a
+-- new block.
+makeChainMeta :: Slot -> BlockPointer -> BlockPointer -> ChainMetadata
+makeChainMeta slotNumber parentP finalizedP = 
+  let blockHeight = bpHeight parentP + 1 -- NB: The +1 is needed to get the current height of the block since bestBlockBefore is the parent pointer.
+      finalizedHeight = bpHeight finalizedP
+  in ChainMetadata{..}

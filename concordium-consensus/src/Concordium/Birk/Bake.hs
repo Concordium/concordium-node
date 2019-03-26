@@ -10,7 +10,7 @@ import Control.Monad
 
 import Data.Serialize
 
-import qualified Data.Sequence as Seq
+import Concordium.GlobalState.Types
 
 import Concordium.Types
 import Concordium.Skov.Monad
@@ -30,15 +30,15 @@ data BakerIdentity = BakerIdentity {
 
 instance Serialize BakerIdentity where
 
-processInputs :: (PayloadMonad m) => BlockPointer -> m (Maybe BlockData)
-processInputs bh = do
+processInputs :: (PayloadMonad m) => Slot -> BlockPointer -> BlockPointer -> m (Maybe BlockData)
+processInputs slot bh finalizedP = do
   -- find transactions to add to block
   -- execute block from initial state in block pointer
   pending <- fmap (map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
   case pending of
     Nothing -> return Nothing
     -- FIXME: The next line will silently drop transactions which have failed (second argument of the return)
-    Just pendingts -> let (ts, _, _) = makeBlock pendingts (bpState bh)
+    Just pendingts -> let (ts, _, _) = makeBlock pendingts (makeChainMeta slot bh finalizedP) (bpState bh)
                       in return . Just . fromTransactions . fmap fst $ ts
       
     -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
@@ -54,7 +54,7 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
         leaderElection birkLeadershipElectionNonce birkElectionDifficulty slot bakerElectionKey lotteryPower
     let nonce = computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    payload <- MaybeT $ processInputs bb
+    payload <- MaybeT $ processInputs slot bb lastFinal
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) payload
     _ <- storeBlock block
     return block
