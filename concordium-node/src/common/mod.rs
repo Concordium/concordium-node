@@ -7,6 +7,7 @@ pub mod fails;
 use num_bigint::BigUint;
 use num_traits::Num;
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
@@ -22,7 +23,7 @@ pub enum ConnectionType {
     Bootstrapper,
 }
 
-#[derive(Debug, Clone, Hash, Builder)]
+#[derive(Debug, Clone, Builder)]
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
     ip: IpAddr,
@@ -185,36 +186,34 @@ impl P2PPeer {
 
 impl PartialEq for P2PPeer {
     fn eq(&self, other: &P2PPeer) -> bool {
-        self.id.id == other.id().id || (self.port == other.port() && self.ip == other.ip())
-    }
-}
-
-impl Ord for P2PPeer {
-    fn cmp(&self, other: &P2PPeer) -> Ordering {
-        self.id.id.cmp(&other.id().id)
-    }
-}
-
-impl PartialOrd for P2PPeer {
-    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> {
-        Some(self.cmp(other))
+        self.id == other.id()
     }
 }
 
 impl Eq for P2PPeer {}
 
-#[derive(Debug, Clone, Hash)]
-pub struct P2PNodeId {
-    id: BigUint,
-}
-
-impl PartialEq for P2PNodeId {
-    fn eq(&self, other: &P2PNodeId) -> bool {
-        self.id == other.id
+impl Hash for P2PPeer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
-impl Eq for P2PNodeId {}
+impl Ord for P2PPeer {
+    fn cmp(&self, other: &P2PPeer) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialOrd for P2PPeer {
+    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct P2PNodeId {
+    id: BigUint,
+}
 
 impl P2PNodeId {
     pub fn from_string(sid: &str) -> Fallible<P2PNodeId> {
