@@ -16,7 +16,7 @@ use failure::{Error, Fallible, bail };
 
 use crate::common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER };
-use crate::common::functor::{ AFunctorCW, FunctorResult };
+use crate::common::functor::{ AFunctorCW, FunctorResult, FunctorError };
 use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, Buckets,
     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE };
 
@@ -516,12 +516,21 @@ impl Connection {
                 }
                 if let Err(e) = self.process_complete_packet( &buffered) {
                    match e.downcast::<fails::UnwantedMessageError>() {
-                            Ok(f) => {
-                                error!("Dropping connection: {}", f);
-                                self.close(poll)?;
-                            }
-                            Err(e) => {error!("{}", e);}
-                        }
+                       Ok(f) => {
+                           error!("Dropping connection: {}", f);
+                           self.close(poll)?;
+                       }
+                       Err(e) => {
+                           if let Ok(f) = e.downcast::<FunctorError>() {
+                               f.errors.iter().for_each(|x|
+                                                   if x.to_string().contains("SendError(..)") {
+                                                       trace!("Send Error in incoming plaintext");
+                                                   } else {
+                                                       error!("{}", x);
+                                                   });
+                           }
+                       }
+                   }
                 } else if self.status == ConnectionStatus::Untrusted {
                     self.setup_message_handler();
                     debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
@@ -552,7 +561,16 @@ impl Connection {
                                 error!("Dropping connection: {}", f);
                                 self.close(poll)?;
                             }
-                            Err(e) => {error!("{}", e);}
+                            Err(e) => {
+                                if let Ok(f) = e.downcast::<FunctorError>() {
+                                    f.errors.iter().for_each(|x|
+                                                             if x.to_string().contains("SendError(..)") {
+                                                                 trace!("Send Error in incoming plaintext");
+                                                             } else {
+                                                                 error!("{}", x);
+                                                             });
+                                }
+                            }
                         }
                     } else if self.status == ConnectionStatus::Untrusted {
                         self.setup_message_handler();
@@ -575,11 +593,20 @@ impl Connection {
                 }
                 if let Err(e) = self.process_complete_packet( &buffered) {
                     match e.downcast::<fails::UnwantedMessageError>() {
-                            Ok(f) => {
-                                error!("Dropping connection: {}", f);
-                                self.close(poll)?;
-                            }
-                            Err(e) => {error!("{}", e);}
+                        Ok(f) => {
+                            error!("Dropping connection: {}", f);
+                            self.close(poll)?;
+                        }
+                        Err(e) => {
+                            if let Ok(f) = e.downcast::<FunctorError>() {
+                               f.errors.iter().for_each(|x|
+                                                   if x.to_string().contains("SendError(..)") {
+                                                       trace!("Send Error in incoming plaintext");
+                                                   } else {
+                                                       error!("{}", x);
+                                                   });
+                           }
+                        }
                         }
                 } else if self.status == ConnectionStatus::Untrusted {
                     self.setup_message_handler();
