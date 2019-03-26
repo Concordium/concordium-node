@@ -9,4 +9,8 @@ EXPORTS
  receiveFinalizationRecord
  printBlock
  receiveTransaction
+ getConsensusStatus
+ getBlockInfo
+ getAncestors
+ getBranches
  freeCStr

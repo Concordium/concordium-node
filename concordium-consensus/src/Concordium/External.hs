@@ -209,6 +209,41 @@ getBestBlockInfo bptr = do
   newCString outStr
 -}
 
+-- |Returns a null-terminated string with a JSON representation of the current status of Consensus.
+getConsensusStatus :: StablePtr BakerRunner -> IO CString
+getConsensusStatus bptr = do
+    sfsRef <- bakerState <$> deRefStablePtr bptr
+    status <- Get.getConsensusStatus sfsRef
+    newCString $ LT.unpack $ AET.encodeToLazyText status
+
+-- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
+-- string containing a JSON representation of the block.
+getBlockInfo :: StablePtr BakerRunner -> CString -> IO CString
+getBlockInfo bptr blockcstr = do
+    sfsRef <- bakerState <$> deRefStablePtr bptr
+    block <- peekCString blockcstr
+    blockInfo <- Get.getBlockInfo sfsRef block
+    newCString $ LT.unpack $ AET.encodeToLazyText blockInfo
+
+-- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
+-- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
+-- given number, including the block itself).
+getAncestors :: StablePtr BakerRunner -> CString -> Word64 -> IO CString
+getAncestors bptr blockcstr depth = do
+    sfsRef <- bakerState <$> deRefStablePtr bptr
+    block <- peekCString blockcstr
+    ancestors <- Get.getAncestors sfsRef block (fromIntegral depth)
+    newCString $ LT.unpack $ AET.encodeToLazyText ancestors
+
+-- |Returns a null-terminated string with a JSON representation of the current branches from the
+-- last finalized block (inclusive).
+getBranches :: StablePtr BakerRunner -> IO CString
+getBranches bptr = do
+    sfsRef <- bakerState <$> deRefStablePtr bptr
+    branches <- Get.getBranches sfsRef
+    newCString $ LT.unpack $ AET.encodeToLazyText branches
+
+
 freeCStr :: CString -> IO ()
 freeCStr = free
 
@@ -221,4 +256,8 @@ foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CStri
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
 -- foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
+foreign export ccall getConsensusStatus :: StablePtr BakerRunner -> IO CString
+foreign export ccall getBlockInfo :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getAncestors :: StablePtr BakerRunner -> CString -> Word64 -> IO CString
+foreign export ccall getBranches :: StablePtr BakerRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()

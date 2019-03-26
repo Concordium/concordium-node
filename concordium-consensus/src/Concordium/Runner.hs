@@ -88,6 +88,12 @@ makeRunner bkr gen = do
                 handleMessage (BroadcastFinalizationRecord frec) = liftIO $ writeChan outChan (MsgFinalizationRecord frec)
             forM_ (evs []) handleMessage
             return r
-            
-
+{-
+        logStats :: RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState IO ()
+        logStats = do
+            stats  <- use statistics
+            liftIO $ do
+                tid <- myThreadId
+                appendFile (show tid ++ ".log") (show stats ++ "\n")
+-}
 
