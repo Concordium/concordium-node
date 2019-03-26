@@ -19,13 +19,6 @@ pub struct CliConfig {
     pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
-    #[structopt(long = "ip-discovery-service",
-                help = "Use external IP discovery service")]
-    pub ip_discovery_service: bool,
-    #[structopt(long = "ip-discovery-service-host",
-                help = "IP discovery service host",
-                default_value = "ipdiscovery.p2p.concordium.com")]
-    pub ip_discovery_service_host: String,
     #[structopt(long = "no-network", help = "Disable network")]
     pub no_network: bool,
     #[structopt(long = "connect-to",
@@ -262,73 +255,6 @@ pub fn parse_bootstrapper_config() -> BootstrapperConfig {
 }
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "IP Discovery Service")]
-pub struct IpDiscoveryConfig {
-    #[structopt(long = "listen-port",
-                short = "p",
-                help = "Port to listen on",
-                default_value = "8900")]
-    pub listen_port: u16,
-    #[structopt(long = "listen-address",
-                short = "l",
-                help = "Address to listen on",
-                default_value = "0.0.0.0")]
-    pub listen_address: String,
-    #[structopt(long = "prometheus-listen-addr",
-                help = "IP to listen for prometheus requests on",
-                default_value = "127.0.0.1")]
-    pub prometheus_listen_addr: String,
-    #[structopt(long = "prometheus-listen-port",
-                help = "Port for prometheus to listen on",
-                default_value = "9090")]
-    pub prometheus_listen_port: u16,
-    #[structopt(long = "prometheus-server",
-                help = "Enable prometheus server for metrics")]
-    pub prometheus_server: bool,
-    #[structopt(long = "prometheus-push-gateway",
-                help = "Enable prometheus via push gateway")]
-    pub prometheus_push_gateway: Option<String>,
-    #[structopt(long = "prometheus-job-name",
-                help = "Job name to send to push gateway",
-                default_value = "p2p_ipdiscovery_push")]
-    pub prometheus_job_name: String,
-    #[structopt(long = "prometheus-instance-name",
-                help = "Instance id to present to prometheus")]
-    pub prometheus_instance_name: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-interval",
-                help = "Interval in seconds between pushes",
-                default_value = "2")]
-    pub prometheus_push_interval: u64,
-    #[structopt(long = "prometheus-push-gateway-username",
-                help = "Username to use for push gateway, if either username or password is omitted authentication isn't used")]
-    pub prometheus_push_username: Option<String>,
-    #[structopt(long = "prometheus-push-gateway-password",
-                help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
-    pub prometheus_push_password: Option<String>,
-    #[structopt(long = "debug", short = "d", help = "Debug mode")]
-    pub debug: bool,
-    #[structopt(long = "trace", help = "Trace mode")]
-    pub trace: bool,
-    #[structopt(long = "header-name",
-                help = "Name of header to fetch remote address from if behind load balancer",
-                default_value = "X-Forwarded-For")]
-    pub header_name: String,
-    #[structopt(long = "override-config-dir",
-                help = "Override location of configuration files")]
-    pub config_dir: Option<String>,
-    #[structopt(long = "override-data-dir",
-                help = "Override location of data files")]
-    pub data_dir: Option<String>,
-    #[structopt(long = "no-log-timestamp",
-                help = "Do not output timestamp in log output")]
-    pub no_log_timestamp: bool,
-}
-
-pub fn parse_ipdiscovery_config() -> IpDiscoveryConfig {
-    IpDiscoveryConfig::from_args()
-}
-
-#[derive(StructOpt, Debug)]
 #[structopt(name = "Test Runner Service")]
 pub struct TestRunnerConfig {
     #[structopt(long = "external-ip", help = "Own external IP")]
@@ -390,13 +316,6 @@ pub struct TestRunnerConfig {
     #[structopt(long = "no-trust-bans",
                 help = "Don't blindly trust ban/unban requests")]
     pub no_trust_bans: bool,
-    #[structopt(long = "ip-discovery-service",
-                help = "Use external IP discovery service")]
-    pub ip_discovery_service: bool,
-    #[structopt(long = "ip-discovery-service-host",
-                help = "IP discovery service host",
-                default_value = "ipdiscovery.p2p.concordium.com")]
-    pub ip_discovery_service_host: String,
     #[structopt(long = "connect-to",
                 short = "c",
                 help = "Peer to connect to upon startup (host/ip:port)")]

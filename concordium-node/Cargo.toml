@@ -105,10 +105,6 @@ path = "src/bin/genkey.rs"
 name = "dns_key_generator"
 
 [[bin]]
-path = "src/bin/ipdiscovery.rs"
-name = "ip_discovery"
-
-[[bin]]
 path = "src/bin/testrunner.rs"
 name = "testrunner"
 
