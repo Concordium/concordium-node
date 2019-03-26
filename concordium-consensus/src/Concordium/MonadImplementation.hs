@@ -13,6 +13,7 @@ import Data.Foldable
 import Data.Maybe
 import Data.List(intercalate)
 import Data.Time
+import Data.Time.Clock.POSIX
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -49,21 +50,38 @@ emaWeight = 0.1
 data SkovStatistics = SkovStatistics {
     _blocksReceivedCount :: Int,
     _blocksVerifiedCount :: Int,
+    _blockLastReceived :: Maybe UTCTime,
     _blockReceiveLatencyEMA :: Double,
     _blockReceiveLatencyEMVar :: Double,
+    _blockReceivePeriodEMA :: Maybe Double,
+    _blockReceivePeriodEMVar :: Maybe Double,
+    _blockLastArrive :: Maybe UTCTime,
     _blockArriveLatencyEMA :: Double,
-    _blockArriveLatencyEMVar :: Double
+    _blockArriveLatencyEMVar :: Double,
+    _blockArrivePeriodEMA :: Maybe Double,
+    _blockArrivePeriodEMVar :: Maybe Double
 }
 makeLenses ''SkovStatistics
+
+instance Show SkovStatistics where
+    show SkovStatistics{..} = intercalate "," $ [show (fromMaybe 0 (realToFrac . utcTimeToPOSIXSeconds <$> (_blockLastArrive)) :: Double), show _blockArriveLatencyEMA, show _blockArriveLatencyEMVar, show _blockArrivePeriodEMA, show _blockArrivePeriodEMVar] ++
+                                                [show (fromMaybe 0 (realToFrac . utcTimeToPOSIXSeconds <$> (_blockLastReceived)) :: Double), show _blockReceiveLatencyEMA, show _blockReceiveLatencyEMVar, show _blockReceivePeriodEMA, show _blockReceivePeriodEMVar]
+
 
 initialSkovStatistics :: SkovStatistics
 initialSkovStatistics = SkovStatistics {
     _blocksReceivedCount = 0,
     _blocksVerifiedCount = 0,
+    _blockLastReceived = Nothing,
     _blockReceiveLatencyEMA = 0,
     _blockReceiveLatencyEMVar = 0,
+    _blockReceivePeriodEMA = Nothing,
+    _blockReceivePeriodEMVar = Nothing,
+    _blockLastArrive = Nothing,
     _blockArriveLatencyEMA = 0,
-    _blockArriveLatencyEMVar = 0
+    _blockArriveLatencyEMVar = 0,
+    _blockArrivePeriodEMA = Nothing,
+    _blockArrivePeriodEMVar = Nothing
 }
 
 data SkovData = SkovData {
@@ -359,12 +377,7 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                             }
                             blockTable . at cbp ?= BlockAlive blockP
                             -- Update the statistics
-                            statistics . blocksVerifiedCount += 1
-                            slotTime <- getSlotTime (blockSlot block)
-                            oldEMA <- use $ statistics . blockArriveLatencyEMA
-                            let delta = realToFrac (diffUTCTime curTime slotTime)
-                            statistics . blockArriveLatencyEMA .= oldEMA + emaWeight * delta
-                            statistics . blockArriveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+                            updateArriveStatistics blockP
                             -- Add to the branches
                             finHght <- use (skov . to lastFinalizedHeight)
                             brs <- use branches
@@ -380,7 +393,54 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                 -- If the block's last finalized block is pending then it can't be an ancestor,
                 -- so the block is invalid and it arrives dead.
                 _ -> mzero
-    
+
+-- | Called when a block is fully validated (arrives) to update the statistics.
+updateArriveStatistics :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => BlockPointer -> m ()
+updateArriveStatistics BlockPointer{..} = do
+        statistics . blocksVerifiedCount += 1
+        updateLatency
+        updatePeriod
+    where
+        curTime = bpArriveTime
+        updateLatency = do
+            slotTime <- getSlotTime (blockSlot bpBlock)
+            oldEMA <- use $ statistics . blockArriveLatencyEMA
+            let delta = realToFrac (diffUTCTime curTime slotTime)
+            statistics . blockArriveLatencyEMA .= oldEMA + emaWeight * delta
+            statistics . blockArriveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+        updatePeriod = do
+            oldLastArrive <- statistics . blockLastArrive <<.= Just curTime
+            forM_ oldLastArrive $ \lastBTime -> do
+                let blockTime = realToFrac (diffUTCTime curTime lastBTime)
+                oldEMA <- fromMaybe blockTime <$> (use $ statistics . blockArrivePeriodEMA)
+                let delta = blockTime - oldEMA
+                statistics . blockArrivePeriodEMA ?= oldEMA + emaWeight * delta
+                oldEMVar <- fromMaybe 0 <$> (use $ statistics . blockArrivePeriodEMVar)
+                statistics . blockArrivePeriodEMVar ?= (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+
+-- | Called when a block is received to update the statistics.
+updateReceiveStatistics :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> m ()
+updateReceiveStatistics PendingBlock{..} = do
+        statistics . blocksReceivedCount += 1
+        updateLatency
+        updatePeriod
+    where
+        updateLatency = do
+            slotTime <- getSlotTime (blockSlot pbBlock)
+            oldEMA <- use $ statistics . blockReceiveLatencyEMA
+            let delta = realToFrac (diffUTCTime pbReceiveTime slotTime) - oldEMA
+            statistics . blockReceiveLatencyEMA .= oldEMA + emaWeight * delta
+            statistics . blockReceiveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+        updatePeriod = do
+            oldLastReceived <- statistics . blockLastReceived <<.= Just pbReceiveTime
+            forM_ oldLastReceived $ \lastBTime -> do
+                let blockTime = realToFrac (diffUTCTime pbReceiveTime lastBTime)
+                oldEMA <- fromMaybe blockTime <$> (use $ statistics . blockReceivePeriodEMA)
+                let delta = blockTime - oldEMA
+                statistics . blockReceivePeriodEMA  ?= oldEMA + emaWeight * delta
+                oldEMVar <- fromMaybe 0 <$> (use $ statistics . blockReceivePeriodEMVar)
+                statistics . blockReceivePeriodEMVar ?= (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+        
 
 -- Tree consists of finalization list + branches
 -- When adding a block that is at height in the finalization list, check if it's already there; if not, it should be dead.
@@ -401,13 +461,9 @@ doStoreBlock sl block0 = do
     when (isNothing oldBlock) $ do
         -- The block is new, so we have some work to do.
         curTime <- liftIO getCurrentTime
-        addBlock sl (PendingBlock cbp block0 curTime)
-        statistics . blocksReceivedCount += 1
-        slotTime <- getSlotTime (blockSlot block0)
-        oldEMA <- use $ statistics . blockReceiveLatencyEMA
-        let delta = realToFrac (diffUTCTime curTime slotTime) - oldEMA
-        statistics . blockReceiveLatencyEMA .= oldEMA + emaWeight * delta
-        statistics . blockReceiveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+        let pb = (PendingBlock cbp block0 curTime)
+        addBlock sl pb
+        updateReceiveStatistics pb
     return cbp
 
 doFinalizeBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => SkovListeners m -> FinalizationRecord -> m ()

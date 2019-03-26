@@ -47,7 +47,7 @@ transactions gen = trs 0 (randoms gen)
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (50, 150)
+        r <- randomRIO (5000, 15000)
         threadDelay r
         sendTransactions chan ts
 
@@ -103,7 +103,7 @@ main = do
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
-    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
+    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.8
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime

@@ -17,6 +17,8 @@ import Concordium.Skov.Monad
 
 import Data.IORef
 import Text.Read hiding (get)
+import Data.Maybe
+import qualified Data.Map as Map
 
 -- import Data.String
 
@@ -25,7 +27,7 @@ import Text.Read hiding (get)
 -- import Data.ByteString.Builder
 -- import Data.Monoid((<>))
 
-import Data.Text
+import Data.Text(Text)
 -- import Data.Text.Encoding
 
 import Data.Aeson
@@ -130,10 +132,16 @@ getConsensusStatus sfsRef = do
                 "lastFinalizedBlock" .= hsh lfb,
                 "bestBlockHeight" .= theBlockHeight (bpHeight bb),
                 "lastFinalizedBlockHeight" .= theBlockHeight (bpHeight lfb),
+                "blockLastReceivedTime" .= (sfs ^. statistics . blockLastReceived),
                 "blockReceiveLatencyEMA" .= (sfs ^. statistics . blockReceiveLatencyEMA),
                 "blockReceiveLatencyEMSD" .= sqrt (sfs ^. statistics . blockReceiveLatencyEMVar),
+                "blockReceivePeriodEMA" .= (sfs ^. statistics . blockReceivePeriodEMA),
+                "blockReceivePeriodEMSD" .= (sqrt <$> (sfs ^. statistics . blockReceivePeriodEMVar)),
+                "blockLastArrivedTime" .= (sfs ^. statistics . blockLastArrive),
                 "blockArriveLatencyEMA" .= (sfs ^. statistics . blockArriveLatencyEMA),
-                "blockArriveLatencyEMSD" .= sqrt (sfs ^. statistics . blockArriveLatencyEMVar)
+                "blockArriveLatencyEMSD" .= sqrt (sfs ^. statistics . blockArriveLatencyEMVar),
+                "blockArrivePeriodEMA" .= (sfs ^. statistics . blockArrivePeriodEMA),
+                "blockArrivePeriodEMSD" .= (sqrt <$> (sfs ^. statistics . blockArrivePeriodEMVar))
             ]
 
 getBlockInfo :: IORef SkovFinalizationState -> String -> IO Value
@@ -155,6 +163,31 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockArriveTime" .= bpArriveTime bp,
                             "blockSlot" .= (fromIntegral (blockSlot (bpBlock bp)) :: Word64),
                             "blockBaker" .= T.blockBaker (bpBlock bp),
-                            "finalized" .= bfin
+                            "finalized" .= bfin,
+                            "transactionCount" .= (Prelude.length $ fromMaybe [] $ toTransactions $ blockData $ bpBlock bp)
                             ]
-        
+
+getAncestors :: IORef SkovFinalizationState -> String -> BlockHeight -> IO Value
+getAncestors sfsRef blockHash count = case readMaybe blockHash of
+        Nothing -> return Null
+        Just bh -> do
+            sfs <- readIORef sfsRef
+            flip evalStateT (sfs ^. sfsSkov) $
+                resolveBlock bh >>= \case
+                    Nothing -> return Null
+                    Just bp -> do
+                        let heightLim = if count > bpHeight bp then 0 else bpHeight bp - count + 1
+                        return $ toJSONList $ map hsh $ takeWhile (\b -> bpHeight b >= heightLim) $ iterate bpParent bp
+ 
+getBranches :: IORef SkovFinalizationState -> IO Value
+getBranches sfsRef = do
+        sfs <- readIORef sfsRef
+        flip evalStateT (sfs ^. sfsSkov) $ do
+            brs <- branchesFromTop
+            let brt = foldl up Map.empty brs
+            lastFin <- lastFinalizedBlock
+            return $ object ["blockHash" .= hsh lastFin, "children" .= Map.findWithDefault [] lastFin brt]
+    where
+        up :: Map.Map BlockPointer [Value] -> [BlockPointer] -> Map.Map BlockPointer [Value]
+        up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
+ 
