@@ -1,4 +1,4 @@
-use std::sync::{ Arc, Mutex, mpsc::Sender };
+use std::sync::{ Arc, RwLock, mpsc::Sender };
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet };
@@ -32,20 +32,20 @@ pub struct TlsServerPrivate {
     connections_by_id: HashMap<P2PNodeId, Rc<RefCell<Connection>>>,
     pub unreachable_nodes: UnreachableNodes,
     pub banned_peers: HashSet<P2PPeer>,
-    pub networks: Arc<Mutex<Vec<u16>>>,
-    pub prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+    pub networks: Arc<RwLock<Vec<u16>>>,
+    pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
 }
 
 impl TlsServerPrivate {
     pub fn new(
             networks: Vec<u16>,
-            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>) -> Self {
+            prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>) -> Self {
         TlsServerPrivate {
             connections_by_token: HashMap::new(),
             connections_by_id: HashMap::new(),
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: HashSet::new(),
-            networks: Arc::new(Mutex::new(networks)),
+            networks: Arc::new(RwLock::new(networks)),
             prometheus_exporter: prometheus_exporter
         }
     }
@@ -63,14 +63,14 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
-        safe_lock!(self.networks)?
+        safe_write!(self.networks)?
             .retain(|x| *x == network_id);
         Ok(())
     }
 
     /// It adds this server to `network_id` network.
     pub fn add_network(&mut self, network_id: u16) -> Fallible<()>  {
-            let mut networks = safe_lock!(self.networks)?;
+            let mut networks = safe_write!(self.networks)?;
             if !networks.contains(&network_id) {
                 networks.push(network_id)
             }
@@ -216,8 +216,7 @@ impl TlsServerPrivate {
             let closing_with_peer = closing_conns.iter()
                     .filter( |ref rc_conn| { rc_conn.borrow().peer().is_some() })
                     .count();
-            safe_lock!(prom)?
-                .peers_dec_by( closing_with_peer as i64)?;
+            safe_write!(prom)?.peers_dec_by( closing_with_peer as i64)?;
         }
 
         for rc_conn in closing_conns.iter()

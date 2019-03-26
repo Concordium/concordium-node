@@ -64,7 +64,7 @@ pub fn default_network_request_ping_handle(
     let pong_data = {
         let priv_conn_borrow = priv_conn.borrow();
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-            safe_lock!(prom)?.pkt_sent_inc()?
+            safe_write!(prom)?.pkt_sent_inc()?
         };
 
         // Make `Pong` response and send
@@ -120,7 +120,7 @@ pub fn default_network_request_get_peers(
                 .get_all_nodes(Some(&sender), networks);
 
             if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-                safe_lock!(prom)?.pkt_sent_inc()?;
+                safe_write!(prom)?.pkt_sent_inc()?;
             };
 
             let peer = priv_conn_borrow.peer().clone().ok_or_else( || make_fn_error_peer("Couldn't borrow peer"))?;
@@ -238,7 +238,7 @@ pub fn default_network_response_handshake(
             .insert_into_bucket(&bucket_sender, &own_id, nets.clone());
 
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-            safe_lock!(prom)?.peers_inc()?;
+            safe_write!(prom)?.peers_inc()?;
         };
     }
 
@@ -295,7 +295,7 @@ fn send_handshake_and_ping(
 
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = safe_lock!(priv_conn_borrow.own_networks)?.clone();
+        let my_nets = safe_read!(priv_conn_borrow.own_networks)?.clone();
         let self_peer = priv_conn_borrow.self_peer.clone();
         (my_nets, self_peer)
     };
@@ -340,7 +340,7 @@ fn send_peer_list(
     serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &data)?;
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        safe_lock!(prom)?.pkt_sent_inc()
+        safe_write!(prom)?.pkt_sent_inc()
             .map_err(|_| make_fn_error_prometheus())?;
     };
 
@@ -371,7 +371,7 @@ fn update_buckets(
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
     if let Some(ref prom) = prometheus_exporter {
-        let mut locked_prom = safe_lock!(prom)?;
+        let mut locked_prom = safe_write!(prom)?;
         locked_prom.peers_inc()
             .map_err(|_| make_fn_error_prometheus())?;
         locked_prom.pkt_sent_inc_by(2)
@@ -444,8 +444,7 @@ pub fn default_unknown_message(
     //        String::from_utf8(buf.to_vec()).unwrap());
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        safe_lock!(prom)?
-            .unknown_pkts_received_inc()?;
+        safe_write!(prom)?.unknown_pkts_received_inc()?;
     }
     Ok(())
 }
@@ -465,8 +464,7 @@ pub fn default_invalid_message(
     //        String::from_utf8(buf.to_vec()).unwrap());
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-       safe_lock!(prom)?
-            .invalid_pkts_received_inc()?;
+       safe_write!(prom)?.invalid_pkts_received_inc()?;
     }
 
     Ok(())

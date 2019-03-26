@@ -1,20 +1,20 @@
 use crate::common;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::net::{ IpAddr };
 
 #[derive(Clone, Debug)]
 pub struct UnreachableNodes {
-    nodes: Arc<Mutex<Vec<(u64, IpAddr, u16)>>>,
+    nodes: Arc<RwLock<Vec<(u64, IpAddr, u16)>>>,
 }
 
 impl UnreachableNodes {
     pub fn new() -> Self {
-        UnreachableNodes { nodes: Arc::new(Mutex::new(vec![])), }
+        UnreachableNodes { nodes: Arc::new(RwLock::new(vec![])), }
     }
 
     pub fn contains(&self, ip: IpAddr, port: u16) -> bool {
-        if let Ok(ref mut nodes) = self.nodes.lock() {
+        if let Ok(ref nodes) = safe_read!(self.nodes) {
             return nodes.iter()
                         .find(|&&x| {
                                   let (_, mip, mport) = x;
@@ -26,8 +26,8 @@ impl UnreachableNodes {
     }
 
     pub fn insert(&mut self, ip: IpAddr, port: u16) -> bool {
-        if let Ok(ref mut nodes) = self.nodes.lock() {
-            nodes.push((common::get_current_stamp(), ip.clone(), port));
+        if let Ok(ref mut nodes) = safe_write!(self.nodes) {
+            nodes.push((common::get_current_stamp(), ip, port));
             true
         } else {
             false
@@ -35,11 +35,11 @@ impl UnreachableNodes {
     }
 
     pub fn cleanup(&mut self, since: u64) -> bool {
-        if let Ok(ref mut nodes) = self.nodes.lock() {
+        if let Ok(ref mut nodes) = safe_write!(self.nodes) {
             nodes.retain(|&x| {
-                             let (time, _, _) = x;
-                             time >= since
-                         });
+                 let (time, ..) = x;
+                 time >= since
+             });
             true
         } else {
             false

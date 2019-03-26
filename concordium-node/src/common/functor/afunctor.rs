@@ -1,10 +1,10 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, RwLock };
 use failure::{ Error, bail };
 use crate::fails as global_fails;
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
 
-pub type AFunctorCW<T> = (String, Arc<Mutex<Box<FunctorCallback<T>>>>);
+pub type AFunctorCW<T> = (String, Arc<RwLock<Box<FunctorCallback<T>>>>);
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -16,7 +16,7 @@ pub type AFunctorCW<T> = (String, Arc<Mutex<Box<FunctorCallback<T>>>>);
 /// use p2p_client::connection::*;
 /// use p2p_client::common::functor::{ AFunctor };
 /// use std::rc::{ Rc };
-/// use std::sync::{ Arc, Mutex };
+/// use std::sync::{ Arc, RwLock };
 /// use std::cell::{ RefCell };
 ///
 /// let acc = Rc::new( RefCell::new(58));
@@ -25,10 +25,10 @@ pub type AFunctorCW<T> = (String, Arc<Mutex<Box<FunctorCallback<T>>>>);
 ///
 /// let mut ph = AFunctor::new( "Closures");
 ///
-/// ph.add_callback( ( String::new(), Arc::new( Mutex::new( Box::new( move |x: &i32| {
+/// ph.add_callback((String::new(), Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_1.borrow_mut() += x;
 ///         Ok(()) })))))
-///     .add_callback( ( String::new(), Arc::new( Mutex::new( Box::new( move |x: &i32| {
+///     .add_callback((String::new(), Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_2.borrow_mut() *= x;
 ///         Ok(()) })))));
 ///
@@ -77,7 +77,7 @@ impl<T> AFunctor<T> {
         for i in 0..self.callbacks.len() {
             let (_fn_id, cb) = self.callbacks[i].clone();
 
-            if let Err(e) = match cb.lock() {
+            if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => {
                     (locked_cb)(message)
                 },
@@ -127,7 +127,7 @@ mod afunctor_unit_test {
 
     use crate::common::functor::{ AFunctor, FunctorResult };
     use std::rc::{ Rc };
-    use std::sync::{ Arc, Mutex };
+    use std::sync::{ Arc, RwLock };
     use std::cell::{ RefCell };
 
     fn raw_func_1( _v: &i32) -> FunctorResult { Ok(()) }

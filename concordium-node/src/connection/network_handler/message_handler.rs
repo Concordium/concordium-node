@@ -142,7 +142,7 @@ mod message_handler_unit_test {
 
     use crate::common::{ ConnectionType, P2PPeerBuilder };
     use std::net::{ IpAddr, Ipv4Addr };
-    use std::sync::{ Arc, Mutex };
+    use std::sync::{ Arc, RwLock };
 
     fn request_handler_func_1( _nr: &NetworkRequest) -> FunctorResult { Ok(()) }
     fn request_handler_func_2( _nr: &NetworkRequest) -> FunctorResult { Ok(()) }
@@ -178,7 +178,7 @@ mod integration_test {
     use crate::network::packet::{ NetworkPacket as NetworkPacketEnum };
     use crate::common::functor::{ FunctorResult };
 
-    use std::sync::{ Arc, Mutex };
+    use std::sync::{ Arc, RwLock };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::atomic::{ AtomicUsize, Ordering };
 

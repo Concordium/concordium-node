@@ -16,11 +16,11 @@ use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use failure::Error;
 use p2p_client::p2p::*;
-use p2p_client::safe_lock;
+use p2p_client::safe_read;
 use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use timer::Timer;
 
@@ -64,11 +64,11 @@ fn main() -> Result<(), Error> {
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
            .map_err(|e| error!("{}", e))
            .ok();
-        Some(Arc::new(Mutex::new(srv)))
+        Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref gateway) = conf.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", gateway);
         let srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
-        Some(Arc::new(Mutex::new(srv)))
+        Some(Arc::new(RwLock::new(srv)))
     } else {
         None
     };
@@ -209,7 +209,7 @@ fn main() -> Result<(), Error> {
             } else {
                 node.get_own_id().to_string()
             };
-            safe_lock!(prom)?
+            safe_read!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name,

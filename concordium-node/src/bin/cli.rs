@@ -18,7 +18,7 @@ use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, Networ
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
-use p2p_client::safe_lock;
+use p2p_client::safe_read;
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
@@ -29,7 +29,7 @@ use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::{Read, Write};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use timer::Timer;
 use std::{ str };
@@ -86,12 +86,12 @@ fn main() -> Fallible<()> {
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
            .map_err(|e| error!("{}", e))
            .ok();
-        Some(Arc::new(Mutex::new(srv)))
+        Some(Arc::new(RwLock::new(srv)))
     } else if conf.prometheus_push_gateway.is_some() {
         info!("Enabling prometheus push gateway at {}",
               &conf.prometheus_push_gateway.clone().unwrap());
         let srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        Some(Arc::new(Mutex::new(srv)))
+        Some(Arc::new(RwLock::new(srv)))
     } else {
         None
     };
@@ -384,7 +384,7 @@ fn main() -> Fallible<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            safe_lock!(prom)?
+            safe_read!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name.clone(),

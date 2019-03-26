@@ -1,6 +1,6 @@
 use bytes::{ BufMut, BytesMut };
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::sync::{ Arc, Mutex, RwLock };
+use std::sync::{ Arc, RwLock };
 use std::sync::mpsc::{ Sender };
 use std::net::{Shutdown, IpAddr };
 use std::rc::{ Rc };
@@ -58,7 +58,6 @@ pub struct Connection {
     last_ping_sent: u64,
     blind_trusted_broadcast: bool,
 
-
     /// It stores internal info used in handles. In this way,
     /// handler's function will only need two arguments: this shared object, and
     /// the message which is going to be processed.
@@ -77,9 +76,9 @@ impl Connection {
            peer_ip: IpAddr,
            peer_port: u16,
            mode: P2PNodeMode,
-           prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+           prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
            event_log: Option<Sender<P2PEvent>>,
-           own_networks: Arc<Mutex<Vec<u16>>>,
+           own_networks: Arc<RwLock<Vec<u16>>>,
            buckets: Arc< RwLock< Buckets > >,
            blind_trusted_broadcast: bool,)
            -> Self {
@@ -422,7 +421,7 @@ impl Connection {
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter() {
-            if let Ok(mut plock) = prom.lock() {
+            if let Ok(mut plock) = safe_write!(prom) {
                 plock.pkt_received_inc()
                     .map_err(|e| error!("{}", e))
                     .ok();
@@ -567,7 +566,7 @@ impl Connection {
         into_err!(rc)
     }
 
-    pub fn prometheus_exporter(&self) -> Option<Arc<Mutex<PrometheusServer>>> {
+    pub fn prometheus_exporter(&self) -> Option<Arc<RwLock<PrometheusServer>>> {
         self.dptr.borrow().prometheus_exporter.clone()
     }
 
@@ -599,7 +598,7 @@ impl Connection {
         self.dptr.borrow().connection_type
     }
 
-    pub fn own_networks(&self) -> Arc<Mutex<Vec<u16>>> {
+    pub fn own_networks(&self) -> Arc<RwLock<Vec<u16>>> {
         self.dptr.borrow().own_networks.clone()
     }
 

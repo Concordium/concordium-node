@@ -4,7 +4,7 @@ use semver::Version;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
 
 const APP_INFO: AppInfo = AppInfo { name: "ConcordiumP2P",
@@ -344,7 +344,7 @@ pub fn parse_testrunner_config() -> TestRunnerConfig {
 
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
-    preferences_map: Arc<Mutex<PreferencesMap<String>>>,
+    preferences_map: Arc<RwLock<PreferencesMap<String>>>,
     override_data_dir: Option<String>,
     override_config_dir: Option<String>,
 }
@@ -387,7 +387,7 @@ impl AppPreferences {
                             }
                         };
                     }
-                    AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                    AppPreferences { preferences_map: Arc::new(RwLock::new(prefs)),
                                      override_data_dir: override_data,
                                      override_config_dir: override_conf, }
                 } else {
@@ -399,7 +399,7 @@ impl AppPreferences {
                         panic!("Can't write to config file!");
                     }
                     writer.flush().ok();
-                    AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                    AppPreferences { preferences_map: Arc::new(RwLock::new(prefs)),
                                      override_data_dir: override_data,
                                      override_config_dir: override_conf, }
                 }
@@ -415,7 +415,7 @@ impl AppPreferences {
                             panic!("Can't write to config file!");
                         }
                         writer.flush().ok();
-                        AppPreferences { preferences_map: Arc::new(Mutex::new(prefs)),
+                        AppPreferences { preferences_map: Arc::new(RwLock::new(prefs)),
                                          override_data_dir: override_data,
                                          override_config_dir: override_conf, }
                     }
@@ -455,7 +455,7 @@ impl AppPreferences {
     }
 
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
-        if let Ok(ref mut store) = self.preferences_map.try_lock() {
+        if let Ok(ref mut store) = safe_write!(self.preferences_map) {
             match value {
                 Some(val) => {
                     store.insert(key.to_string(), val);
@@ -487,7 +487,7 @@ impl AppPreferences {
     }
 
     pub fn get_config(&self, key: &str) -> Option<String> {
-        match self.preferences_map.lock() {
+        match safe_read!(self.preferences_map) {
             Ok(pm) => match pm.get(&key.to_string()) {
                 Some(res) => Some(res.clone()),
                 _ => None,

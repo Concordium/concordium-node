@@ -13,7 +13,7 @@ mod tests {
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
     use std::sync::mpsc;
-    use std::sync::{Arc, Mutex };
+    use std::sync::{Arc, RwLock};
     use std::sync::atomic::{ AtomicUsize, Ordering};
     use std::cell::{ RefCell };
     use std::{thread, time};
@@ -29,7 +29,7 @@ mod tests {
     mod utils
     {
         use std::sync::mpsc::{ Receiver };
-        use std::sync::{Arc, Mutex, Once, ONCE_INIT };
+        use std::sync::{Arc, RwLock, Once, ONCE_INIT };
         use std::cell::{ RefCell };
         use std::sync::atomic::{ AtomicUsize, Ordering};
         use std::time;
@@ -411,7 +411,7 @@ mod tests {
                                         inner_sender,
                                         Some(sender.clone()),
                                         P2PNodeMode::NormalPrivateMode,
-                                        Some(Arc::new(Mutex::new(prometheus.clone()))),
+                                        Some(Arc::new(RwLock::new(prometheus.clone()))),
                                         vec![100],
                                         100,
                                         false);
@@ -542,7 +542,7 @@ mod tests {
                                                 inner_sender,
                                                 Some(sender.clone()),
                                                 P2PNodeMode::NormalPrivateMode,
-                                                Some(Arc::new(Mutex::new(prometheus.clone()))),
+                                                Some(Arc::new(RwLock::new(prometheus.clone()))),
                                                 vec![100],
                                                 100,
                                                 false);
