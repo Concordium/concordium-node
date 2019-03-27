@@ -540,7 +540,7 @@ fn main() -> Fallible<()> {
                                     let mut out_bytes = vec![];
                                     match out_bytes.write_u16::<BigEndian>(2 as u16) {
                                         Ok(_) => {
-                                            out_bytes.extend(*x);
+                                            out_bytes.extend(x);
                                             match _node_ref_2.send_message(None,
                                                                         _network_id,
                                                                         None,
@@ -571,7 +571,7 @@ fn main() -> Fallible<()> {
                                     let mut out_bytes = vec![];
                                     match out_bytes.write_u16::<BigEndian>(3 as u16) {
                                         Ok(_) => {
-                                            out_bytes.extend(*x);
+                                            out_bytes.extend(x);
                                             match _node_ref_3.send_message(None,
                                                                         _network_id,
                                                                         None,

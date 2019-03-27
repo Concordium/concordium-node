@@ -1,12 +1,12 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
-use std::boxed::Box;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::io::Cursor;
 use std::os::raw::c_char;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time;
 use std::time::Duration;
@@ -50,7 +50,7 @@ pub struct ConsensusBaker {
     id: u64,
     genesis_data: Vec<u8>,
     private_data: Vec<u8>,
-    runner: Arc<Mutex<*mut baker_runner>>,
+    runner: Arc<AtomicPtr<baker_runner>>,
 }
 
 impl ConsensusBaker {
@@ -69,56 +69,54 @@ impl ConsensusBaker {
         ConsensusBaker { id: baker_id,
                          genesis_data,
                          private_data,
-                         runner: Arc::new(Mutex::new(baker)) }
+                         runner: Arc::new(AtomicPtr::new(baker)) }
     }
 
     pub fn stop(&self) {
-        unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            stopBaker(*baker);
-        }
+        let baker = self.runner.load(Ordering::SeqCst);
+        unsafe { stopBaker(baker); }
     }
 
     pub fn send_block(&self, data: &Block) {
+        let baker = self.runner.load(Ordering::SeqCst);
+        let serialized = data.serialize().unwrap();
+        let len = serialized.len();
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            let serialized = data.serialize().unwrap();
-            let len = serialized.len();
             let c_string = CString::from_vec_unchecked(serialized);
-            receiveBlock(*baker, c_string.as_ptr() as *const u8, len as i64);
+            receiveBlock(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_finalization(&self, data: Vec<u8>) {
+        let baker = self.runner.load(Ordering::SeqCst);
+        let len = data.len();
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            let len = data.len();
             let c_string = CString::from_vec_unchecked(data);
-            receiveFinalization(*baker, c_string.as_ptr() as *const u8, len as i64);
+            receiveFinalization(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_finalization_record(&self, data: Vec<u8>) {
+        let baker = self.runner.load(Ordering::SeqCst);
+        let len = data.len();
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            let len = data.len();
             let c_string = CString::from_vec_unchecked(data);
-            receiveFinalizationRecord(*baker, c_string.as_ptr() as *const u8, len as i64);
+            receiveFinalizationRecord(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_transaction(&self, data: &str) -> i64 {
+        let baker = self.runner.load(Ordering::SeqCst);
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
             let c_string = CString::new(data).unwrap();
-            receiveTransaction(*baker, c_string.as_ptr() as *const u8)
+            receiveTransaction(baker, c_string.as_ptr() as *const u8)
         }
     }
 
     pub fn get_best_block_info(&self) -> String {
+        let baker = self.runner.load(Ordering::SeqCst);
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            let c_string = getBestBlockInfo(*baker);
+            let c_string = getBestBlockInfo(baker);
             let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
             freeCStr(c_string);
             r
@@ -126,96 +124,95 @@ impl ConsensusBaker {
     }
 }
 
-unsafe impl Send for ConsensusBaker {}
-unsafe impl Sync for ConsensusBaker {}
-
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block: Arc<Mutex<mpsc::Receiver<Box<Block>>>>,
-    sender_block: Arc<Mutex<mpsc::Sender<Box<Block>>>>,
-    receiver_finalization: Arc<Mutex<mpsc::Receiver<Box<Vec<u8>>>>>,
-    sender_finalization: Arc<Mutex<mpsc::Sender<Box<Vec<u8>>>>>,
-    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Box<Vec<u8>>>>>,
-    sender_finalization_record: Arc<Mutex<mpsc::Sender<Box<Vec<u8>>>>>,
+    receiver_block: Arc<Mutex<mpsc::Receiver<Block>>>,
+    sender_block: Arc<Mutex<mpsc::Sender<Block>>>,
+    receiver_finalization: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
+    sender_finalization: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
+    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
+    sender_finalization_record: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
+}
+
+impl Default for ConsensusOutQueue {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel::<Block>();
+            let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
+            let (sender_finalization_record, receiver_finalization_record) =
+                mpsc::channel::<Vec<u8>>();
+            ConsensusOutQueue { receiver_block: Arc::new(Mutex::new(receiver)),
+                                sender_block: Arc::new(Mutex::new(sender)),
+                                receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
+                                sender_finalization: Arc::new(Mutex::new(sender_finalization)),
+                                receiver_finalization_record:
+                                    Arc::new(Mutex::new(receiver_finalization_record)),
+                                sender_finalization_record:
+                                    Arc::new(Mutex::new(sender_finalization_record)) }
+    }
 }
 
 impl ConsensusOutQueue {
-    pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel::<Box<Block>>();
-        let (sender_finalization, receiver_finalization) = mpsc::channel::<Box<Vec<u8>>>();
-        let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<Box<Vec<u8>>>();
-        ConsensusOutQueue { receiver_block: Arc::new(Mutex::new(receiver)),
-                            sender_block: Arc::new(Mutex::new(sender)),
-                            receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
-                            sender_finalization: Arc::new(Mutex::new(sender_finalization)),
-                            receiver_finalization_record:
-                                Arc::new(Mutex::new(receiver_finalization_record)),
-                            sender_finalization_record:
-                                Arc::new(Mutex::new(sender_finalization_record)) }
-    }
-
-    pub fn send_block(self, data: Box<Block>) -> Result<(), mpsc::SendError<Box<Block>>> {
+    pub fn send_block(self, data: Block) -> Result<(), mpsc::SendError<Block>> {
         self.sender_block.lock().unwrap().send(data)
     }
 
-    pub fn recv_block(self) -> Result<Box<Block>, mpsc::RecvError> {
+    pub fn recv_block(self) -> Result<Block, mpsc::RecvError> {
         self.receiver_block.lock().unwrap().recv()
     }
 
     pub fn recv_timeout_block(self,
                               timeout: Duration)
-                              -> Result<Box<Block>, mpsc::RecvTimeoutError> {
+                              -> Result<Block, mpsc::RecvTimeoutError> {
         self.receiver_block.lock().unwrap().recv_timeout(timeout)
     }
 
-    pub fn try_recv_block(self) -> Result<Box<Block>, mpsc::TryRecvError> {
+    pub fn try_recv_block(self) -> Result<Block, mpsc::TryRecvError> {
         self.receiver_block.lock().unwrap().try_recv()
     }
 
     pub fn send_finalization(self,
-                             data: Box<Vec<u8>>)
-                             -> Result<(), mpsc::SendError<Box<Vec<u8>>>> {
+                             data: Vec<u8>)
+                             -> Result<(), mpsc::SendError<Vec<u8>>> {
         self.sender_finalization.lock().unwrap().send(data)
     }
 
-    pub fn recv_finalization(self) -> Result<Box<Vec<u8>>, mpsc::RecvError> {
+    pub fn recv_finalization(self) -> Result<Vec<u8>, mpsc::RecvError> {
         self.receiver_finalization.lock().unwrap().recv()
     }
 
     pub fn recv_timeout_finalization(self,
                                      timeout: Duration)
-                                     -> Result<Box<Vec<u8>>, mpsc::RecvTimeoutError> {
+                                     -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
         self.receiver_finalization
             .lock()
             .unwrap()
             .recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
         self.receiver_finalization.lock().unwrap().try_recv()
     }
 
     pub fn send_finalization_record(self,
-                                    data: Box<Vec<u8>>)
-                                    -> Result<(), mpsc::SendError<Box<Vec<u8>>>> {
+                                    data: Vec<u8>)
+                                    -> Result<(), mpsc::SendError<Vec<u8>>> {
         self.sender_finalization_record.lock().unwrap().send(data)
     }
 
-    pub fn recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::RecvError> {
+    pub fn recv_finalization_record(self) -> Result<Vec<u8>, mpsc::RecvError> {
         self.receiver_finalization_record.lock().unwrap().recv()
     }
 
     pub fn recv_timeout_finalization_record(self,
                                             timeout: Duration)
-                                            -> Result<Box<Vec<u8>>, mpsc::RecvTimeoutError> {
+                                            -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
         self.receiver_finalization_record
             .lock()
             .unwrap()
             .recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization_record(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
         self.receiver_finalization_record.lock().unwrap().try_recv()
     }
 
@@ -233,7 +230,7 @@ impl ConsensusOutQueue {
 }
 
 lazy_static! {
-    static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::new() };
+    static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
     static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> =
         { Mutex::new(HashMap::new()) };
     static ref GENERATED_GENESIS_DATA: Mutex<Option<Vec<u8>>> = { Mutex::new(None) };
@@ -242,13 +239,13 @@ lazy_static! {
 #[derive(Clone)]
 pub struct ConsensusContainer {
     genesis_data: Vec<u8>,
-    bakers: Arc<Mutex<HashMap<u64, ConsensusBaker>>>,
+    bakers: Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
-        ConsensusContainer { genesis_data: genesis_data,
-                             bakers: Arc::new(Mutex::new(HashMap::new())) }
+        ConsensusContainer { genesis_data,
+                             bakers: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     #[cfg(windows)]
@@ -270,14 +267,14 @@ impl ConsensusContainer {
 
     pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
         self.bakers
-            .lock()
+            .write()
             .unwrap()
             .insert(baker_id,
                     ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data));
     }
 
     pub fn stop_baker(&mut self, baker_id: u64) {
-        if let Ok(ref mut bakers) = self.bakers.lock() {
+        if let Ok(ref mut bakers) = self.bakers.write() {
             match bakers.get_mut(&baker_id) {
                 Some(baker) => baker.stop(),
                 None => error!("Can't find baker"),
@@ -296,7 +293,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_block(&self, block: &Block) {
-        for (id, baker) in &*self.bakers.lock().unwrap() {
+        for (id, baker) in self.bakers.read().unwrap().iter() {
             if block.baker_id != *id {
                 baker.send_block(&block);
             }
@@ -304,26 +301,26 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization(&self, pkt: &[u8]) {
-        for (_, baker) in &*self.bakers.lock().unwrap() {
+        for (_, baker) in self.bakers.read().unwrap().iter() {
             baker.send_finalization(pkt.to_vec());
         }
     }
 
     pub fn send_finalization_record(&self, pkt: &[u8]) {
-        for (_, baker) in &*self.bakers.lock().unwrap() {
+        for (_, baker) in self.bakers.read().unwrap().iter() {
             baker.send_finalization_record(pkt.to_vec());
         }
     }
 
-    pub fn send_transaction(&self, tx: &String) -> i64 {
-        if let Some(baker) = self.bakers.lock().unwrap().values_mut().next() {
-            return baker.send_transaction(&tx);
+    pub fn send_transaction(&self, tx: &str) -> i64 {
+        if let Some(baker) = self.bakers.write().unwrap().values().next() {
+            return baker.send_transaction(tx);
         }
         -1
     }
 
     pub fn get_best_block_info(&self) -> Option<String> {
-        if let Some(baker) = self.bakers.lock().unwrap().values_mut().next() {
+        if let Some(baker) = self.bakers.read().unwrap().values().next() {
             return Some(baker.get_best_block_info());
         }
         None
@@ -352,7 +349,7 @@ impl ConsensusContainer {
             }
         }
         let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
-            Ok(ref mut genesis) if genesis.is_some() => genesis.clone().unwrap(),
+            Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
             _ => return Err("Didn't get genesis from haskell"),
         };
         if let Ok(priv_data) = GENERATED_PRIVATE_DATA.lock() {
@@ -394,7 +391,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             0 => {
                 match Block::deserialize(s.as_bytes()) {
                     Some(block) => {
-                        match CALLBACK_QUEUE.clone().send_block(Box::new(block)) {
+                        match CALLBACK_QUEUE.clone().send_block(block) {
                             Ok(_) => {
                                 debug!("Queueing {} block bytes", data_length);
                             }
@@ -406,7 +403,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             }
             1 => {
                 match CALLBACK_QUEUE.clone()
-                                    .send_finalization(Box::new(s.to_owned().into_bytes()))
+                                    .send_finalization(s.to_owned().into_bytes())
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization", s.len());
@@ -416,7 +413,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             }
             2 => {
                 match CALLBACK_QUEUE.clone()
-                                    .send_finalization_record(Box::new(s.to_owned().into_bytes()))
+                                    .send_finalization_record(s.to_owned().into_bytes())
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization record", s.len());
@@ -442,9 +439,9 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
             _ => "Baker",
         }
     }
-    let s = unsafe {CStr::from_ptr(log_message as *const c_char)}.to_str()
+    let s = unsafe { CStr::from_ptr(log_message as *const c_char) }.to_str()
         .expect("log_callback: unable to decode invalid UTF-8 values");
-    let i = identifier_to_string(identifier).to_string();
+    let i = identifier_to_string(identifier);
     match log_level as u8 {
         1 => error!("{}: {}", i, s),
         2 => warn!("{}: {}", i, s),
@@ -506,7 +503,7 @@ impl Block {
 
 #[cfg(test)]
 mod tests {
-    use crate::consensus::*;
+    use super::*;
     use std::sync::{Once, ONCE_INIT};
     use std::time::Duration;
 
@@ -566,13 +563,13 @@ mod tests {
                                                  private_data.get(&(i as i64)).unwrap().to_vec());
             }
 
-            let relay_th_guard = Arc::new(Mutex::new(true));
+            let relay_th_guard = Arc::new(RwLock::new(true));
             let _th_guard = relay_th_guard.clone();
             let _th_container = consensus_container.clone();
             let _aux_th = thread::spawn(move || {
                 loop {
                     thread::sleep(Duration::from_millis(1_000));
-                    if let Ok(val) = _th_guard.lock() {
+                    if let Ok(val) = _th_guard.read() {
                         if !*val {
                             debug!("Terminating relay thread, zapping..");
                             return;
@@ -609,7 +606,7 @@ mod tests {
             }
 
             debug!("Stopping relay thread");
-            if let Ok(mut guard) = relay_th_guard.lock() {
+            if let Ok(mut guard) = relay_th_guard.write() {
                 *guard = false;
             }
             _aux_th.join().unwrap();
