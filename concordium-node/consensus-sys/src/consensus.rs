@@ -6,7 +6,7 @@ use std::io::Cursor;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time;
 use std::time::Duration;
@@ -242,13 +242,13 @@ lazy_static! {
 #[derive(Clone)]
 pub struct ConsensusContainer {
     genesis_data: Vec<u8>,
-    bakers: Arc<Mutex<HashMap<u64, ConsensusBaker>>>,
+    bakers: Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
-        ConsensusContainer { genesis_data: genesis_data,
-                             bakers: Arc::new(Mutex::new(HashMap::new())) }
+        ConsensusContainer { genesis_data,
+                             bakers: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     #[cfg(windows)]
@@ -270,14 +270,14 @@ impl ConsensusContainer {
 
     pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
         self.bakers
-            .lock()
+            .write()
             .unwrap()
             .insert(baker_id,
                     ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data));
     }
 
     pub fn stop_baker(&mut self, baker_id: u64) {
-        if let Ok(ref mut bakers) = self.bakers.lock() {
+        if let Ok(ref mut bakers) = self.bakers.write() {
             match bakers.get_mut(&baker_id) {
                 Some(baker) => baker.stop(),
                 None => error!("Can't find baker"),
@@ -296,7 +296,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_block(&self, block: &Block) {
-        for (id, baker) in &*self.bakers.lock().unwrap() {
+        for (id, baker) in self.bakers.read().unwrap().iter() {
             if block.baker_id != *id {
                 baker.send_block(&block);
             }
@@ -304,26 +304,26 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization(&self, pkt: &[u8]) {
-        for (_, baker) in &*self.bakers.lock().unwrap() {
+        for (_, baker) in self.bakers.read().unwrap().iter() {
             baker.send_finalization(pkt.to_vec());
         }
     }
 
     pub fn send_finalization_record(&self, pkt: &[u8]) {
-        for (_, baker) in &*self.bakers.lock().unwrap() {
+        for (_, baker) in self.bakers.read().unwrap().iter() {
             baker.send_finalization_record(pkt.to_vec());
         }
     }
 
     pub fn send_transaction(&self, tx: &String) -> i64 {
-        if let Some(baker) = self.bakers.lock().unwrap().values_mut().next() {
+        if let Some(baker) = self.bakers.write().unwrap().values_mut().next() {
             return baker.send_transaction(&tx);
         }
         -1
     }
 
     pub fn get_best_block_info(&self) -> Option<String> {
-        if let Some(baker) = self.bakers.lock().unwrap().values_mut().next() {
+        if let Some(baker) = self.bakers.read().unwrap().values().next() {
             return Some(baker.get_best_block_info());
         }
         None
