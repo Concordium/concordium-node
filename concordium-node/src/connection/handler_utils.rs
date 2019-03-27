@@ -1,4 +1,5 @@
 use std::cell::{ RefCell };
+use std::sync::Arc;
 use std::sync::mpsc::{ Sender };
 use byteorder::{ NetworkEndian,  WriteBytesExt };
 use atomic_counter::AtomicCounter;
@@ -83,7 +84,7 @@ pub fn send_handshake_and_ping(
 
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = safe_read!(priv_conn_borrow.own_networks.clone())?.clone();
+        let my_nets = safe_read!(Arc::clone(&priv_conn_borrow.own_networks))?.clone();
         let self_peer = priv_conn_borrow.self_peer.clone();
         (my_nets, self_peer)
     };
@@ -150,9 +151,9 @@ pub fn update_buckets(
     let buckets = & priv_conn_borrow.buckets;
     let sender_ip = sender.ip();
 
-    if (valid_mode) ||  (sender_ip.is_global()
+    if valid_mode ||  sender_ip.is_global()
             && !sender_ip.is_multicast()
-            && !sender_ip.is_documentation()) {
+            && !sender_ip.is_documentation() {
         safe_write!(buckets)?
             .insert_into_bucket( sender, &own_id, nets.to_owned());
     }

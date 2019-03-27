@@ -13,8 +13,8 @@ use super::handler_utils::*;
 use failure::{ bail };
 
 macro_rules! reject_handshake {
-    ($t:ident, $r:ident) => {{
-        if let $t::Handshake(..) = $r {
+    ($direction:ident, $message:ident) => {{
+        if let $direction::Handshake(..) = $message {
             bail!(fails::UnwantedMessageError{message: "Unwanted handshake message".to_owned()})
         }
 

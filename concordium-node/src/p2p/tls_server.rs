@@ -300,7 +300,7 @@ impl TlsServer {
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
         let mh = &self.message_handler.read().expect("Couldn't read when registering message handlers");
-        conn.common_message_handler.clone().borrow_mut().merge(mh);
+        Rc::clone(&conn.common_message_handler).borrow_mut().merge(mh);
     }
 
     fn add_default_prehandshake_validations(&mut self) {
@@ -308,7 +308,7 @@ impl TlsServer {
     }
 
     fn make_check_banned(&self) -> PreHandshakeCW {
-        let cloned_dptr = self.dptr.clone();
+        let cloned_dptr = Rc::clone(&self.dptr);
         make_atomic_callback!(
             move |sockaddr: &SocketAddr| {
                 if cloned_dptr.borrow().addr_is_banned(sockaddr)? {

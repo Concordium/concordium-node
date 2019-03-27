@@ -224,7 +224,7 @@ fn main() -> Result<(), Error> {
 
     node.spawn();
 
-    let _node_th = Rc::try_unwrap(node.process_th().unwrap()).ok().unwrap().into_inner();
+    let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap()).ok().unwrap().into_inner();
 
     let timer = Timer::new();
 

@@ -10,7 +10,7 @@ use super::handler_utils::*;
 use failure::{ bail };
 
 pub fn handshake_response_handle(
-    priv_conn: &Rc< RefCell< ConnectionPrivate >>,
+    priv_conn: &RefCell< ConnectionPrivate >,
     req: &NetworkResponse) -> FunctorResult {
 
     if let NetworkResponse::Handshake(ref rpeer, ref nets, _) = req {

@@ -399,7 +399,7 @@ fn main() -> Fallible<()> {
 
     node.spawn();
 
-    let _node_th = Rc::try_unwrap(node.process_th().unwrap()).ok().unwrap().into_inner();
+    let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap()).ok().unwrap().into_inner();
 
     if !conf.no_network {
         for connect_to in &conf.connect_to {

@@ -748,8 +748,12 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn process_th(&self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
-        self.process_th.clone()
+    pub fn process_th_sc(&self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
+        if let Some(ref p) = self.process_th {
+            Some(Rc::clone(p))
+        } else {
+            None
+        }
     }
 
     pub fn close_and_join(&mut self) {
