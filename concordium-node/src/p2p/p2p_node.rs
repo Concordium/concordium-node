@@ -759,12 +759,19 @@ impl P2PNode {
 
     pub fn close_and_join(&mut self) {
         if let Some(ref q) = self.quit_tx {
+            info!("Closing P2P node with id: {:?}", self.get_own_id());
             let _ = q.send(true);
             let p_th = self.process_th.take();
             if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {
                 let _ = r.into_inner().join();
             };
         }
+    }
+}
+
+impl Drop for P2PNode {
+    fn drop(&mut self) {
+        self.close_and_join();
     }
 }
 
