@@ -1,6 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
-use std::boxed::Box;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::io::Cursor;
@@ -132,8 +131,8 @@ unsafe impl Sync for ConsensusBaker {}
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block: Arc<Mutex<mpsc::Receiver<Box<Block>>>>,
-    sender_block: Arc<Mutex<mpsc::Sender<Box<Block>>>>,
+    receiver_block: Arc<Mutex<mpsc::Receiver<Block>>>,
+    sender_block: Arc<Mutex<mpsc::Sender<Block>>>,
     receiver_finalization: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
     sender_finalization: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
     receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
@@ -142,7 +141,7 @@ pub struct ConsensusOutQueue {
 
 impl ConsensusOutQueue {
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel::<Box<Block>>();
+        let (sender, receiver) = mpsc::channel::<Block>();
         let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
         let (sender_finalization_record, receiver_finalization_record) =
             mpsc::channel::<Vec<u8>>();
@@ -156,21 +155,21 @@ impl ConsensusOutQueue {
                                 Arc::new(Mutex::new(sender_finalization_record)) }
     }
 
-    pub fn send_block(self, data: Box<Block>) -> Result<(), mpsc::SendError<Box<Block>>> {
+    pub fn send_block(self, data: Block) -> Result<(), mpsc::SendError<Block>> {
         self.sender_block.lock().unwrap().send(data)
     }
 
-    pub fn recv_block(self) -> Result<Box<Block>, mpsc::RecvError> {
+    pub fn recv_block(self) -> Result<Block, mpsc::RecvError> {
         self.receiver_block.lock().unwrap().recv()
     }
 
     pub fn recv_timeout_block(self,
                               timeout: Duration)
-                              -> Result<Box<Block>, mpsc::RecvTimeoutError> {
+                              -> Result<Block, mpsc::RecvTimeoutError> {
         self.receiver_block.lock().unwrap().recv_timeout(timeout)
     }
 
-    pub fn try_recv_block(self) -> Result<Box<Block>, mpsc::TryRecvError> {
+    pub fn try_recv_block(self) -> Result<Block, mpsc::TryRecvError> {
         self.receiver_block.lock().unwrap().try_recv()
     }
 
@@ -395,7 +394,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             0 => {
                 match Block::deserialize(s.as_bytes()) {
                     Some(block) => {
-                        match CALLBACK_QUEUE.clone().send_block(Box::new(block)) {
+                        match CALLBACK_QUEUE.clone().send_block(block) {
                             Ok(_) => {
                                 debug!("Queueing {} block bytes", data_length);
                             }
