@@ -1,6 +1,6 @@
 use std::sync::atomic::{ AtomicU64, Ordering };
 use std::sync::mpsc::{ Sender };
-use std::sync::{ Arc, Mutex, RwLock };
+use std::sync::{ Arc, RwLock };
 use rustls::{ ServerSession, ClientSession };
 
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType, get_current_stamp };
@@ -21,7 +21,7 @@ pub struct ConnectionPrivate {
     pub self_peer: P2PPeer,
     peer: Option<P2PPeer>,
     pub networks: Vec<u16>,
-    pub own_networks: Arc<Mutex<Vec<u16>>>,
+    pub own_networks: Arc<RwLock<Vec<u16>>>,
     pub buckets: Arc< RwLock< Buckets > >,
 
     // Session
@@ -30,7 +30,7 @@ pub struct ConnectionPrivate {
     // Stats
     last_seen: AtomicU64,
     pub failed_pkts: u32,
-    pub prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+    pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     pub event_log: Option<Sender<P2PEvent>>,
 
     // Time
@@ -47,11 +47,11 @@ impl ConnectionPrivate {
             mode: P2PNodeMode,
             own_id: P2PNodeId,
             self_peer: P2PPeer,
-            own_networks: Arc< Mutex< Vec<u16>>>,
+            own_networks: Arc<RwLock<Vec<u16>>>,
             buckets: Arc< RwLock< Buckets > >,
             tls_server_session: Option< ServerSession>,
             tls_client_session: Option< ClientSession>,
-            prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+            prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
             event_log: Option<Sender<P2PEvent>>,
             blind_trusted_broadcast: bool,
             ) -> Self {
@@ -66,22 +66,19 @@ impl ConnectionPrivate {
         };
 
         ConnectionPrivate {
-            connection_type: connection_type,
-            mode: mode,
-            own_id: own_id,
-            self_peer: self_peer,
+            connection_type,
+            mode,
+            own_id,
+            self_peer,
             peer: None,
             networks: vec![],
-            own_networks: own_networks,
-            buckets: buckets,
-
-            tls_session: tls_session,
-
+            own_networks,
+            buckets,
+            tls_session,
             last_seen: AtomicU64::new( get_current_stamp()),
             failed_pkts: 0,
-            prometheus_exporter: prometheus_exporter,
-            event_log: event_log,
-
+            prometheus_exporter,
+            event_log,
             sent_handshake: u64_max_value,
             sent_ping: u64_max_value,
             last_latency_measured: u64_max_value,

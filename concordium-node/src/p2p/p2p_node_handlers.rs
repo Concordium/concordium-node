@@ -1,4 +1,4 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::{ Arc, RwLock };
 use std::sync::mpsc::{ Sender };
 use std::collections::{ VecDeque };
 
@@ -41,9 +41,9 @@ pub fn forward_network_request(
 /// seen and its `network id` belong to `own_networks`.
 pub fn forward_network_packet_message(
         seen_messages: &SeenMessagesList,
-        prometheus_exporter: &Option<Arc<Mutex<PrometheusServer>>>,
-        own_networks: &Arc<Mutex<Vec<u16>>>,
-        send_queue: &Arc<Mutex<VecDeque<Arc<NetworkMessage>>>>,
+        prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
+        own_networks: &Arc<RwLock<Vec<u16>>>,
+        send_queue: &Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
         packet_queue: &Sender<Arc<NetworkMessage>>,
         pac: &NetworkPacket,
         blind_trust_broadcast: bool,) -> FunctorResult {
@@ -77,9 +77,9 @@ fn make_fn_error_prometheus() -> functor_fails::FunctorError {
 /// Avoid to create a new packet instead of reusing it.
 fn forward_network_packet_message_common(
         seen_messages: &SeenMessagesList,
-        prometheus_exporter: &Option<Arc<Mutex<PrometheusServer>>>,
-        own_networks: &Arc<Mutex<Vec<u16>>>,
-        send_queue: &Arc<Mutex<VecDeque<Arc<NetworkMessage>>>>,
+        prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
+        own_networks: &Arc<RwLock<Vec<u16>>>,
+        send_queue: &Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
         packet_queue: &Sender<Arc<NetworkMessage>>,
         pac: &NetworkPacket,
         sender: &P2PPeer,
@@ -92,7 +92,7 @@ fn forward_network_packet_message_common(
 
     debug!("### Forward Broadcast Message: msgid: {}", msg_id);
     if !seen_messages.contains(msg_id) {
-        if safe_lock!(own_networks)?
+        if safe_read!(own_networks)?
             .contains(network_id) {
             debug!("Received direct message of size {}", msg.len());
             let outer = Arc::new(NetworkMessage::NetworkPacket( pac.clone(), None, None));
@@ -101,10 +101,10 @@ fn forward_network_packet_message_common(
             if blind_trust_broadcast {
                 if let NetworkPacket::BroadcastedMessage(..) = pac {
 
-                    safe_lock!(send_queue)?
+                    safe_write!(send_queue)?
                         .push_back( outer.clone());
                     if let Some(ref prom) = prometheus_exporter {
-                        safe_lock!(prom)?
+                        safe_write!(prom)?
                             .queue_size_inc()
                             .map_err(|_| make_fn_error_prometheus())?;
                     };
@@ -116,7 +116,7 @@ fn forward_network_packet_message_common(
             }
         } else {
             if let Some(ref prom) = prometheus_exporter {
-                safe_lock!(prom)?
+                safe_write!(prom)?
                     .invalid_network_pkts_received_inc()
                     .map_err(|e| error!("{}", e)).ok();
             }

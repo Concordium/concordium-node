@@ -1,4 +1,4 @@
-use std::sync::{ Arc, Mutex, RwLock };
+use std::sync::{ Arc, RwLock };
 use std::sync::atomic::{ AtomicUsize, Ordering };
 use std::net::{ IpAddr, SocketAddr };
 use std::rc::{ Rc };
@@ -32,8 +32,7 @@ pub struct TlsServer {
     self_peer: P2PPeer,
     mode: P2PNodeMode,
     buckets: Arc< RwLock< Buckets > >,
-    prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
-
+    prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     message_handler: Arc< RwLock< MessageHandler>>,
     dptr: Rc< RefCell< TlsServerPrivate>>,
     blind_trusted_broadcast: bool,
@@ -47,7 +46,7 @@ impl TlsServer {
            event_log: Option<Sender<P2PEvent>>,
            self_peer: P2PPeer,
            mode: P2PNodeMode,
-           prometheus_exporter: Option<Arc<Mutex<PrometheusServer>>>,
+           prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
            networks: Vec<u16>,
            buckets: Arc< RwLock< Buckets > >,
            blind_trusted_broadcast: bool,
@@ -89,7 +88,7 @@ impl TlsServer {
         self.self_peer.clone()
     }
 
-    pub fn networks(&self) -> Arc< Mutex< Vec<u16>>> {
+    pub fn networks(&self) -> Arc<RwLock<Vec<u16>>> {
         self.dptr.borrow().networks.clone()
     }
 
@@ -187,7 +186,7 @@ impl TlsServer {
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
             Ok(x) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
-                    safe_lock!(prom)?
+                    safe_write!(prom)?
                         .conn_received_inc()
                         .map_err(|e| error!("{}", e))
                         .ok();
@@ -233,7 +232,7 @@ impl TlsServer {
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
                         &NetworkRequest::Handshake(self_peer,
-                                                   safe_lock!(networks)?
+                                                   safe_read!(networks)?
                                                    .clone(),
                             vec![]).serialize())?;
                     conn.set_measured_handshake_sent();

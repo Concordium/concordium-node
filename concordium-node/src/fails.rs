@@ -33,11 +33,12 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 /// use p2p_client::safe_lock; // just import the macro
 /// use std::sync::{ Arc, Mutex };
 ///
-/// fn foo() -> failure::Fallible<T> {
+/// fn foo() -> Fallible<()> {
 ///     let data = Arc::new(Mutex::new(0));
 ///     // `let locked_data = data.lock().map_err(p2p_client::fails::PoisonError::from)?;` gets replaced by:
 ///     let locked_data = safe_lock!(data)?;
 ///     // ...
+///     Ok(())
 /// }
 /// ```
 
@@ -79,10 +80,11 @@ macro_rules! safe_write {
 ///
 /// # Examples
 /// ```
-/// use std::io::{Error, ErrorKind};
-/// let io_error = Error::new(ErrorKind::Other, "oh no!");
+/// use std::io::{self, Error, ErrorKind};
+/// use p2p_client::into_err;
 ///
-/// let failure_error = into_err!(io_error)?;
+/// let io_error: io::Result<()> = Err(Error::new(ErrorKind::Other, "oh no!"));
+/// let failure_error = into_err!(io_error);
 /// ```
 #[macro_export]
 macro_rules! into_err {

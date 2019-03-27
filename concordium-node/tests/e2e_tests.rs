@@ -13,7 +13,7 @@ mod tests {
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
     use std::sync::mpsc;
-    use std::sync::{Arc, Mutex };
+    use std::sync::{Arc, RwLock};
     use std::sync::atomic::{ AtomicUsize, Ordering};
     use std::cell::{ RefCell };
     use std::{thread, time};
@@ -29,7 +29,7 @@ mod tests {
     mod utils
     {
         use std::sync::mpsc::{ Receiver };
-        use std::sync::{Arc, Mutex, Once, ONCE_INIT };
+        use std::sync::{Arc, RwLock, Once, ONCE_INIT };
         use std::cell::{ RefCell };
         use std::sync::atomic::{ AtomicUsize, Ordering};
         use std::time;
@@ -155,7 +155,8 @@ mod tests {
 
             // Wait for Handshake response on source node
             loop {
-                if let NetworkMessage::NetworkResponse(NetworkResponse::Handshake(..), ..) = receiver.recv()?
+                if let NetworkMessage::NetworkResponse(
+                    NetworkResponse::Handshake(..), ..) = receiver.recv()?
                 {
                     break;
                 }
@@ -170,11 +171,12 @@ mod tests {
             loop
             {
                 let msg = waiter.recv()?;
-                if let NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(.., data), ..) = msg
+                if let NetworkMessage::NetworkPacket(
+                    NetworkPacket::BroadcastedMessage(.., data), ..) = msg
                 {
                     payload = data;
                     break;
-                };
+                }
             }
 
             Ok(payload)
@@ -186,11 +188,12 @@ mod tests {
             loop
             {
                 let msg = waiter.recv()?;
-                if let NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(.., data), ..) = msg
+                if let NetworkMessage::NetworkPacket(
+                    NetworkPacket::DirectMessage(.., data), ..) = msg
                 {
                     payload = data;
                     break;
-                };
+                }
             }
 
             Ok(payload)
@@ -203,7 +206,9 @@ mod tests {
             let mut payload = None;
             loop {
                 match waiter.recv_timeout(timeout) {
-                    Ok(msg) => if let NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(.., data), ..) = msg {
+                    Ok(msg) => if let NetworkMessage::NetworkPacket(
+                        NetworkPacket::DirectMessage(.., data), ..) = msg
+                    {
                         payload = Some(data);
                         break;
                     },
@@ -222,7 +227,6 @@ mod tests {
                     break;
                 }
             }
-
         }
     }
 
@@ -251,18 +255,18 @@ mod tests {
     pub fn e2e_000_two_nodes() -> Fallible<()> {
         utils::setup();
 
-        let msg = b"Hello other brother!".to_vec();
+        let msg = b"Hello other brother!";
         let port = utils::next_port_offset(2);
-        let networks = vec![100 as u16];
+        let networks = [100];
 
         let (mut node_1, msg_waiter_1) = utils::make_node_and_sync( port, &networks, true)?;
         let (mut node_2, _msg_waiter_2) = utils::make_node_and_sync( port + 1, &networks, true)?;
         utils::connect_and_wait_handshake( &mut node_1, &node_2, &msg_waiter_1)?;
         utils::consume_pending_messages( &msg_waiter_1);
 
-        node_2.send_message(Some(node_1.get_own_id()), 100, None, &msg, false)?;
+        node_2.send_message(Some(node_1.get_own_id()), 100, None, msg, false)?;
         let msg_recv = utils::wait_direct_message( &msg_waiter_1)?;
-        assert_eq!( msg, msg_recv);
+        assert_eq!(&msg[..], &msg_recv[..]);
 
         Ok(())
     }
@@ -272,9 +276,9 @@ mod tests {
         utils::setup();
 
         let port = utils::next_port_offset(5);
-        let networks_1 = vec![100 as u16];
-        let networks_2 = vec![200 as u16];
-        let msg = b"Hello other brother!".to_vec();
+        let networks_1 = [100];
+        let networks_2 = [200];
+        let msg = b"Hello other brother!";
 
         let (mut node_1, msg_waiter_1) = utils::make_node_and_sync( port, &networks_1, true)?;
         let (mut node_2, _) = utils::make_node_and_sync( port+1, &networks_2, true)?;
@@ -282,12 +286,11 @@ mod tests {
         utils::consume_pending_messages( &msg_waiter_1);
 
         // Send msg
-        node_2.send_message(
-                Some(node_1.get_own_id()), 100, None, &msg, false)?;
+        node_2.send_message(Some(node_1.get_own_id()), 100, None, msg, false)?;
         let received_msg = utils::wait_direct_message_timeout(
                 &msg_waiter_1,
                 utils::max_recv_timeout());
-        assert_eq!( received_msg, Some(msg));
+        assert_eq!(received_msg, Some(msg.to_vec()));
 
         Ok(())
     }
@@ -297,9 +300,9 @@ mod tests {
     {
         utils::setup();
 
-        let msg = b"Hello other brother!".to_vec();
+        let msg = b"Hello other brother!";
         let port = utils::next_port_offset(3);
-        let networks = vec![100 as u16];
+        let networks = [100];
 
         let (mut node_1, _msg_waiter_1) = utils::make_node_and_sync( port, &networks, true)?;
         let (mut node_2, msg_waiter_2) = utils::make_node_and_sync( port+1, &networks, true)?;
@@ -308,9 +311,9 @@ mod tests {
         utils::connect_and_wait_handshake( &mut node_2, &node_1, &msg_waiter_2)?;
         utils::connect_and_wait_handshake( &mut node_3, &node_2, &msg_waiter_3)?;
 
-        node_1.send_message(None, 100, None, &msg, true)?;
+        node_1.send_message(None, 100, None, msg, true)?;
         let msg_broadcast = utils::wait_broadcast_message( &msg_waiter_3)?;
-        assert_eq!( msg_broadcast, msg);
+        assert_eq!(msg_broadcast, msg);
         Ok(())
     }
 
@@ -319,10 +322,10 @@ mod tests {
     {
         utils::setup();
 
-        let msg = b"Hello other brother!".to_vec();
+        let msg = b"Hello other brother!";
         let port = utils::next_port_offset(3);
-        let networks_1 = vec![100 as u16];
-        let networks_2 = vec![200 as u16];
+        let networks_1 = [100];
+        let networks_2 = [200];
 
         let (mut node_1, _msg_waiter_1) = utils::make_node_and_sync( port, &networks_1, true)?;
         let (mut node_2, msg_waiter_2) = utils::make_node_and_sync( port+1, &networks_2, true)?;
@@ -332,14 +335,14 @@ mod tests {
         utils::connect_and_wait_handshake( &mut node_3, &node_2, &msg_waiter_3)?;
         utils::consume_pending_messages( &msg_waiter_3);
 
-        node_1.send_message(None, 100, None, &msg, true)?;
+        node_1.send_message(None, 100, None, msg, true)?;
         if let Ok(msg) = msg_waiter_3.recv_timeout( time::Duration::from_secs(5)) {
             match msg {
                 NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(..), ..) => {
-                    panic!("Got message this should not happen!");
+                    panic!("Got a message; this should not happen!");
                 }
                 x => {
-                    panic!("Didn't get message from node_1 on node_3, but got {:?}", x);
+                    panic!("Didn't get a message from node_1 on node_3, but got {:?}", x);
                 }
             }
         }
@@ -408,7 +411,7 @@ mod tests {
                                         inner_sender,
                                         Some(sender.clone()),
                                         P2PNodeMode::NormalPrivateMode,
-                                        Some(Arc::new(Mutex::new(prometheus.clone()))),
+                                        Some(Arc::new(RwLock::new(prometheus.clone()))),
                                         vec![100],
                                         100,
                                         false);
@@ -421,7 +424,9 @@ mod tests {
                             NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), ..) = *full_msg
                         {
                             info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                            _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
+                            _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true)
+                                .map_err(|e| error!("Error sending message {}", e))
+                                .ok();
                             _msg_counter.inc();
                         }
                     }
@@ -429,10 +434,11 @@ mod tests {
             });
             let th = node.spawn();
             if peer > 0 {
+                let localhost = "127.0.0.1".parse().unwrap();
                 for i in 0..peer {
                     node.connect(ConnectionType::Node,
-                                 "127.0.0.1".parse().unwrap(),
-                                 (instance_port - 1 - (i)) as u16,
+                                 localhost,
+                                 (instance_port - 1 - i) as u16,
                                  None)
                         .ok();
                 }
@@ -446,8 +452,8 @@ mod tests {
 
         let msg = "Hello other mother's brother".to_string();
 
-        if let Some((_, _, ref mut node_sender_ref, _)) = peers.get_mut(0) {
-            node_sender_ref.send_message(None, 100, None, &msg.as_bytes().to_vec(), true)
+        if let Some((.., ref mut node_sender_ref, _)) = peers.get_mut(0) {
+            node_sender_ref.send_message(None, 100, None, msg.as_bytes(), true)
                            .map_err(|e| panic!(e))
                            .ok();
         };
@@ -509,17 +515,17 @@ mod tests {
                     }
                 });
 
-            let mut islands: Vec<(
-                Vec<usize>,
-                Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer)>
-            )> = Vec::with_capacity(islands_count);
+            let mut islands: Vec<
+                Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer, usize)>
+            > = Vec::with_capacity(islands_count);
 
             for island in 0..islands_count {
-                let mut peers_island: Vec<(usize,
-                                           thread::JoinHandle<()>,
-                                           P2PNode,
-                                           PrometheusServer)> = Vec::with_capacity(island_size);
-                let mut peer_ports_island: Vec<usize> = Vec::with_capacity(island_size);
+                let mut peers_islands_and_ports: Vec<(
+                    usize,
+                    thread::JoinHandle<()>,
+                    P2PNode,
+                    PrometheusServer,
+                    usize)> = Vec::with_capacity(island_size);
 
                 let mut peer = 0;
 
@@ -536,7 +542,7 @@ mod tests {
                                                 inner_sender,
                                                 Some(sender.clone()),
                                                 P2PNodeMode::NormalPrivateMode,
-                                                Some(Arc::new(Mutex::new(prometheus.clone()))),
+                                                Some(Arc::new(RwLock::new(prometheus.clone()))),
                                                 vec![100],
                                                 100,
                                                 false);
@@ -551,7 +557,9 @@ mod tests {
                                 {
                                     info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
                                     _inner_counter.tick(1);
-                                    _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true).map_err(|e| error!("Error sending message {}", e)).ok();
+                                    _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true)
+                                        .map_err(|e| error!("Error sending message {}", e))
+                                        .ok();
                                 }
                             }
                         }
@@ -564,18 +572,17 @@ mod tests {
                         }
                     }
                     peer += 1;
-                    peers_island.push((instance_port, th, node, prometheus));
-                    peer_ports_island.push(instance_port);
+                    peers_islands_and_ports.push((instance_port, th, node, prometheus, instance_port));
                 }
-                islands.push((peer_ports_island, peers_island));
+                islands.push(peers_islands_and_ports);
             }
 
-            thread::sleep(time::Duration::from_secs(5));
+            thread::sleep(time::Duration::from_secs(3));
 
-            if let Some((_,ref mut peers)) = islands.get_mut(0) {
-                if let Some((.., ref mut central_peer, _)) = peers.get_mut(0) {
+            if let Some(ref mut peers) = islands.get_mut(0) {
+                if let Some((.., ref mut central_peer, _, _)) = peers.get_mut(0) {
+                    let localhost = "127.0.0.1".parse().unwrap();
                     for i in 1..islands_count {
-                        let localhost = "127.0.0.1".parse().unwrap();
                         central_peer.connect(ConnectionType::Node,
                                              localhost,
                                              (test_port_added+(island_size*i)) as u16, None)
@@ -584,23 +591,22 @@ mod tests {
                 };
             };
 
-            thread::sleep(time::Duration::from_secs(30));
+            thread::sleep(time::Duration::from_secs(3));
 
             let msg = b"Hello other mother's brother";
 
             for island in &mut islands {
-                let (_,ref mut peers) = island;
-                if let Some((_, _, ref mut node_sender_ref, _)) = peers.get_mut(0) {
+                if let Some((.., ref mut node_sender_ref, _, _)) = island.get_mut(0) {
                 node_sender_ref.send_message(None, 100, None, msg, true)
                                 .map_err(|e| panic!(e))
                                 .ok();
                 };
             }
 
-            thread::sleep(time::Duration::from_secs(10));
+            thread::sleep(time::Duration::from_secs(3));
 
-            for island in &islands {
-                for peer in &island.1 {
+            for island in islands {
+                for peer in &island {
                     match peer.3.queue_size() {
                         Ok(size) => assert_eq!(0, size),
                         _ => panic!("Can't read queue size!"),
@@ -623,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    /// This test call `no_relay_broadcast_so_sender` test using 2 nodes.
+    /// This test calls `no_relay_broadcast_so_sender` test using 2 nodes.
     pub fn e2e_004_2_no_relay_broadcast_to_sender() {
         no_relay_broadcast_so_sender( 2);
     }
@@ -650,8 +656,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel();
 
-        let mut nodes: Vec<P2PNode> = Vec::with_capacity(num_nodes);
-        let mut node_threads = Vec::with_capacity(num_nodes);
+        let mut nodes_and_threads: Vec<(P2PNode, _)> = Vec::with_capacity(num_nodes);
 
         // 0. Create P2PNodes
         for n in 0..num_nodes {
@@ -663,33 +668,36 @@ mod tests {
                     vec![100], 100, true);
 
             if n > 0 {
-                let root = &nodes[0];
+                let root = &nodes_and_threads[0].0;
                 node.connect(
                         ConnectionType::Node, root.get_listening_ip(),
                         root.get_listening_port(), None).unwrap();
             }
 
-            node_threads.push( node.spawn());
-            nodes.push( node);
+            let thread = node.spawn();
+            nodes_and_threads.push((node, thread));
         }
 
-        let root: &mut P2PNode = nodes.first_mut().unwrap();
-        let broadcast_msg: &str = "Hello broadcasted!";
+        let root: &mut P2PNode = &mut nodes_and_threads[0].0;
+        let broadcast_msg = b"Hello broadcasted!";
 
         // 0. Gather agent checks that others P2PNode
         let (net_tx, net_rx) = mpsc::channel();
 
-        let ga_exp_num_nodes: u16 = (num_nodes -1) as u16;
+        let ga_exp_num_nodes = (num_nodes -1) as u16;
         let ga_root_id = root.get_own_id();
         let ga_network_id = network_id;
 
         let gather_agent = thread::spawn( move || {
-            let mut exp_broadcast: i32 = ga_exp_num_nodes as i32;
-            let mut exp_handshake: i32 = ga_exp_num_nodes as i32;
+            let mut exp_broadcast = ga_exp_num_nodes as i32;
+            let mut exp_handshake = ga_exp_num_nodes as i32;
 
             for received in rx {
-                match *received{
-                    NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref nid, ref msg), ..) => {
+                match *received {
+                    NetworkMessage::NetworkPacket(
+                        NetworkPacket::BroadcastedMessage(
+                            ref sender, ref _msgid, ref nid, ref msg), ..) =>
+                    {
                         exp_broadcast -= 1;
                         assert!( exp_broadcast >= 0);
 
@@ -697,7 +705,7 @@ mod tests {
                             debug!( "Broadcast has been confirmed by {} nodes", ga_exp_num_nodes);
                             net_tx.send( NetworkStep::Broadcast( ga_exp_num_nodes)).unwrap();
                         }
-                        assert_eq!( *msg, broadcast_msg.as_bytes().to_vec());
+                        assert_eq!( *msg, broadcast_msg);
                         assert_eq!( ga_root_id, sender.id());
                         assert_eq!( ga_network_id, *nid);
                     },
@@ -732,7 +740,7 @@ mod tests {
         let root_id = Some(root.get_own_id());
         root.send_message(
                 root_id, network_id, None,
-                &broadcast_msg.as_bytes().to_vec(), true)
+                broadcast_msg, true)
             .map_err( |e| panic!(e))
             .ok();
         debug!( "Broadcast message from root({}) node to others!", root.get_listening_port());
@@ -754,8 +762,8 @@ mod tests {
     fn e2e_006_rustls_ready_writeable() -> Fallible<()>
     {
         utils::setup();
-        let msg = b"Direct message between nodes".to_vec();
-        let networks = vec![100 as u16];
+        let msg = b"Direct message between nodes";
+        let networks = [100];
         let port = utils::next_port_offset(2);
 
         // 1. Create and connect nodes
@@ -764,15 +772,15 @@ mod tests {
         utils::connect_and_wait_handshake( &mut node_1, &node_2, &msg_waiter_1)?;
 
         // 2. Send message from n1 to n2.
-        node_1.send_message( Some(node_2.get_own_id()), 100, None, &msg, false)?;
+        node_1.send_message( Some(node_2.get_own_id()), 100, None, msg, false)?;
         let msg_1 = utils::wait_direct_message( &msg_waiter_2)?;
         assert_eq!( msg_1, msg);
 
-        node_2.send_message( Some(node_1.get_own_id()), 100, None, &msg, false)?;
+        node_2.send_message( Some(node_1.get_own_id()), 100, None, msg, false)?;
         let msg_2 = utils::wait_direct_message( &msg_waiter_1)?;
         assert_eq!( msg_2, msg);
 
-        node_1.send_message( Some(node_2.get_own_id()), 102, None, &msg, false)?;
+        node_1.send_message( Some(node_2.get_own_id()), 102, None, msg, false)?;
         let msg_3 = utils::wait_direct_message( &msg_waiter_2)?;
         assert_eq!( msg_3, msg);
 
@@ -793,7 +801,7 @@ mod tests {
             min_node_per_level: usize,
             max_node_per_level: usize) -> Fallible<()> {
         let network_id = 100 as u16;
-        let networks = vec![network_id];
+        let networks = [network_id];
         let test_port_added = utils::next_port_offset( levels * max_node_per_level);
         let mut rng = rand::thread_rng();
 

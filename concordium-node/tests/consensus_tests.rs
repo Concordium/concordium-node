@@ -22,11 +22,11 @@ mod tests {
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
 
-    /// It returns next port available and it ensures that next `slot_size` ports will be 
+    /// It returns next port available and it ensures that next `slot_size` ports will be
     /// available too.
     ///
     /// # Arguments
-    /// * `slot_size` - Size of blocked ports. It 
+    /// * `slot_size` - Size of blocked ports. It
     ///
     /// # Example
     /// ```
@@ -51,13 +51,10 @@ mod tests {
 
         let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-        let (genesis_data, private_data) =
-            match ConsensusContainer::generate_data(0, 1) {
-                Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
-                _ => panic!("Couldn't read haskell data"),
-            };
+        let (genesis_data, private_data) = ConsensusContainer::generate_data(0, 1)
+            .unwrap_or_else(|_| panic!("Couldn't read haskell data"));
         let mut consensus_container = ConsensusContainer::new(genesis_data);
-        &consensus_container.start_baker(0, private_data.get(&(0 as i64)).unwrap().to_vec());
+        &consensus_container.start_baker(0, private_data[&0].clone());
 
         let (sender, receiver) = mpsc::channel();
         let _guard =
@@ -94,6 +91,7 @@ mod tests {
                                   }
                               }
                           });
+
         let node = P2PNode::new(None,
                                 Some("127.0.0.1".to_string()),
                                 18888+port_node,
@@ -107,10 +105,8 @@ mod tests {
                                 100,
                                 true);
 
-        let mut _node_self_clone = node.clone();
-
-        let mut rpc_serv = RpcServerImpl::new(node.clone(),
-                                                None,
+        let mut rpc_serv = RpcServerImpl::new(node,
+                                              None,
                                               Some(consensus_container.clone()),
                                               "127.0.0.1".to_string(),
                                               11000+port_node,
@@ -127,11 +123,9 @@ mod tests {
                         .unwrap();
         let meta_data = req_meta_builder.build();
 
-        let call_options = ::grpcio::CallOption::default().headers(meta_data.clone());
+        let call_options = ::grpcio::CallOption::default().headers(meta_data);
         match client.get_best_block_info_opt(&Empty::new(), call_options) {
-            Ok(ref res) => {
-                assert!(res.best_block_info.contains("globalState"));
-            },
+            Ok(ref res) => assert!(res.best_block_info.contains("globalState")),
             _ => panic!("Didn't  get right result from GetBestBlockInfo"),
         }
 
