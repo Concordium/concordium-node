@@ -134,18 +134,18 @@ unsafe impl Sync for ConsensusBaker {}
 pub struct ConsensusOutQueue {
     receiver_block: Arc<Mutex<mpsc::Receiver<Box<Block>>>>,
     sender_block: Arc<Mutex<mpsc::Sender<Box<Block>>>>,
-    receiver_finalization: Arc<Mutex<mpsc::Receiver<Box<Vec<u8>>>>>,
-    sender_finalization: Arc<Mutex<mpsc::Sender<Box<Vec<u8>>>>>,
-    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Box<Vec<u8>>>>>,
-    sender_finalization_record: Arc<Mutex<mpsc::Sender<Box<Vec<u8>>>>>,
+    receiver_finalization: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
+    sender_finalization: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
+    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
+    sender_finalization_record: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
 }
 
 impl ConsensusOutQueue {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel::<Box<Block>>();
-        let (sender_finalization, receiver_finalization) = mpsc::channel::<Box<Vec<u8>>>();
+        let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
         let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<Box<Vec<u8>>>();
+            mpsc::channel::<Vec<u8>>();
         ConsensusOutQueue { receiver_block: Arc::new(Mutex::new(receiver)),
                             sender_block: Arc::new(Mutex::new(sender)),
                             receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
@@ -175,48 +175,48 @@ impl ConsensusOutQueue {
     }
 
     pub fn send_finalization(self,
-                             data: Box<Vec<u8>>)
-                             -> Result<(), mpsc::SendError<Box<Vec<u8>>>> {
+                             data: Vec<u8>)
+                             -> Result<(), mpsc::SendError<Vec<u8>>> {
         self.sender_finalization.lock().unwrap().send(data)
     }
 
-    pub fn recv_finalization(self) -> Result<Box<Vec<u8>>, mpsc::RecvError> {
+    pub fn recv_finalization(self) -> Result<Vec<u8>, mpsc::RecvError> {
         self.receiver_finalization.lock().unwrap().recv()
     }
 
     pub fn recv_timeout_finalization(self,
                                      timeout: Duration)
-                                     -> Result<Box<Vec<u8>>, mpsc::RecvTimeoutError> {
+                                     -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
         self.receiver_finalization
             .lock()
             .unwrap()
             .recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
         self.receiver_finalization.lock().unwrap().try_recv()
     }
 
     pub fn send_finalization_record(self,
-                                    data: Box<Vec<u8>>)
-                                    -> Result<(), mpsc::SendError<Box<Vec<u8>>>> {
+                                    data: Vec<u8>)
+                                    -> Result<(), mpsc::SendError<Vec<u8>>> {
         self.sender_finalization_record.lock().unwrap().send(data)
     }
 
-    pub fn recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::RecvError> {
+    pub fn recv_finalization_record(self) -> Result<Vec<u8>, mpsc::RecvError> {
         self.receiver_finalization_record.lock().unwrap().recv()
     }
 
     pub fn recv_timeout_finalization_record(self,
                                             timeout: Duration)
-                                            -> Result<Box<Vec<u8>>, mpsc::RecvTimeoutError> {
+                                            -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
         self.receiver_finalization_record
             .lock()
             .unwrap()
             .recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization_record(self) -> Result<Box<Vec<u8>>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization_record(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
         self.receiver_finalization_record.lock().unwrap().try_recv()
     }
 
@@ -407,7 +407,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             }
             1 => {
                 match CALLBACK_QUEUE.clone()
-                                    .send_finalization(Box::new(s.to_owned().into_bytes()))
+                                    .send_finalization(s.to_owned().into_bytes())
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization", s.len());
@@ -417,7 +417,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             }
             2 => {
                 match CALLBACK_QUEUE.clone()
-                                    .send_finalization_record(Box::new(s.to_owned().into_bytes()))
+                                    .send_finalization_record(s.to_owned().into_bytes())
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization record", s.len());
