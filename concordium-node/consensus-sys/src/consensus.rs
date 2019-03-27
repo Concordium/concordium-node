@@ -73,51 +73,49 @@ impl ConsensusBaker {
     }
 
     pub fn stop(&self) {
-        unsafe {
-            let baker = self.runner.load(Ordering::SeqCst);
-            stopBaker(baker);
-        }
+        let baker = self.runner.load(Ordering::SeqCst);
+        unsafe { stopBaker(baker); }
     }
 
     pub fn send_block(&self, data: &Block) {
+        let baker = self.runner.load(Ordering::SeqCst);
+        let serialized = data.serialize().unwrap();
+        let len = serialized.len();
         unsafe {
-            let baker = self.runner.load(Ordering::SeqCst);
-            let serialized = data.serialize().unwrap();
-            let len = serialized.len();
             let c_string = CString::from_vec_unchecked(serialized);
             receiveBlock(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_finalization(&self, data: Vec<u8>) {
+        let baker = self.runner.load(Ordering::SeqCst);
+        let len = data.len();
         unsafe {
-            let baker = self.runner.load(Ordering::SeqCst);
-            let len = data.len();
             let c_string = CString::from_vec_unchecked(data);
             receiveFinalization(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_finalization_record(&self, data: Vec<u8>) {
+        let baker = self.runner.load(Ordering::SeqCst);
+        let len = data.len();
         unsafe {
-            let baker = self.runner.load(Ordering::SeqCst);
-            let len = data.len();
             let c_string = CString::from_vec_unchecked(data);
             receiveFinalizationRecord(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_transaction(&self, data: &str) -> i64 {
+        let baker = self.runner.load(Ordering::SeqCst);
         unsafe {
-            let baker = self.runner.load(Ordering::SeqCst);
             let c_string = CString::new(data).unwrap();
             receiveTransaction(baker, c_string.as_ptr() as *const u8)
         }
     }
 
     pub fn get_best_block_info(&self) -> String {
+        let baker = self.runner.load(Ordering::SeqCst);
         unsafe {
-            let baker = self.runner.load(Ordering::SeqCst);
             let c_string = getBestBlockInfo(baker);
             let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
             freeCStr(c_string);
