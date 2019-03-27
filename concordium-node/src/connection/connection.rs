@@ -43,6 +43,33 @@ macro_rules! handle_by_private {
     }}
 }
 
+macro_rules! drop_conn_if_unwanted {
+    ($process:expr, $self:ident, $poll:ident) => {
+        if let Err(e) = $process {
+            match e.downcast::<fails::UnwantedMessageError>() {
+                Ok(f) => {
+                    error!("Dropping connection: {}", f);
+                    $self.close($poll)?;
+                }
+                Err(e) => {
+                    if let Ok(f) = e.downcast::<FunctorError>() {
+                        f.errors.iter().for_each(|x|
+                                                 if x.to_string().contains("SendError(..)") {
+                                                     trace!("Send Error in incoming plaintext");
+                                                 } else {
+                                                     error!("{}", x);
+                                                 });
+                    }
+                }
+            }
+        } else if $self.status == ConnectionStatus::Untrusted {
+            $self.setup_message_handler();
+            debug!("Succesfully executed handshake between {:?} and {:?}", $self.get_self_peer(), $self.get_remote_peer());
+            $self.status = ConnectionStatus::Established;
+        }
+    }
+}
+
 #[derive(PartialEq)]
 pub enum ConnectionStatus {
     Untrusted,
@@ -284,7 +311,7 @@ impl Connection {
         self.dptr.borrow().self_peer.clone()
     }
 
-    fn get_peer(&self) -> Option<P2PPeer> {
+    fn get_remote_peer(&self) -> Option<P2PPeer> {
         self.dptr.borrow().peer().clone()
     }
 
@@ -455,7 +482,7 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message handlers.
     fn process_complete_packet(&mut self, buf: &[u8]) -> FunctorResult {
-        let outer = Arc::new(Box::new(NetworkMessage::deserialize(self.get_peer(), self.ip(), &buf)));
+        let outer = Arc::new(Box::new(NetworkMessage::deserialize(self.get_remote_peer(), self.ip(), &buf)));
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
         if let Some(ref prom) = &self.prometheus_exporter() {
@@ -514,28 +541,7 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                if let Err(e) = self.process_complete_packet( &buffered) {
-                   match e.downcast::<fails::UnwantedMessageError>() {
-                       Ok(f) => {
-                           error!("Dropping connection: {}", f);
-                           self.close(poll)?;
-                       }
-                       Err(e) => {
-                           if let Ok(f) = e.downcast::<FunctorError>() {
-                               f.errors.iter().for_each(|x|
-                                                   if x.to_string().contains("SendError(..)") {
-                                                       trace!("Send Error in incoming plaintext");
-                                                   } else {
-                                                       error!("{}", x);
-                                                   });
-                           }
-                       }
-                   }
-                } else if self.status == ConnectionStatus::Untrusted {
-                    self.setup_message_handler();
-                    debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
-                    self.status = ConnectionStatus::Established;
-                }
+                drop_conn_if_unwanted!(self.process_complete_packet( &buffered), self, poll)
             }
 
             self.clear_buffer();
@@ -555,28 +561,7 @@ impl Connection {
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
                     }
-                    if let Err(e) = self.process_complete_packet( &buffered) {
-                        match e.downcast::<fails::UnwantedMessageError>() {
-                            Ok(f) => {
-                                error!("Dropping connection: {}", f);
-                                self.close(poll)?;
-                            }
-                            Err(e) => {
-                                if let Ok(f) = e.downcast::<FunctorError>() {
-                                    f.errors.iter().for_each(|x|
-                                                             if x.to_string().contains("SendError(..)") {
-                                                                 trace!("Send Error in incoming plaintext");
-                                                             } else {
-                                                                 error!("{}", x);
-                                                             });
-                                }
-                            }
-                        }
-                    } else if self.status == ConnectionStatus::Untrusted {
-                        self.setup_message_handler();
-                        debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
-                        self.status = ConnectionStatus::Established;
-                    }
+                   drop_conn_if_unwanted!(self.process_complete_packet( &buffered), self, poll)
                 }
                 self.clear_buffer();
             }
@@ -591,28 +576,7 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                if let Err(e) = self.process_complete_packet( &buffered) {
-                    match e.downcast::<fails::UnwantedMessageError>() {
-                        Ok(f) => {
-                            error!("Dropping connection: {}", f);
-                            self.close(poll)?;
-                        }
-                        Err(e) => {
-                            if let Ok(f) = e.downcast::<FunctorError>() {
-                               f.errors.iter().for_each(|x|
-                                                   if x.to_string().contains("SendError(..)") {
-                                                       trace!("Send Error in incoming plaintext");
-                                                   } else {
-                                                       error!("{}", x);
-                                                   });
-                           }
-                        }
-                        }
-                } else if self.status == ConnectionStatus::Untrusted {
-                    self.setup_message_handler();
-                    debug!("Succesfully executed handshake between {:?} and {:?}", self.get_self_peer(), self.get_peer());
-                    self.status = ConnectionStatus::Established;
-                }
+                drop_conn_if_unwanted!(self.process_complete_packet( &buffered), self, poll)
             }
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;
