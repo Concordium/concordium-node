@@ -320,10 +320,13 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                 logEvent Skov LLDebug $ "Block " ++ show cbp ++ " is pending its parent (" ++ show parent ++ ")"
                 return Nothing
             Just BlockDead -> mzero
-            Just (BlockAlive parentP) -> tryAddLiveParent parentP
-            Just (BlockFinalized parentP _) -> tryAddLiveParent parentP
+            Just (BlockAlive parentP) -> tryAddLiveParent parentP `mplus` invalidBlock
+            Just (BlockFinalized parentP _) -> tryAddLiveParent parentP `mplus` invalidBlock
     where
         parent = blockPointer block
+        invalidBlock = do
+            logEvent Skov LLWarning $ "Block is not valid: " ++ show cbp
+            mzero
         tryAddLiveParent :: BlockPointer -> MaybeT m (Maybe BlockPointer)
         tryAddLiveParent parentP = do -- Alive or finalized
             let lf = blockLastFinalized block

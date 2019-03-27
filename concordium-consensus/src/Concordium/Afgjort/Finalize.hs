@@ -21,9 +21,9 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
+import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Kontrol.BestBlock
-
-import Data.List(intercalate)
+import Concordium.Logger
 
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: Sig.KeyPair,
@@ -233,6 +233,7 @@ newRound newDelta me = do
             roundWMVBA = initialWMVBAState
         }
         h <- use finHeight
+        logEvent Afgjort LLDebug $ "Starting finalization round: height=" ++ show (theBlockHeight h) ++ " delta=" ++ show (theBlockHeight newDelta)
         justifiedInputs <- fmap (ancestorAtHeight h) <$> getBlocksAtHeight (h + newDelta)
         finIx <- use finIndex
         pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <<.= []
@@ -268,6 +269,9 @@ handleWMVBAOutputEvents evs = do
             }
             let
                 handleEv (SendWMVBAMessage msg0) = do
+                    case msg0 of
+                        WMVBAFreezeMessage (Proposal v) -> logEvent Afgjort LLDebug $ "Nominating block " ++ show v
+                        _ -> return ()
                     let encMsg = runPut $ putFinalizationMessageHeader msgHdr >> putWMVBAMessage S.put putParty msg0
                     let sig = runPut $ S.put $ Sig.sign finMySignKey encMsg
                     let msg = encMsg <> sig
@@ -333,7 +337,7 @@ notifyBlockArrival b = do
         tryNominateBlock
 
 
-getMyParty :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => m (Maybe Party)
+getMyParty :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m) => m (Maybe Party)
 getMyParty = do
         myVerifyKey <- asks (Sig.verifyKey . finMySignKey)
         myPublicVRFKey <- asks (VRF.publicKey . finMyVRFKey)

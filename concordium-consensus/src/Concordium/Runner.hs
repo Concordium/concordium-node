@@ -36,7 +36,7 @@ data OutMessage =
 
 makeRunner :: LogMethod IO -> BakerIdentity -> GenesisData -> IO (Chan InMessage, Chan OutMessage, IORef SkovFinalizationState)
 makeRunner logm bkr gen = do
-        logm Baker LLInfo "Staring baker"
+        logm Runner LLInfo "Staring baker"
         inChan <- newChan
         outChan <- newChan
         let
