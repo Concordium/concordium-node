@@ -134,22 +134,24 @@ pub struct ConsensusOutQueue {
     sender_finalization_record: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
 }
 
-impl ConsensusOutQueue {
-    pub fn new() -> Self {
+impl Default for ConsensusOutQueue {
+    fn default() -> Self {
         let (sender, receiver) = mpsc::channel::<Block>();
-        let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
-        let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<Vec<u8>>();
-        ConsensusOutQueue { receiver_block: Arc::new(Mutex::new(receiver)),
-                            sender_block: Arc::new(Mutex::new(sender)),
-                            receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
-                            sender_finalization: Arc::new(Mutex::new(sender_finalization)),
-                            receiver_finalization_record:
-                                Arc::new(Mutex::new(receiver_finalization_record)),
-                            sender_finalization_record:
-                                Arc::new(Mutex::new(sender_finalization_record)) }
+            let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
+            let (sender_finalization_record, receiver_finalization_record) =
+                mpsc::channel::<Vec<u8>>();
+            ConsensusOutQueue { receiver_block: Arc::new(Mutex::new(receiver)),
+                                sender_block: Arc::new(Mutex::new(sender)),
+                                receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
+                                sender_finalization: Arc::new(Mutex::new(sender_finalization)),
+                                receiver_finalization_record:
+                                    Arc::new(Mutex::new(receiver_finalization_record)),
+                                sender_finalization_record:
+                                    Arc::new(Mutex::new(sender_finalization_record)) }
     }
+}
 
+impl ConsensusOutQueue {
     pub fn send_block(self, data: Block) -> Result<(), mpsc::SendError<Block>> {
         self.sender_block.lock().unwrap().send(data)
     }
@@ -228,7 +230,7 @@ impl ConsensusOutQueue {
 }
 
 lazy_static! {
-    static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::new() };
+    static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
     static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> =
         { Mutex::new(HashMap::new()) };
     static ref GENERATED_GENESIS_DATA: Mutex<Option<Vec<u8>>> = { Mutex::new(None) };
@@ -310,9 +312,9 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn send_transaction(&self, tx: &String) -> i64 {
-        if let Some(baker) = self.bakers.write().unwrap().values_mut().next() {
-            return baker.send_transaction(&tx);
+    pub fn send_transaction(&self, tx: &str) -> i64 {
+        if let Some(baker) = self.bakers.write().unwrap().values().next() {
+            return baker.send_transaction(tx);
         }
         -1
     }
@@ -347,7 +349,7 @@ impl ConsensusContainer {
             }
         }
         let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
-            Ok(ref mut genesis) if genesis.is_some() => genesis.clone().unwrap(),
+            Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
             _ => return Err("Didn't get genesis from haskell"),
         };
         if let Ok(priv_data) = GENERATED_PRIVATE_DATA.lock() {
@@ -437,9 +439,9 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
             _ => "Baker",
         }
     }
-    let s = unsafe {CStr::from_ptr(log_message as *const c_char)}.to_str()
+    let s = unsafe { CStr::from_ptr(log_message as *const c_char) }.to_str()
         .expect("log_callback: unable to decode invalid UTF-8 values");
-    let i = identifier_to_string(identifier).to_string();
+    let i = identifier_to_string(identifier);
     match log_level as u8 {
         1 => error!("{}: {}", i, s),
         2 => warn!("{}: {}", i, s),
@@ -501,7 +503,7 @@ impl Block {
 
 #[cfg(test)]
 mod tests {
-    use crate::consensus::*;
+    use super::*;
     use std::sync::{Once, ONCE_INIT};
     use std::time::Duration;
 
@@ -561,13 +563,13 @@ mod tests {
                                                  private_data.get(&(i as i64)).unwrap().to_vec());
             }
 
-            let relay_th_guard = Arc::new(Mutex::new(true));
+            let relay_th_guard = Arc::new(RwLock::new(true));
             let _th_guard = relay_th_guard.clone();
             let _th_container = consensus_container.clone();
             let _aux_th = thread::spawn(move || {
                 loop {
                     thread::sleep(Duration::from_millis(1_000));
-                    if let Ok(val) = _th_guard.lock() {
+                    if let Ok(val) = _th_guard.read() {
                         if !*val {
                             debug!("Terminating relay thread, zapping..");
                             return;
@@ -604,7 +606,7 @@ mod tests {
             }
 
             debug!("Stopping relay thread");
-            if let Ok(mut guard) = relay_th_guard.lock() {
+            if let Ok(mut guard) = relay_th_guard.write() {
                 *guard = false;
             }
             _aux_th.join().unwrap();
