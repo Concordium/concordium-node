@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::io::Cursor;
 use std::os::raw::c_char;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -50,7 +51,7 @@ pub struct ConsensusBaker {
     id: u64,
     genesis_data: Vec<u8>,
     private_data: Vec<u8>,
-    runner: Arc<Mutex<*mut baker_runner>>,
+    runner: Arc<AtomicPtr<baker_runner>>,
 }
 
 impl ConsensusBaker {
@@ -69,56 +70,56 @@ impl ConsensusBaker {
         ConsensusBaker { id: baker_id,
                          genesis_data,
                          private_data,
-                         runner: Arc::new(Mutex::new(baker)) }
+                         runner: Arc::new(AtomicPtr::new(baker)) }
     }
 
     pub fn stop(&self) {
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            stopBaker(*baker);
+            let baker = self.runner.load(Ordering::SeqCst);
+            stopBaker(baker);
         }
     }
 
     pub fn send_block(&self, data: &Block) {
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
+            let baker = self.runner.load(Ordering::SeqCst);
             let serialized = data.serialize().unwrap();
             let len = serialized.len();
             let c_string = CString::from_vec_unchecked(serialized);
-            receiveBlock(*baker, c_string.as_ptr() as *const u8, len as i64);
+            receiveBlock(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_finalization(&self, data: Vec<u8>) {
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
+            let baker = self.runner.load(Ordering::SeqCst);
             let len = data.len();
             let c_string = CString::from_vec_unchecked(data);
-            receiveFinalization(*baker, c_string.as_ptr() as *const u8, len as i64);
+            receiveFinalization(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_finalization_record(&self, data: Vec<u8>) {
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
+            let baker = self.runner.load(Ordering::SeqCst);
             let len = data.len();
             let c_string = CString::from_vec_unchecked(data);
-            receiveFinalizationRecord(*baker, c_string.as_ptr() as *const u8, len as i64);
+            receiveFinalizationRecord(baker, c_string.as_ptr() as *const u8, len as i64);
         }
     }
 
     pub fn send_transaction(&self, data: &str) -> i64 {
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
+            let baker = self.runner.load(Ordering::SeqCst);
             let c_string = CString::new(data).unwrap();
-            receiveTransaction(*baker, c_string.as_ptr() as *const u8)
+            receiveTransaction(baker, c_string.as_ptr() as *const u8)
         }
     }
 
     pub fn get_best_block_info(&self) -> String {
         unsafe {
-            let baker = &*self.runner.lock().unwrap();
-            let c_string = getBestBlockInfo(*baker);
+            let baker = self.runner.load(Ordering::SeqCst);
+            let c_string = getBestBlockInfo(baker);
             let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
             freeCStr(c_string);
             r
