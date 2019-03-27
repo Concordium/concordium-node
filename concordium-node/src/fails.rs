@@ -80,11 +80,15 @@ macro_rules! safe_write {
 ///
 /// # Examples
 /// ```
-/// use std::io::{self, Error, ErrorKind};
 /// use p2p_client::into_err;
+/// use std::io::{Error, ErrorKind};
+/// use failure::Fallible;
 ///
-/// let io_error: io::Result<()> = Err(Error::new(ErrorKind::Other, "oh no!"));
-/// let failure_error = into_err!(io_error);
+/// fn foo() -> Fallible<()> {
+///     let io_error = Error::new(ErrorKind::Other, "oh no!");
+///     into_err!(Err(io_error))?;
+///     Ok(())
+/// }
 /// ```
 #[macro_export]
 macro_rules! into_err {

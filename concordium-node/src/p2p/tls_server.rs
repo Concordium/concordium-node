@@ -8,10 +8,11 @@ use mio::{ Token, Poll, Event };
 use std::sync::mpsc::Sender;
 use rustls::{ ClientConfig, ServerConfig, ServerSession, ClientSession };
 use webpki::{ DNSNameRef };
-use failure::{Fallible, bail};
+use failure::{Fallible, bail };
 use super::fails;
 
 use crate::prometheus_exporter::PrometheusServer;
+use crate::common::functor::afunctor::{ AFunctor, AFunctorCW };
 
 use crate::connection::{
     Connection, P2PNodeMode, P2PEvent, MessageHandler,
@@ -21,6 +22,9 @@ use crate::network::{ NetworkRequest, NetworkMessage, Buckets };
 
 use crate::p2p::peer_statistics::{ PeerStatistic };
 use crate::p2p::tls_server_private::{ TlsServerPrivate };
+
+pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
+pub type PreHandshake = AFunctor<SocketAddr>;
 
 pub struct TlsServer {
     server: TcpListener,
@@ -36,6 +40,7 @@ pub struct TlsServer {
     message_handler: Arc< RwLock< MessageHandler>>,
     dptr: Rc< RefCell< TlsServerPrivate>>,
     blind_trusted_broadcast: bool,
+    prehandshake_validations: PreHandshake
 }
 
 impl TlsServer {
@@ -70,8 +75,9 @@ impl TlsServer {
                     message_handler: Arc::new( RwLock::new( MessageHandler::new())),
                     dptr: mdptr,
                     blind_trusted_broadcast,
+                    prehandshake_validations: PreHandshake::new("TlsServer::Accept")
         };
-
+        mself.add_default_prehandshake_validations();
         mself.setup_default_message_handler();
         mself
     }
@@ -125,6 +131,11 @@ impl TlsServer {
     pub fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
         debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_id.ip(), self_id.port());
+
+        if let Err(e) = (self.prehandshake_validations)(&addr) {
+            bail!(e);
+        }
+
         self.log_event(P2PEvent::ConnectEvent(addr.ip().to_string(), addr.port()));
 
         let tls_session = ServerSession::new(&self.server_tls_config);
@@ -288,8 +299,23 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let mh = self.message_handler.read().expect("Couldn't read when registering message handlers");
-        conn.message_handler.merge( &mh);
+        let mh = &self.message_handler.read().expect("Couldn't read when registering message handlers");
+        Rc::clone(&conn.common_message_handler).borrow_mut().merge(mh);
+    }
+
+    fn add_default_prehandshake_validations(&mut self) {
+            self.prehandshake_validations.add_callback(self.make_check_banned());
+    }
+
+    fn make_check_banned(&self) -> PreHandshakeCW {
+        let cloned_dptr = Rc::clone(&self.dptr);
+        make_atomic_callback!(
+            move |sockaddr: &SocketAddr| {
+                if cloned_dptr.borrow().addr_is_banned(sockaddr)? {
+                    bail!(fails::BannedNodeRequestedConnectionError);
+                }
+                Ok(())
+            })
     }
 }
 

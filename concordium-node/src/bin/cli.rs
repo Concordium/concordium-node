@@ -30,6 +30,7 @@ use std::io::Cursor;
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
+use std::rc::Rc;
 use std::thread;
 use timer::Timer;
 use std::{ str };
@@ -396,7 +397,9 @@ fn main() -> Fallible<()> {
         }
     }
 
-    let _node_th = node.spawn();
+    node.spawn();
+
+    let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap()).ok().unwrap().into_inner();
 
     if !conf.no_network {
         for connect_to in &conf.connect_to {

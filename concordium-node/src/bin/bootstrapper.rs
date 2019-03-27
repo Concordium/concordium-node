@@ -21,6 +21,7 @@ use p2p_client::connection::{ P2PEvent, P2PNodeMode };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
+use std::rc::Rc;
 use std::thread;
 use timer::Timer;
 
@@ -221,7 +222,9 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    let _node_th = node.spawn();
+    node.spawn();
+
+    let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap()).ok().unwrap().into_inner();
 
     let timer = Timer::new();
 

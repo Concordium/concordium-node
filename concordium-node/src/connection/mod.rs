@@ -5,7 +5,9 @@ mod p2p_event;
 mod seen_messages_list;
 mod writev_adapter;
 
+mod handler_utils;
 mod connection_default_handlers;
+mod connection_handshake_handlers;
 mod connection_private;
 pub mod fails;
 pub mod connection;

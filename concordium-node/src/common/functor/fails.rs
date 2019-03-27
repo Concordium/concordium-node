@@ -3,7 +3,7 @@ use failure::{ Error, Fail };
 #[derive(Debug, Fail)]
 #[fail(display = "Error running functor: {:?}", errors)]
 pub struct FunctorError {
-    errors: Vec<Error>
+    pub errors: Vec<Error>
 }
 
 impl FunctorError {

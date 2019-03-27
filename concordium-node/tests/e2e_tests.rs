@@ -8,7 +8,7 @@ mod tests {
     use atomic_counter::AtomicCounter;
     use atomic_counter::RelaxedCounter;
     use p2p_client::common::{ ConnectionType };
-    use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest };
+    use p2p_client::network::{ NetworkMessage, NetworkPacket };
     use p2p_client::connection::{ P2PEvent, P2PNodeMode, MessageManager };
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
@@ -19,12 +19,6 @@ mod tests {
     use std::{thread, time};
     use rand::{ Rng };
     use failure::{ Fallible  };
-
-    #[derive(Debug, Clone)]
-    pub enum NetworkStep {
-        Handshake(u16),
-        Broadcast(u16),
-    }
 
     mod utils
     {
@@ -134,7 +128,8 @@ mod tests {
             let mh = node.message_handler();
             safe_write!(mh)?.add_callback(
                 make_atomic_callback!( move |m: &NetworkMessage|{
-                    into_err!(msg_wait_tx.send(m.clone()))}));
+                    into_err!(msg_wait_tx.send(m.clone()))
+                }));
 
             node.spawn();
             Ok((node, msg_wait_rx))
@@ -393,7 +388,7 @@ mod tests {
         });
 
         let message_count_estimated = mesh_node_count;
-        let mut peers: Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer)> = Vec::with_capacity(mesh_node_count);
+        let mut peers: Vec<(usize, P2PNode, PrometheusServer)> = Vec::with_capacity(mesh_node_count);
         let mut peer_ports: Vec<usize> = Vec::with_capacity(mesh_node_count);
 
         let message_counter = Arc::new(RelaxedCounter::new(0));
@@ -432,7 +427,7 @@ mod tests {
                     }
                 }
             });
-            let th = node.spawn();
+            node.spawn();
             if peer > 0 {
                 let localhost = "127.0.0.1".parse().unwrap();
                 for i in 0..peer {
@@ -444,14 +439,13 @@ mod tests {
                 }
             }
             peer += 1;
-            peers.push((instance_port as usize, th, node, prometheus));
+            peers.push((instance_port as usize, node, prometheus));
             peer_ports.push(instance_port as usize);
         }
 
         thread::sleep(time::Duration::from_secs(5));
 
         let msg = "Hello other mother's brother".to_string();
-
         if let Some((.., ref mut node_sender_ref, _)) = peers.get_mut(0) {
             node_sender_ref.send_message(None, 100, None, msg.as_bytes(), true)
                            .map_err(|e| panic!(e))
@@ -461,7 +455,7 @@ mod tests {
         thread::sleep(time::Duration::from_secs(30));
 
         for peer in &peers {
-            match peer.3.queue_size() {
+            match peer.2.queue_size() {
                 Ok(size) => assert_eq!(0, size),
                 _ => panic!("Can't read queue size!"),
             }
@@ -515,14 +509,14 @@ mod tests {
                     }
                 });
 
-            let mut islands: Vec<
-                Vec<(usize, thread::JoinHandle<()>, P2PNode, PrometheusServer, usize)>
-            > = Vec::with_capacity(islands_count);
+            let mut islands: Vec<Vec<(usize,
+                                        P2PNode,
+                                        PrometheusServer, usize)>> = Vec::with_capacity(islands_count);
+            let localhost = "127.0.0.1".parse().unwrap();
 
             for island in 0..islands_count {
                 let mut peers_islands_and_ports: Vec<(
                     usize,
-                    thread::JoinHandle<()>,
                     P2PNode,
                     PrometheusServer,
                     usize)> = Vec::with_capacity(island_size);
@@ -564,15 +558,14 @@ mod tests {
                             }
                         }
                     });
-                    let th = node.spawn();
+                    node.spawn();
                     if peer > 0 {
-                        let localhost = "127.0.0.1".parse().unwrap();
                         for i in 0..peer {
                             node.connect(ConnectionType::Node, localhost, (instance_port-1-(i)) as u16, None).ok();
                         }
                     }
                     peer += 1;
-                    peers_islands_and_ports.push((instance_port, th, node, prometheus, instance_port));
+                    peers_islands_and_ports.push((instance_port, node, prometheus, instance_port));
                 }
                 islands.push(peers_islands_and_ports);
             }
@@ -580,11 +573,10 @@ mod tests {
             thread::sleep(time::Duration::from_secs(3));
 
             if let Some(ref mut peers) = islands.get_mut(0) {
-                if let Some((.., ref mut central_peer, _, _)) = peers.get_mut(0) {
-                    let localhost = "127.0.0.1".parse().unwrap();
+                if let Some((..,ref mut central_peer, _, _)) = peers.get_mut(0) {
                     for i in 1..islands_count {
                         central_peer.connect(ConnectionType::Node,
-                                             localhost,
+                                              localhost,
                                              (test_port_added+(island_size*i)) as u16, None)
                                     .map_err(|e| println!("{}", e)).ok();
                     }
@@ -598,8 +590,8 @@ mod tests {
             for island in &mut islands {
                 if let Some((.., ref mut node_sender_ref, _, _)) = island.get_mut(0) {
                 node_sender_ref.send_message(None, 100, None, msg, true)
-                                .map_err(|e| panic!(e))
-                                .ok();
+                            .map_err(|e| panic!(e))
+                            .ok();
                 };
             }
 
@@ -607,7 +599,7 @@ mod tests {
 
             for island in islands {
                 for peer in &island {
-                    match peer.3.queue_size() {
+                    match peer.2.queue_size() {
                         Ok(size) => assert_eq!(0, size),
                         _ => panic!("Can't read queue size!"),
                     }
@@ -631,130 +623,89 @@ mod tests {
     #[test]
     /// This test calls `no_relay_broadcast_so_sender` test using 2 nodes.
     pub fn e2e_004_2_no_relay_broadcast_to_sender() {
-        no_relay_broadcast_so_sender( 2);
+        assert!(no_relay_broadcast_to_sender( 2).is_ok());
     }
 
     #[test]
     /// This test call `no_relay_broadcast_so_sender` test using 8 nodes.
     pub fn e2e_004_8_no_relay_broadcast_to_sender() {
-        no_relay_broadcast_so_sender( 8);
+        assert!(no_relay_broadcast_to_sender( 8).is_ok());
     }
 
     #[test]
     /// This test call `no_relay_broadcast_so_sender` test using 20 nodes.
     pub fn e2e_004_20_no_relay_broadcast_to_sender() {
-        no_relay_broadcast_so_sender( 20);
+        assert!(no_relay_broadcast_to_sender( 20).is_ok());
     }
 
-    /// It creates `num_nodes` nodes. All nodes from `1..num_nodes` will be connected to node `0`.
-    /// After all handshakes, node 0 will send a broadcast message.
-    /// This test checks that number of broadcast messages is what we expected.
-    fn no_relay_broadcast_so_sender( num_nodes: usize) {
+    /// Creates a star shaped network with `num_nodes - 1` nodes conected to node 0.
+    /// It sends a broadcast message from node 0 and counts the number of
+    /// received messages that match the original one.
+    fn no_relay_broadcast_to_sender( num_nodes: usize) -> Fallible<()> {
         utils::setup();
-        let test_port_added = utils::next_port_offset( num_nodes + 1);
-        let network_id: u16 = 100;
+        let network_id = 100 as u16;
+        let networks = vec![network_id];
+        let test_port_added = utils::next_port_offset(num_nodes);
 
-        let (tx, rx) = mpsc::channel();
+        // 1.1. Root node adds callback for receive last broadcast packet.
+        let mut nodes = vec![];
+        let mut waiters = vec![];
+        let (bcast_tx, bcast_rx) = std::sync::mpsc::channel();
+        for i in 0..num_nodes {
+            let tx_i = bcast_tx.clone();
+            let (node, conn_waiter) = utils::make_node_and_sync( test_port_added + (i as u16), &networks, true)?;
+            let mh = node.message_handler();
+            mh.write().unwrap().add_packet_callback(
+                make_atomic_callback!( move |pac: &NetworkPacket| {
+                    into_err!(tx_i.send( pac.clone()))
+                }));
+            nodes.push(RefCell::new(node));
+            waiters.push(conn_waiter);
 
-        let mut nodes_and_threads: Vec<(P2PNode, _)> = Vec::with_capacity(num_nodes);
-
-        // 0. Create P2PNodes
-        for n in 0..num_nodes {
-            let tx_i = tx.clone();
-
-            let mut node = P2PNode::new(
-                    None, Some("127.0.0.1".to_string()), test_port_added + n as u16,
-                    None, None, tx_i, None, P2PNodeMode::NormalPrivateMode, None,
-                    vec![100], 100, true);
-
-            if n > 0 {
-                let root = &nodes_and_threads[0].0;
-                node.connect(
-                        ConnectionType::Node, root.get_listening_ip(),
-                        root.get_listening_port(), None).unwrap();
+            if i != 0 {
+                    let src_node = &nodes[i];
+                    let src_waiter = &waiters[i];
+                    let tgt_node = &nodes[0];
+                    utils::connect_and_wait_handshake(
+                            &mut *src_node.borrow_mut(),
+                            &*tgt_node.borrow(),
+                        src_waiter)?;
             }
-
-            let thread = node.spawn();
-            nodes_and_threads.push((node, thread));
         }
 
-        let root: &mut P2PNode = &mut nodes_and_threads[0].0;
-        let broadcast_msg = b"Hello broadcasted!";
+        let mut ack_count = 0;
+        while ack_count < num_nodes - 1 {
 
-        // 0. Gather agent checks that others P2PNode
-        let (net_tx, net_rx) = mpsc::channel();
+            // 3. Select random node in last level and send a broadcast.
+            let broadcast_msg = b"Hello broadcasted!";
+            {
+                let src_node = &mut nodes[0];
+                let src_node_id = Some(src_node.borrow().get_own_id());
 
-        let ga_exp_num_nodes = (num_nodes -1) as u16;
-        let ga_root_id = root.get_own_id();
-        let ga_network_id = network_id;
+                debug!( "Send message from {} in broadcast",
+                        src_node.borrow().get_listening_port());
 
-        let gather_agent = thread::spawn( move || {
-            let mut exp_broadcast = ga_exp_num_nodes as i32;
-            let mut exp_handshake = ga_exp_num_nodes as i32;
+                src_node.borrow_mut().send_message(
+                    src_node_id, network_id, None,
+                    broadcast_msg, true)
+                    .map_err( |e| panic!(e))
+                    .ok();
+            }
 
-            for received in rx {
-                match *received {
-                    NetworkMessage::NetworkPacket(
-                        NetworkPacket::BroadcastedMessage(
-                            ref sender, ref _msgid, ref nid, ref msg), ..) =>
-                    {
-                        exp_broadcast -= 1;
-                        assert!( exp_broadcast >= 0);
-
-                        if exp_broadcast == 0 {
-                            debug!( "Broadcast has been confirmed by {} nodes", ga_exp_num_nodes);
-                            net_tx.send( NetworkStep::Broadcast( ga_exp_num_nodes)).unwrap();
-                        }
-                        assert_eq!( *msg, broadcast_msg);
-                        assert_eq!( ga_root_id, sender.id());
-                        assert_eq!( ga_network_id, *nid);
+            // 4. Wait broadcast in root.
+            if let Ok(bcast_msg) = bcast_rx.recv_timeout( time::Duration::from_secs(2)) {
+                match bcast_msg {
+                    NetworkPacket::BroadcastedMessage(ref _sender, ref _msgid, ref _nid, ref msg) => {
+                        assert_eq!( msg, broadcast_msg);
+                        ack_count += 1;
                     },
-                    NetworkMessage::NetworkRequest( NetworkRequest::Handshake(..), ..) => {
-                        exp_handshake -= 1;
-                        assert!( exp_handshake >= 0);
-
-                        if exp_handshake == 0 {
-                            debug!( "Handshake has been confirmed by {} nodes", ga_exp_num_nodes);
-                            net_tx.send( NetworkStep::Handshake( ga_exp_num_nodes)).unwrap();
-                        }
-                    },
-                    ref other_msg => { debug!( "No forward message: {:?}", other_msg); }
-                }
-
-                if exp_broadcast == 0 && exp_handshake == 0 {
-                    break;
+                    _ => {}
                 }
             }
-        });
+        }
 
-        // 1. Wait until all nodes make their handshake.
-        let net_rx_msg_1 = net_rx.recv_timeout( utils::max_recv_timeout())
-            .expect("Unexpected message while handshake waiting");
+        Ok(())
 
-        match net_rx_msg_1 {
-            NetworkStep::Handshake(count) =>  assert_eq!( (num_nodes -1) as u16, count),
-            e => panic!( "Unexpected message while handshake waiting: {:?}", e)
-        };
-
-        // 2. Send broadcast message.
-        let root_id = Some(root.get_own_id());
-        root.send_message(
-                root_id, network_id, None,
-                broadcast_msg, true)
-            .map_err( |e| panic!(e))
-            .ok();
-        debug!( "Broadcast message from root({}) node to others!", root.get_listening_port());
-
-        // 3. Wait until all broadcast messages are received.
-        let net_rx_msg_2 = net_rx.recv_timeout( utils::max_recv_timeout())
-            .expect( "Unexpected message while broadcast waiting");
-
-        match net_rx_msg_2 {
-            NetworkStep::Broadcast( count ) => assert_eq!( (num_nodes -1) as u16, count),
-            e => panic!( "Unexpected message while broadcast waiting: {:?}", e)
-        };
-
-        gather_agent.join().expect( "Gather agent has failed");
     }
 
     /// This test has been used in
@@ -843,7 +794,7 @@ mod tests {
             let root_previous_level_idx: usize = rng.gen_range( 0, nodes_per_level[level-1].len());
             let root_curr_level_idx: usize = rng.gen_range( 0, count_nodes);
 
-            let target_node = nodes_per_level[level-1][root_previous_level_idx].clone();
+            let target_node = &nodes_per_level[level-1][root_previous_level_idx];
             {
                 let src_node = &nodes_per_level[level][root_curr_level_idx];
                 let src_waiter = &conn_waiters_per_level[level][root_curr_level_idx];
