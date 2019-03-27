@@ -1,6 +1,6 @@
 use std::rc::Rc;
-use failure::{Error, Fallible, bail, Backtrace};
-use std::sync::{Arc, Mutex, RwLock};
+use failure::{Error, Fallible, bail};
+use std::sync::{Arc, RwLock};
 use std::cell::Cell;
 use std::sync::mpsc::{ Sender, channel };
 use std::collections::{ VecDeque };

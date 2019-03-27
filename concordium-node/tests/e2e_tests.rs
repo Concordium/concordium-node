@@ -389,9 +389,6 @@ mod tests {
                               }
                           });
 
-        let mut peers: Vec<(usize, P2PNode, PrometheusServer)> = vec![];
-        let mut peer_ports: Vec<usize> = vec![];
-
         let message_count_estimated = mesh_node_count;
         let mut peers: Vec<(usize, P2PNode, PrometheusServer)> = Vec::with_capacity(mesh_node_count);
         let mut peer_ports: Vec<usize> = Vec::with_capacity(mesh_node_count);
