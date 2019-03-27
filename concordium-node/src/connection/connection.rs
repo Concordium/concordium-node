@@ -49,7 +49,6 @@ pub enum ConnectionStatus {
     Established
 }
 
-
 pub struct Connection {
     socket: TcpStream,
     token: Token,
@@ -128,7 +127,7 @@ impl Connection {
 
     // Setup handshake handler
     fn setup_handshake_handler(&mut self) {
-        let cloned_message_handler = self.common_message_handler.clone();
+        let cloned_message_handler = Rc::clone(&self.common_message_handler);
         self.message_handler
             .add_callback(make_atomic_callback!(
                 move |msg: &NetworkMessage| {
@@ -174,8 +173,9 @@ impl Connection {
                 handle_by_private!( self.dptr, &NetworkRequest,
                                     default_network_request_leave_network))
             .add_handshake_callback(
-                handle_by_private!( self.dptr, &NetworkRequest,
-                                    default_network_request_handshake))
+                make_atomic_callback!( move |m: &NetworkRequest| {
+                    default_network_request_handshake(m)
+                }))
             .add_ban_node_callback( update_last_seen_handler.clone())
             .add_unban_node_callback( update_last_seen_handler.clone())
             .add_join_network_callback( update_last_seen_handler.clone())
@@ -194,8 +194,9 @@ impl Connection {
                 handle_by_private!( self.dptr, &NetworkResponse,
                                     default_network_response_pong))
             .add_handshake_callback(
-                handle_by_private!( self.dptr, &NetworkResponse,
-                                    default_network_response_handshake))
+                make_atomic_callback!( move |m: &NetworkResponse| {
+                    default_network_response_handshake(m)
+                }))
             .add_peer_list_callback(
                 handle_by_private!( self.dptr, &NetworkResponse,
                                     default_network_response_peer_list));
@@ -208,7 +209,7 @@ impl Connection {
         let response_handler = self.make_response_handler();
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
-        let cloned_message_handler = self.common_message_handler.clone();
+        let cloned_message_handler = Rc::clone(&self.common_message_handler);
 
         self.message_handler = MessageHandler::new();
         self.message_handler

@@ -263,7 +263,6 @@ mod tests {
         let msg_recv = utils::wait_direct_message( &msg_waiter_1)?;
         assert_eq!(&msg[..], &msg_recv[..]);
 
-
         Ok(())
     }
 
@@ -354,40 +353,39 @@ mod tests {
 
         let (sender, receiver) = mpsc::channel();
 
-        let _guard =
-            thread::spawn(move || {
-                              loop {
-                                  if let Ok(msg) = receiver.recv() {
-                                      match msg {
-                                          P2PEvent::ConnectEvent(ip, port) => {
-                                              info!("Received connection from {}:{}", ip, port)
-                                          }
-                                          P2PEvent::DisconnectEvent(msg) => {
-                                              info!("Received disconnect for {}", msg)
-                                          }
-                                          P2PEvent::ReceivedMessageEvent(node_id) => {
-                                              info!("Received message from {:?}", node_id)
-                                          }
-                                          P2PEvent::SentMessageEvent(node_id) => {
-                                              info!("Sent message to {:?}", node_id)
-                                          }
-                                          P2PEvent::InitiatingConnection(ip, port) => {
-                                              info!("Initiating connection to {}:{}", ip, port)
-                                          }
-                                          P2PEvent::JoinedNetwork(peer, network_id) => {
-                                              info!("Peer {} joined network {}",
-                                                    peer.id().to_string(),
-                                                    network_id);
-                                          }
-                                          P2PEvent::LeftNetwork(peer, network_id) => {
-                                              info!("Peer {} left network {}",
-                                                    peer.id().to_string(),
-                                                    network_id);
-                                          }
-                                      }
-                                  }
-                              }
-                          });
+        let _guard = thread::spawn(move || {
+            loop {
+                if let Ok(msg) = receiver.recv() {
+                    match msg {
+                        P2PEvent::ConnectEvent(ip, port) => {
+                            info!("Received connection from {}:{}", ip, port)
+                        }
+                        P2PEvent::DisconnectEvent(msg) => {
+                            info!("Received disconnect for {}", msg)
+                        }
+                        P2PEvent::ReceivedMessageEvent(node_id) => {
+                            info!("Received message from {:?}", node_id)
+                        }
+                        P2PEvent::SentMessageEvent(node_id) => {
+                            info!("Sent message to {:?}", node_id)
+                        }
+                        P2PEvent::InitiatingConnection(ip, port) => {
+                            info!("Initiating connection to {}:{}", ip, port)
+                        }
+                        P2PEvent::JoinedNetwork(peer, network_id) => {
+                            info!("Peer {} joined network {}",
+                                  peer.id().to_string(),
+                                  network_id);
+                        }
+                        P2PEvent::LeftNetwork(peer, network_id) => {
+                            info!("Peer {} left network {}",
+                                  peer.id().to_string(),
+                                  network_id);
+                        }
+                    }
+                }
+            }
+        });
 
         let message_count_estimated = mesh_node_count;
         let mut peers: Vec<(usize, P2PNode, PrometheusServer)> = Vec::with_capacity(mesh_node_count);
@@ -514,6 +512,7 @@ mod tests {
             let mut islands: Vec<Vec<(usize,
                                         P2PNode,
                                         PrometheusServer, usize)>> = Vec::with_capacity(islands_count);
+            let localhost = "127.0.0.1".parse().unwrap();
 
             for island in 0..islands_count {
                 let mut peers_islands_and_ports: Vec<(
@@ -561,7 +560,6 @@ mod tests {
                     });
                     node.spawn();
                     if peer > 0 {
-                        let localhost = "127.0.0.1".parse().unwrap();
                         for i in 0..peer {
                             node.connect(ConnectionType::Node, localhost, (instance_port-1-(i)) as u16, None).ok();
                         }
@@ -578,7 +576,7 @@ mod tests {
                 if let Some((..,ref mut central_peer, _, _)) = peers.get_mut(0) {
                     for i in 1..islands_count {
                         central_peer.connect(ConnectionType::Node,
-                                              "127.0.0.1".parse().unwrap(),
+                                              localhost,
                                              (test_port_added+(island_size*i)) as u16, None)
                                     .map_err(|e| println!("{}", e)).ok();
                     }
@@ -641,7 +639,7 @@ mod tests {
     }
 
     /// Creates a star shaped network with `num_nodes - 1` nodes conected to node 0.
-    /// It sends a broadcast message from node 0 and count the number of
+    /// It sends a broadcast message from node 0 and counts the number of
     /// received messages that match the original one.
     fn no_relay_broadcast_to_sender( num_nodes: usize) -> Fallible<()> {
         utils::setup();
@@ -679,7 +677,7 @@ mod tests {
         while ack_count < num_nodes - 1 {
 
             // 3. Select random node in last level and send a broadcast.
-            let broadcast_msg: &str = "Hello broadcasted!";
+            let broadcast_msg = b"Hello broadcasted!";
             {
                 let src_node = &mut nodes[0];
                 let src_node_id = Some(src_node.borrow().get_own_id());
@@ -689,7 +687,7 @@ mod tests {
 
                 src_node.borrow_mut().send_message(
                     src_node_id, network_id, None,
-                    &broadcast_msg.as_bytes().to_vec(), true)
+                    broadcast_msg, true)
                     .map_err( |e| panic!(e))
                     .ok();
             }
@@ -698,8 +696,7 @@ mod tests {
             if let Ok(bcast_msg) = bcast_rx.recv_timeout( time::Duration::from_secs(2)) {
                 match bcast_msg {
                     NetworkPacket::BroadcastedMessage(ref _sender, ref _msgid, ref _nid, ref msg) => {
-                        let str_msg = std::str::from_utf8( msg).unwrap();
-                        assert_eq!( str_msg, broadcast_msg);
+                        assert_eq!( msg, broadcast_msg);
                         ack_count += 1;
                     },
                     _ => {}

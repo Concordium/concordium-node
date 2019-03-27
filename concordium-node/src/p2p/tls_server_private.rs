@@ -67,14 +67,12 @@ impl TlsServerPrivate {
 
     pub fn addr_is_banned(&self, sockaddr: &SocketAddr) -> Fallible<bool> {
         let p2p_peer = P2PPeerBuilder::default()
-                        .ip(sockaddr.ip().clone())
+                        .ip(sockaddr.ip())
                         .port(sockaddr.port())
                         .connection_type(ConnectionType::Node)
                         .build()?;
         Ok(self.banned_peers.contains(&p2p_peer))
     }
-
-
 
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other instances.

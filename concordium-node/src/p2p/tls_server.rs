@@ -40,7 +40,6 @@ pub struct TlsServer {
     message_handler: Arc< RwLock< MessageHandler>>,
     dptr: Rc< RefCell< TlsServerPrivate>>,
     blind_trusted_broadcast: bool,
-
     prehandshake_validations: PreHandshake
 }
 
@@ -318,8 +317,6 @@ impl TlsServer {
                 Ok(())
             })
     }
-
-
 }
 
 impl MessageManager for TlsServer {

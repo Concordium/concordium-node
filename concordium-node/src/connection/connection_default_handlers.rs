@@ -12,6 +12,15 @@ use super::fails;
 use super::handler_utils::*;
 use failure::{ bail };
 
+macro_rules! reject_handshake {
+    ($t:ident, $r:ident) => {{
+        if let $t::Handshake(..) = $r {
+            bail!(fails::UnwantedMessageError{message: "Unwanted handshake message".to_owned()})
+        }
+
+        Ok(())
+    }}
+}
 
 /// Default `NetworkRequest::Ping` handler.
 /// It responds with a pong packet.
@@ -151,14 +160,8 @@ pub fn default_network_response_peer_list(
 ///     - Statistics: Export to Prometheus
 ///     - Log: Join to network
 pub fn default_network_response_handshake(
-        _priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         res: &NetworkResponse) -> FunctorResult {
-
-    if let NetworkResponse::Handshake(_, _, _) = res {
-        bail!(fails::UnwantedMessageError{message: "Unwanted handhsake request".to_owned()})
-    }
-
-    Ok(())
+    reject_handshake!(NetworkResponse, res)
 }
 
 /// It adds new network and update its buckets.
@@ -210,14 +213,8 @@ pub fn default_network_request_leave_network(
 ///     - It adds the new network, and updates its buckets.
 ///     - Finally, it sends its peer list.
 pub fn default_network_request_handshake(
-        _priv_conn: &Rc< RefCell< ConnectionPrivate>>,
         req: &NetworkRequest) -> FunctorResult {
-   if let NetworkRequest::Handshake(_, _, _) = req {
-        bail!(fails::UnwantedMessageError{message: "Unwanted handhsake request".to_owned()})
-    }
-
-    Ok(())
-
+    reject_handshake!(NetworkRequest, req)
 }
 
 /// Unknown messages only updates statistic information.

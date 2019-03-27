@@ -26,7 +26,7 @@ pub fn handshake_response_handle(
         let own_id = priv_conn_borrow.own_id.clone();
         let bucket_sender = P2PPeer::from( conn_type,
                                            rpeer.id().clone(),
-                                           rpeer.ip().clone(),
+                                           rpeer.ip(),
                                            rpeer.port());
         safe_write!(priv_conn_borrow.buckets)?
             .insert_into_bucket(&bucket_sender, &own_id, nets.clone());

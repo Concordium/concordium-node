@@ -308,9 +308,8 @@ impl P2PNode {
         self.process_th = Some(Rc::new(Cell::new(thread::spawn(move || {
                           let mut events = Events::with_capacity(1024);
                           loop {
-                              self_clone.process(&mut events)
-                                  .map_err(|e| error!("{}", e))
-                                  .ok();
+                              let _ = self_clone.process(&mut events)
+                                  .map_err(|e| error!("{}", e));
                               if let Ok(_) = rx.try_recv() {
                                   break;
                               }

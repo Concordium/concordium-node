@@ -1,4 +1,3 @@
-use std::rc::{ Rc };
 use std::cell::{ RefCell };
 use std::sync::mpsc::{ Sender };
 use byteorder::{ NetworkEndian,  WriteBytesExt };
@@ -79,7 +78,7 @@ pub fn log_as_leave_network(
 
 /// It sends handshake message and a ping message.
 pub fn send_handshake_and_ping(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>
+        priv_conn: &RefCell< ConnectionPrivate>
     ) -> FunctorResult {
 
     let (my_nets, self_peer) = {
@@ -106,11 +105,9 @@ pub fn send_handshake_and_ping(
     Ok(())
 }
 
-
-
 /// It sends its peer list.
 pub fn send_peer_list(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         sender: &P2PPeer,
         nets: &[u16]
     ) -> FunctorResult {
@@ -142,7 +139,7 @@ pub fn send_peer_list(
 }
 
 pub fn update_buckets(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         sender: &P2PPeer,
         nets: &[u16],
         valid_mode: bool
@@ -153,14 +150,11 @@ pub fn update_buckets(
     let buckets = & priv_conn_borrow.buckets;
     let sender_ip = sender.ip();
 
-    if valid_mode {
+    if (valid_mode) ||  (sender_ip.is_global()
+            && !sender_ip.is_multicast()
+            && !sender_ip.is_documentation()) {
         safe_write!(buckets)?
             .insert_into_bucket( sender, &own_id, nets.to_owned());
-    } else if sender_ip.is_global()
-            && !sender_ip.is_multicast()
-            && !sender_ip.is_documentation() {
-                safe_write!(buckets)?
-                    .insert_into_bucket( sender, &own_id, nets.to_owned());
     }
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
@@ -177,7 +171,7 @@ pub fn update_buckets(
 
 /// Node is valid if its mode is `NormalPrivateMode` or `BootstrapperPrivateMode`.
 pub fn is_valid_mode(
-    priv_conn: &Rc< RefCell< ConnectionPrivate>> ) -> bool {
+    priv_conn: &RefCell< ConnectionPrivate> ) -> bool {
     let mode = priv_conn.borrow().mode;
 
     mode == P2PNodeMode::BootstrapperPrivateMode
