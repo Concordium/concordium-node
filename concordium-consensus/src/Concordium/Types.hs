@@ -138,7 +138,9 @@ data BlockPointer = BlockPointer {
     -- |Time at which the block was first received
     bpReceiveTime :: UTCTime,
     -- |Time at which the block was first considered part of the tree (validated)
-    bpArriveTime :: UTCTime
+    bpArriveTime :: UTCTime,
+    -- |Number of transactions in a block
+    bpTransactionCount :: Int
 }
 
 instance Eq BlockPointer where
@@ -248,3 +250,4 @@ makeGenesisBlockPointer genData = theBlockPointer
         bpState = initState 2
         bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
         bpArriveTime = bpReceiveTime
+        bpTransactionCount = 0

@@ -60,7 +60,9 @@ data SkovStatistics = SkovStatistics {
     _blockArriveLatencyEMA :: Double,
     _blockArriveLatencyEMVar :: Double,
     _blockArrivePeriodEMA :: Maybe Double,
-    _blockArrivePeriodEMVar :: Maybe Double
+    _blockArrivePeriodEMVar :: Maybe Double,
+    _transactionsPerBlockEMA :: Double,
+    _transactionsPerBlockEMVar :: Double
 }
 makeLenses ''SkovStatistics
 
@@ -82,7 +84,9 @@ initialSkovStatistics = SkovStatistics {
     _blockArriveLatencyEMA = 0,
     _blockArriveLatencyEMVar = 0,
     _blockArrivePeriodEMA = Nothing,
-    _blockArrivePeriodEMVar = Nothing
+    _blockArrivePeriodEMVar = Nothing,
+    _transactionsPerBlockEMA = 0,
+    _transactionsPerBlockEMVar = 0
 }
 
 data SkovData = SkovData {
@@ -385,7 +389,8 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                                 bpHeight = height,
                                 bpState = gs,
                                 bpReceiveTime = recTime,
-                                bpArriveTime = curTime
+                                bpArriveTime = curTime,
+                                bpTransactionCount = length ts
                             }
                             blockTable . at cbp ?= BlockAlive blockP
                             logEvent Skov LLInfo $ "Block " ++ show cbp ++ " arrived"
@@ -413,6 +418,17 @@ updateArriveStatistics BlockPointer{..} = do
         statistics . blocksVerifiedCount += 1
         updateLatency
         updatePeriod
+        updateTransactionsPerBlock
+        s <- use statistics
+        logEvent Skov LLInfo $ "Arrive statistics:" ++
+            " blocksVerifiedCount=" ++ show (s ^. blocksVerifiedCount) ++
+            " blockLastArrive=" ++ show (maybe (0::Double) (realToFrac . utcTimeToPOSIXSeconds) $ s ^. blockLastArrive) ++
+            " blockArriveLatencyEMA=" ++ show (s ^. blockArriveLatencyEMA) ++
+            " blockArriveLatencyEMSD=" ++ show (sqrt $ s ^. blockArriveLatencyEMVar) ++
+            " blockArrivePeriodEMA=" ++ show (s ^. blockArrivePeriodEMA) ++
+            " blockArrivePeriodEMSD=" ++ show (sqrt <$> s ^. blockArrivePeriodEMVar) ++
+            " transactionsPerBlockEMA=" ++ show (s ^. transactionsPerBlockEMA) ++
+            " transactionsPerBlockEMSD=" ++ show (sqrt $ s ^. transactionsPerBlockEMVar)
     where
         curTime = bpArriveTime
         updateLatency = do
@@ -430,6 +446,11 @@ updateArriveStatistics BlockPointer{..} = do
                 statistics . blockArrivePeriodEMA ?= oldEMA + emaWeight * delta
                 oldEMVar <- fromMaybe 0 <$> (use $ statistics . blockArrivePeriodEMVar)
                 statistics . blockArrivePeriodEMVar ?= (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+        updateTransactionsPerBlock = do
+            oldEMA <- use $ statistics . transactionsPerBlockEMA
+            let delta = fromIntegral bpTransactionCount - oldEMA
+            statistics . transactionsPerBlockEMA .= oldEMA + emaWeight * delta
+            statistics . transactionsPerBlockEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
 
 -- | Called when a block is received to update the statistics.
 updateReceiveStatistics :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => PendingBlock -> m ()
@@ -437,6 +458,14 @@ updateReceiveStatistics PendingBlock{..} = do
         statistics . blocksReceivedCount += 1
         updateLatency
         updatePeriod
+        s <- use statistics
+        logEvent Skov LLInfo $ "Receive statistics:" ++
+            " blocksReceivedCount=" ++ show (s ^. blocksReceivedCount) ++
+            " blockLastReceived=" ++ show (maybe (0::Double) (realToFrac . utcTimeToPOSIXSeconds) $ s ^. blockLastReceived) ++
+            " blockReceiveLatencyEMA=" ++ show (s ^. blockReceiveLatencyEMA) ++
+            " blockReceiveLatencyEMSD=" ++ show (sqrt $ s ^. blockReceiveLatencyEMVar) ++
+            " blockReceivePeriodEMA=" ++ show (s ^. blockReceivePeriodEMA) ++
+            " blockReceivePeriodEMSD=" ++ show (sqrt <$> s ^. blockReceivePeriodEMVar)
     where
         updateLatency = do
             slotTime <- getSlotTime (blockSlot pbBlock)
