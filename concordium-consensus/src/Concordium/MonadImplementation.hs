@@ -434,7 +434,7 @@ updateArriveStatistics BlockPointer{..} = do
         updateLatency = do
             slotTime <- getSlotTime (blockSlot bpBlock)
             oldEMA <- use $ statistics . blockArriveLatencyEMA
-            let delta = realToFrac (diffUTCTime curTime slotTime)
+            let delta = realToFrac (diffUTCTime curTime slotTime) - oldEMA
             statistics . blockArriveLatencyEMA .= oldEMA + emaWeight * delta
             statistics . blockArriveLatencyEMVar %= \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
         updatePeriod = do

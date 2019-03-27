@@ -44,8 +44,8 @@ transactions gen = trs 0 (randoms gen)
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
-        r <- randomRIO (5000, 15000)
-        threadDelay r
+        -- r <- randomRIO (5000, 15000)
+        threadDelay 50000
         sendTransactions chan ts
 
 makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
