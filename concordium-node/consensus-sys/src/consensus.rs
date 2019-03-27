@@ -124,9 +124,6 @@ impl ConsensusBaker {
     }
 }
 
-unsafe impl Send for ConsensusBaker {}
-unsafe impl Sync for ConsensusBaker {}
-
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
     receiver_block: Arc<Mutex<mpsc::Receiver<Block>>>,
