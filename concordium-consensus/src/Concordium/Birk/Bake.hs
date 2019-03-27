@@ -19,6 +19,7 @@ import Concordium.Payload.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Payload.Transaction
+import Concordium.Logger
 
 data BakerIdentity = BakerIdentity {
     bakerId :: BakerId,
@@ -43,19 +44,20 @@ processInputs bh = do
       
     -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
 
-bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
+bakeForSlot :: (KontrolMonad m, PayloadMonad m, LoggerMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
-    -- TODO: Should check that the best block is not already in this slot!
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
     BirkParameters{..} <- getBirkParameters slot
     electionProof <- MaybeT . pure $ do
         lotteryPower <- bakerLotteryPower <$> birkBakers ^? ix bakerId
         leaderElection birkLeadershipElectionNonce birkElectionDifficulty slot bakerElectionKey lotteryPower
+    logEvent Baker LLInfo $ "Won lottery in " ++ show slot
     let nonce = computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
     payload <- MaybeT $ processInputs bb
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) payload
+    logEvent Baker LLInfo $ "Baked block"
     _ <- storeBlock block
     return block
     

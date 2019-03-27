@@ -63,14 +63,16 @@ relay inp monitor outps = loop
                 MsgNewBlock block -> do
                     writeChan monitor (Left block)
                     forM_ outps $ \outp -> forkIO $ do
-                        factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        let factor = 1
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgBlockReceived block)
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
-                        factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        let factor = 1
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -78,7 +80,8 @@ relay inp monitor outps = loop
                 MsgFinalizationRecord fr -> do
                     writeChan monitor (Right fr)
                     forM_ outps $ \outp -> forkIO $ do
-                        factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
+                        let factor = 1
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -100,14 +103,18 @@ main = do
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
-    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.8
+    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(_, (_, bid)) -> do
-        (cin, cout, out) <- makeRunner bid gen
+    chans <- mapM (\(bix, (_, bid)) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
+        let logM src lvl msg = do
+                                    timestamp <- getCurrentTime
+                                    appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
+        (cin, cout, out) <- makeRunner logM bid gen
         forkIO $ sendTransactions cin trans
         return (cin, cout, out)) bis
     monitorChan <- newChan

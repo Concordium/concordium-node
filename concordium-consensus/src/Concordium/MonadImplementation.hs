@@ -29,6 +29,7 @@ import Concordium.Skov.Monad
 import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Afgjort.Finalize
+import Concordium.Logger
 
 data BlockStatus =
     BlockAlive !BlockPointer
@@ -180,14 +181,15 @@ data SkovListeners m = SkovListeners {
 -- been in the tree before, and now it never can be.  Any descendents of
 -- this block that have previously arrived cannot have been added to the
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
-blockArriveDead :: (MonadState s m, SkovLenses s) => BlockHash -> m ()
+blockArriveDead :: (MonadState s m, SkovLenses s, LoggerMonad m) => BlockHash -> m ()
 blockArriveDead cbp = do
     blockTable . at cbp ?= BlockDead
+    logEvent Skov LLDebug $ "Block " ++ show cbp ++ " arrived dead"
     children <- fmap pbHash <$> use (possiblyPendingTable . at cbp . non [])
     forM_ children blockArriveDead
 
 -- |Purge pending blocks with slot numbers predating the last finalized slot.
-purgePending :: (MonadState s m, SkovLenses s) => m ()
+purgePending :: (MonadState s m, SkovLenses s, LoggerMonad m) => m ()
 purgePending = do
         lfSlot <- use (skov . to lastFinalizedSlot)
         let purge ppq = case MPQ.minViewWithKey ppq of
@@ -224,6 +226,7 @@ processFinalizationPool sl@SkovListeners{..} = do
     case finPending of
         Nothing -> return ()
         Just frs -> do
+            logEvent Skov LLDebug $ "Processing " ++ show (length frs) ++ " finalization records at index " ++ show nextFinIx
             blockStatus <- use blockTable
             lastFinHeight <- use (skov . to lastFinalizedHeight)
             finParams <- getFinalizationParameters
@@ -245,6 +248,7 @@ processFinalizationPool sl@SkovListeners{..} = do
             case foldr checkFin (Right []) frs of
                 -- We got a valid finalization proof, so progress finalization
                 Left (finRec, newFinBlock) -> do
+                    logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock)
                     finalizationPool . at nextFinIx .= Nothing
                     finalizationList %= (Seq.:|> (finRec, newFinBlock))
                     oldBranches <- use branches
@@ -252,10 +256,12 @@ processFinalizationPool sl@SkovListeners{..} = do
                     let
                         pruneTrunk _ Seq.Empty = return ()
                         pruneTrunk keeper (brs Seq.:|> l) = do
-                            forM_ l $ \bp -> if bp == keeper then
+                            forM_ l $ \bp -> if bp == keeper then do
                                                 blockTable . at (bpHash bp) ?= BlockFinalized bp finRec
-                                            else
+                                                logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked finalized"
+                                            else do
                                                 blockTable . at (bpHash bp) ?= BlockDead
+                                                logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
                             pruneTrunk (bpParent keeper) brs
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
                     -- Prune the branches
@@ -269,6 +275,7 @@ processFinalizationPool sl@SkovListeners{..} = do
                                     return (bp:l)
                                 else do
                                     blockTable . at (bpHash bp) ?= BlockDead
+                                    logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
                                     return l)
                                 [] brs
                             rest' <- pruneBranches survivors rest
@@ -310,6 +317,7 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
             Nothing -> do
                 possiblyPendingTable . at parent . non [] %= (pb:)
                 possiblyPendingQueue %= MPQ.insert (blockSlot block) (cbp, blockPointer block)
+                logEvent Skov LLDebug $ "Block " ++ show cbp ++ " is pending its parent (" ++ show parent ++ ")"
                 return Nothing
             Just BlockDead -> mzero
             Just (BlockAlive parentP) -> tryAddLiveParent parentP
@@ -327,6 +335,7 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                 -- add this block to the queue at the appropriate point
                 Just (BlockAlive lfBlockP) -> do
                     blocksAwaitingLastFinalized %= MPQ.insert (bpHeight lfBlockP) pb
+                    logEvent Skov LLDebug $ "Block " ++ show cbp ++ " is pending finalization of block " ++ show (bpHash lfBlockP) ++ " at height " ++ show (theBlockHeight $ bpHeight lfBlockP)
                     return Nothing
                 -- If the block's last finalized block is finalized, we can proceed with validation.
                 -- Together with the fact that the parent is alive, we know that the new node
@@ -376,6 +385,7 @@ tryAddBlock pb@(PendingBlock cbp block recTime) = do
                                 bpArriveTime = curTime
                             }
                             blockTable . at cbp ?= BlockAlive blockP
+                            logEvent Skov LLInfo $ "Block " ++ show cbp ++ " arrived"
                             -- Update the statistics
                             updateArriveStatistics blockP
                             -- Add to the branches
@@ -460,10 +470,11 @@ doStoreBlock sl block0 = do
     oldBlock <- use (blockTable . at cbp)
     when (isNothing oldBlock) $ do
         -- The block is new, so we have some work to do.
+        logEvent Skov LLDebug $ "Received block " ++ show cbp
         curTime <- liftIO getCurrentTime
         let pb = (PendingBlock cbp block0 curTime)
-        addBlock sl pb
         updateReceiveStatistics pb
+        addBlock sl pb
     return cbp
 
 doFinalizeBlock :: (MonadState s m, SkovLenses s, SkovMonad m) => SkovListeners m -> FinalizationRecord -> m ()
@@ -514,7 +525,7 @@ noopSkovListeners = SkovListeners {
     onFinalize = \_ _ -> return ()
 }
 
-instance MonadIO m => SkovMonad (StateT SkovData m) where
+instance (MonadIO m, LoggerMonad m) => SkovMonad (StateT SkovData m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
@@ -553,12 +564,12 @@ doGetTransactionsAtBlock bp = do
     runMaybeT $ getTrans bp
 
 
-instance MonadIO m => PayloadMonad (StateT SkovData m) where
+instance (MonadIO m, LoggerMonad m) => PayloadMonad (StateT SkovData m) where
     addPendingTransaction = doAddPendingTransaction
     getPendingTransactionsAtBlock  = doGetPendingTransactionsAtBlock
     getTransactionsAtBlock = doGetTransactionsAtBlock
 
-instance MonadIO m => KontrolMonad (StateT SkovData m)
+instance (MonadIO m, LoggerMonad m) => KontrolMonad (StateT SkovData m)
 
 data SkovFinalizationState = SkovFinalizationState {
     _sfsSkov :: SkovData,
@@ -584,7 +595,7 @@ sfsSkovListeners = SkovListeners {
     onFinalize = notifyBlockFinalized
 }
 
-instance MonadIO m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
+instance (MonadIO m, LoggerMonad m) => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
@@ -599,13 +610,13 @@ instance MonadIO m => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOu
     branchesFromTop = doBranchesFromTop
     getBlocksAtHeight = doGetBlocksAtHeight
 
-instance MonadIO m => FinalizationMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
+instance (MonadIO m, LoggerMonad m) => FinalizationMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
     broadcastFinalizationMessage = tell . Endo . (:) . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . Endo . (:) . BroadcastFinalizationRecord
 
-instance MonadIO m => PayloadMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
+instance (MonadIO m, LoggerMonad m) => PayloadMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
     addPendingTransaction = doAddPendingTransaction
     getPendingTransactionsAtBlock  = doGetPendingTransactionsAtBlock
     getTransactionsAtBlock = doGetTransactionsAtBlock
 
-instance MonadIO m => KontrolMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m)
+instance (MonadIO m, LoggerMonad m) => KontrolMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m)

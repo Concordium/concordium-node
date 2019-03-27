@@ -21,42 +21,10 @@ import Concordium.Payload.Transaction
 import Concordium.Runner
 import Concordium.Show
 import Concordium.MonadImplementation (SkovFinalizationState)
+import Concordium.Logger
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
-
--- Test functions
-
--- triple :: Int64 -> IO ()
--- triple x = print x
-
--- foreign export ccall triple :: Int64 -> IO ()
-
--- foreign import ccall "dynamic" mkCallback :: FunPtr (I32 -> IO I32) -> I32 -> IO I32
-
--- callbackTwice :: FunPtr (I32 -> IO I32) -> IO I32
--- callbackTwice fun = do
---     let f = mkCallback fun
---     n <- f 0
---     f n
-
-
--- foreign export ccall callbackTwice :: FunPtr (I32 -> IO I32) -> IO I32
-
--- printCString :: CString -> IO ()
--- printCString cs = do
---     s <- peekCString cs
---     putStrLn s
-
--- foreign export ccall printCString :: CString -> IO ()
-
--- foreign import ccall "dynamic" mkCStringCallback :: FunPtr (CString -> IO ()) -> CString -> IO ()
-
--- callbackWithCString :: FunPtr (CString -> IO ()) -> IO ()
--- callbackWithCString cb =
---     withCString "Hello cruel world!" (mkCStringCallback cb)
-
--- foreign export ccall callbackWithCString :: FunPtr (CString -> IO ()) -> IO ()
 
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
@@ -129,6 +97,13 @@ type LogCallback = Word8 -> Word8 -> CString -> IO()
 foreign import ccall "dynamic" callBlockCallback :: FunPtr BlockCallback -> BlockCallback
 foreign import ccall "dynamic" callLogCallback :: FunPtr LogCallback -> LogCallback
 
+toLogMethod :: FunPtr LogCallback -> LogMethod IO
+toLogMethod logCallbackPtr = le
+    where
+        logCallback = callLogCallback logCallbackPtr
+        le src lvl msg = BS.useAsCString (BS.pack msg) $
+                            logCallback (logSourceId src) (logLevelId lvl)
+
 outLoop :: Chan OutMessage -> BlockCallback -> IO ()
 outLoop chan cbk = do
     readChan chan >>= \case
@@ -147,15 +122,16 @@ startBaker ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
 startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
-  BS.useAsCString (BS.pack "Starting up baker") $ \stt -> (callLogCallback lcbk) 0 3 stt
-  gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
-  bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
-  case (decode gdata, decode bdata) of
-    (Right genData, Right bid) -> do
-      (cin, cout, out) <- makeRunner bid genData
-      forkIO $ outLoop cout (callBlockCallback bcbk)
-      newStablePtr (BakerRunner cin cout out)
-    _   -> ioError (userError $ "Error decoding serialized data.")
+        gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
+        bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
+        case (decode gdata, decode bdata) of
+            (Right genData, Right bid) -> do
+                (cin, cout, out) <- makeRunner logM bid genData
+                forkIO $ outLoop cout (callBlockCallback bcbk)
+                newStablePtr (BakerRunner cin cout out)
+            _ -> ioError (userError $ "Error decoding serialized data.")
+    where
+        logM = toLogMethod lcbk
 
 stopBaker :: StablePtr BakerRunner -> IO ()
 stopBaker bptr = do

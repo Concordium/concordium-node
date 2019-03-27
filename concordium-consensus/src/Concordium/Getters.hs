@@ -14,6 +14,7 @@ import Concordium.Types as T
 import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
+import Concordium.Logger
 
 import Data.IORef
 import Text.Read hiding (get)
@@ -122,7 +123,7 @@ hsh = show . bpHash
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
     sfs <- readIORef sfsRef
-    flip evalStateT (sfs ^. sfsSkov) $ do
+    runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
         return $ object [
@@ -149,7 +150,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> do
             sfs <- readIORef sfsRef
-            flip evalStateT (sfs ^. sfsSkov) $
+            runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -172,7 +173,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> do
             sfs <- readIORef sfsRef
-            flip evalStateT (sfs ^. sfsSkov) $
+            runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -182,7 +183,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
 getBranches :: IORef SkovFinalizationState -> IO Value
 getBranches sfsRef = do
         sfs <- readIORef sfsRef
-        flip evalStateT (sfs ^. sfsSkov) $ do
+        runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $ do
             brs <- branchesFromTop
             let brt = foldl up Map.empty brs
             lastFin <- lastFinalizedBlock
