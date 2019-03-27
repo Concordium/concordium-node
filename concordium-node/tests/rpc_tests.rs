@@ -7,7 +7,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 
 #[cfg(test)]
-#[allow(unused_variables, unused_mut)]
 mod tests {
     use ::grpcio::RpcStatusCode;
     use ::grpcio::{ ChannelBuilder, EnvBuilder };
@@ -41,7 +40,7 @@ mod tests {
     // The port number is safe as it uses a AtomicUsize for respecting the order.
     macro_rules! create_node_rpc_call_option_mode {
         ( $c:ident, $r:ident, $co:ident, $nt:ident , $id:expr ) => (
-            let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+            let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
             let (sender, receiver) = mpsc::channel();
             let _guard =
@@ -78,22 +77,12 @@ mod tests {
                         }
                     }
                 });
-            let node_type = match &format!("{}", $nt)[..] {
-            "NormalMode" => {
-                P2PNodeMode::NormalMode
-            }
-            "NormalPrivateMode" => {
-                P2PNodeMode::NormalPrivateMode
-            }
-            "BootstrapperMode" => {
-                P2PNodeMode::BootstrapperMode
-            }
-            "BootstrapperPrivateMode" => {
-                P2PNodeMode::BootstrapperPrivateMode
-            }
-            _ => {
-                panic!()
-            }
+            let node_type = match &$nt[..] {
+                "NormalMode" => P2PNodeMode::NormalMode,
+                "NormalPrivateMode" => P2PNodeMode::NormalPrivateMode,
+                "BootstrapperMode" => P2PNodeMode::BootstrapperMode,
+                "BootstrapperPrivateMode" => P2PNodeMode::BootstrapperPrivateMode,
+                _ => panic!(),
             };
 
             let node = P2PNode::new($id,
@@ -109,10 +98,8 @@ mod tests {
                                     100,
                                     true);
 
-            let mut _node_self_clone = node.clone();
-
             let rpc_port =  next_port_offset_rpc(1);
-            let mut $r = RpcServerImpl::new(node.clone(),
+            let mut $r = RpcServerImpl::new(node,
                                             None,
                                             None,
                                             "127.0.0.1".to_string(),
@@ -121,7 +108,7 @@ mod tests {
             $r.start_server().expect("rpc");
 
             let env = Arc::new(EnvBuilder::new().build());
-            let ch = ChannelBuilder::new(env).connect(&("127.0.0.1:".to_owned() + &format!("{}", rpc_port)[..]));
+            let ch = ChannelBuilder::new(env).connect(&format!("127.0.0.1:{}", rpc_port));
 
             let $c = P2PClient::new(ch);
 
@@ -136,13 +123,9 @@ mod tests {
 
     #[test]
     pub fn test_grpc_version() {
-        let client : P2PClient;
-        let mut rpc_serv : RpcServerImpl;
-        let call_options : ::grpcio::CallOption;
         let node_type =  "NormalPrivateMode".to_string();
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
-        let reply = client.peer_version_opt(&Empty::new(), call_options)
-            .expect("rpc");
+        let reply = client.peer_version_opt(&Empty::new(), call_options).expect("rpc");
 
         assert_eq!(reply.get_value(), env!("CARGO_PKG_VERSION").to_string());
 
@@ -151,11 +134,8 @@ mod tests {
 
     #[test]
     pub fn test_grpc_noauth() {
-        let client : P2PClient;
-        let mut rpc_serv : RpcServerImpl;
-        let call_options : ::grpcio::CallOption;
         let node_type =  "NormalPrivateMode".to_string();
-        create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
+        create_node_rpc_call_option_mode!(client, rpc_serv, _call_options, node_type, None);
         match client.peer_version(&Empty::new()) {
             Err(::grpcio::Error::RpcFailure(ref x)) => {
                 assert_eq!(x.status, RpcStatusCode::Unauthenticated)
@@ -169,55 +149,45 @@ mod tests {
     // Tests that PeerList call effectively returns the correct P2PNodeMode
     #[test]
     pub fn  test_grpc_peer_list_node_type() {
-        let modes = vec![P2PNodeMode::NormalMode, P2PNodeMode::NormalPrivateMode, P2PNodeMode::BootstrapperMode, P2PNodeMode::BootstrapperPrivateMode];
-        let modes : Vec<String> = modes.iter().map(|x| format!("{:?}", x).to_string()).collect();
-        for m in modes {
+        let modes = [
+            P2PNodeMode::NormalMode,
+            P2PNodeMode::NormalPrivateMode,
+            P2PNodeMode::BootstrapperMode,
+            P2PNodeMode::BootstrapperPrivateMode,
+        ];
+
+        for m in modes.into_iter().map(|x| format!("{:?}", x)) {
             info!("testing mode: {}", m);
             grpc_peer_list_node_type_str(m);
         }
     }
 
     fn grpc_peer_list_node_type_str( node_type: String ) {
-        let client : P2PClient;
-        let mut rpc_serv : RpcServerImpl;
-        let call_options : ::grpcio::CallOption;
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
-        let reply = client.peer_list_opt(&Empty::new(), call_options)
-            .expect("rpc");
-        let node_type = match &format!("{}", node_type)[..] {
-            "NormalMode" | "NormalPrivateMode" => {
-                "Normal"
-            }
-            "BootstrapperMode" | "BootstrapperPrivateMode" => {
-                "Bootstrapper"
-            }
-            _ => {
-                panic!()
-            }
+        let reply = client.peer_list_opt(&Empty::new(), call_options).expect("rpc");
+        let node_type = match node_type.as_str() {
+            "NormalMode" | "NormalPrivateMode" => "Normal",
+            "BootstrapperMode" | "BootstrapperPrivateMode" => "Bootstrapper",
+            _ => panic!(),
         };
-        assert_eq!(reply.node_type, node_type.to_string());
+        assert_eq!(reply.node_type, node_type);
 
         rpc_serv.stop_server().expect("rpc");
     }
 
     #[test]
     pub fn test_grpc_node_info() {
-         let client : P2PClient;
-        let mut rpc_serv : RpcServerImpl;
-        let call_options : ::grpcio::CallOption;
-        let node_type =  "NormalPrivateMode".to_string();
-        let id = utils::to_hex_string(&utils::sha256(""));
+        let node_type =  "NormalPrivateMode";
+        // the she bytestring below is the first 32 characters of an empty SHA256
+        let id = utils::to_hex_string(b"e3b0c44298fc1c149afbf4c8996fb924");
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, Some(id.clone()));
         let instant1 = SystemTime::now().duration_since( UNIX_EPOCH ).expect("time").as_secs();
-        let reply = client.node_info_opt(&Empty::new(), call_options)
-            .expect("rpc");
+        let reply = client.node_info_opt(&Empty::new(), call_options).expect("rpc");
         let instant2 = SystemTime::now().duration_since( UNIX_EPOCH ).expect("time").as_secs();
-        assert!((reply.current_localtime >= instant1) & (reply.current_localtime <= instant2));
-        assert_eq!(reply.node_type, "Normal".to_string());
+        assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
+        assert_eq!(reply.node_type, "Normal");
         // As the ID gets transformed into a BigUint and then transformed back
         // num_bigint and format! always output the value in lower-case.
         assert_eq!(reply.node_id.unwrap().get_value(), id.to_lowercase());
     }
-
-
 }

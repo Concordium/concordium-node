@@ -1,4 +1,3 @@
-#![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate serde_derive;
@@ -25,6 +24,7 @@ use p2p_client::utils;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng};
 use router::Router;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -34,7 +34,7 @@ use failure::Fallible;
 #[derive(Clone)]
 struct TestRunner {
     test_start: Arc<Mutex<Option<u64>>>,
-    test_running: Arc<Mutex<bool>>,
+    test_running: Arc<AtomicBool>,
     registered_times: Arc<Mutex<Vec<Measurement>>>,
     node: Arc<Mutex<P2PNode>>,
     nid: u16,
@@ -58,7 +58,7 @@ const DEFAULT_TEST_PACKET_SIZE: usize = 51_200;
 impl TestRunner {
     pub fn new(node: P2PNode, nid: u16) -> Self {
         TestRunner { test_start: Arc::new(Mutex::new(None)),
-                     test_running: Arc::new(Mutex::new(false)),
+                     test_running: Arc::new(AtomicBool::new(false)),
                      registered_times: Arc::new(Mutex::new(vec![])),
                      node: Arc::new(Mutex::new(node)),
                      nid,
@@ -102,118 +102,91 @@ impl TestRunner {
     }
 
     fn start_test(&self, packet_size: usize) -> IronResult<Response> {
-        match self.test_running.lock() {
-            Ok(mut value) => {
-                if !*value {
-                    *value = true;
-                    info!("Started test");
-                    *self.test_start.lock().expect("Couldn't lock test_start") = Some(common::get_current_stamp());
-                    *self.packet_size.lock().expect("Couldn't lock packet size") = Some(packet_size);
-                    let random_pkt: Vec<u8> = thread_rng().sample_iter(&Standard)
-                                                          .take(packet_size)
-                                                          .collect();
-                    self.node
-                        .lock()
-                        .expect("Couldn't lock node")
-                        .send_message(None, self.nid, None, &random_pkt, true)
-                        .map_err(|e| error!("{}", e))
-                        .ok();
-                    Ok(Response::with((status::Ok,
-                                       format!("TEST STARTED ON {}/{} @ {}",
-                                               p2p_client::APPNAME,
-                                               p2p_client::VERSION,
-                                               common::get_current_stamp()))))
-                } else {
-                    error!("Couldn't start test as it's already running");
-                    Ok(Response::with((status::Ok,
-                                       "Test already running, can't start one!".to_string())))
-                }
-            }
-            _ => {
-                error!("Couldn't register due to locking issues");
-                Ok(Response::with((status::InternalServerError,
-                                   "Can't retrieve access to inner lock".to_string())))
-            }
+        if !self.test_running.load(Ordering::Relaxed) {
+            self.test_running.store(true, Ordering::Relaxed);
+            info!("Started test");
+            *self.test_start.lock().expect("Couldn't lock test_start") = Some(common::get_current_stamp());
+            *self.packet_size.lock().expect("Couldn't lock packet size") = Some(packet_size);
+            let random_pkt: Vec<u8> = thread_rng().sample_iter(&Standard)
+                                                  .take(packet_size)
+                                                  .collect();
+            self.node
+                .lock()
+                .expect("Couldn't lock node")
+                .send_message(None, self.nid, None, &random_pkt, true)
+                .map_err(|e| error!("{}", e))
+                .ok();
+            Ok(Response::with((status::Ok,
+                               format!("TEST STARTED ON {}/{} @ {}",
+                                       p2p_client::APPNAME,
+                                       p2p_client::VERSION,
+                                       common::get_current_stamp()))))
+        } else {
+            error!("Couldn't start test as it's already running");
+            Ok(Response::with((status::Ok,
+                               "Test already running, can't start one!".to_string())))
         }
     }
 
     fn reset_test(&self) -> IronResult<Response> {
-        match self.test_running.lock() {
-            Ok(mut value) => {
-                if *value {
-                    match self.test_start.lock() {
-                        Ok(mut inner_value) => *inner_value = None,
-                        _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
-                    }
-                    match self.registered_times.lock() {
-                        Ok(mut inner_value) => inner_value.clear(),
-                        _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
-                    }
-                    *value = false;
-                    *self.test_start.lock().expect("Couldn't lock test_start") = None;
-                    *self.packet_size.lock().expect("Couldn't lock packet size") = None;
-                    info!("Testing reset on runner");
-                    Ok(Response::with((status::Ok,
-                                       format!("TEST RESET ON {}/{} @ {}",
-                                               p2p_client::APPNAME,
-                                               p2p_client::VERSION,
-                                               common::get_current_stamp()))))
-                } else {
-                    error!("Test not running so can't reset right now");
-                    Ok(Response::with((status::Ok,
-                                       "Test not running, can't reset now!".to_string())))
-                }
+        if self.test_running.load(Ordering::Relaxed) {
+            match self.test_start.lock() {
+                Ok(mut inner_value) => *inner_value = None,
+                _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
             }
-            _ => {
-                error!("Couldn't register due to locking issues");
-                Ok(Response::with((status::InternalServerError,
-                                   "Can't retrieve access to inner lock".to_string())))
+            match self.registered_times.lock() {
+                Ok(mut inner_value) => inner_value.clear(),
+                _ => return Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock".to_string()))),
             }
+            self.test_running.store(false, Ordering::Relaxed);
+            *self.test_start.lock().expect("Couldn't lock test_start") = None;
+            *self.packet_size.lock().expect("Couldn't lock packet size") = None;
+            info!("Testing reset on runner");
+            Ok(Response::with((status::Ok,
+                               format!("TEST RESET ON {}/{} @ {}",
+                                       p2p_client::APPNAME,
+                                       p2p_client::VERSION,
+                                       common::get_current_stamp()))))
+        } else {
+            error!("Test not running so can't reset right now");
+            Ok(Response::with((status::Ok,
+                               "Test not running, can't reset now!".to_string())))
         }
     }
 
     fn get_results(&self) -> IronResult<Response> {
-        match self.test_running.lock() {
-            Ok(value) => {
-                if *value {
-                    match self.test_start.lock() {
-                        Ok(test_start_time) => {
-                            match self.registered_times.lock() {
-                                Ok(inner_vals) => {
-                                    let return_json = json!({
-                                        "service_name": "TestRunner",
-                                        "service_version": p2p_client::VERSION,
-                                        "measurements": *inner_vals.clone(),
-                                        "test_start_time": *test_start_time,
-                                        "packet_size": *self.packet_size.lock().expect("Couldn't lock packet size") ,
-                                    });
-                                    let mut resp =
-                                        Response::with((status::Ok, return_json.to_string()));
-                                    resp.headers.set(ContentType::json());
-                                    Ok(resp)
-                                }
-                                _ => {
-                                    error!("Couldn't send results due to locking issues");
-                                    Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock")))
-                                }
-                            }
+        if self.test_running.load(Ordering::Relaxed) {
+            match self.test_start.lock() {
+                Ok(test_start_time) => {
+                    match self.registered_times.lock() {
+                        Ok(inner_vals) => {
+                            let return_json = json!({
+                                "service_name": "TestRunner",
+                                "service_version": p2p_client::VERSION,
+                                "measurements": *inner_vals.clone(),
+                                "test_start_time": *test_start_time,
+                                "packet_size": *self.packet_size.lock().expect("Couldn't lock packet size") ,
+                            });
+                            let mut resp =
+                                Response::with((status::Ok, return_json.to_string()));
+                            resp.headers.set(ContentType::json());
+                            Ok(resp)
                         }
                         _ => {
                             error!("Couldn't send results due to locking issues");
-                            Ok(Response::with((status::InternalServerError,
-                                               "Can't retrieve access to inner lock")))
+                            Ok(Response::with((status::InternalServerError, "Can't retrieve access to inner lock")))
                         }
                     }
-                } else {
-                    Ok(Response::with((status::Ok,
-                                       "Test not running, can't get results now!")))
+                }
+                _ => {
+                    error!("Couldn't send results due to locking issues");
+                    Ok(Response::with((status::InternalServerError,
+                                       "Can't retrieve access to inner lock")))
                 }
             }
-            _ => {
-                error!("Couldn't send results due to locking issues");
-                Ok(Response::with((status::InternalServerError,
-                                   "Can't retrieve access to inner lock")))
-            }
+        } else {
+            Ok(Response::with((status::Ok,
+                               "Test not running, can't get results now!")))
         }
     }
 
@@ -320,15 +293,10 @@ fn main() -> Fallible<()> {
         P2PNodeMode::NormalMode
     };
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let external_ip = if conf.external_ip.is_some() {
         conf.external_ip
-    } else if conf.ip_discovery_service {
-        match utils::discover_external_ip(&conf.ip_discovery_service_host) {
-            Ok(ip) => Some(ip.to_string()),
-            Err(_) => None,
-        }
     } else {
         None
     };
@@ -423,14 +391,14 @@ fn main() -> Fallible<()> {
     let _desired_nodes_clone = conf.desired_nodes;
     let _guard_pkt = thread::spawn(move || { loop {
         if let Ok(full_msg) = pkt_out.recv() {
-            match *full_msg.clone() {
-                box NetworkMessage::NetworkPacket(
-                    NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) =>
+            match *full_msg {
+                NetworkMessage::NetworkPacket(
+                    NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), ..) =>
                 {
                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                 }
-                box NetworkMessage::NetworkPacket(
-                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), _, _) =>
+                NetworkMessage::NetworkPacket(
+                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), ..) =>
                 {
                     if !_no_trust_broadcasts {
                         info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
@@ -438,8 +406,8 @@ fn main() -> Fallible<()> {
                                         .map_err(|e| error!("Error sending message {}", e)).ok();
                     }
                 }
-                box NetworkMessage::NetworkRequest(
-                    NetworkRequest::BanNode(ref peer, ref x), _, _) =>
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::BanNode(ref peer, ref x), ..) =>
                 {
                     info!("Ban node request for {:?}", x);
                     let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
@@ -450,8 +418,8 @@ fn main() -> Fallible<()> {
                         }
                     }
                 }
-                box NetworkMessage::NetworkRequest(
-                    NetworkRequest::UnbanNode(ref peer, ref x), _, _) =>
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::UnbanNode(ref peer, ref x), ..) =>
                 {
                     info!("Unban node requets for {:?}", x);
                     let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
@@ -462,8 +430,8 @@ fn main() -> Fallible<()> {
                         }
                     }
                 }
-                box NetworkMessage::NetworkResponse(
-                    NetworkResponse::PeerList(_, ref peers), _, _) =>
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::PeerList(_, ref peers), ..) =>
                 {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;

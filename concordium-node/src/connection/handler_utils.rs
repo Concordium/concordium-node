@@ -84,7 +84,7 @@ pub fn send_handshake_and_ping(
 
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = safe_lock!(priv_conn_borrow.own_networks)?.clone();
+        let my_nets = safe_read!(priv_conn_borrow.own_networks.clone())?.clone();
         let self_peer = priv_conn_borrow.self_peer.clone();
         (my_nets, self_peer)
     };
@@ -131,7 +131,8 @@ pub fn send_peer_list(
     serialize_bytes( &mut priv_conn.borrow_mut().tls_session, &data)?;
 
     if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        safe_lock!(prom)?.pkt_sent_inc()
+        let mut writable_prom = safe_write!(prom)?;
+        writable_prom.pkt_sent_inc()
             .map_err(|_| make_fn_error_prometheus())?;
     };
 
@@ -164,10 +165,10 @@ pub fn update_buckets(
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
     if let Some(ref prom) = prometheus_exporter {
-        let mut locked_prom = safe_lock!(prom)?;
-        locked_prom.peers_inc()
+        let mut writable_prom = safe_write!(prom)?;
+        writable_prom.peers_inc()
             .map_err(|_| make_fn_error_prometheus())?;
-        locked_prom.pkt_sent_inc_by(2)
+        writable_prom.pkt_sent_inc_by(2)
             .map_err(|_| make_fn_error_prometheus())?;
     };
 

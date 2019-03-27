@@ -119,7 +119,7 @@ mod request_handler_test {
     use crate::common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
     use crate::network::request::{ NetworkRequest as NRequest };
 
-    use std::sync::{ Arc, Mutex };
+    use std::sync::{ Arc, RwLock };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::sync::atomic::{ AtomicUsize, Ordering };
 

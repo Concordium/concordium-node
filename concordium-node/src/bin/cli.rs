@@ -1,4 +1,3 @@
-#![feature(box_syntax, box_patterns)]
 #![recursion_limit = "1024"]
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
@@ -19,7 +18,7 @@ use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, Networ
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
-use p2p_client::safe_lock;
+use p2p_client::safe_read;
 use p2p_client::connection::{ P2PNodeMode, P2PEvent };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use p2p_client::rpc::RpcServerImpl;
@@ -30,7 +29,7 @@ use std::fs::OpenOptions;
 use std::io::Cursor;
 use std::io::{Read, Write};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::rc::Rc;
 use std::thread;
 use timer::Timer;
@@ -88,12 +87,12 @@ fn main() -> Fallible<()> {
         srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
            .map_err(|e| error!("{}", e))
            .ok();
-        Some(Arc::new(Mutex::new(srv)))
+        Some(Arc::new(RwLock::new(srv)))
     } else if conf.prometheus_push_gateway.is_some() {
         info!("Enabling prometheus push gateway at {}",
               &conf.prometheus_push_gateway.clone().unwrap());
         let srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        Some(Arc::new(Mutex::new(srv)))
+        Some(Arc::new(RwLock::new(srv)))
     } else {
         None
     };
@@ -106,15 +105,10 @@ fn main() -> Fallible<()> {
         P2PNodeMode::NormalMode
     };
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<Box<NetworkMessage>>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let external_ip = if conf.external_ip.is_some() {
         conf.external_ip.clone()
-    } else if conf.ip_discovery_service {
-        match utils::discover_external_ip(&conf.ip_discovery_service_host) {
-            Ok(ip) => Some(ip.to_string()),
-            Err(_) => None,
-        }
     } else {
         None
     };
@@ -291,8 +285,8 @@ fn main() -> Fallible<()> {
        }
        loop {
            if let Ok(full_msg) = pkt_out.recv() {
-               match *full_msg.clone() {
-               box NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), _, _) => {
+               match *full_msg {
+               NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), ..) => {
                    if _tps_test_enabled {
                        _stats_engine.add_stat(msg.len() as u64);
                        _msg_count += 1;
@@ -309,7 +303,7 @@ fn main() -> Fallible<()> {
                    info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
                    send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                }
-               box NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), _, _) => {
+               NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), ..) => {
                    if let Some(ref mut rpc) = _rpc_clone {
                        rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
                    }
@@ -323,7 +317,7 @@ fn main() -> Fallible<()> {
                    send_msg_to_baker(&mut _baker_pkt_clone, &msg);
                }
 
-               box NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), _, _) => {
+               NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
                    info!("Ban node request for {:?}", x);
                    let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
                    if ban.is_ok() {
@@ -333,7 +327,7 @@ fn main() -> Fallible<()> {
                        }
                    }
                }
-               box NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), _, _) => {
+               NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), ..) => {
                    info!("Unban node requets for {:?}", x);
                    let req = _node_self_clone.unban_node(x.clone()).map_err(|e| error!("{}", e));
                    if req.is_ok() {
@@ -343,7 +337,7 @@ fn main() -> Fallible<()> {
                        }
                    }
                }
-               box NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), _, _) => {
+               NetworkMessage::NetworkResponse(NetworkResponse::PeerList(ref peer, ref peers), ..) => {
                    info!("Received PeerList response, attempting to satisfy desired peers");
                    let mut new_peers = 0;
                    match _node_self_clone.get_peer_stats(&[]) {
@@ -391,7 +385,7 @@ fn main() -> Fallible<()> {
             } else {
                 node.get_own_id().to_string()
             };
-            safe_lock!(prom)?
+            safe_read!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
                                        conf.prometheus_push_interval,
                                        conf.prometheus_job_name.clone(),

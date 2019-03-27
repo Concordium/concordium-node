@@ -359,7 +359,7 @@ impl ConsensusContainer {
             if priv_data.len() < num_bakers as usize {
                 return Err("Didn't get private data from haskell");
             } else {
-                return Ok((genesis_data.clone(), priv_data.clone()));
+                return Ok((genesis_data, priv_data.clone()));
             }
         } else {
             return Err("Didn't get private data from haskell");

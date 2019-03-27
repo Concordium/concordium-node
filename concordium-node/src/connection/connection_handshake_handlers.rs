@@ -32,7 +32,7 @@ pub fn handshake_response_handle(
             .insert_into_bucket(&bucket_sender, &own_id, nets.clone());
 
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-            safe_lock!(prom)?.peers_inc()?;
+            safe_write!(prom)?.peers_inc()?;
         };
         Ok(())
     } else {

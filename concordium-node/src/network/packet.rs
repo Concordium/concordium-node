@@ -5,12 +5,12 @@ use crate::network:: {
 };
 
 use crate::utils;
-use std::sync::{ Mutex };
+use std::sync::{ RwLock };
 use rand::rngs::OsRng;
 use rand::{ RngCore };
 
 lazy_static! {
-    static ref RNG: Mutex<OsRng> = { Mutex::new(OsRng::new().unwrap()) };
+    static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
 }
 
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ impl NetworkPacket {
                     nid,
                     msg.len()
                 ).into_bytes();
-                pkt.extend(msg.iter());
+                pkt.extend(msg.into_iter());
 
                 pkt
             }
@@ -47,7 +47,7 @@ impl NetworkPacket {
                     nid,
                     msg.len()
                 ).into_bytes();
-                pkt.extend(msg.iter());
+                pkt.extend(msg.into_iter());
 
                 pkt
             }
@@ -56,9 +56,9 @@ impl NetworkPacket {
 
     pub fn generate_message_id() -> String {
         let mut secure_bytes = vec![0u8; 256];
-        match RNG.lock() {
-            Ok(mut l) => {l.fill_bytes(&mut secure_bytes);}
-            Err(_) => {return String::new();}
+        match safe_write!(RNG) {
+            Ok(mut l) => l.fill_bytes(&mut secure_bytes),
+            Err(_) => return String::new()
         }
         utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
     }
