@@ -20,8 +20,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 
-import qualified Acorn.Types as ATypes
-
 import Concordium.Payload.Transaction
 import Concordium.Payload.Monad
 import Concordium.Types
