@@ -8,6 +8,7 @@ import Control.Concurrent.Chan
 import Control.Concurrent
 import qualified Data.ByteString.Char8 as BS
 import Data.Serialize
+import Data.Serialize.Put as P
 import Data.IORef
 
 import qualified Data.Text.Lazy as LT
@@ -25,6 +26,8 @@ import Concordium.Logger
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
+
+import Concordium.Crypto.SHA256(hash)
 
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
@@ -168,22 +171,15 @@ printBlock cstr l = do
         Left _ -> putStrLn "<Bad Block>"
         Right block -> putStrLn $ showsBlock block ""
 
-receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
-receiveTransaction bptr tdata = do
+receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
+receiveTransaction bptr tdata len = do
     BakerRunner cin _ _ <- deRefStablePtr bptr
-    tbs <- BS.packCString tdata
-    case Get.txOutToTransaction =<< (AE.decodeStrict tbs) of
-      Nothing -> return 1
-      Just tx ->
-        writeChan cin (MsgTransactionReceived tx) >> return 0
+    tbs <- BS.packCStringLen (tdata, fromIntegral len)
+    case decode tbs of
+      Left _ -> return 1
+      Right (h, b) -> -- NB: The hash is a temporary cludge. This will change once we have the transaction table.
+        writeChan cin (MsgTransactionReceived (Transaction (TransactionNonce (hash tbs)) h b)) >> return 0
 
-{-
-getBestBlockInfo :: StablePtr BakerRunner -> IO CString
-getBestBlockInfo bptr = do
-  blockInfo <- readIORef =<< bakerBestBlock <$> deRefStablePtr bptr
-  let outStr = LT.unpack . AET.encodeToLazyText $ blockInfo
-  newCString outStr
--}
 
 -- |Returns a null-terminated string with a JSON representation of the current status of Consensus.
 getConsensusStatus :: StablePtr BakerRunner -> IO CString
@@ -220,6 +216,42 @@ getBranches bptr = do
     newCString $ LT.unpack $ AET.encodeToLazyText branches
 
 
+byteStringToCString :: BS.ByteString -> IO CString
+byteStringToCString bs =
+  newCString $ BS.unpack (BS.concat [runPut (P.putWord32be (fromIntegral (BS.length bs))), bs])
+  
+
+getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
+getLastFinalAccountList bptr = do
+  sfsRef <- bakerState <$> deRefStablePtr bptr
+  alist <- Get.getLastFinalAccountList sfsRef
+  let s = encode alist
+  byteStringToCString s
+
+getLastFinalInstances :: StablePtr BakerRunner -> IO CString
+getLastFinalInstances bptr = do
+  sfsRef <- bakerState <$> deRefStablePtr bptr
+  alist <- Get.getLastFinalInstances sfsRef
+  let s = encode alist
+  byteStringToCString s
+  
+getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
+getLastFinalAccountInfo bptr cstr = do
+  sfsRef <- bakerState <$> deRefStablePtr bptr
+  bs <- BS.packCStringLen (cstr, 32)
+  case decode bs of
+    Left _ -> byteStringToCString BS.empty
+    Right acc -> Get.getLastFinalAccountInfo sfsRef acc >>= byteStringToCString . encode
+
+getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
+getLastFinalInstanceInfo bptr cstr = do
+  sfsRef <- bakerState <$> deRefStablePtr bptr
+  bs <- BS.packCStringLen (cstr, 16)
+  case decode bs of
+    Left _ -> byteStringToCString BS.empty
+    Right ii -> Get.getLastFinalContractInfo sfsRef ii >>= byteStringToCString . encode
+  
+
 freeCStr :: CString -> IO ()
 freeCStr = free
 
@@ -230,10 +262,18 @@ foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -
 foreign export ccall receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
-foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> IO Int64
--- foreign export ccall getBestBlockInfo :: StablePtr BakerRunner -> IO CString
+foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
+
 foreign export ccall getConsensusStatus :: StablePtr BakerRunner -> IO CString
 foreign export ccall getBlockInfo :: StablePtr BakerRunner -> CString -> IO CString
 foreign export ccall getAncestors :: StablePtr BakerRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr BakerRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
+
+-- report global state information will be removed in the future when global
+-- state is handled better
+foreign export ccall getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
+foreign export ccall getLastFinalInstances :: StablePtr BakerRunner -> IO CString
+foreign export ccall getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
+
