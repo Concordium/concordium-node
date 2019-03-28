@@ -5,6 +5,7 @@ sudo rm -f /usr/local/lib/libHSoak-*.so
 sudo rm -f /usr/local/lib/libHSmonadplus-*.so
 sudo rm -f /usr/local/lib/libHSacorn-*.so
 sudo rm -f /usr/local/lib/libHSconcordium-crypto-*.so
+sudo rm -f /usr/local/lib/libconcordium-crypto.so*
 sudo rm -f /usr/local/lib/libec_vrf_ed25519.so
 sudo rm -f /usr/local/lib/libeddsa_ed25519.so
 sudo rm -f /usr/local/lib/libsha_2.so
