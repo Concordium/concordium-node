@@ -29,11 +29,4 @@ curl -sSL https://get.haskellstack.org/ | sh
   cp target/release/libeddsa_ed25519.so /usr/local/lib &&
   cp target/release/libsha_2.so /usr/local/lib )
 
-(mkdir -p deps/internal/crypto/build && 
-    cd deps/internal/crypto/build && 
-    cmake -DCMAKE_BUILD_TYPE=Release .. && 
-    cmake --build . && 
-    cmake --build . --target install
-)
-
 ldconfig

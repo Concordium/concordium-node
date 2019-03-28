@@ -25,13 +25,6 @@ cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
   sudo cp target/release/libeddsa_ed25519.so /usr/local/lib &&
   sudo cp target/release/libsha_2.so /usr/local/lib )
 
-(mkdir -p deps/internal/crypto/build && 
-    cd deps/internal/crypto/build && 
-    cmake -DCMAKE_BUILD_TYPE=Release .. && 
-    cmake --build . && 
-    sudo cmake --build . --target install
-)
-
 sudo rm -rf deps/internal/crypto/build
 
 ( cd deps/internal/consensus &&
