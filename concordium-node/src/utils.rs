@@ -5,7 +5,7 @@ use failure::{Fallible};
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
-use crypto_sys;
+use crate::crypto;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
 use openssl::hash::MessageDigest;
@@ -76,7 +76,7 @@ pub struct Cert {
 ///
 /// 3. It ends with the footer "-----END EC PRIVATE KEY-----"
 ///
-pub fn crypto_key_to_pem(input: &crypto_sys::KeyPair) -> Vec<u8> {
+pub fn crypto_key_to_pem(input: &crypto::KeyPair) -> Vec<u8> {
     let pemheader = b"-----BEGIN EC PRIVATE KEY-----\n";
 
     let mut pemcontent = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail

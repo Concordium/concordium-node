@@ -47,6 +47,7 @@ pub mod rpc;
 pub mod utils;
 pub mod network;
 pub mod stats_engine;
+pub mod crypto;
 
 cfg_if! {
     if #[cfg(not(debug_assertions))] {

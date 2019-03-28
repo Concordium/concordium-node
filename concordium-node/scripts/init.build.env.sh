@@ -1,4 +1,9 @@
 #!/bin/sh
+
+# 20190123 - Moved from 2018-10-26 to latest nightly after allocator fixes in nightly
+# 20190328 - Locking to agreed upon 2019-03-22
+rustup default nightly-2019-03-22
+
 git clone https://github.com/mitls/hacl-c
 ( cd hacl-c && make -j$(nproc) && cp libhacl.so /usr/lib );
 rm -rf hacl-c
@@ -18,9 +23,11 @@ curl -sSL https://get.haskellstack.org/ | sh
   find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; 
   ) 
 
-git clone https://github.com/KDE/heaptrack.git
-(cd heaptrack && patch src/track/heaptrack.sh.cmake ../scripts/include-date-in-name.patch && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=release .. && make -j$(nproc) && make install);
-rm -rf heaptrack
+( cd deps/internal/crypto/rust-src &&
+  cargo build --release &&
+  cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
+  cp target/release/libeddsa_ed25519.so /usr/local/lib &&
+  cp target/release/libsha_2.so /usr/local/lib )
 
 (mkdir -p deps/internal/crypto/build && 
     cd deps/internal/crypto/build && 
@@ -30,6 +37,3 @@ rm -rf heaptrack
 )
 
 ldconfig
-# 20190123 - Moved from 2018-10-26 to latest nightly after allocator fixes in nightly
-rustup default nightly
-

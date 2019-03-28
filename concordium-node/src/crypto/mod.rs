@@ -1,34 +1,24 @@
-use super::{ ed25519_public_key, ed25519_secret_key, priv_key, public_key, ADDRESS_SCHEME };
-use sha2::{ Sha224, Digest};
 use base58::{ ToBase58 };
+use eddsa_ed25519;
+use sha2::{Sha224, Digest};
 
-
+pub const ADDRESS_SCHEME: u8 = 2;
 
 #[derive (Debug)]
 pub struct KeyPair
 {
-    pub public_key: ed25519_public_key,
-    pub private_key: ed25519_secret_key,
+    pub public_key: [u8;32],
+    pub private_key: [u8;32]
 }
 
 impl KeyPair
 {
     pub fn new() -> Self
-    {
-        // Generate private key.
-        let mut sk :ed25519_secret_key;
-        unsafe {
-            sk = std::mem::uninitialized();
-            priv_key( sk.as_mut_ptr());
-        }
-
-        // Generate public key based on private.
-        let mut pk :ed25519_public_key;
-        unsafe {
-            pk = std::mem::uninitialized();
-            public_key( pk.as_mut_ptr(), sk.as_mut_ptr());
-        }
-
+    {   
+        let mut sk: [u8;32] = [0;32];
+        let mut pk: [u8;32] = [0;32];
+        eddsa_ed25519::eddsa_priv_key( &mut sk );
+        eddsa_ed25519::eddsa_pub_key(&mut sk, &mut pk);
         KeyPair {
             public_key: pk,
             private_key: sk
@@ -49,7 +39,7 @@ impl KeyPair
     /// `<ADDRESS_SCHEME> + MostSignificantBits_160( SHA_224( public_key))`
     pub fn address(&self) -> String
     {
-        let hasher :Sha224 = Sha224::default();
+        let hasher:Sha224 = Sha224::default();
         let pk_hash = hasher.chain( &self.public_key).result();
 
         format!( "{}{}", ADDRESS_SCHEME, pk_hash[..20].to_base58())
@@ -73,5 +63,3 @@ mod unit_test
         assert_eq!( kp_1_pk.is_empty(), false);
     }
 }
-
-

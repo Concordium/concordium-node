@@ -603,31 +603,6 @@ impl P2P for RpcServerImpl {
         } );
     }
 
-    fn get_best_block_info(&self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
-            authenticate!(ctx, req, sink, &self.access_token, {
-                if let Some(ref consensus) = self.consensus {
-                    match consensus.get_best_block_info() {
-                        Some(ref res) => {
-                            let mut r: BestBlockInfoMessage = BestBlockInfoMessage::new();
-                            r.set_best_block_info(res.clone());
-                            let f = sink.success(r)
-                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            ctx.spawn(f);
-                        }
-                        _ => {
-                            let f = sink.fail(
-                                    ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
-                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            ctx.spawn(f);
-                        }
-                    }
-                }
-            });
-        }
-
     fn unban_node(&self,
                   ctx: ::grpcio::RpcContext<'_>,
                   req: PeerElement,
@@ -673,4 +648,104 @@ impl P2P for RpcServerImpl {
             ctx.spawn(f);
         });
     }
+
+    fn get_consensus_status(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                if let Some(ref consensus) = self.consensus {
+                    match consensus.get_consensus_status() {
+                        Some(ref res) => {
+                            let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
+                            r.set_json_value(res.clone());
+                            let f = sink.success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        _ => {
+                            let f = sink.fail(
+                                    ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                    }
+                }
+            });
+        }
+
+    fn get_branches(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                if let Some(ref consensus) = self.consensus {
+                    match consensus.get_branches() {
+                        Some(ref res) => {
+                            let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
+                            r.set_json_value(res.clone());
+                            let f = sink.success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        _ => {
+                            let f = sink.fail(
+                                    ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                    }
+                }
+            });
+        }
+
+    fn get_block_info(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: BlockHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                if let Some(ref consensus) = self.consensus {
+                    match consensus.get_block_info(&req.get_block_hash()) {
+                        Some(ref res) => {
+                            let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
+                            r.set_json_value(res.clone());
+                            let f = sink.success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        _ => {
+                            let f = sink.fail(
+                                    ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                    }
+                }
+            });
+        }
+
+    fn get_ancestors(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: BlockHashAndAmount,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                if let Some(ref consensus) = self.consensus {
+                    match consensus.get_ancestors(&req.get_block_hash(), req.get_amount()) {
+                        Some(ref res) => {
+                            let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
+                            r.set_json_value(res.clone());
+                            let f = sink.success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                        _ => {
+                            let f = sink.fail(
+                                    ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }
+                    }
+                }
+            });
+        }
 }

@@ -2,7 +2,7 @@ cargo-features = ["default-run"]
 
 [package]
 name = "p2p_client"
-version = "0.1.25-debug"
+version = "0.1.26-debug"
 description = "Concordium P2P library"
 authors = [ "Concordium AG <info@concordium.com>"]
 exclude = [
@@ -53,7 +53,6 @@ human-panic = "1.0"
 cfg-if = "0.1"
 dns = { path = "dns" }
 consensus-sys = { path = "consensus-sys" }
-crypto-sys = { path = "crypto-sys" }
 hostname = "^0.1"
 serde_json = "1.0"
 reqwest = { version = "^0.9", default-features = false }
@@ -64,6 +63,10 @@ resolv-conf = "0.6"
 vecio = "0.1"
 derive_builder = "0.7.1"
 base64 = "0.10.1"
+sha2 = "0"
+base58 = "^0.1"
+ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
+eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }

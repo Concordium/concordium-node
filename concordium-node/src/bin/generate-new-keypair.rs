@@ -1,5 +1,5 @@
 use std::result::Result;
-use crypto_sys::KeyPair;
+use p2p_client::crypto::KeyPair;
 
 fn main() -> Result<(), &'static str>
 {
