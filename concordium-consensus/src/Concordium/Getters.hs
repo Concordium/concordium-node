@@ -160,22 +160,29 @@ getConsensusStatus sfsRef = do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
         return $ object [
-                "blocksReceivedCount" .= (sfs ^. statistics . blocksReceivedCount),
                 "bestBlock" .= hsh bb,
                 "genesisBlock" .= hsh (sfs ^. genesisBlockPointer),
                 "lastFinalizedBlock" .= hsh lfb,
                 "bestBlockHeight" .= theBlockHeight (bpHeight bb),
                 "lastFinalizedBlockHeight" .= theBlockHeight (bpHeight lfb),
+                "blocksReceivedCount" .= (sfs ^. statistics . blocksReceivedCount),
                 "blockLastReceivedTime" .= (sfs ^. statistics . blockLastReceived),
                 "blockReceiveLatencyEMA" .= (sfs ^. statistics . blockReceiveLatencyEMA),
                 "blockReceiveLatencyEMSD" .= sqrt (sfs ^. statistics . blockReceiveLatencyEMVar),
                 "blockReceivePeriodEMA" .= (sfs ^. statistics . blockReceivePeriodEMA),
                 "blockReceivePeriodEMSD" .= (sqrt <$> (sfs ^. statistics . blockReceivePeriodEMVar)),
+                "blocksVerifiedCount" .= (sfs ^. statistics . blocksVerifiedCount),
                 "blockLastArrivedTime" .= (sfs ^. statistics . blockLastArrive),
                 "blockArriveLatencyEMA" .= (sfs ^. statistics . blockArriveLatencyEMA),
                 "blockArriveLatencyEMSD" .= sqrt (sfs ^. statistics . blockArriveLatencyEMVar),
                 "blockArrivePeriodEMA" .= (sfs ^. statistics . blockArrivePeriodEMA),
-                "blockArrivePeriodEMSD" .= (sqrt <$> (sfs ^. statistics . blockArrivePeriodEMVar))
+                "blockArrivePeriodEMSD" .= (sqrt <$> (sfs ^. statistics . blockArrivePeriodEMVar)),
+                "transactionsPerBlockEMA" .= (sfs ^. statistics . transactionsPerBlockEMA),
+                "transactionsPerBlockEMSD" .= sqrt (sfs ^. statistics . transactionsPerBlockEMVar),
+                "finalizationCount" .= (sfs ^. statistics . finalizationCount),
+                "lastFinalizedTime" .= (sfs ^. statistics . lastFinalizedTime),
+                "finalizationPeriodEMA" .= (sfs ^. statistics . finalizationPeriodEMA),
+                "finalizationPeriodEMSD" .= (sqrt <$> (sfs ^. statistics . finalizationPeriodEMVar))
             ]
 
 getBlockInfo :: IORef SkovFinalizationState -> String -> IO Value
@@ -187,6 +194,8 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
+                        let slot = blockSlot (bpBlock bp)
+                        slotTime <- getSlotTime slot
                         bfin <- isFinalized bh
                         return $ object [
                             "blockHash" .= hsh bp,
@@ -195,8 +204,9 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockHeight" .= theBlockHeight (bpHeight bp),
                             "blockReceiveTime" .= bpReceiveTime bp,
                             "blockArriveTime" .= bpArriveTime bp,
-                            "blockSlot" .= (fromIntegral (blockSlot (bpBlock bp)) :: Word64),
-                            "blockBaker" .= T.blockBaker (bpBlock bp),
+                            "blockSlot" .= (fromIntegral slot :: Word64),
+                            "blockSlotTime" .= slotTime,
+                            "blockBaker" .= if slot == 0 then Null else toJSON (T.blockBaker (bpBlock bp)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp
                             ]
