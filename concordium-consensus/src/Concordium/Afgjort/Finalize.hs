@@ -355,7 +355,7 @@ notifyBlockFinalized FinalizationRecord{..} bp = do
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
         -- TODO: The next finalization height is tweaked from the specification to give better
         -- finalization lag.  This needs to be brought in line eventually.
-        finHeight .= bpHeight bp + ((bpHeight bp - bpHeight (bpLastFinalized bp) + 1) `div` 2)
+        finHeight .= bpHeight bp + max 1 ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
