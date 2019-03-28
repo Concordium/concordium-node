@@ -21,15 +21,13 @@ fi
 cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
 
 ( cd deps/internal/crypto/rust-src &&
-  cargo build --release &&
+  LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
   sudo cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
   sudo cp target/release/libeddsa_ed25519.so /usr/local/lib &&
   sudo cp target/release/libsha_2.so /usr/local/lib )
 
-sudo rm -rf deps/internal/crypto/build
-
 ( cd deps/internal/consensus &&
-  stack build --ghc-options '-dynamic' --force-dirty &&
+  LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic' --force-dirty &&
   sudo cp .stack-work/install/x86_64-linux-tinfo6/$(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.so /usr/local/lib &&
   sudo find /usr/local/lib -name libHSConcordium\*.so -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.so \; &&
   sudo find /usr/local/lib -name libHSacorn\*.so -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.so \; &&
