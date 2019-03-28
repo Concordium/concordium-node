@@ -247,7 +247,7 @@ myTicket phase = to $ \a ->
         makeTicketProof (a ^. lotteryId phase) (privateKey a)
 
 {-# INLINE unlessCompleted #-}
-unlessCompleted :: (ABBAMonad party m, Ord party) => m () -> m ()
+unlessCompleted :: (ABBAMonad party m) => m () -> m ()
 unlessCompleted a = do
         c <- use completed
         unless c a
@@ -286,8 +286,8 @@ receiveABBAMessage src (WeAreDone c) = unlessCompleted $ do
             aBBAComplete c
 
 -- |Called to start the ABBA protocol
-{-# SPECIALIZE beginABBA :: Ord party => Choice -> ABBA party () #-}
-beginABBA :: (ABBAMonad party m, Ord party) => Choice -> m ()
+{-# SPECIALIZE beginABBA :: Choice -> ABBA party () #-}
+beginABBA :: (ABBAMonad party m) => Choice -> m ()
 beginABBA c = unlessCompleted $ do
     cp <- use currentPhase
     when (cp == 0) $ do
