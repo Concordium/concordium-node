@@ -4,3 +4,6 @@
 [submodule "acorn"]
 	path = acorn
 	url = ../../oak/acorn.git
+[submodule "globalstate-mockup"]
+	path = globalstate-mockup
+	url = ../globalstate-mockup.git
