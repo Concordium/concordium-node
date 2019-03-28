@@ -143,7 +143,7 @@ addProposal party value = do
                     when (newWeight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                     when (newTotalProposals >= totalWeight - corruptWeight) doVote
 
-justifyVote :: (Ord val, Ord party, FreezeMonad val party m) => Maybe val -> m ()
+justifyVote :: (Ord val, FreezeMonad val party m) => Maybe val -> m ()
 justifyVote vote = do
     FreezeInstance{..} <- ask
     use (votes . at vote) >>= \case
@@ -172,7 +172,7 @@ addVote party vote = do
                 when (partyWeight party + weight > corruptWeight) $ justifyDecision vote
                 when (newTotalVotes >= totalWeight - corruptWeight) doFinish
 
-justifyDecision :: (Ord val, Ord party, FreezeMonad val party m) => Maybe val -> m ()
+justifyDecision :: (Ord val, FreezeMonad val party m) => Maybe val -> m ()
 justifyDecision decision = whenAddToSet decision justifiedDecisions $ decisionJustified decision
 
 
@@ -189,7 +189,7 @@ doVote = do
             addVote me vote
             sendFreezeMessage (Vote vote)
 
-doFinish :: (Ord val, Ord party, FreezeMonad val party m) => m ()
+doFinish :: (FreezeMonad val party m) => m ()
 doFinish = do
     alreadyCompleted <- completed <<.= True
     unless alreadyCompleted $

@@ -19,8 +19,6 @@ import Concordium.Afgjort.Lottery
 import Test.QuickCheck
 import Test.Hspec
 
-import Debug.Trace
-
 instance Arbitrary VRF.KeyPair where
     arbitrary = fst . VRF.randomKeyPair . mkStdGen <$> arbitrary
 

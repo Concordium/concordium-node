@@ -69,7 +69,7 @@ data CSSInput party
 
 -- |Pick an element from a seqeunce, returning the element
 -- and the sequence with that element removed.
-selectFromSeq :: (Ord a) => Seq a -> Gen (a, Seq a)
+selectFromSeq :: Seq a -> Gen (a, Seq a)
 selectFromSeq s = select <$> choose (0, length s - 1)
     where
         select n = (Seq.index s n, Seq.deleteAt n s)

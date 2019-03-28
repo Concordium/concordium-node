@@ -4,7 +4,6 @@ module Concordium.Skov.Monad where
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.IO.Class
-import Data.Maybe
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 

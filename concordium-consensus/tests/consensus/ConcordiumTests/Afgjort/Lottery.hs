@@ -11,8 +11,6 @@ import qualified Data.ByteString.Char8 as BS
 import Test.QuickCheck
 import Test.Hspec
 
-import Debug.Trace
-
 instance Arbitrary VRF.KeyPair where
     arbitrary = do
         seed <- arbitrary

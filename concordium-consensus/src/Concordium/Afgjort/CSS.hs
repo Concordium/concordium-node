@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances, DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards, TemplateHaskell, TupleSections, MultiParamTypeClasses, FlexibleContexts, RankNTypes, ScopedTypeVariables, LambdaCase, GeneralizedNewtypeDeriving, FlexibleInstances #-}
 -- |Core Set Selection algorithm
 module Concordium.Afgjort.CSS(
     Choice,
@@ -43,8 +43,6 @@ import Data.Maybe
 import Control.Monad.State.Class
 import Control.Monad.RWS
 import Lens.Micro.Platform
-import GHC.Generics (Generic)
-import Data.Serialize (Serialize)
 
 type Choice = Bool
 
@@ -59,7 +57,7 @@ data CSSMessage party
     = Input Choice
     | Seen party Choice
     | DoneReporting (Map party Choice) -- Possbly use list instead
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show)
 
 data CSSInstance party = CSSInstance {
     -- |The total weight of all parties
