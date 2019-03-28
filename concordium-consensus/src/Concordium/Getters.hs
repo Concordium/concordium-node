@@ -165,7 +165,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockSlot" .= (fromIntegral (blockSlot (bpBlock bp)) :: Word64),
                             "blockBaker" .= T.blockBaker (bpBlock bp),
                             "finalized" .= bfin,
-                            "transactionCount" .= (bpTransactionCount bp)
+                            "transactionCount" .= bpTransactionCount bp
                             ]
 
 getAncestors :: IORef SkovFinalizationState -> String -> BlockHeight -> IO Value

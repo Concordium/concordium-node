@@ -263,6 +263,10 @@ processFinalizationPool sl@SkovListeners{..} = do
                             forM_ l $ \bp -> if bp == keeper then do
                                                 blockTable . at (bpHash bp) ?= BlockFinalized bp finRec
                                                 logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked finalized"
+                                                -- Update the transaction tables
+                                                forM_ (toTransactions (blockData (bpBlock bp))) $ \trs -> do
+                                                    transactionsPending %= \ptrs -> foldr (Map.delete . transactionNonce) ptrs trs
+                                                    transactionsFinalized %= \ftrs -> foldr (\t -> Map.insert (transactionNonce t) t) ftrs trs
                                             else do
                                                 blockTable . at (bpHash bp) ?= BlockDead
                                                 logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
