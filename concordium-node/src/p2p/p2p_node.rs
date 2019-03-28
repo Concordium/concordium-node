@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use failure::{Error, Fallible, bail};
+use failure::{Error, Fallible, bail, err_msg};
 use std::sync::{Arc, RwLock};
 use std::cell::Cell;
 use std::sync::mpsc::{ Sender, channel };
@@ -748,29 +748,33 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn process_th_sc(&self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
-        if let Some(ref p) = self.process_th {
-            Some(Rc::clone(p))
+    pub fn process_th_sc(&mut self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
+        if let Some(p) = self.process_th.take() {
+            let ret = Rc::try_unwrap(p).ok().unwrap();
+            Some(Rc::new(ret))
         } else {
             None
         }
     }
 
-    pub fn close_and_join(&mut self) {
+    pub fn close_and_join(&mut self) -> Fallible<()>{
         if let Some(ref q) = self.quit_tx {
             info!("Closing P2P node with id: {:?}", self.get_own_id());
             let _ = q.send(true);
             let p_th = self.process_th.take();
             if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {
                 let _ = r.into_inner().join();
-            };
+            } else {
+                bail!(err_msg("Unable to get the thread back, the node isn't holding it"));
+            }
         }
+        Ok(())
     }
 }
 
 impl Drop for P2PNode {
     fn drop(&mut self) {
-        self.close_and_join();
+        let _ = self.close_and_join();
     }
 }
 
