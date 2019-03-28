@@ -145,7 +145,11 @@ getConsensusStatus sfsRef = do
                 "blockArrivePeriodEMA" .= (sfs ^. statistics . blockArrivePeriodEMA),
                 "blockArrivePeriodEMSD" .= (sqrt <$> (sfs ^. statistics . blockArrivePeriodEMVar)),
                 "transactionsPerBlockEMA" .= (sfs ^. statistics . transactionsPerBlockEMA),
-                "transactionsPerBlockEMSD" .= sqrt (sfs ^. statistics . transactionsPerBlockEMVar)
+                "transactionsPerBlockEMSD" .= sqrt (sfs ^. statistics . transactionsPerBlockEMVar),
+                "finalizationCount" .= (sfs ^. statistics . finalizationCount),
+                "lastFinalizedTime" .= (sfs ^. statistics . lastFinalizedTime),
+                "finalizationPeriodEMA" .= (sfs ^. statistics . finalizationPeriodEMA),
+                "finalizationPeriodEMSD" .= (sqrt <$> (sfs ^. statistics . finalizationPeriodEMVar))
             ]
 
 getBlockInfo :: IORef SkovFinalizationState -> String -> IO Value

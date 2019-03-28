@@ -62,7 +62,11 @@ data SkovStatistics = SkovStatistics {
     _blockArrivePeriodEMA :: Maybe Double,
     _blockArrivePeriodEMVar :: Maybe Double,
     _transactionsPerBlockEMA :: Double,
-    _transactionsPerBlockEMVar :: Double
+    _transactionsPerBlockEMVar :: Double,
+    _finalizationCount :: Int,
+    _lastFinalizedTime :: Maybe UTCTime,
+    _finalizationPeriodEMA :: Maybe Double,
+    _finalizationPeriodEMVar :: Maybe Double
 }
 makeLenses ''SkovStatistics
 
@@ -86,7 +90,11 @@ initialSkovStatistics = SkovStatistics {
     _blockArrivePeriodEMA = Nothing,
     _blockArrivePeriodEMVar = Nothing,
     _transactionsPerBlockEMA = 0,
-    _transactionsPerBlockEMVar = 0
+    _transactionsPerBlockEMVar = 0,
+    _finalizationCount = 0,
+    _lastFinalizedTime = Nothing,
+    _finalizationPeriodEMA = Nothing,
+    _finalizationPeriodEMVar = Nothing
 }
 
 data SkovData = SkovData {
@@ -253,6 +261,7 @@ processFinalizationPool sl@SkovListeners{..} = do
                 -- We got a valid finalization proof, so progress finalization
                 Left (finRec, newFinBlock) -> do
                     logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock)
+                    updateFinalizationStatistics
                     finalizationPool . at nextFinIx .= Nothing
                     finalizationList %= (Seq.:|> (finRec, newFinBlock))
                     oldBranches <- use branches
@@ -273,7 +282,6 @@ processFinalizationPool sl@SkovListeners{..} = do
                             pruneTrunk (bpParent keeper) brs
                     pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
                     -- Prune the branches
-                    -- blockTable <- use skovBlockTable
                     let
                         pruneBranches _ Seq.Empty = return Seq.empty
                         pruneBranches parents (brs Seq.:<| rest) = do
@@ -482,10 +490,29 @@ updateReceiveStatistics PendingBlock{..} = do
                 let blockTime = realToFrac (diffUTCTime pbReceiveTime lastBTime)
                 oldEMA <- fromMaybe blockTime <$> (use $ statistics . blockReceivePeriodEMA)
                 let delta = blockTime - oldEMA
-                statistics . blockReceivePeriodEMA  ?= oldEMA + emaWeight * delta
+                statistics . blockReceivePeriodEMA ?= oldEMA + emaWeight * delta
                 oldEMVar <- fromMaybe 0 <$> (use $ statistics . blockReceivePeriodEMVar)
                 statistics . blockReceivePeriodEMVar ?= (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
-        
+
+-- | Called when a block has been finalized to update the statistics.        
+updateFinalizationStatistics :: forall s m. (MonadState s m, SkovLenses s, SkovMonad m) => m ()
+updateFinalizationStatistics = do
+    statistics . finalizationCount += 1
+    curTime <- liftIO getCurrentTime
+    oldLastFinalized <- statistics . lastFinalizedTime <<.= Just curTime
+    forM_ oldLastFinalized $ \lastFinTime -> do
+        let finTime = realToFrac (diffUTCTime curTime lastFinTime)
+        oldEMA <- fromMaybe finTime <$> (use $ statistics . finalizationPeriodEMA)
+        let delta = finTime - oldEMA
+        statistics . finalizationPeriodEMA ?= oldEMA + emaWeight * delta
+        oldEMVar <- fromMaybe 0 <$> (use $ statistics . finalizationPeriodEMVar)
+        statistics . finalizationPeriodEMVar ?= (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta)
+    s <- use statistics
+    logEvent Skov LLInfo $ "Finalization statistics:" ++
+        " finalizationCount=" ++ show (s ^. finalizationCount) ++
+        " lastFinalizedTime=" ++ show (maybe (0::Double) (realToFrac . utcTimeToPOSIXSeconds) $ s ^. lastFinalizedTime) ++
+        " finalizationPeriodEMA=" ++ show (s ^. finalizationPeriodEMA) ++
+        " finalizationPeriodEMSD=" ++ show (sqrt <$> s ^. finalizationPeriodEMVar)
 
 -- Tree consists of finalization list + branches
 -- When adding a block that is at height in the finalization list, check if it's already there; if not, it should be dead.
