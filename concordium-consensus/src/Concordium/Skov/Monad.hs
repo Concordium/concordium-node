@@ -9,22 +9,24 @@ import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Concordium.Types
+import Concordium.Logger
 
-class (Monad m, MonadIO m) => SkovMonad m where
+class (Monad m, MonadIO m, LoggerMonad m) => SkovMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe BlockPointer)
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: Block -> m BlockHash
-    -- |Finalize a block that is in the block table and a child
-    -- of the last finalized block.  These properties may not be
-    -- checked.
+    -- |Add a finalization record.  This should (eventually) result
+    -- in a block being finalized.
     finalizeBlock :: FinalizationRecord -> m ()
-    -- |Determine if a block has been finalized
+    -- |Determine if a block has been finalized.
     isFinalized :: BlockHash -> m Bool
-    -- |Determine the last finalized block
+    -- |Determine the last finalized block.
     lastFinalizedBlock :: m BlockPointer
+    -- |Get the genesis data.
     getGenesisData :: m GenesisData
+    -- |Get the genesis block pointer.
     genesisBlock :: m BlockPointer
     -- |Get the height of the highest blocks in the tree.
     -- Note: the genesis block has height 0
