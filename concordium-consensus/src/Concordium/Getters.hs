@@ -126,12 +126,12 @@ hsh = show . bpHash
 getBestBlockState :: IORef SkovFinalizationState -> IO GlobalState
 getBestBlockState sfsRef = do
     sfs <- readIORef sfsRef
-    flip evalStateT (sfs ^. sfsSkov) (bpState <$> bestBlock)
+    runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> bestBlock)
 
 getLastFinalState :: IORef SkovFinalizationState -> IO GlobalState
 getLastFinalState sfsRef = do
     sfs <- readIORef sfsRef
-    flip evalStateT (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
+    runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
 
 getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AT.AccountAddress]
 getLastFinalAccountList sfsRef = (HashMap.keys . AT.accounts) <$> getLastFinalState sfsRef

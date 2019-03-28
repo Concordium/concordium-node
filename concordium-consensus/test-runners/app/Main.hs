@@ -21,9 +21,6 @@ import Concordium.Types
 import Concordium.Runner
 import Concordium.Show
 
-import Data.Map(Map)
-import qualified Data.Map as Map
-
 import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
@@ -32,17 +29,15 @@ import Acorn.Utils.Init.Example(update, initialState)
 import Acorn.Types(lState, instances, instances)
 import Concordium.GlobalState.Types
 
-import Data.Maybe(fromJust)
-
-import Debug.Trace
+import Concordium.Crypto.SHA256
 
 nAccounts = 2
 
 transactions :: StdGen -> [Transaction]
-transactions gen = trs 0 (randoms gen)
+transactions gen = trs (0 :: Int) (randoms gen :: [Integer])
     where
         trs n (a : b : c : d : f : g : rs) = let (meta, payload) = update f (g `mod` fromIntegral nAccounts)
-                                             in (Transaction (TransactionNonce a b c d) meta payload) : trs (n+1) rs
+                                             in (Transaction (TransactionNonce $ hash (BS.pack (show a))) meta payload) : trs (n+1) rs
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
