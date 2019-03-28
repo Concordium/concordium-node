@@ -392,31 +392,19 @@ impl ConsensusContainer {
     }
 
     pub fn get_consensus_status(&self) -> Option<String> {
-        if let Some(baker) = self.bakers.read().unwrap().values().next() {
-            return Some(baker.get_consensus_status());
-        }
-        None
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_consensus_status())
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> Option<String> {
-        if let Some(baker) = self.bakers.read().unwrap().values().next() {
-            return Some(baker.get_block_info(block_hash));
-        }
-        None
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_block_info(block_hash))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> Option<String> {
-        if let Some(baker) = self.bakers.read().unwrap().values().next() {
-            return Some(baker.get_ancestors(block_hash, amount));
-        }
-        None
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_ancestors(block_hash, amount))
     }
 
     pub fn get_branches(&self) -> Option<String> {
-        if let Some(baker) = self.bakers.read().unwrap().values().next() {
-            return Some(baker.get_branches());
-        }
-        None
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_branches())
     }
 }
 
