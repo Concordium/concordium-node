@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# Language OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Concordium.Payload.Transaction where
 
 import GHC.Generics
@@ -8,12 +9,13 @@ import Data.Word
 import Data.ByteString.Char8(ByteString)
 import Data.ByteString.Builder
 import qualified Data.ByteString.Lazy.Char8 as LBS
+import Concordium.Crypto.SHA256
 import Data.Serialize
 import Data.Hashable
 import Data.Bits
 
 import Data.Foldable(toList)
-
+import qualified Data.HashMap.Strict as Map
 
 
 import Concordium.GlobalState.Types
@@ -23,16 +25,11 @@ import qualified Acorn.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init.Example as Init
 import qualified Acorn.Scheduler as Sch
 
-data TransactionNonce = TransactionNonce !Word64 !Word64 !Word64 !Word64
-    deriving (Eq, Ord, Generic)
-
-instance Hashable TransactionNonce where
-    hashWithSalt salt (TransactionNonce a _ _ _) = fromIntegral a `xor` salt
-    hash (TransactionNonce a _ _ _) = fromIntegral a
+newtype TransactionNonce = TransactionNonce Hash
+    deriving (Eq, Ord, Hashable, Generic)
 
 instance Show TransactionNonce where
-    show (TransactionNonce a b c d) =
-        LBS.unpack (toLazyByteString $ word64HexFixed a <> word64HexFixed b <> word64HexFixed c <> word64HexFixed d)
+    show (TransactionNonce s) = show s
 
 instance Serialize TransactionNonce
 
@@ -72,4 +69,6 @@ makeBlock msg cm gs = let ((suc, failure), gs') = Types.runSI (Sch.makeValidBloc
                       in (suc, failure, gs')
 
 initState :: Int -> Types.GlobalState
-initState = Init.initialState
+initState n = (Init.initialState n) { Types.accounts = (Map.fromList [("Mateusz", Types.Account "Mateusz" 1 (2 ^ (62 :: Int)))
+                                                                     ,("Ales", Types.Account "Ales" 1 100000)
+                                                                     ,("Thomas", Types.Account "Thomas" 1 100000)]) }

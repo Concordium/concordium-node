@@ -15,10 +15,13 @@ import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
 
+import qualified Acorn.Types as AT
+
 import Data.IORef
 import Text.Read hiding (get)
 import Data.Maybe
 import qualified Data.Map as Map
+import qualified Data.HashMap.Strict as HashMap
 
 -- import Data.String
 
@@ -118,6 +121,36 @@ txOutToTransaction (TxOut nonce sndr addr msg) = undefined
 
 hsh :: BlockPointer -> String
 hsh = show . bpHash
+
+getBestBlockState :: IORef SkovFinalizationState -> IO GlobalState
+getBestBlockState sfsRef = do
+    sfs <- readIORef sfsRef
+    flip evalStateT (sfs ^. sfsSkov) (bpState <$> bestBlock)
+
+getLastFinalState :: IORef SkovFinalizationState -> IO GlobalState
+getLastFinalState sfsRef = do
+    sfs <- readIORef sfsRef
+    flip evalStateT (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
+
+getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AT.AccountAddress]
+getLastFinalAccountList sfsRef = (HashMap.keys . AT.accounts) <$> getLastFinalState sfsRef
+
+getLastFinalInstances :: IORef SkovFinalizationState -> IO [AT.ContractAddress]
+getLastFinalInstances sfsRef = (HashMap.keys . AT.instances) <$> getLastFinalState sfsRef
+
+getLastFinalAccountInfo :: IORef SkovFinalizationState -> AT.AccountAddress -> IO (Maybe AT.AccountInfo)
+getLastFinalAccountInfo sfsRef addr = do
+  maybeAccount <- (HashMap.lookup addr . AT.accounts) <$> getLastFinalState sfsRef
+  case maybeAccount of
+    Nothing -> return Nothing
+    Just acc -> return $ Just (AT.AccountInfo (AT.anonce acc) (AT.aamount acc))
+
+getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe AT.InstanceInfo)
+getLastFinalContractInfo sfsRef addr = do
+  maybeAccount <- (HashMap.lookup addr . AT.instances) <$> getLastFinalState sfsRef
+  case maybeAccount of
+    Nothing -> return Nothing
+    Just is -> return $ Just (AT.InstanceInfo (AT.imsgTy is) (AT.lState is) (AT.iamount is))
 
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
