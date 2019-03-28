@@ -276,4 +276,3 @@ foreign export ccall getLastFinalAccountList :: StablePtr BakerRunner -> IO CStr
 foreign export ccall getLastFinalInstances :: StablePtr BakerRunner -> IO CString
 foreign export ccall getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
 foreign export ccall getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-
