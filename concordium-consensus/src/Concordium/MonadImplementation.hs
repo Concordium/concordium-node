@@ -275,7 +275,6 @@ processFinalizationPool sl@SkovListeners{..} = do
                     -- Prune the branches
                     -- blockTable <- use skovBlockTable
                     let
-                        pruneBranches [] _ = return Seq.empty
                         pruneBranches _ Seq.Empty = return Seq.empty
                         pruneBranches parents (brs Seq.:<| rest) = do
                             survivors <- foldrM (\bp l ->
