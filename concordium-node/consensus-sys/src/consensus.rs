@@ -1,4 +1,4 @@
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -33,7 +33,7 @@ extern "C" {
     pub fn receiveFinalizationRecord(baker: *mut baker_runner,
                                      finalization_data: *const u8,
                                      data_length: i64);
-    pub fn receiveTransaction(baker: *mut baker_runner, tx: *const u8) -> i64;
+    pub fn receiveTransaction(baker: *mut baker_runner, tx: *const u8, data_length: i64) -> i64;
     pub fn stopBaker(baker: *mut baker_runner);
     pub fn makeGenesisData(genesis_time: u64,
                            num_bakers: u64,
@@ -45,10 +45,10 @@ extern "C" {
     pub fn getBlockInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAncestors(baker: *mut baker_runner, block_hash: *const u8, amount: u64) -> *const c_char;
     pub fn getBranches(baker: *mut baker_runner) -> *const c_char;
-    pub fn getLastFinalAccountList(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalAccountList(baker: *mut baker_runner) -> *const u8;
     pub fn getLastFinalInstances(baker: *mut baker_runner) -> *const c_char;
-    pub fn getLastFinalAccountInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getLastFinalInstanceInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getLastFinalAccountInfo(baker: *mut baker_runner, block_hash: *const c_char) -> *const c_char;
+    pub fn getLastFinalInstanceInfo(baker: *mut baker_runner, block_hash: *const c_char) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
 }
 
@@ -70,6 +70,40 @@ macro_rules! wrap_c_call_string {
                 freeCStr(c_string);
                 r
                 
+            }
+        }
+    }
+}
+
+macro_rules! wrap_send_data_to_c {
+    ($self: ident, $data: expr, $c_call: expr) => {
+        {
+            let baker = $self.runner.load(Ordering::SeqCst);
+            let len = $data.len();
+            unsafe {
+                let c_string = CString::from_vec_unchecked($data);
+                $c_call(baker, c_string.as_ptr() as *const u8, len as i64);
+            }
+        }
+    }
+}
+
+macro_rules! wrap_c_call_bytes {
+    ($self: ident, $c_call: expr) => {
+        {
+            let baker = $self.runner.load(Ordering::SeqCst);
+            unsafe {
+                let res = $c_call(baker) as *const u8;
+                let raw_size = slice::from_raw_parts(res, 4); 
+                let mut raw_len_buf = Cursor::new(&raw_size[0..4]);
+                let ret = match raw_len_buf.read_u32::<NetworkEndian>() {
+                    Ok(size) => {
+                        slice::from_raw_parts(res, 4+size as usize )[4..].to_owned()
+                    }
+                    _ => vec![],
+                };
+                freeCStr(res as *const i8);
+                ret
             }
         }
     }
@@ -100,75 +134,57 @@ impl ConsensusBaker {
     }
 
     pub fn send_block(&self, data: &Block) {
-        let baker = self.runner.load(Ordering::SeqCst);
-        let serialized = data.serialize().unwrap();
-        let len = serialized.len();
-        unsafe {
-            let c_string = CString::from_vec_unchecked(serialized);
-            receiveBlock(baker, c_string.as_ptr() as *const u8, len as i64);
-        }
+        wrap_send_data_to_c!( self, data.serialize().unwrap(), receiveBlock);
     }
 
     pub fn send_finalization(&self, data: Vec<u8>) {
-        let baker = self.runner.load(Ordering::SeqCst);
-        let len = data.len();
-        unsafe {
-            let c_string = CString::from_vec_unchecked(data);
-            receiveFinalization(baker, c_string.as_ptr() as *const u8, len as i64);
-        }
+        wrap_send_data_to_c!( self, data, receiveFinalization);
     }
 
     pub fn send_finalization_record(&self, data: Vec<u8>) {
+        wrap_send_data_to_c!( self, data, receiveFinalizationRecord);
+    }
+
+    pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
         let baker = self.runner.load(Ordering::SeqCst);
         let len = data.len();
         unsafe {
-            let c_string = CString::from_vec_unchecked(data);
-            receiveFinalizationRecord(baker, c_string.as_ptr() as *const u8, len as i64);
-        }
-    }
-
-    pub fn send_transaction(&self, data: &str) -> i64 {
-        let baker = self.runner.load(Ordering::SeqCst);
-        unsafe {
             let c_string = CString::new(data).unwrap();
-            receiveTransaction(baker, c_string.as_ptr() as *const u8)
+            receiveTransaction(baker, c_string.as_ptr() as *const u8, len as i64)
         }
     }
 
     pub fn get_consensus_status(&self) -> String {
-        let baker = self.runner.load(Ordering::SeqCst);
-        unsafe {
-            let c_string = getConsensusStatus(baker);
-            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
-            freeCStr(c_string);
-            r
-        }
+        wrap_c_call_string!(self, baker, |baker| getConsensusStatus(baker) )
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> String {
-        let baker = self.runner.load(Ordering::SeqCst);
-        unsafe {
-            let c_block_hash = CString::new(block_hash).unwrap();
-            let c_string = getBlockInfo(baker, c_block_hash.as_ptr() as *const u8);
-            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
-            freeCStr(c_string);
-            r
-        }
+        wrap_c_call_string!(self, baker, |baker| getBlockInfo(baker,(CString::new(block_hash).unwrap()).as_ptr() as *const u8) )
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> String {
-        let baker = self.runner.load(Ordering::SeqCst);
-        unsafe {
-            let c_block_hash = CString::new(block_hash).unwrap();
-            let c_string = getAncestors(baker, c_block_hash.as_ptr() as *const u8, amount);
-            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
-            freeCStr(c_string);
-            r
-        }
+        wrap_c_call_string!(self, baker, |baker| getAncestors(baker,
+            (CString::new(block_hash).unwrap()).as_ptr() as *const u8, amount ))
     }
 
     pub fn get_branches(&self) -> String {
         wrap_c_call_string!(self, baker, |baker| getBranches(baker) )
+    }
+
+    pub fn get_last_final_account_list(&self) -> Vec<u8> {
+        wrap_c_call_bytes!( self, |baker| getLastFinalAccountList( baker ) )
+    }
+
+    pub fn get_last_final_instances(&self) -> Vec<u8> {
+        wrap_c_call_bytes!( self, |baker| getLastFinalInstances( baker ) )
+    }
+
+    pub fn get_last_final_account_info(&self, _account_address: &[u8]) -> Vec<u8> {
+        wrap_c_call_bytes!( self, |baker| getLastFinalAccountInfo( baker, _account_address.as_ptr() as *const i8) )
+    }
+
+    pub fn get_last_final_instance_info(&self, _contract_instance_address: &[u8]) -> Vec<u8> {
+        wrap_c_call_bytes!( self, |baker| getLastFinalInstanceInfo( baker, _contract_instance_address.as_ptr() as *const i8) )
     }
 }
 
@@ -360,9 +376,9 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn send_transaction(&self, tx: &str) -> i64 {
+    pub fn send_transaction(&self, tx: &[u8]) -> i64 {
         if let Some(baker) = self.bakers.write().unwrap().values().next() {
-            return baker.send_transaction(tx);
+            return baker.send_transaction(tx.to_vec());
         }
         -1
     }
@@ -418,6 +434,22 @@ impl ConsensusContainer {
 
     pub fn get_branches(&self) -> Option<String> {
         self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_branches)
+    }
+
+    pub fn get_last_final_account_list(&self) -> Option<Vec<u8>> {
+        self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_last_final_account_list)
+    }
+
+    pub fn get_last_final_instance_info(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_last_final_instance_info(block_hash))
+    }
+
+    pub fn get_last_final_account_info(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_last_final_account_info(block_hash))
+    }
+
+    pub fn get_last_final_instances(&self) -> Option<Vec<u8>> {
+        self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_last_final_instances)
     }
 }
 
@@ -530,13 +562,13 @@ impl Block {
     pub fn deserialize(data: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
         let mut slot_id_bytes = Cursor::new(&data[curr_pos..][..8]);
-        let slot_id = match slot_id_bytes.read_u64::<BigEndian>() {
+        let slot_id = match slot_id_bytes.read_u64::<NetworkEndian>() {
             Ok(num) => num,
             _ => return None,
         };
         curr_pos += 8 + 32;
         let mut baker_id_bytes = Cursor::new(&data[curr_pos..][..8]);
-        let baker_id = match baker_id_bytes.read_u64::<BigEndian>() {
+        let baker_id = match baker_id_bytes.read_u64::<NetworkEndian>() {
             Ok(num) => num,
             _ => return None,
         };

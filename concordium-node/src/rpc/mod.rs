@@ -17,7 +17,6 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{ SystemTime , UNIX_EPOCH};
-use byteorder::{BigEndian, WriteBytesExt};
 use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
@@ -184,6 +183,28 @@ macro_rules! successful_json_response {
     }
 }
 
+macro_rules! successful_byte_response {
+    ($self: ident, $ctx: ident, $req: ident, $sink: ident, $inner_match: expr) => {
+        if let Some(ref consensus) = $self.consensus {
+            match $inner_match( consensus ) {
+                Some(res) => {
+                    let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
+                    r.set_payload(res);
+                    let f = $sink.success(r)
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+                    $ctx.spawn(f);
+                }
+                _ => {
+                    let f = $sink.fail(
+                            ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
+                    $ctx.spawn(f);
+                }
+            }
+        }
+    }
+}
+
 impl P2P for RpcServerImpl {
     fn peer_connect(&self,
                     ctx: ::grpcio::RpcContext<'_>,
@@ -275,6 +296,41 @@ impl P2P for RpcServerImpl {
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
+        });
+    }
+
+    fn send_transaction(&self,
+                    ctx: ::grpcio::RpcContext<'_>,
+                    req: SendTransactionRequest,
+                    sink: ::grpcio::UnarySink<SuccessResponse>) {
+
+        authenticate!(ctx, req, sink, &self.access_token, {
+            match self.consensus {
+                Some(ref res) => {
+                    match res.send_transaction(req.get_payload()) {
+                        0 => {
+                            let mut r: SuccessResponse = SuccessResponse::new();
+                            r.set_value(true);
+                            let f = sink.success(r)
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        },
+                        _ => {
+                            let f = sink.fail(
+                                ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                            ctx.spawn(f);
+                        }   
+                    }
+                    
+                }
+                _ => {
+                    let f = sink.fail(
+                            ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
+                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+                    ctx.spawn(f);
+                }
+            }
         });
     }
 
@@ -590,41 +646,6 @@ impl P2P for RpcServerImpl {
         });
     }
 
-    fn po_c_send_transaction(&self,
-                  ctx: ::grpcio::RpcContext<'_>,
-                  req: PoCSendTransactionMessage,
-                  sink: ::grpcio::UnarySink<SuccessResponse>) {
-        authenticate!(ctx, req, sink, &self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            if let Some(ref consensus) = self.consensus {
-                if consensus.send_transaction(&req.get_message_content().to_string()) == 0 as i64 {
-                    let mut out_bytes = vec![];
-                    match out_bytes.write_u16::<BigEndian>(1 as u16) {
-                        Ok(_) => {
-                            out_bytes.extend(req.get_message_content().as_bytes());
-                            match self.node.borrow_mut().send_message(None, req.get_network_id() as u16, None, &out_bytes , true)  {
-                                Ok(_) => {
-                                    info!("Transmitted transaction to network");
-                                    r.set_value(true);
-                                }
-                                Err(_) => {
-                                    error!("Couldn't transmit transaction to network");
-                                    r.set_value(false);
-                                }
-                            }
-                        }
-                        _ => r.set_value(false),
-                    }
-                } else {
-                    r.set_value(false);
-                }
-            }
-            let f = sink.success(r)
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        } );
-    }
-
     fn unban_node(&self,
                   ctx: ::grpcio::RpcContext<'_>,
                   req: PeerElement,
@@ -704,6 +725,42 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse> ) {
             authenticate!(ctx, req, sink, &self.access_token, {
                 successful_json_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_ancestors(&req.get_block_hash(), req.get_amount()) );
+            });
+        }
+
+    fn get_last_final_account_list(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_account_list() );
+            });
+        }
+
+    fn get_last_final_instances(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_instances() );
+            });
+        }
+
+    fn get_last_final_account_info(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: AccountAddress,
+        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_account_info(req.get_payload()) );
+            });
+        }
+
+    fn get_last_final_instance_info(&self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: ContractInstanceAddress,
+        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse> ) {
+            authenticate!(ctx, req, sink, &self.access_token, {
+                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_instance_info(req.get_payload()) );
             });
         }
 }

@@ -2,8 +2,9 @@ use std::sync::{ Arc, RwLock };
 use crate::proto::{
     SendMessageRequest, PeerConnectRequest, SuccessResponse, Empty, NumberResponse,
     StringResponse, PeerStatsResponse, PeerListResponse, P2PNetworkMessage,
-    PeerElement, NetworkChangeRequest, PoCSendTransactionMessage, SuccessfulJsonPayloadResponse,
-    NodeInfoResponse, BlockHash, BlockHashAndAmount
+    PeerElement, NetworkChangeRequest, SuccessfulJsonPayloadResponse,
+    NodeInfoResponse, BlockHash, BlockHashAndAmount, SendTransactionRequest,
+    SuccessfulBytePayloadResponse, AccountAddress, ContractInstanceAddress,
 };
 use crate::proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
@@ -137,10 +138,23 @@ impl P2P for P2PServiceForwarder {
         forward_to_targets!( self.targets, get_branches, ctx, req, sink);
     }
 
-    fn po_c_send_transaction(&self,
-                  ctx: ::grpcio::RpcContext<'_>,
-                  req: PoCSendTransactionMessage,
-                  sink: ::grpcio::UnarySink<SuccessResponse>) {
-        forward_to_targets!( self.targets, po_c_send_transaction, ctx, req, sink);
+    fn send_transaction(&self, ctx: ::grpcio::RpcContext<'_>, req: SendTransactionRequest, sink: ::grpcio::UnarySink<SuccessResponse>) {
+        forward_to_targets!( self.targets, send_transaction, ctx, req, sink);
+    }
+
+    fn get_last_final_account_list(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
+        forward_to_targets!( self.targets, get_last_final_account_list, ctx, req, sink);
+    }
+
+    fn get_last_final_instances(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
+        forward_to_targets!( self.targets, get_last_final_instances, ctx, req, sink);
+    }
+
+    fn get_last_final_account_info(&self, ctx: ::grpcio::RpcContext<'_>, req: AccountAddress, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
+        forward_to_targets!( self.targets, get_last_final_account_info, ctx, req, sink);
+    }
+
+    fn get_last_final_instance_info(&self, ctx: ::grpcio::RpcContext<'_>, req: ContractInstanceAddress, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
+        forward_to_targets!( self.targets, get_last_final_instance_info, ctx, req, sink);
     }
 }

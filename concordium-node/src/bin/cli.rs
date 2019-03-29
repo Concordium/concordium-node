@@ -260,12 +260,9 @@ fn main() -> Fallible<()> {
                                     }
                                 }
                                 1 => {
-                                    match str::from_utf8(&msg[2..]) {
-                                        Ok(tx) => {
-                                            baker.send_transaction(&tx.to_string());
-                                            info!("Sent transaction to baker");
-                                        }
-                                        _ => error!("Could'nt deserialize transaction, can't move forward with the message"),
+                                    match baker.send_transaction(&msg[2..]) {
+                                        0 => info!("Transaction sent to baker"),
+                                        x => error!("Baker rejected transaction {}", x ),
                                     }
                                 }
                                 2 => {
