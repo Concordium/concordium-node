@@ -125,14 +125,14 @@ mod tests {
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data.clone());
         match client.get_last_final_account_list_opt(&Empty::new(), call_options.clone()) {
-            Ok(ref res) => assert!(res.payload.len()> 0),
+            Ok(ref res) => assert!(!res.payload.is_empty()),
             _ => panic!("Didn't get respones back from sending query"),
         }
 
         let mut req_bytes = AccountAddress::new();
         req_bytes.set_payload(vec![1,3,3,7]);
-        match client.get_last_final_account_info_opt(&req_bytes, call_options.clone()) {
-            Ok(ref res) => assert!(res.payload.len()> 0),
+        match client.get_last_final_account_info_opt(&req_bytes, call_options) {
+            Ok(ref res) => assert!(!res.payload.is_empty()),
             _ => panic!("Didn't get respones back from sending query"),
         }
         consensus_container.stop_baker(0);
