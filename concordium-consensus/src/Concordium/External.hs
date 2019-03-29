@@ -175,7 +175,9 @@ receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 receiveTransaction bptr tdata len = do
     BakerRunner cin _ _ <- deRefStablePtr bptr
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
-    case decode tbs of
+    case runGet (do h <- get
+                    b <- get
+                    return (h, b)) tbs of
       Left _ -> return 1
       Right (h, b) -> -- NB: The hash is a temporary cludge. This will change once we have the transaction table.
         writeChan cin (MsgTransactionReceived (Transaction (TransactionNonce (hash tbs)) h b)) >> return 0
@@ -276,4 +278,3 @@ foreign export ccall getLastFinalAccountList :: StablePtr BakerRunner -> IO CStr
 foreign export ccall getLastFinalInstances :: StablePtr BakerRunner -> IO CString
 foreign export ccall getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
 foreign export ccall getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-

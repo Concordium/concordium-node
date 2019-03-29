@@ -14,3 +14,7 @@ EXPORTS
  getAncestors
  getBranches
  freeCStr
+ getLastFinalAccountList
+ getLastFinalInstances
+ getLastFinalAccountInfo
+ getLastFinalInstanceInfo
