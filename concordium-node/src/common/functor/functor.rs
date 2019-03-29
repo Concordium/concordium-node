@@ -1,4 +1,4 @@
-use failure::{ Error, bail };
+use failure::bail;
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
 
@@ -26,16 +26,16 @@ impl<T> Functor<T> {
     }
 }
 
-/// Helper macro to run all callbacks using `message` expression as argument.
-macro_rules! run_callbacks {
-    ($handlers:expr, $message:expr, $errorMsg: expr) => {
-        (|x: Vec<Error>| if x.is_empty() {
-            Ok(())
-        } else {
-            bail!(FunctorError::new(x))
-        })($handlers.iter()
-        .map( |handler| { (handler.1)($message) })
-        .filter_map(|handler_result| handler_result.err()).collect())
+fn run_callbacks<T>(handlers: &[FunctorCW<T>], message: &T) -> FunctorResult {
+    let errors = handlers.iter()
+        .map(|handler| (handler.1)(message))
+        .filter_map(|result| result.err())
+        .collect::<Vec<_>>();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        bail!(FunctorError::new(errors))
     }
 }
 
@@ -44,7 +44,7 @@ impl<T> FnOnce<(&T,)> for Functor<T> {
     extern "rust-call" fn call_once(self, args: (&T,)) -> FunctorResult
     {
         let msg: &T = args.0;
-        run_callbacks!( &self.callbacks, msg, self.name)
+        run_callbacks(&self.callbacks, msg)
     }
 }
 
@@ -52,7 +52,7 @@ impl<T> FnMut<(&T,)> for Functor<T> {
     extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FunctorResult
     {
         let msg: &T = args.0;
-        run_callbacks!( &self.callbacks, msg, self.name)
+        run_callbacks(&self.callbacks, msg)
     }
 }
 
@@ -60,6 +60,6 @@ impl<T> Fn<(&T,)> for Functor<T> {
     extern "rust-call" fn call(&self, args: (&T,)) -> FunctorResult
     {
         let msg: &T = args.0;
-        run_callbacks!( &self.callbacks, msg, self.name)
+        run_callbacks(&self.callbacks, msg)
     }
 }
