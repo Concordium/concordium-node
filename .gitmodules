@@ -5,4 +5,4 @@
 [submodule "deps/internal/consensus"]
 	path = deps/internal/consensus
 	url = ../consensus/prototype.git
-	branch = 899d64f1c1bd24b117d3b47bac155f5d9d09a5d4
+	branch = f3343d978c0b9b039639a99b17b70fab33e32200
