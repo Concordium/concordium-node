@@ -47,8 +47,8 @@ extern "C" {
     pub fn getBranches(baker: *mut baker_runner) -> *const c_char;
     pub fn getLastFinalAccountList(baker: *mut baker_runner) -> *const u8;
     pub fn getLastFinalInstances(baker: *mut baker_runner) -> *const c_char;
-    pub fn getLastFinalAccountInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getLastFinalInstanceInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getLastFinalAccountInfo(baker: *mut baker_runner, block_hash: *const c_char) -> *const c_char;
+    pub fn getLastFinalInstanceInfo(baker: *mut baker_runner, block_hash: *const c_char) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
 }
 
@@ -179,12 +179,12 @@ impl ConsensusBaker {
         wrap_c_call_bytes!( self, |baker| getLastFinalInstances( baker ) )
     }
 
-    pub fn get_last_final_account_info(&self, _block_hash: &str) -> Vec<u8> {
-        wrap_c_call_bytes!( self, |baker| getLastFinalAccountInfo( baker, (CString::new(_block_hash).unwrap()).as_ptr() as *const u8 ) )
+    pub fn get_last_final_account_info(&self, _account_address: &[u8]) -> Vec<u8> {
+        wrap_c_call_bytes!( self, |baker| getLastFinalAccountInfo( baker, _account_address.as_ptr() as *const i8) )
     }
 
-    pub fn get_last_final_instance_info(&self, _block_hash: &str) -> Vec<u8> {
-        wrap_c_call_bytes!( self, |baker| getLastFinalInstanceInfo( baker, (CString::new(_block_hash).unwrap()).as_ptr() as *const u8 ) )
+    pub fn get_last_final_instance_info(&self, _contract_instance_address: &[u8]) -> Vec<u8> {
+        wrap_c_call_bytes!( self, |baker| getLastFinalInstanceInfo( baker, _contract_instance_address.as_ptr() as *const i8) )
     }
 }
 
@@ -440,11 +440,11 @@ impl ConsensusContainer {
         self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_last_final_account_list)
     }
 
-    pub fn get_last_final_instance_info(&self, block_hash: &str) -> Option<Vec<u8>> {
+    pub fn get_last_final_instance_info(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
         self.bakers.read().unwrap().values().next().map(|baker| baker.get_last_final_instance_info(block_hash))
     }
 
-    pub fn get_last_final_account_info(&self, block_hash: &str) -> Option<Vec<u8>> {
+    pub fn get_last_final_account_info(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
         self.bakers.read().unwrap().values().next().map(|baker| baker.get_last_final_account_info(block_hash))
     }
 

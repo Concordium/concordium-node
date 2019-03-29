@@ -124,7 +124,14 @@ mod tests {
         let meta_data = req_meta_builder.build();
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data.clone());
-        match client.get_last_final_account_list_opt(&Empty::new(), call_options) {
+        match client.get_last_final_account_list_opt(&Empty::new(), call_options.clone()) {
+            Ok(ref res) => assert!(res.payload.len()> 0),
+            _ => panic!("Didn't get respones back from sending query"),
+        }
+
+        let mut req_bytes = AccountAddress::new();
+        req_bytes.set_payload(vec![1,3,3,7]);
+        match client.get_last_final_account_info_opt(&req_bytes, call_options.clone()) {
             Ok(ref res) => assert!(res.payload.len()> 0),
             _ => panic!("Didn't get respones back from sending query"),
         }

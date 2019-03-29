@@ -748,19 +748,19 @@ impl P2P for RpcServerImpl {
 
     fn get_last_final_account_info(&self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
+        req: AccountAddress,
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse> ) {
             authenticate!(ctx, req, sink, &self.access_token, {
-                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_account_info(req.get_block_hash()) );
+                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_account_info(req.get_payload()) );
             });
         }
 
     fn get_last_final_instance_info(&self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
+        req: ContractInstanceAddress,
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse> ) {
             authenticate!(ctx, req, sink, &self.access_token, {
-                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_instance_info(req.get_block_hash()) );
+                successful_byte_response!( self , ctx, req, sink, |consensus: &ConsensusContainer| consensus.get_last_final_instance_info(req.get_payload()) );
             });
         }
 }

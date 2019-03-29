@@ -106,6 +106,14 @@ message SuccessfulBytePayloadResponse {
   bytes payload = 1;
 }
 
+message AccountAddress {
+  bytes payload = 1;
+}
+
+message ContractInstanceAddress {
+  bytes payload = 1;
+}
+
 message Empty {}
 
 service P2P {
@@ -145,6 +153,6 @@ service P2P {
   rpc SendTransaction(SendTransactionRequest) returns (SuccessResponse) {}
   rpc GetLastFinalAccountList(Empty) returns (SuccessfulBytePayloadResponse) {}
   rpc GetLastFinalInstances(Empty) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalAccountInfo(BlockHash) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalInstanceInfo(BlockHash) returns (SuccessfulBytePayloadResponse) {}
+  rpc GetLastFinalAccountInfo(AccountAddress) returns (SuccessfulBytePayloadResponse) {}
+  rpc GetLastFinalInstanceInfo(ContractInstanceAddress) returns (SuccessfulBytePayloadResponse) {}
 }

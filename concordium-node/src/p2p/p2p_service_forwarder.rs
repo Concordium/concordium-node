@@ -4,7 +4,7 @@ use crate::proto::{
     StringResponse, PeerStatsResponse, PeerListResponse, P2PNetworkMessage,
     PeerElement, NetworkChangeRequest, SuccessfulJsonPayloadResponse,
     NodeInfoResponse, BlockHash, BlockHashAndAmount, SendTransactionRequest,
-    SuccessfulBytePayloadResponse
+    SuccessfulBytePayloadResponse, AccountAddress, ContractInstanceAddress,
 };
 use crate::proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
@@ -150,11 +150,11 @@ impl P2P for P2PServiceForwarder {
         forward_to_targets!( self.targets, get_last_final_instances, ctx, req, sink);
     }
 
-    fn get_last_final_account_info(&self, ctx: ::grpcio::RpcContext<'_>, req: BlockHash, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
+    fn get_last_final_account_info(&self, ctx: ::grpcio::RpcContext<'_>, req: AccountAddress, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
         forward_to_targets!( self.targets, get_last_final_account_info, ctx, req, sink);
     }
 
-    fn get_last_final_instance_info(&self, ctx: ::grpcio::RpcContext<'_>, req: BlockHash, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
+    fn get_last_final_instance_info(&self, ctx: ::grpcio::RpcContext<'_>, req: ContractInstanceAddress, sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>) {
         forward_to_targets!( self.targets, get_last_final_instance_info, ctx, req, sink);
     }
 }
