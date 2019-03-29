@@ -41,8 +41,15 @@ extern "C" {
                            baker_private_data_callback: extern "C" fn(baker_id: i64,
                                          data: *const u8,
                                          data_length: i64));
+    pub fn getConsensusStatus(baker: *mut baker_runner) -> *const c_char;
+    pub fn getBlockInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getAncestors(baker: *mut baker_runner, block_hash: *const u8, amount: u64) -> *const c_char;
+    pub fn getBranches(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalAccountList(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalInstances(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalAccountInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getLastFinalInstanceInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
-    pub fn getBestBlockInfo(baker: *mut baker_runner) -> *const c_char;
 }
 
 #[derive(Clone)]
@@ -51,6 +58,21 @@ pub struct ConsensusBaker {
     genesis_data: Vec<u8>,
     private_data: Vec<u8>,
     runner: Arc<AtomicPtr<baker_runner>>,
+}
+
+macro_rules! wrap_c_call_string {
+    ($self: ident, $baker: ident, $c_call: expr) => {
+        {
+            let $baker = $self.runner.load(Ordering::SeqCst);
+            unsafe {
+                let c_string = $c_call($baker);
+                let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
+                freeCStr(c_string);
+                r
+                
+            }
+        }
+    }
 }
 
 impl ConsensusBaker {
@@ -113,14 +135,40 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn get_best_block_info(&self) -> String {
+    pub fn get_consensus_status(&self) -> String {
         let baker = self.runner.load(Ordering::SeqCst);
         unsafe {
-            let c_string = getBestBlockInfo(baker);
+            let c_string = getConsensusStatus(baker);
             let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
             freeCStr(c_string);
             r
         }
+    }
+
+    pub fn get_block_info(&self, block_hash: &str) -> String {
+        let baker = self.runner.load(Ordering::SeqCst);
+        unsafe {
+            let c_block_hash = CString::new(block_hash).unwrap();
+            let c_string = getBlockInfo(baker, c_block_hash.as_ptr() as *const u8);
+            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
+            freeCStr(c_string);
+            r
+        }
+    }
+
+    pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> String {
+        let baker = self.runner.load(Ordering::SeqCst);
+        unsafe {
+            let c_block_hash = CString::new(block_hash).unwrap();
+            let c_string = getAncestors(baker, c_block_hash.as_ptr() as *const u8, amount);
+            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
+            freeCStr(c_string);
+            r
+        }
+    }
+
+    pub fn get_branches(&self) -> String {
+        wrap_c_call_string!(self, baker, |baker| getBranches(baker) )
     }
 }
 
@@ -319,13 +367,6 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn get_best_block_info(&self) -> Option<String> {
-        if let Some(baker) = self.bakers.read().unwrap().values().next() {
-            return Some(baker.get_best_block_info());
-        }
-        None
-    }
-
     pub fn generate_data(genesis_time: u64,
                          num_bakers: u64)
                          -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
@@ -361,6 +402,22 @@ impl ConsensusContainer {
         } else {
             return Err("Didn't get private data from haskell");
         }
+    }
+
+    pub fn get_consensus_status(&self) -> Option<String> {
+        self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_consensus_status)
+    }
+
+    pub fn get_block_info(&self, block_hash: &str) -> Option<String> {
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_block_info(block_hash))
+    }
+
+    pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> Option<String> {
+        self.bakers.read().unwrap().values().next().map(|baker| baker.get_ancestors(block_hash, amount))
+    }
+
+    pub fn get_branches(&self) -> Option<String> {
+        self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_branches)
     }
 }
 
@@ -597,14 +654,6 @@ mod tests {
                     Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
                 }
             }
-            debug!("Now attempting to get best block via FFI to Haskell");
-            match &consensus_container.get_best_block_info() {
-                Some(ref best_block) => {
-                    assert!(best_block.contains("globalState"));
-                }
-                _ => panic!("Didn't get best block back!"),
-            }
-
             debug!("Stopping relay thread");
             if let Ok(mut guard) = relay_th_guard.write() {
                 *guard = false;

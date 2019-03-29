@@ -78,14 +78,23 @@ message NetworkChangeRequest {
   google.protobuf.Int32Value network_id = 1;
 }
 
-message  BestBlockInfoMessage {
-  string best_block_info = 1;
-}
-
 message NodeInfoResponse {
    google.protobuf.StringValue node_id = 1;
    uint64 current_localtime = 2;
   string node_type = 3;
+}
+
+message SuccessfulJsonPayloadResponse {
+  string json_value = 1;
+}
+
+message BlockHash {
+  string block_hash = 1;
+}
+
+message BlockHashAndAmount {
+  string block_hash = 1;
+  uint64 amount = 2;
 }
 
 message Empty {}
@@ -115,8 +124,14 @@ service P2P {
   rpc LeaveNetwork(NetworkChangeRequest) returns (SuccessResponse) {}
   // @TEMP helper endpoint for PoC testing
   rpc PoCSendTransaction(PoCSendTransactionMessage) returns (SuccessResponse) {}
-  // Block info for peer's current 'best' view of the latest global state
-  rpc GetBestBlockInfo(Empty) returns (BestBlockInfoMessage) {}
   // Get information about the running Node
   rpc NodeInfo(Empty) returns (NodeInfoResponse) {}
+  // see https://gitlab.com/Concordium/notes-wiki/wikis/Consensus-queries#getconsensusstatus
+  rpc GetConsensusStatus(Empty) returns (SuccessfulJsonPayloadResponse) {}
+  // see https://gitlab.com/Concordium/notes-wiki/wikis/Consensus-queries#getblockinfo
+  rpc GetBlockInfo(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  // see https://gitlab.com/Concordium/notes-wiki/wikis/Consensus-queries#getancestors
+  rpc GetAncestors(BlockHashAndAmount) returns (SuccessfulJsonPayloadResponse) {}
+  // see https://gitlab.com/Concordium/notes-wiki/wikis/Consensus-queries#getbranches
+  rpc GetBranches(Empty) returns (SuccessfulJsonPayloadResponse) {}
 }

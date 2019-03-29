@@ -5,7 +5,7 @@ use failure::{Fallible};
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
 use hex;
-use crypto_sys;
+use crate::crypto;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
 use openssl::hash::MessageDigest;
@@ -76,7 +76,7 @@ pub struct Cert {
 ///
 /// 3. It ends with the footer "-----END EC PRIVATE KEY-----"
 ///
-pub fn crypto_key_to_pem(input: &crypto_sys::KeyPair) -> Vec<u8> {
+pub fn crypto_key_to_pem(input: &crypto::KeyPair) -> Vec<u8> {
     let pemheader = b"-----BEGIN EC PRIVATE KEY-----\n";
 
     let mut pemcontent = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
@@ -525,6 +525,7 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
 mod tests {
     use hacl_star::ed25519::SecretKey;
     use crate::utils::*;
+    use crate::crypto::KeyPair;
 
     const PRIVATE_TEST_KEY: [u8; 32] = [0xbe, 0xd2, 0x3a, 0xdd, 0x4d, 0x34, 0xab, 0x7a, 0x12,
                                         0xa9, 0xa6, 0xab, 0x2b, 0xaf, 0x97, 0x06, 0xb0, 0xf7,
@@ -604,7 +605,7 @@ mod tests {
 
     #[test]
     pub fn test_keypair_import_openssl() {
-        let kp = crypto_sys::KeyPair::new();
+        let kp = KeyPair::new();
         assert!(openssl::pkey::PKey::private_key_from_pem(&crypto_key_to_pem(&kp)).is_ok());
     }
 

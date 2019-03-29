@@ -2,8 +2,8 @@ use std::sync::{ Arc, RwLock };
 use crate::proto::{
     SendMessageRequest, PeerConnectRequest, SuccessResponse, Empty, NumberResponse,
     StringResponse, PeerStatsResponse, PeerListResponse, P2PNetworkMessage,
-    PeerElement, NetworkChangeRequest, PoCSendTransactionMessage, BestBlockInfoMessage,
-    NodeInfoResponse,
+    PeerElement, NetworkChangeRequest, PoCSendTransactionMessage, SuccessfulJsonPayloadResponse,
+    NodeInfoResponse, BlockHash, BlockHashAndAmount
 };
 use crate::proto::concordium_p2p_rpc_grpc::{ create_p2_p, P2P };
 
@@ -121,11 +121,20 @@ impl P2P for P2PServiceForwarder {
         forward_to_targets!( self.targets, leave_network, ctx, req, sink);
     }
 
-    fn get_best_block_info(&self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<BestBlockInfoMessage> ) {
-            forward_to_targets!( self.targets, get_best_block_info, ctx, req, sink);
+    fn get_consensus_status(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>){
+        forward_to_targets!( self.targets, get_consensus_status, ctx, req, sink);
+    }
+
+    fn get_block_info(&self, ctx: ::grpcio::RpcContext<'_>, req: BlockHash, sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>){
+        forward_to_targets!( self.targets, get_block_info, ctx, req, sink);
+    }
+
+    fn get_ancestors(&self, ctx: ::grpcio::RpcContext<'_>, req: BlockHashAndAmount, sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>){
+        forward_to_targets!( self.targets, get_ancestors, ctx, req, sink);
+    }
+
+    fn get_branches(&self, ctx: ::grpcio::RpcContext<'_>, req: Empty, sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>){
+        forward_to_targets!( self.targets, get_branches, ctx, req, sink);
     }
 
     fn po_c_send_transaction(&self,
