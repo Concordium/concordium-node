@@ -116,31 +116,18 @@ mod tests {
         let env = Arc::new(EnvBuilder::new().build());
         let ch = ChannelBuilder::new(env).connect(&format!("127.0.0.1:{}", 11000+port_node));
 
-        let _client = P2PClient::new(ch);
+        let client = P2PClient::new(ch);
 
         let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
         req_meta_builder.add_str("Authentication", "rpcadmin")
                         .unwrap();
         let meta_data = req_meta_builder.build();
 
-        let _call_options = ::grpcio::CallOption::default().headers(meta_data);
-
-        /*
-        TODO - disabled for now until Acorn is ready in master
-
-        const TEST_TRANSACTION:&str = &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"Increment\",\"txNonce\":\"de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}";
-
         let call_options = ::grpcio::CallOption::default().headers(meta_data.clone());
-        let mut message = PoCSendTransactionMessage::new();
-        message.set_network_id(100);
-        message.set_message_content(TEST_TRANSACTION.to_string());
-        match client.po_c_send_transaction_opt(&message, call_options) {
-            Ok(ref res) => {
-                assert_eq!(res.value, true);
-            },
-            _ => panic!("Didn't get respones back from sending transaction"),
+        match client.get_last_final_account_list_opt(&Empty::new(), call_options) {
+            Ok(ref res) => assert!(res.payload.len()> 0),
+            _ => panic!("Didn't get respones back from sending query"),
         }
-        */
         consensus_container.stop_baker(0);
     }
 }
