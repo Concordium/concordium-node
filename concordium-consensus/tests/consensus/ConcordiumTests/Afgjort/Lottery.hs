@@ -11,11 +11,6 @@ import qualified Data.ByteString.Char8 as BS
 import Test.QuickCheck
 import Test.Hspec
 
-instance Arbitrary VRF.KeyPair where
-    arbitrary = do
-        seed <- arbitrary
-        return $ fst $ VRF.randomKeyPair (mkStdGen seed)
-
 ticketCheck :: Gen Property
 ticketCheck = do
     keyp <- arbitrary

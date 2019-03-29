@@ -16,10 +16,10 @@ import Concordium.Skov.Monad
 
 class SkovMonad m => KontrolMonad m where
     currentTimestamp :: m Timestamp
-    default currentTimestamp :: MonadIO m => m Timestamp
+    -- default currentTimestamp :: MonadIO m => m Timestamp
     currentTimestamp = truncate <$> liftIO getPOSIXTime
     timeUntilNextSlot :: m NominalDiffTime
-    default timeUntilNextSlot :: MonadIO m => m NominalDiffTime
+    -- default timeUntilNextSlot :: MonadIO m => m NominalDiffTime
     timeUntilNextSlot = do
         gen <- getGenesisData
         now <- liftIO $ getPOSIXTime

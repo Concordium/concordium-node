@@ -24,6 +24,7 @@ type BlockHash = Hash.Hash
 type BakerId = Word64
 type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
+-- TODO: The hash is redundant; should be removed
 type BlockNonce = (VRF.Hash, VRF.Proof)
 type BlockData = ByteString
 

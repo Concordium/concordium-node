@@ -11,6 +11,7 @@ import Control.Monad
 import Lens.Micro.Platform
 import System.Random
 import qualified Data.Serialize as Ser
+import Data.List
 
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.ABBA
@@ -18,15 +19,29 @@ import Concordium.Afgjort.Lottery
 
 import Test.QuickCheck
 import Test.Hspec
+-- import Debug.Trace
 
-instance Arbitrary VRF.KeyPair where
-    arbitrary = fst . VRF.randomKeyPair . mkStdGen <$> arbitrary
+import System.IO.Unsafe
+import System.IO
+import Data.Time.Clock.System
+
+{-# NOINLINE traceout #-}
+traceout :: Handle
+traceout = unsafePerformIO $ openFile "trace2.log" WriteMode
+
+{-# NOINLINE trace #-}
+trace :: String -> a -> a
+trace msg = id {- seq (unsafePerformIO (do
+    t <- getSystemTime
+    hPutStr traceout (show t ++ ": " ++ msg ++ "\n"))) -}
 
 invariantABBAState :: (Ord party) => ABBAInstance party -> ABBAState party -> Either String ()
 invariantABBAState (ABBAInstance baid tw cw pw pk me sk) ABBAState{..} = do
         unless (_currentGrade <= 2) $ Left $ "Invalid grade" ++ show _currentGrade
         checkBinary (==) _topWeAreDoneWeight (sum $ fmap pw $ Set.toList $ _topWeAreDone) "==" "weight of WeAreDone for Top" "calculated value"
+        checkBinary (<=) _topWeAreDoneWeight tw "<=" "weight of WeAreDone for Top" "total weight"
         checkBinary (==) _botWeAreDoneWeight (sum $ fmap pw $ Set.toList $ _botWeAreDone) "==" "weight of WeAreDone for Bottom" "calculated value"
+        checkBinary (<=) _botWeAreDoneWeight tw "<=" "weight of WeAreDone for Bottom" "total weight"
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
@@ -62,8 +77,8 @@ runABBATest baid nparties allparties vrfkeys = go iStates iResults
                 ((rcpt, inp), msgs') <- selectFromSeq msgs
                 let s = (sts Vec.! rcpt)
                 let (_, s', out) = runABBA (makeInput inp) (inst rcpt) s
-                let lbl = if _currentPhase s /= _currentPhase s' then label ("reached phase " ++ show (_currentPhase s')) else id
-                lbl <$> case invariantABBAState (inst rcpt) s' of
+                let lbl = if _currentPhase s /= _currentPhase s' then let p = ("reached phase " ++ show (_currentPhase s')) in trace p $ label p else id
+                lbl <$> case trace ("." ++ show rcpt ++ ": " ++ show inp) $ invariantABBAState (inst rcpt) s' of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
                     Right _ -> do
                         let sts' = sts & ix rcpt .~ s'
@@ -78,8 +93,13 @@ runABBATest baid nparties allparties vrfkeys = go iStates iResults
 makeKeys :: Int -> Gen (Vec.Vector VRF.KeyPair)
 makeKeys = fmap Vec.fromList . vector
 
-superCorruptKeys :: Int -> Int -> Int -> Gen (Vec.Vector VRF.KeyPair)
-superCorruptKeys good bad ugly = makeKeys (good + bad) `suchThat` areSuperCorrupt ugly
+
+-- |Generate @good + bad@ keys, where the bad keys consistently beat the
+-- good keys over @ugly@ rounds.  The last argument is a seed for
+-- the random generation, to avoid searching for keys that satisfy the
+-- requirements (if you already know an appropriate seed).
+superCorruptKeys :: Int -> Int -> Int -> Int -> Vec.Vector VRF.KeyPair
+superCorruptKeys good bad ugly = loop
     where
         areSuperCorrupt phase keys
             | phase < 0 = True
@@ -88,6 +108,9 @@ superCorruptKeys good bad ugly = makeKeys (good + bad) `suchThat` areSuperCorrup
         valAtPhase phase k = ticketValue (proofToTicket (makeTicketProof (lotteryId phase) k) 1 (good + bad))
         baid = "test" :: BS.ByteString
         lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
+        loop seed =
+            let keys = Vec.fromList $ take (good + bad) $ unfoldr (Just . VRF.randomKeyPair) (mkStdGen seed) in
+                        if areSuperCorrupt ugly keys then keys else loop (seed + 1)
 makeBegins :: Int -> Gen (Seq.Seq (Int, ABBAInput Int))
 makeBegins = fmap toBegins . vector
     where
@@ -141,10 +164,8 @@ multiWithCorruptKeysEvil keys active corrupt = property $ do
 
 tests :: Spec
 tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
-    beforeAll (generate (superCorruptKeys 3 1 6)) $ do
-        it "3 parties + 1 super corrupt" $ \k -> (withMaxSuccess 50000 $ multiWithCorruptKeys k 3 1)
-    beforeAll (generate (superCorruptKeys 5 2 6)) $ do    
-        it "5 parties + 2 super corrupt" $ \k -> (withMaxSuccess 5000 $ multiWithCorruptKeys k 5 2)
+    it "3 parties + 1 super corrupt" $ withMaxSuccess 50000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
+    it "5 parties + 2 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 5 2 6 4602) 5 2
     it "3 parties + 1 corrupt" $ withMaxSuccess 500 $ multiWithCorrupt 3 1
     it "5 parties + 2 corrupt" $ withMaxSuccess 500 $ multiWithCorrupt 5 2
     it "Two parties" $ withMaxSuccess 10000 $ allHonest 2

@@ -6,8 +6,6 @@ import Concordium.Types
 import Concordium.Skov.Monad
 import Concordium.Payload.Transaction
 
-import Control.Monad.IO.Class
-
 class SkovMonad m => PayloadMonad m where
     -- |Get the transactions for a block.  Can return 'Nothing' if any of the following hold:
     -- 1. the block is not in the tree;

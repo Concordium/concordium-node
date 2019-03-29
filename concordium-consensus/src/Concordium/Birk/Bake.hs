@@ -44,7 +44,7 @@ processInputs slot bh finalizedP = do
       
     -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
 
-bakeForSlot :: (KontrolMonad m, PayloadMonad m, LoggerMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
+bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)

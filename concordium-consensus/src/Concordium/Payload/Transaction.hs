@@ -5,14 +5,10 @@
 module Concordium.Payload.Transaction where
 
 import GHC.Generics
-import Data.Word
 import Data.ByteString.Char8(ByteString)
-import Data.ByteString.Builder
-import qualified Data.ByteString.Lazy.Char8 as LBS
 import Concordium.Crypto.SHA256
 import Data.Serialize
 import Data.Hashable
-import Data.Bits
 
 import Data.Foldable(toList)
 import qualified Data.HashMap.Strict as Map

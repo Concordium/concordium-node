@@ -5,17 +5,12 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Concordium.Afgjort.Freeze
 import Control.Monad.RWS
-import Control.Monad.Writer.Class
-import Control.Monad.State.Class
-import Lens.Micro.Platform
-import Control.Exception
 import Data.Either
 import Control.Monad.Identity
 import Data.List
 
 import Test.QuickCheck
 import Test.Hspec
-import Test.Hspec.Expectations
 
 -- |An invariant predicate over 'FreezeState's.
 invariantFreezeState :: (Ord val, Ord party, Show val, Show party) => Int -> Int -> (party -> Int) -> FreezeState val party -> Bool
@@ -93,19 +88,19 @@ tellState = FreezeT $ do
     st <- get
     tell [Right st]
 
-instance (Monad m, Ord val, Ord party) => FreezeMonad val party (FreezeT val party m) where
+instance (Monad m) => FreezeMonad val party (FreezeT val party m) where
     sendFreezeMessage m = FreezeT (tell [Left $ FOMessage m])
     frozen v = FreezeT (tell [Left $ FOComplete v])
     decisionJustified v = FreezeT (tell [Left $ FOJustifiedDecision v])
 
-doFreezeT :: (Monad m, Ord val, Ord party) => FreezeInstance party -> FreezeState val party -> FreezeT val party m a -> m (a, FreezeState val party, [Either (FreezeOutput val) (FreezeState val party)])
-doFreezeT context state a = runRWST (runFreezeT (a >>= \r -> tellState >> return r)) context state
+doFreezeT :: (Monad m) => FreezeInstance party -> FreezeState val party -> FreezeT val party m a -> m (a, FreezeState val party, [Either (FreezeOutput val) (FreezeState val party)])
+doFreezeT ctxt st a = runRWST (runFreezeT (a >>= \r -> tellState >> return r)) ctxt st
  
 runFreezeSequence :: forall val party. (Ord val, Ord party) => FreezeInstance party -> [FreezeInput party val] -> [Either (FreezeInput party val) (Either (FreezeOutput val) (FreezeState val party))]
-runFreezeSequence fi@(FreezeInstance totalWeight corruptWeight partyWeight me) ins = go initialFreezeState ins
+runFreezeSequence fi ins = go initialFreezeState ins
     where
         go :: FreezeState val party -> [FreezeInput party val] -> [Either (FreezeInput party val) (Either (FreezeOutput val) (FreezeState val party))]
-        go st [] = []
+        go _ [] = []
         go st (e : es) = let (_, st', out) = runIdentity (doFreezeT fi st (exec e)) in (Left e) : (Right <$> out) ++ go st' es
         exec :: FreezeInput party val -> FreezeT val party Identity ()
         exec (FICandidate v) = justifyCandidate v
@@ -132,10 +127,10 @@ ex2 = (equalParties 2 0 0, [FIProposal 1 "A", FIRequestProposal "B", FICandidate
     [FOMessage (Vote (Nothing)), FOMessage (Proposal "B"), FOJustifiedDecision Nothing, FOComplete Nothing])
     
 testFreezeExampleAllPerms :: FreezeExample -> Spec
-testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [0..]]
+testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [(0::Int)..]]
 
 checkInvariant :: (HasCallStack, Ord val, Ord party, Show val, Show party) => FreezeInstance party -> FreezeState val party -> Expectation
-checkInvariant ctx@(FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw pw st of
+checkInvariant (FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw pw st of
         Left e -> expectationFailure $ show st ++ ": " ++ e
         Right () -> return ()
 
@@ -157,17 +152,20 @@ testQCInvariantExample (tp, cp, inp) = sequence_ [it "state satisfies invariant"
     where
         ctx = (equalParties tp cp 0)
 
+testStream2 :: (Int, Int, [FreezeInput Int Char])
 testStream2 = (4, 1, [FICandidate 'A', FICandidate 'B', FICandidate 'C', FIRequestProposal 'A', FIProposal 1 'A', FIProposal 2 'B', FIProposal 3 'B', FIVote 1 (Just 'A'), FIVote 2 (Just 'B')])
 
+testStream3 :: (Int, Int, [FreezeInput Int Char])
 testStream3 = (6, 1, [FIVote 4 (Just 'C'),FIProposal 3 'D',FICandidate 'B',FIVote 2 (Just 'C'),FIProposal 2 'C',FICandidate 'B',FICandidate 'A',FIRequestProposal 'C',FIVote 1 (Just 'B'),FIProposal 5 'D',FIVote 2 Nothing,FIRequestProposal 'C',FICandidate 'D',FIVote 1 (Just 'A'),FIVote 4 (Just 'B'),FIVote 1 (Just 'B'),FIProposal 2 'C',FIRequestProposal 'B',FIProposal 5 'C',FIProposal 2 'C',FIVote 3 Nothing,FIProposal 2 'C',FIVote 4 (Just 'B'),FIProposal 1 'C',FICandidate 'D',FIVote 3 Nothing,FIRequestProposal 'B',FICandidate 'A',FIVote 4 (Just 'A'),FIVote 2 (Just 'D'),FIVote 5 Nothing,FICandidate 'D',FIProposal 1 'C',FIRequestProposal 'A',FIRequestProposal 'C',FIRequestProposal 'C',FIVote 5 (Just 'B'),FIProposal 4 'C',FICandidate 'C'])
 
 testFreezeExample :: FreezeExample -> Expectation
-testFreezeExample (ctx@(FreezeInstance tw cw pw me), inp, outp) = do
+testFreezeExample (ctx, inp, outp) = do
         sequence_ [checkInvariant ctx st | st <- rights (rights res)]
         (Set.fromList $ lefts $ rights res) `shouldBe` (Set.fromList outp)
     where
         res = runFreezeSequence ctx inp
-    
+
+testInitialInvariant :: Spec    
 testInitialInvariant = it "Invariant holds for intitial freeze state" (invariantFreezeState 0 0 (\_ -> undefined) (initialFreezeState :: FreezeState Int Int))
 
 tests :: Spec
