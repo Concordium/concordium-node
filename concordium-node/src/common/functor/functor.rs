@@ -2,7 +2,7 @@ use failure::{ Error, bail };
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
 
-pub type FunctorCW<T> = Box<FunctorCallback<T>>;
+pub type FunctorCW<T> = ((&'static str, u32), Box<FunctorCallback<T>>);
 
 pub struct Functor<T> {
     pub name: &'static str,
@@ -34,7 +34,7 @@ macro_rules! run_callbacks {
         } else {
             bail!(FunctorError::new(x))
         })($handlers.iter()
-        .map( |handler| { (handler)($message) })
+        .map( |handler| { (handler.1)($message) })
         .filter_map(|handler_result| handler_result.err()).collect())
     }
 }

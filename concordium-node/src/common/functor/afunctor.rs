@@ -4,7 +4,7 @@ use crate::fails as global_fails;
 
 use super::{ FunctorCW, FunctorResult, FunctorError };
 
-pub type AFunctorCW<T> = ((&'static str, u32), Arc<RwLock<FunctorCW<T>>>);
+pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -25,12 +25,12 @@ pub type AFunctorCW<T> = ((&'static str, u32), Arc<RwLock<FunctorCW<T>>>);
 ///
 /// let mut ph = AFunctor::new( "Closures");
 ///
-/// ph.add_callback((("test", 15), Arc::new(RwLock::new(Box::new(move |x: &i32| {
+/// ph.add_callback((Arc::new(RwLock::new((("test", 15), Box::new(move |x: &i32| {
 ///         *acc_1.borrow_mut() += x;
-///         Ok(()) })))))
-///     .add_callback((("test", 18), Arc::new(RwLock::new(Box::new(move |x: &i32| {
+///         Ok(()) }))))))
+///     .add_callback((Arc::new(RwLock::new((("test", 18), Box::new(move |x: &i32| {
 ///         *acc_2.borrow_mut() *= x;
-///         Ok(()) })))));
+///         Ok(()) }))))));
 ///
 /// let value = 42 as i32;
 /// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42
@@ -70,11 +70,11 @@ impl<T> AFunctor<T> {
         let mut status : Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
-            let (_fn_id, cb) = self.callbacks[i].clone();
+            let cb = self.callbacks[i].clone();
 
             if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => {
-                    (locked_cb)(message)
+                    (locked_cb.1)(message)
                 },
                 Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
             } {
