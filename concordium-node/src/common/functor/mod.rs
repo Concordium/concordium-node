@@ -9,10 +9,8 @@ macro_rules! make_atomic_callback {
 }
 
 pub mod afunctor;
-pub mod functor;
 
-pub use self::functor::{ FunctorCW, Functor };
-pub use self::afunctor::{ AFunctorCW, AFunctor };
+pub use self::afunctor::{ FunctorCW, AFunctorCW, AFunctor };
 
 pub type FunctorResult = Result<(), Error>;
 pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);

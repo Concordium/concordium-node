@@ -2,7 +2,9 @@ use std::sync::{ Arc, RwLock };
 use failure::{ Error, bail };
 use crate::fails as global_fails;
 
-use super::{ FunctorCW, FunctorResult, FunctorError };
+use super::{ FunctorCallback, FunctorResult, FunctorError };
+
+pub type FunctorCW<T> = Box<FunctorCallback<T>>;
 
 pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 
