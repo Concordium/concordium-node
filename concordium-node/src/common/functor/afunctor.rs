@@ -25,12 +25,12 @@ pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 ///
 /// let mut ph = AFunctor::new( "Closures");
 ///
-/// ph.add_callback((Arc::new(RwLock::new((("test", 15), Box::new(move |x: &i32| {
+/// ph.add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_1.borrow_mut() += x;
-///         Ok(()) }))))))
-///     .add_callback((Arc::new(RwLock::new((("test", 18), Box::new(move |x: &i32| {
+///         Ok(()) }))))
+///     .add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_2.borrow_mut() *= x;
-///         Ok(()) }))))));
+///         Ok(()) }))));
 ///
 /// let value = 42 as i32;
 /// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42
@@ -74,7 +74,7 @@ impl<T> AFunctor<T> {
 
             if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => {
-                    (locked_cb.1)(message)
+                    locked_cb(message)
                 },
                 Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
             } {

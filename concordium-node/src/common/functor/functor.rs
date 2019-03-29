@@ -2,7 +2,7 @@ use failure::bail;
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
 
-pub type FunctorCW<T> = ((&'static str, u32), Box<FunctorCallback<T>>);
+pub type FunctorCW<T> = Box<FunctorCallback<T>>;
 
 pub struct Functor<T> {
     pub name: &'static str,
@@ -28,7 +28,7 @@ impl<T> Functor<T> {
 
 fn run_callbacks<T>(handlers: &[FunctorCW<T>], message: &T) -> FunctorResult {
     let errors = handlers.iter()
-        .map(|handler| (handler.1)(message))
+        .map(|handler| handler(message))
         .filter_map(|result| result.err())
         .collect::<Vec<_>>();
 

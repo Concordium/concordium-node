@@ -4,7 +4,7 @@ use failure::{Error, Fail};
 #[macro_export]
 macro_rules! make_atomic_callback {
     ($callback:expr) => {
-        Arc::new(RwLock::new(((file!(), line!()), Box::new($callback))))
+        Arc::new(RwLock::new(Box::new($callback)))
     }
 }
 
