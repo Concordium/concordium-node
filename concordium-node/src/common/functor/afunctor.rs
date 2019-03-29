@@ -2,9 +2,9 @@ use std::sync::{ Arc, RwLock };
 use failure::{ Error, bail };
 use crate::fails as global_fails;
 
-use super::{ FunctorResult, FunctorCallback, FunctorError };
+use super::{ FunctorCW, FunctorResult, FunctorError };
 
-pub type AFunctorCW<T> = (String, Arc<RwLock<Box<FunctorCallback<T>>>>);
+pub type AFunctorCW<T> = ((&'static str, u32), Arc<RwLock<FunctorCW<T>>>);
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -25,10 +25,10 @@ pub type AFunctorCW<T> = (String, Arc<RwLock<Box<FunctorCallback<T>>>>);
 ///
 /// let mut ph = AFunctor::new( "Closures");
 ///
-/// ph.add_callback((String::new(), Arc::new(RwLock::new(Box::new(move |x: &i32| {
+/// ph.add_callback((("test", 15), Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_1.borrow_mut() += x;
 ///         Ok(()) })))))
-///     .add_callback((String::new(), Arc::new(RwLock::new(Box::new(move |x: &i32| {
+///     .add_callback((("test", 18), Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_2.borrow_mut() *= x;
 ///         Ok(()) })))));
 ///
@@ -43,14 +43,10 @@ pub struct AFunctor<T> {
     callbacks: Vec<AFunctorCW<T>>,
 }
 
-unsafe impl<T> Send for AFunctor<T> {}
-unsafe impl<T> Sync for AFunctor<T> {}
-
 impl<T> AFunctor<T> {
-
     pub fn new( name: &'static str) -> Self {
         AFunctor {
-            name: name,
+            name,
             callbacks: Vec::new(),
         }
     }
@@ -64,14 +60,13 @@ impl<T> AFunctor<T> {
         self
     }
 
-    pub fn callbacks(&self) -> &Vec<AFunctorCW<T>> {
+    pub fn callbacks(&self) -> &[AFunctorCW<T>] {
         &self.callbacks
     }
 
     /// It executes each callback using `message` as its argument.
     /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
-    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
-    {
+    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult {
         let mut status : Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
@@ -124,7 +119,6 @@ impl<T> Fn<(&T,)> for AFunctor<T> {
 
 #[cfg(test)]
 mod afunctor_unit_test {
-
     use crate::common::functor::{ AFunctor, FunctorResult };
     use std::rc::{ Rc };
     use std::sync::{ Arc, RwLock };

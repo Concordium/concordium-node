@@ -3,7 +3,7 @@ use std::sync::mpsc::{ Sender };
 use std::collections::{ VecDeque };
 
 use crate::common::{ P2PPeer };
-use crate::common::functor::{ FunctorResult, fails as functor_fails };
+use crate::common::functor::{ FunctorResult, FunctorError };
 use crate::network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse };
 use crate::prometheus_exporter::PrometheusServer;
 use crate::connection::{ SeenMessagesList };
@@ -65,11 +65,11 @@ pub fn forward_network_packet_message(
 }
 
 /// It returns a `FunctorRunningError` with the specific message.
-fn make_fn_err( e: &'static str) -> functor_fails::FunctorError {
-    functor_fails::FunctorError::new(vec![err_msg(e)])
+fn make_fn_err( e: &'static str) -> FunctorError {
+    FunctorError::new(vec![err_msg(e)])
 }
 
-fn make_fn_error_prometheus() -> functor_fails::FunctorError {
+fn make_fn_error_prometheus() -> FunctorError {
     make_fn_err( "Prometheus has failed")
 }
 

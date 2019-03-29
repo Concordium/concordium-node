@@ -1,10 +1,8 @@
-use std::cell::{ RefCell };
-use std::rc::{ Rc };
 use failure::{ Error, bail };
 
 use super::{ FunctorResult, FunctorCallback, FunctorError };
 
-pub type FunctorCW<T> = Rc<RefCell<FunctorCallback<T>>>;
+pub type FunctorCW<T> = Box<FunctorCallback<T>>;
 
 pub struct Functor<T> {
     pub name: &'static str,
@@ -14,7 +12,7 @@ pub struct Functor<T> {
 impl<T> Functor<T> {
     pub fn new( name: &'static str) -> Self {
         Functor {
-            name: name,
+            name,
             callbacks: Vec::new(),
         }
     }
@@ -31,14 +29,13 @@ impl<T> Functor<T> {
 /// Helper macro to run all callbacks using `message` expression as argument.
 macro_rules! run_callbacks {
     ($handlers:expr, $message:expr, $errorMsg: expr) => {
-            (|x: Vec<Error>| if x.is_empty() {
-                Ok(())
-            } else {
-                bail!(FunctorError::new(x))
-            })($handlers.iter()
-            .map( |handler| handler.borrow_mut())
-            .map( |handler_mut| { (handler_mut)($message) })
-            .filter_map(|handler_result| handler_result.err()).collect())
+        (|x: Vec<Error>| if x.is_empty() {
+            Ok(())
+        } else {
+            bail!(FunctorError::new(x))
+        })($handlers.iter()
+        .map( |handler| { (handler)($message) })
+        .filter_map(|handler_result| handler_result.err()).collect())
     }
 }
 
