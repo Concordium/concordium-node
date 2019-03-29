@@ -45,6 +45,10 @@ extern "C" {
     pub fn getBlockInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAncestors(baker: *mut baker_runner, block_hash: *const u8, amount: u64) -> *const c_char;
     pub fn getBranches(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalAccountList(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalInstances(baker: *mut baker_runner) -> *const c_char;
+    pub fn getLastFinalAccountInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getLastFinalInstanceInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
 }
 
@@ -54,6 +58,21 @@ pub struct ConsensusBaker {
     genesis_data: Vec<u8>,
     private_data: Vec<u8>,
     runner: Arc<AtomicPtr<baker_runner>>,
+}
+
+macro_rules! wrap_c_call_string {
+    ($self: ident, $baker: ident, $c_call: expr) => {
+        {
+            let $baker = $self.runner.load(Ordering::SeqCst);
+            unsafe {
+                let c_string = $c_call($baker);
+                let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
+                freeCStr(c_string);
+                r
+                
+            }
+        }
+    }
 }
 
 impl ConsensusBaker {
@@ -149,13 +168,7 @@ impl ConsensusBaker {
     }
 
     pub fn get_branches(&self) -> String {
-        let baker = self.runner.load(Ordering::SeqCst);
-        unsafe {
-            let c_string = getBranches(baker);
-            let r = CStr::from_ptr(c_string).to_str().unwrap().to_owned();
-            freeCStr(c_string);
-            r
-        }
+        wrap_c_call_string!(self, baker, |baker| getBranches(baker) )
     }
 }
 
@@ -392,7 +405,7 @@ impl ConsensusContainer {
     }
 
     pub fn get_consensus_status(&self) -> Option<String> {
-        self.bakers.read().unwrap().values().next().map(|baker| baker.get_consensus_status())
+        self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_consensus_status)
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> Option<String> {
@@ -404,7 +417,7 @@ impl ConsensusContainer {
     }
 
     pub fn get_branches(&self) -> Option<String> {
-        self.bakers.read().unwrap().values().next().map(|baker| baker.get_branches())
+        self.bakers.read().unwrap().values().next().map(ConsensusBaker::get_branches)
     }
 }
 

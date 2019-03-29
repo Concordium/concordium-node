@@ -14,6 +14,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=HSConcordium-0.1.0.0");
             println!("cargo:rustc-link-lib=dylib=HSacorn-0.1.0.0");
             println!("cargo:rustc-link-lib=dylib=HSconcordium-crypto-0.1");
+            println!("cargo:rustc-link-lib=dylib=HSglobalstate-0.1");
         }
     }
 }
