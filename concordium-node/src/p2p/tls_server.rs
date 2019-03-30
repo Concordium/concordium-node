@@ -2,7 +2,6 @@ use std::sync::{ Arc, RwLock };
 use std::sync::atomic::{ AtomicUsize, Ordering };
 use std::net::{ IpAddr, SocketAddr };
 use std::rc::{ Rc };
-use std::cell::{ RefCell };
 use mio::net::{ TcpListener, TcpStream };
 use mio::{ Token, Poll, Event };
 use std::sync::mpsc::Sender;
@@ -38,7 +37,7 @@ pub struct TlsServer {
     buckets: Arc< RwLock< Buckets > >,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     message_handler: Arc< RwLock< MessageHandler>>,
-    dptr: Rc< RefCell< TlsServerPrivate>>,
+    dptr: Arc< RwLock< TlsServerPrivate>>,
     blind_trusted_broadcast: bool,
     prehandshake_validations: PreHandshake
 }
@@ -57,7 +56,7 @@ impl TlsServer {
            blind_trusted_broadcast: bool,
            )
            -> Self {
-        let mdptr = Rc::new( RefCell::new(
+        let mdptr = Arc::new( RwLock::new(
                 TlsServerPrivate::new(
                     networks,
                     prometheus_exporter.clone())));
@@ -95,37 +94,37 @@ impl TlsServer {
     }
 
     pub fn networks(&self) -> Arc<RwLock<Vec<u16>>> {
-        self.dptr.borrow().networks.clone()
+        self.dptr.read().unwrap().networks.clone()
     }
 
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.dptr.borrow_mut().remove_network( network_id)
+        self.dptr.write().unwrap().remove_network( network_id)
     }
 
     pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.dptr.borrow_mut().add_network( network_id)
+        self.dptr.write().unwrap().add_network( network_id)
     }
 
     /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
     pub fn is_unreachable(&self, ip: IpAddr, port: u16) -> bool {
-        self.dptr.borrow().unreachable_nodes.contains( ip, port)
+        self.dptr.read().unwrap().unreachable_nodes.contains( ip, port)
     }
 
     /// It adds the pair `ip`,`port` to its `unreachable_nodes` list.
     pub fn add_unreachable(&mut self, ip: IpAddr, port: u16) -> bool {
-        self.dptr.borrow_mut().unreachable_nodes.insert( ip, port)
+        self.dptr.write().unwrap().unreachable_nodes.insert( ip, port)
     }
 
     pub fn get_peer_stats(&self, nids: &[u16]) -> Vec<PeerStatistic> {
-        self.dptr.borrow().get_peer_stats(nids)
+        self.dptr.write().unwrap().get_peer_stats(nids)
     }
 
     pub fn ban_node(&mut self, peer: P2PPeer) -> bool {
-        self.dptr.borrow_mut().ban_node( peer)
+        self.dptr.write().unwrap().ban_node( peer)
     }
 
     pub fn unban_node(&mut self, peer: &P2PPeer) -> bool {
-        self.dptr.borrow_mut().unban_node( peer)
+        self.dptr.write().unwrap().unban_node( peer)
     }
 
     pub fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> Fallible<()> {
@@ -141,7 +140,7 @@ impl TlsServer {
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
-        let networks = self.dptr.borrow().networks.clone();
+        let networks = self.dptr.read().unwrap().networks.clone();
         let mut conn = Connection::new(ConnectionType::Node,
                                        socket,
                                        token,
@@ -160,7 +159,7 @@ impl TlsServer {
         self.register_message_handlers( &mut conn);
 
         let register_status = conn.register( poll);
-        self.dptr.borrow_mut().add_connection( conn);
+        self.dptr.write().unwrap().add_connection( conn);
 
         register_status
     }
@@ -183,13 +182,13 @@ impl TlsServer {
         }
 
         if let Ok(target_id) = P2PNodeId::from_ip_port( ip, port) {
-            if let Some(_rc_conn) = self.dptr.borrow().find_connection_by_id( &target_id) {
+            if let Some(_rc_conn) = self.dptr.read().unwrap().find_connection_by_id( &target_id) {
                 bail!(fails::DuplicatePeerError);
             }
         }
 
         if let Some(ref peer_id) = peer_id_opt {
-            if let Some(_rc_conn) = self.dptr.borrow().find_connection_by_id( peer_id) {
+            if let Some(_rc_conn) = self.dptr.read().unwrap().find_connection_by_id( peer_id) {
                 bail!(fails::DuplicatePeerError);
             }
         }
@@ -211,7 +210,7 @@ impl TlsServer {
 
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
-                let networks = self.dptr.borrow().networks.clone();
+                let networks = self.dptr.read().unwrap().networks.clone();
                 let mut conn = Connection::new(connection_type,
                                            x,
                                            token,
@@ -231,14 +230,14 @@ impl TlsServer {
                 self.register_message_handlers( &mut conn);
                 conn.register(poll)?;
 
-                self.dptr.borrow_mut().add_connection( conn);
+                self.dptr.write().unwrap().add_connection( conn);
                 self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
                 debug!("Requesting handshake from new peer {}:{}",
                        ip.to_string(),
                        port);
                 let self_peer = self.get_self_peer().clone();
 
-                if let Some(ref rc_conn) = self.dptr.borrow().find_connection_by_token( &token)
+                if let Some(ref rc_conn) = self.dptr.read().unwrap().find_connection_by_token( &token)
                 {
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
@@ -266,16 +265,16 @@ impl TlsServer {
                   event: &Event,
                   packet_queue: &Sender<Arc<NetworkMessage>>)
                   -> Fallible<()> {
-        self.dptr.borrow_mut().conn_event( poll, event, packet_queue)
+        self.dptr.write().unwrap().conn_event( poll, event, packet_queue)
     }
 
     pub fn cleanup_connections(&self, poll: &mut Poll)
             -> Fallible<()> {
-        self.dptr.borrow_mut().cleanup_connections( self.mode, poll)
+        self.dptr.write().unwrap().cleanup_connections( self.mode, poll)
     }
 
     pub fn liveness_check(&self) -> Fallible<()> {
-        self.dptr.borrow_mut().liveness_check()
+        self.dptr.write().unwrap().liveness_check()
     }
 
     /// It sends `data` message over all filtered connections.
@@ -289,7 +288,7 @@ impl TlsServer {
             filter_conn: &dyn Fn( &Connection) -> bool,
             send_status: &dyn Fn( &Connection, Fallible<usize>))
     {
-        self.dptr.borrow_mut()
+        self.dptr.write().unwrap()
             .send_over_all_connections( data, filter_conn, send_status)
     }
 
@@ -308,10 +307,10 @@ impl TlsServer {
     }
 
     fn make_check_banned(&self) -> PreHandshakeCW {
-        let cloned_dptr = Rc::clone(&self.dptr);
+        let cloned_dptr = Arc::clone(&self.dptr);
         make_atomic_callback!(
             move |sockaddr: &SocketAddr| {
-                if cloned_dptr.borrow().addr_is_banned(sockaddr)? {
+                if cloned_dptr.read().unwrap().addr_is_banned(sockaddr)? {
                     bail!(fails::BannedNodeRequestedConnectionError);
                 }
                 Ok(())
