@@ -37,7 +37,7 @@ pub struct TlsServer {
     buckets: Arc< RwLock< Buckets > >,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     message_handler: Arc< RwLock< MessageHandler>>,
-    dptr: Rc< RwLock< TlsServerPrivate>>,
+    dptr: Arc< RwLock< TlsServerPrivate>>,
     blind_trusted_broadcast: bool,
     prehandshake_validations: PreHandshake
 }
@@ -56,7 +56,7 @@ impl TlsServer {
            blind_trusted_broadcast: bool,
            )
            -> Self {
-        let mdptr = Rc::new( RwLock::new(
+        let mdptr = Arc::new( RwLock::new(
                 TlsServerPrivate::new(
                     networks,
                     prometheus_exporter.clone())));
@@ -307,7 +307,7 @@ impl TlsServer {
     }
 
     fn make_check_banned(&self) -> PreHandshakeCW {
-        let cloned_dptr = Rc::clone(&self.dptr);
+        let cloned_dptr = Arc::clone(&self.dptr);
         make_atomic_callback!(
             move |sockaddr: &SocketAddr| {
                 if cloned_dptr.read().unwrap().addr_is_banned(sockaddr)? {
