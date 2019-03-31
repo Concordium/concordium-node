@@ -253,7 +253,7 @@ getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
 getLastFinalAccountInfo bptr cstr = do
   BakerRunner _ _ sfsRef logm <-deRefStablePtr bptr
   logm External LLInfo "Received account info request."
-  bs <- BS.packCStringLen (cstr, 32)
+  bs <- BS.packCStringLen (cstr, 21)
   case decode bs of
     Left _ -> do logm External LLInfo "Could not decode address."
                  byteStringToCString BS.empty
