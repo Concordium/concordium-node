@@ -81,8 +81,7 @@ macro_rules! wrap_send_data_to_c {
             let baker = $self.runner.load(Ordering::SeqCst);
             let len = $data.len();
             unsafe {
-                let c_string = CString::from_vec_unchecked($data);
-                $c_call(baker, c_string.as_ptr() as *const u8, len as i64);
+                $c_call(baker, CString::from_vec_unchecked($data).as_ptr() as *const u8, len as i64);
             }
         }
     }
@@ -149,8 +148,7 @@ impl ConsensusBaker {
         let baker = self.runner.load(Ordering::SeqCst);
         let len = data.len();
         unsafe {
-            let c_string = CString::new(data).unwrap();
-            receiveTransaction(baker, c_string.as_ptr() as *const u8, len as i64)
+            receiveTransaction(baker, CString::from_vec_unchecked(data).as_ptr() as *const u8, len as i64)
         }
     }
 
