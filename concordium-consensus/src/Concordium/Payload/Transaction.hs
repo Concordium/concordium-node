@@ -65,6 +65,4 @@ makeBlock msg cm gs = let ((suc, failure), gs') = Types.runSI (Sch.makeValidBloc
                       in (suc, failure, gs')
 
 initState :: Int -> Types.GlobalState
-initState n = (Init.initialState n) { Types.accounts = (Map.fromList [("Mateusz", Types.Account "Mateusz" 1 (2 ^ (62 :: Int)))
-                                                                     ,("Ales", Types.Account "Ales" 1 100000)
-                                                                     ,("Thomas", Types.Account "Thomas" 1 100000)]) }
+initState n = Init.initialState n
