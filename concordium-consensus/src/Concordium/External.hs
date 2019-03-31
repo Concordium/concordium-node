@@ -7,13 +7,13 @@ import Foreign.C
 import Control.Concurrent.Chan
 import Control.Concurrent
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
 import Data.Serialize.Put as P
 import Data.IORef
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
-import qualified Data.Aeson as AE
 
 
 import Concordium.Types
@@ -32,7 +32,8 @@ import Concordium.Crypto.SHA256(hash)
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
     bakerOutChan :: Chan OutMessage,
-    bakerState :: IORef SkovFinalizationState
+    bakerState :: IORef SkovFinalizationState,
+    bakerLogger :: LogMethod IO
 }
 
 type CStringCallback = CString -> Int64 -> IO ()
@@ -131,20 +132,20 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
             (Right genData, Right bid) -> do
                 (cin, cout, out) <- makeRunner logM bid genData
                 forkIO $ outLoop cout (callBlockCallback bcbk)
-                newStablePtr (BakerRunner cin cout out)
+                newStablePtr (BakerRunner cin cout out logM)
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
         logM = toLogMethod lcbk
 
 stopBaker :: StablePtr BakerRunner -> IO ()
 stopBaker bptr = do
-    BakerRunner cin _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ _ <- deRefStablePtr bptr
     freeStablePtr bptr
     writeChan cin MsgShutdown
 
 receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveBlock bptr cstr l = do
-    BakerRunner cin _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ _ <- deRefStablePtr bptr
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet deserializeBlock blockBS of
         Left _ -> return ()
@@ -152,13 +153,13 @@ receiveBlock bptr cstr l = do
 
 receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalization bptr cstr l = do
-    BakerRunner cin _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ _ <- deRefStablePtr bptr
     bs <- BS.packCStringLen (cstr, fromIntegral l)
     writeChan cin $ MsgFinalizationReceived bs
 
 receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalizationRecord bptr cstr l = do
-    BakerRunner cin _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ _ <- deRefStablePtr bptr
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get finRecBS of
         Left _ -> return ()
@@ -173,13 +174,17 @@ printBlock cstr l = do
 
 receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 receiveTransaction bptr tdata len = do
-    BakerRunner cin _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLInfo $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     case runGet (do h <- get
                     b <- get
                     return (h, b)) tbs of
-      Left _ -> return 1
-      Right (h, b) -> -- NB: The hash is a temporary cludge. This will change once we have the transaction table.
+      Left _ -> do logm External LLDebug "Could not decode transaction into header + body."
+                   return 1
+      Right (h, b) -> do
+        logm External LLInfo $ "Transaction decoded. Its header is: " ++ show h
+        -- NB: The hash is a temporary cludge. This will change once we have the transaction table.
         writeChan cin (MsgTransactionReceived (Transaction (TransactionNonce (hash tbs)) h b)) >> return 0
 
 
@@ -218,41 +223,57 @@ getBranches bptr = do
     newCString $ LT.unpack $ AET.encodeToLazyText branches
 
 
+
 byteStringToCString :: BS.ByteString -> IO CString
-byteStringToCString bs =
-  newCString $ BS.unpack (BS.concat [runPut (P.putWord32be (fromIntegral (BS.length bs))), bs])
-  
+byteStringToCString bs = do
+  let bsp = BS.concat [P.runPut (P.putWord32be (fromIntegral (BS.length bs))), bs]
+  BS.unsafeUseAsCStringLen bsp $ \(cstr, len) -> do dest <- mallocBytes len
+                                                    copyBytes dest cstr len
+                                                    return dest
 
 getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
 getLastFinalAccountList bptr = do
-  sfsRef <- bakerState <$> deRefStablePtr bptr
+  BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+  logm External LLInfo "Received account list request."
   alist <- Get.getLastFinalAccountList sfsRef
+  logm External LLInfo $ "Replying with the list: " ++ show alist
   let s = encode alist
   byteStringToCString s
 
 getLastFinalInstances :: StablePtr BakerRunner -> IO CString
 getLastFinalInstances bptr = do
-  sfsRef <- bakerState <$> deRefStablePtr bptr
+  BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+  logm External LLInfo "Received instance list request."
   alist <- Get.getLastFinalInstances sfsRef
+  logm External LLInfo $ "Replying with the list: " ++ (show alist)
   let s = encode alist
   byteStringToCString s
   
 getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
 getLastFinalAccountInfo bptr cstr = do
-  sfsRef <- bakerState <$> deRefStablePtr bptr
+  BakerRunner _ _ sfsRef logm <-deRefStablePtr bptr
+  logm External LLInfo "Received account info request."
   bs <- BS.packCStringLen (cstr, 32)
   case decode bs of
-    Left _ -> byteStringToCString BS.empty
-    Right acc -> Get.getLastFinalAccountInfo sfsRef acc >>= byteStringToCString . encode
+    Left _ -> do logm External LLInfo "Could not decode address."
+                 byteStringToCString BS.empty
+    Right acc -> do logm External LLInfo $ "Decoded address to: " ++ show acc
+                    ainfo <- Get.getLastFinalAccountInfo sfsRef acc
+                    logm External LLInfo $ "Replying with: " ++ show ainfo
+                    byteStringToCString (encode ainfo)
 
 getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
 getLastFinalInstanceInfo bptr cstr = do
-  sfsRef <- bakerState <$> deRefStablePtr bptr
+  BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+  logm External LLInfo "Received account info request."
   bs <- BS.packCStringLen (cstr, 16)
   case decode bs of
-    Left _ -> byteStringToCString BS.empty
-    Right ii -> Get.getLastFinalContractInfo sfsRef ii >>= byteStringToCString . encode
-  
+    Left _ -> do logm External LLInfo "Could not decode address."
+                 byteStringToCString BS.empty
+    Right ii -> do logm External LLInfo $ "Decoded address to: " ++ show ii
+                   iinfo <- Get.getLastFinalContractInfo sfsRef ii
+                   logm External LLInfo $ "Replying with: " ++ show ii
+                   byteStringToCString (encode iinfo)
 
 freeCStr :: CString -> IO ()
 freeCStr = free

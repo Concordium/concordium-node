@@ -19,6 +19,7 @@ data LogSource
     | Kontrol
     | Skov
     | Baker
+    | External
     deriving (Eq, Ord, Show)
 
 -- |Convert a 'LogSource' value to the representation required by the
@@ -31,6 +32,7 @@ logSourceId Crypto = 4
 logSourceId Kontrol = 5
 logSourceId Skov = 6
 logSourceId Baker = 7
+logSourceId External = 8
 
 -- |The logging level for a log event.
 data LogLevel
