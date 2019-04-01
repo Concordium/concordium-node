@@ -102,24 +102,24 @@ impl MessageHandler {
     fn process_message(&self, msg: &NetworkMessage) -> FunctorResult
     {
         // General
-        let general_status = (&self.general_parser)(msg);
+        let general_status = self.general_parser.run_callbacks(msg);
 
         // Specific
         let specific_status = match msg {
             NetworkMessage::NetworkRequest(ref nr, _, _) => {
-                (&self.request_parser)( nr)
+                self.request_parser.run_callbacks(nr)
             },
             NetworkMessage::NetworkResponse(ref nr, _, _) => {
-                (&self.response_parser)( nr)
+                self.response_parser.run_callbacks(nr)
             },
             NetworkMessage::NetworkPacket(ref np, _, _) => {
-                (&self.packet_parser)( np)
+                self.packet_parser.run_callbacks(np)
             },
             NetworkMessage::UnknownMessage => {
-                (&self.unknown_parser)( &())
+                self.unknown_parser.run_callbacks(&())
             },
             NetworkMessage::InvalidMessage => {
-                (&self.invalid_parser)( &())
+                self.invalid_parser.run_callbacks(&())
             }
         };
 

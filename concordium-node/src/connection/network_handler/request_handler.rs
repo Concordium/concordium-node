@@ -81,28 +81,28 @@ impl RequestHandler {
 
         let spec_status = match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
-                (&self.ping_handler)(ping_inner_pkt)
+                self.ping_handler.run_callbacks(ping_inner_pkt)
             },
             ref find_inner_pkt @ NetworkRequest::FindNode(_, _) => {
-                (&self.find_node_handler)(find_inner_pkt)
+                self.find_node_handler.run_callbacks(find_inner_pkt)
             },
             ref ban_inner_pkt @ NetworkRequest::BanNode(_, _) => {
-                (&self.ban_node_handler)(ban_inner_pkt)
+                self.ban_node_handler.run_callbacks(ban_inner_pkt)
             },
             ref unban_inner_pkt @ NetworkRequest::UnbanNode(_, _) => {
-                (&self.unban_node_handler)(unban_inner_pkt)
+                self.unban_node_handler.run_callbacks(unban_inner_pkt)
             },
             ref handshake_inner_pkt @ NetworkRequest::Handshake(_, _, _) => {
-                (&self.handshake_handler)(handshake_inner_pkt)
+                self.handshake_handler.run_callbacks(handshake_inner_pkt)
             },
             ref get_peers_inner_pkt @ NetworkRequest::GetPeers(_, _) => {
-                (&self.get_peers_handler)(get_peers_inner_pkt)
+                self.get_peers_handler.run_callbacks(get_peers_inner_pkt)
             },
             ref join_network_inner_pkt @ NetworkRequest::JoinNetwork(_, _) => {
-                (&self.join_network_handler)(join_network_inner_pkt)
+                self.join_network_handler.run_callbacks(join_network_inner_pkt)
             },
             ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => {
-                (&self.leave_network_handler)(leave_network_inner_pkt)
+                self.leave_network_handler.run_callbacks(leave_network_inner_pkt)
             }
         };
 

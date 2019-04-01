@@ -33,10 +33,10 @@ impl PacketHandler {
 
         let spec_status = match msg {
             NetworkPacket::DirectMessage(..) => {
-                (&self.direct_parser)( &msg)
+                self.direct_parser.run_callbacks(&msg)
             },
             NetworkPacket::BroadcastedMessage(..) => {
-                (&self.broadcast_parser)( &msg)
+                self.broadcast_parser.run_callbacks(&msg)
             }
         };
 

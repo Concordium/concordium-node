@@ -35,7 +35,7 @@ pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 ///         Ok(()) }))));
 ///
 /// let value = 42 as i32;
-/// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42
+/// ph.run_callbacks(&value).unwrap();     // acc = (58 + 42) * 42
 /// assert_eq!( *acc.borrow(), 4200);
 ///
 /// ```
@@ -68,7 +68,7 @@ impl<T> AFunctor<T> {
 
     /// It executes each callback using `message` as its argument.
     /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
-    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult {
+    pub fn run_callbacks(&self, message: &T) -> FunctorResult {
         let mut status : Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
@@ -76,7 +76,7 @@ impl<T> AFunctor<T> {
 
             if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => {
-                    locked_cb(message)
+                    (*locked_cb)(message)
                 },
                 Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
             } {
@@ -89,33 +89,6 @@ impl<T> AFunctor<T> {
         } else {
             Ok(())
         }
-    }
-}
-
-impl<T> FnOnce<(&T,)> for AFunctor<T> {
-    type Output = FunctorResult;
-
-    extern "rust-call" fn call_once(self, args: (&T,)) -> FunctorResult
-    {
-        let msg: &T = args.0;
-        self.run_atomic_callbacks( msg)
-    }
-}
-
-impl<T> FnMut<(&T,)> for AFunctor<T> {
-    extern "rust-call" fn call_mut(&mut self, args: (&T,)) -> FunctorResult
-    {
-        let msg: &T = args.0;
-        // run_atomic_callbacks!( &self.callbacks, msg, self.name)
-        self.run_atomic_callbacks( msg)
-    }
-}
-
-impl<T> Fn<(&T,)> for AFunctor<T> {
-    extern "rust-call" fn call(&self, args: (&T,)) -> FunctorResult
-    {
-        let msg: &T = args.0;
-        self.run_atomic_callbacks( msg)
     }
 }
 
@@ -138,7 +111,7 @@ mod afunctor_unit_test {
             .add_callback( make_atomic_callback!( raw_func_1 ));
 
         let value = 42 as i32;
-        (&ph)(&value).unwrap();
+        ph.run_callbacks(&value).unwrap();
     }
 
     /// It tests if closures can be added as callback.
@@ -150,7 +123,7 @@ mod afunctor_unit_test {
             .add_callback( make_atomic_callback!( |_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
-        (&ph)(&value).unwrap();
+        ph.run_callbacks(&value).unwrap();
     }
 
     /// It tests if we can mix closures and functions.
@@ -164,7 +137,7 @@ mod afunctor_unit_test {
             .add_callback( make_atomic_callback!( |_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
-        (&ph)(&value).unwrap();
+        ph.run_callbacks(&value).unwrap();
     }
 
     /// Test for complex closures, I mean, closures that copy/move some variables from scope.
@@ -185,7 +158,7 @@ mod afunctor_unit_test {
 
 
         let value = 42 as i32;
-        (ph)(&value).unwrap();
+        ph.run_callbacks(&value).unwrap();
 
         assert_eq!( *shd_counter.borrow(), 2);
     }

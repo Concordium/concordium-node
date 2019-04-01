@@ -131,7 +131,7 @@ impl TlsServer {
         let (socket, addr) = self.server.accept()?;
         debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_id.ip(), self_id.port());
 
-        if let Err(e) = (self.prehandshake_validations)(&addr) {
+        if let Err(e) = self.prehandshake_validations.run_callbacks(&addr) {
             bail!(e);
         }
 
