@@ -25,7 +25,8 @@ cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
   LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
   sudo cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
   sudo cp target/release/libeddsa_ed25519.so /usr/local/lib &&
-  sudo cp target/release/libsha_2.so /usr/local/lib )
+  sudo cp target/release/libsha_2.so /usr/local/lib &&
+  rm -rf target/ )
 
 ( cd deps/internal/consensus &&
   LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic' --force-dirty &&
@@ -33,7 +34,9 @@ cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
   sudo find /usr/local/lib -name libHSConcordium\*.so -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.so \; &&
   sudo find /usr/local/lib -name libHSacorn\*.so -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.so \; &&
   sudo find /usr/local/lib -name libHSconcordium-crypto\*.so -exec ln -s {} /usr/local/lib/libHSconcordium-crypto-0.1.so \; &&
-  sudo find /usr/local/lib -name libHSglobalstate-\*.so -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.so \; 
+  sudo find /usr/local/lib -name libHSglobalstate-\*.so -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.so \; &&
+  rm -rf .stack 
   ) 
 
 sudo ldconfig
+
