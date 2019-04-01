@@ -77,7 +77,7 @@ impl RequestHandler {
         self
     }
 
-    fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
 
         let spec_status = match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
@@ -109,9 +109,6 @@ impl RequestHandler {
         spec_status
     }
 }
-
-impl_all_fns!( RequestHandler, NRequest);
-
 
 #[cfg(test)]
 mod request_handler_test {
@@ -164,7 +161,7 @@ mod request_handler_test {
         let rh = make_request_handler();
 
         for message in ut_1_data() {
-            (&rh)(&message).unwrap();
+            rh.process_message(&message).unwrap();
         }
 
         assert_eq!( PING_COUNTER.load(Ordering::Relaxed), 1);

@@ -99,7 +99,7 @@ impl MessageHandler {
         self
     }
 
-    fn process_message(&self, msg: &NetworkMessage) -> FunctorResult
+    pub fn process_message(&self, msg: &NetworkMessage) -> FunctorResult
     {
         // General
         let general_status = self.general_parser.run_callbacks(msg);
@@ -127,8 +127,6 @@ impl MessageHandler {
     }
 
 }
-
-impl_all_fns!( MessageHandler, NetworkMessage);
 
 pub trait MessageManager {
     fn message_handler(&self) -> Arc< RwLock< MessageHandler>>;
@@ -166,7 +164,7 @@ mod message_handler_unit_test {
         let p2p_peer = P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
         let msg = NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer), None, None);
 
-        (mh_arc)(&msg).unwrap();
+        mh_arc.process_message(&msg).unwrap();
     }
 }
 
@@ -253,7 +251,7 @@ mod integration_test {
             }))
             .add_packet_callback( make_atomic_callback!( move |p: &NetworkPacketEnum| {
                 NETWORK_PACKET_COUNTER.fetch_add( 1, Ordering::SeqCst);
-                (pkg_handler)(p)
+                pkg_handler.process_message(p)
             }));
 
         msg_handler
@@ -265,7 +263,7 @@ mod integration_test {
         let mh: MessageHandler = make_message_handler();
 
         for message in network_request_handler_data() {
-            let _status = (&mh)( &message);
+            let _status = mh.process_message(&message);
         }
 
         assert_eq!( NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 2);
@@ -275,7 +273,7 @@ mod integration_test {
         assert_eq!( NETWORK_PACKET_DIRECT_COUNTER.load(Ordering::Relaxed), 1);
 
         for message in network_request_handler_data() {
-            let _status = (&mh)( &message);
+            let _status = mh.process_message(&message);
         }
 
         assert_eq!( NETWORK_REQUEST_COUNTER.load(Ordering::Relaxed), 4);

@@ -29,7 +29,7 @@ impl PacketHandler {
     }
 
     /// It runs main parser and specific ones for the internal type of msg.
-    fn process_message(&self, msg: &NetworkPacket) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkPacket) -> FunctorResult {
 
         let spec_status = match msg {
             NetworkPacket::DirectMessage(..) => {
@@ -43,5 +43,3 @@ impl PacketHandler {
         spec_status
     }
 }
-
-impl_all_fns!( PacketHandler, NetworkPacket);

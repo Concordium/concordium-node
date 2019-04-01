@@ -22,7 +22,7 @@ impl ResponseHandler {
         }
     }
 
-    fn process_message(&self, msg: &NetworkResponse) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkResponse) -> FunctorResult {
         match msg {
             ref pong_inner_pkt @ NetworkResponse::Pong(_) => {
                 self.pong_handler.run_callbacks(pong_inner_pkt)
@@ -59,5 +59,3 @@ impl ResponseHandler {
         self
     }
 }
-
-impl_all_fns!( ResponseHandler, NetworkResponse);
