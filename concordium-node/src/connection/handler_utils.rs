@@ -149,11 +149,8 @@ pub fn update_buckets(
     let priv_conn_borrow = priv_conn.borrow();
     let own_id = & priv_conn_borrow.own_id;
     let buckets = & priv_conn_borrow.buckets;
-    let sender_ip = sender.ip();
 
-    if valid_mode ||  sender_ip.is_global()
-            && !sender_ip.is_multicast()
-            && !sender_ip.is_documentation() {
+    if valid_mode {
         safe_write!(buckets)?
             .insert_into_bucket( sender, &own_id, nets.to_owned());
     }

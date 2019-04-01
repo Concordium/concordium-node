@@ -1,4 +1,3 @@
-#![feature(box_syntax, box_patterns)]
 #![allow(dead_code)]
 #[cfg(unix)]
 extern crate curryrsunix as curryrs;
