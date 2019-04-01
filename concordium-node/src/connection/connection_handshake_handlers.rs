@@ -1,4 +1,3 @@
-use std::rc::{ Rc };
 use std::cell::{ RefCell };
 
 use crate::network::{ NetworkRequest, NetworkResponse };
@@ -41,7 +40,7 @@ pub fn handshake_response_handle(
 }
 
 pub fn handshake_request_handle(
-    priv_conn: &Rc<RefCell<ConnectionPrivate>>,
+    priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest) -> FunctorResult {
     if let NetworkRequest::Handshake(sender, nets, _) = req {
         debug!("Got request for Handshake");
