@@ -2,9 +2,11 @@ use std::sync::{ Arc, RwLock };
 use failure::{ Error, bail };
 use crate::fails as global_fails;
 
-use super::{ FunctorResult, FunctorCallback, FunctorError };
+use super::{ FunctorCallback, FunctorResult, FunctorError };
 
-pub type AFunctorCW<T> = (String, Arc<RwLock<Box<FunctorCallback<T>>>>);
+pub type FunctorCW<T> = Box<FunctorCallback<T>>;
+
+pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 
 /// It stores any number of functions or closures and it is able to execute them
 /// because it implements `Fn`, `FnMut` and `FnOnce`.
@@ -25,12 +27,12 @@ pub type AFunctorCW<T> = (String, Arc<RwLock<Box<FunctorCallback<T>>>>);
 ///
 /// let mut ph = AFunctor::new( "Closures");
 ///
-/// ph.add_callback((String::new(), Arc::new(RwLock::new(Box::new(move |x: &i32| {
+/// ph.add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_1.borrow_mut() += x;
-///         Ok(()) })))))
-///     .add_callback((String::new(), Arc::new(RwLock::new(Box::new(move |x: &i32| {
+///         Ok(()) }))))
+///     .add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
 ///         *acc_2.borrow_mut() *= x;
-///         Ok(()) })))));
+///         Ok(()) }))));
 ///
 /// let value = 42 as i32;
 /// (&ph)(&value).unwrap();     // acc = (58 + 42) * 42
@@ -43,14 +45,10 @@ pub struct AFunctor<T> {
     callbacks: Vec<AFunctorCW<T>>,
 }
 
-unsafe impl<T> Send for AFunctor<T> {}
-unsafe impl<T> Sync for AFunctor<T> {}
-
 impl<T> AFunctor<T> {
-
     pub fn new( name: &'static str) -> Self {
         AFunctor {
-            name: name,
+            name,
             callbacks: Vec::new(),
         }
     }
@@ -64,22 +62,21 @@ impl<T> AFunctor<T> {
         self
     }
 
-    pub fn callbacks(&self) -> &Vec<AFunctorCW<T>> {
+    pub fn callbacks(&self) -> &[AFunctorCW<T>] {
         &self.callbacks
     }
 
     /// It executes each callback using `message` as its argument.
     /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
-    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult
-    {
+    fn run_atomic_callbacks(&self, message: &T) -> FunctorResult {
         let mut status : Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
-            let (_fn_id, cb) = self.callbacks[i].clone();
+            let cb = self.callbacks[i].clone();
 
             if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => {
-                    (locked_cb)(message)
+                    locked_cb(message)
                 },
                 Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
             } {
@@ -124,7 +121,6 @@ impl<T> Fn<(&T,)> for AFunctor<T> {
 
 #[cfg(test)]
 mod afunctor_unit_test {
-
     use crate::common::functor::{ AFunctor, FunctorResult };
     use std::rc::{ Rc };
     use std::sync::{ Arc, RwLock };

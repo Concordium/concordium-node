@@ -1,27 +1,30 @@
-use failure::Error;
+use failure::{Error, Fail};
 
 /// Helper macro to create callbacks from raw function pointers or closures.
 #[macro_export]
 macro_rules! make_atomic_callback {
     ($callback:expr) => {
-        (format!( "{}:{}", file!(), line!()), Arc::new(RwLock::new(Box::new($callback))))
+        Arc::new(RwLock::new(Box::new($callback)))
     }
 }
 
-#[macro_export]
-macro_rules! make_callback {
-    ($callback:expr) => {
-        Rc::new( RefCell:new( $callback ))
-    }
-}
-
-pub mod fails;
 pub mod afunctor;
-pub mod functor;
 
-pub use self::functor::{ FunctorCW, Functor };
-pub use self::afunctor::{ AFunctorCW, AFunctor };
-pub use self::fails::{ FunctorError };
+pub use self::afunctor::{ FunctorCW, AFunctorCW, AFunctor };
 
 pub type FunctorResult = Result<(), Error>;
 pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
+
+#[derive(Debug, Fail)]
+#[fail(display = "Error running functor: {:?}", errors)]
+pub struct FunctorError {
+    pub errors: Vec<Error>
+}
+
+impl FunctorError {
+    pub fn new(e: Vec<Error>) ->  FunctorError {
+        FunctorError {
+            errors: e
+        }
+    }
+}
