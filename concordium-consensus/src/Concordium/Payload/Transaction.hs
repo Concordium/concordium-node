@@ -11,8 +11,6 @@ import Data.Serialize
 import Data.Hashable
 
 import Data.Foldable(toList)
-import qualified Data.HashMap.Strict as Map
-
 
 import Concordium.GlobalState.Types
 import Acorn.Types(Message(..))

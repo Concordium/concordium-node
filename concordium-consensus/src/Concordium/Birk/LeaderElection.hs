@@ -74,6 +74,6 @@ verifyBlockNonce
   -> BakerElectionVerifyKey
   -> BlockNonce
   -> Bool
-verifyBlockNonce nonce slot verifKey (hsh, prf) =
+verifyBlockNonce nonce slot verifKey (_hsh, prf) =
   VRF.verifyKey verifKey
     && VRF.verify verifKey (blockNonceMessage nonce slot) prf

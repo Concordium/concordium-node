@@ -131,7 +131,7 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
                 (cin, cout, out) <- makeRunner logM bid genData
-                forkIO $ outLoop cout (callBlockCallback bcbk)
+                _ <- forkIO $ outLoop cout (callBlockCallback bcbk)
                 newStablePtr (BakerRunner cin cout out logM)
             _ -> ioError (userError $ "Error decoding serialized data.")
     where

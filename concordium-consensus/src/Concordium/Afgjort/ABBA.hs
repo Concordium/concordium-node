@@ -88,7 +88,7 @@ inputWeight :: Choice -> Lens' (PhaseState party) (Maybe (Int, Set party))
 inputWeight True = topInputWeight
 inputWeight False = botInputWeight
 
--- |
+-- |The initial state of a phase
 initialPhaseState :: PhaseState party
 initialPhaseState = PhaseState {
     _lotteryTickets = Map.empty,
@@ -227,8 +227,9 @@ handleCoreSet phase cs = do
                     (True, 0)
                 else if topWeight <= corruptWeight then
                     (False, 0)
-                else
-                    (head $ catMaybes $ (\((_,party), _) -> csRes party) <$> tkts, 0)
+                else case catMaybes $ (\((_,party), _) -> csRes party) <$> tkts of
+                    (res:_) -> (res, 0)
+                    [] -> error "Finalization failure: no lottery ticket could be verified" -- This should not be possible under standard assumptions
         oldGrade <- currentGrade <<.= newGrade
         when (newGrade == 2 && oldGrade /= 2) $
             sendABBAMessage (WeAreDone nextBit)
