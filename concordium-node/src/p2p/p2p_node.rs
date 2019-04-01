@@ -247,9 +247,13 @@ impl P2PNode {
         let mut locked_mh = shared_mh.write().expect("Coulnd't set the default message handlers");
         locked_mh.add_packet_callback( packet_handler)
                 .add_response_callback( make_atomic_callback!(
-                    move |res: &NetworkResponse| { (response_handler)(res).map_err(Error::from) }))
+                    move |res: &NetworkResponse| {
+                        response_handler.process_message(res).map_err(Error::from)
+                    }))
                 .add_request_callback( make_atomic_callback!(
-                    move |req: &NetworkRequest| { (request_handler)(req).map_err(Error::from) }));
+                    move |req: &NetworkRequest| {
+                        request_handler.process_message(req).map_err(Error::from)
+                    }));
     }
 
     /// Default packet handler just forward valid messages.

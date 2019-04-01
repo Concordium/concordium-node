@@ -22,19 +22,19 @@ impl ResponseHandler {
         }
     }
 
-    fn process_message(&self, msg: &NetworkResponse) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkResponse) -> FunctorResult {
         match msg {
             ref pong_inner_pkt @ NetworkResponse::Pong(_) => {
-                (&self.pong_handler)(pong_inner_pkt)
+                self.pong_handler.run_callbacks(pong_inner_pkt)
             },
             ref find_node_inner_pkt @ NetworkResponse::FindNode(_, _) => {
-                (&self.find_node_handler)(find_node_inner_pkt)
+                self.find_node_handler.run_callbacks(find_node_inner_pkt)
             },
             ref peer_list_inner_pkt @ NetworkResponse::PeerList(_, _) => {
-                (&self.peer_list_handler)(peer_list_inner_pkt)
+                self.peer_list_handler.run_callbacks(peer_list_inner_pkt)
             },
             ref handshake_inner_pkt @ NetworkResponse::Handshake(_, _, _) => {
-                (&self.handshake_handler)(handshake_inner_pkt)
+                self.handshake_handler.run_callbacks(handshake_inner_pkt)
             }
         }
     }
@@ -59,5 +59,3 @@ impl ResponseHandler {
         self
     }
 }
-
-impl_all_fns!( ResponseHandler, NetworkResponse);

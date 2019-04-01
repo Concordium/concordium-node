@@ -158,7 +158,7 @@ impl Connection {
         self.message_handler
             .add_callback(make_atomic_callback!(
                 move |msg: &NetworkMessage| {
-                    (cloned_message_handler.borrow())(msg).map_err(Error::from)
+                    cloned_message_handler.borrow().process_message(msg).map_err(Error::from)
                 }))
             .add_request_callback(handle_by_private!(
                 self.dptr, &NetworkRequest,
@@ -242,12 +242,16 @@ impl Connection {
         self.message_handler
             .add_callback(make_atomic_callback!(
                 move |msg: &NetworkMessage| {
-                    (cloned_message_handler.borrow())(msg).map_err(Error::from)
+                    cloned_message_handler.borrow().process_message(msg).map_err(Error::from)
                 }))
             .add_request_callback( make_atomic_callback!(
-                move |req: &NetworkRequest| { (request_handler)(req).map_err(Error::from) }))
+                move |req: &NetworkRequest| {
+                    request_handler.process_message(req).map_err(Error::from)
+                }))
             .add_response_callback(  make_atomic_callback!(
-                move |res: &NetworkResponse| { (response_handler)(res).map_err(Error::from) }))
+                move |res: &NetworkResponse| {
+                    response_handler.process_message(res).map_err(Error::from)
+                }))
             .add_response_callback( last_seen_response_handler)
             .add_packet_callback( last_seen_packet_handler)
             .add_unknown_callback(
@@ -494,7 +498,7 @@ impl Connection {
         };
 
         // Process message by message handler.
-        (self.message_handler)(&outer)
+        self.message_handler.process_message(&outer)
     }
 
     fn validate_packet(&mut self, poll: &mut Poll) {
