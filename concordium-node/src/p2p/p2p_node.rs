@@ -797,15 +797,16 @@ fn is_conn_peer_id( conn: &Connection, id: &P2PNodeId) -> bool {
     }
 }
 
-/// Connetion is valid for a broadcast if sender is not target and
-/// and network_id is owned by connection.
+/// Connetion is valid for a broadcast if sender is not target,
+/// network_id is owned by connection, and the remote peer is not
+/// a bootstrap node.
 pub fn is_valid_connection_in_broadcast(
     conn: &Connection,
     sender: &P2PPeer,
     network_id: &u16) -> bool {
 
     if let Some(ref peer) = conn.peer() {
-        if peer.id() != sender.id() {
+        if peer.id() != sender.id() && peer.connection_type() != ConnectionType::Bootstrapper {
             let own_networks = conn.own_networks();
             return safe_read!(own_networks).expect("Couldn't lock own networks").contains(network_id);
         }
