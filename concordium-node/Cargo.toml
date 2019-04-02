@@ -42,7 +42,6 @@ app_dirs = "^1.2.1"
 rusqlite = {version = "0.17", features = ["bundled"]}
 timer = "0.2"
 chrono = "0.4"
-arrayref = "0.3"
 hex = "0.3"
 failure = "0.1.5"
 iron = "*"
