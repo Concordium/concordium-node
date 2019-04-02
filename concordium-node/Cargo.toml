@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.26-debug"
+version = "0.1.27-debug"
 description = "Concordium P2P library"
 authors = [ "Concordium AG <info@concordium.com>"]
 exclude = [
@@ -35,9 +35,8 @@ openssl = "0.10"
 protobuf        = "2.0.6"
 futures         = "0.1"
 preferences = "^1.1.0"
-app_dirs = "^1.2.1"
+app_dirs2 = "^2.0"
 rusqlite = {version = "0.17", features = ["bundled"]}
-timer = "0.2"
 chrono = "0.4"
 hex = "0.3"
 failure = "0.1.5"
@@ -48,13 +47,11 @@ human-panic = "1.0"
 cfg-if = "0.1"
 dns = { path = "dns" }
 consensus-sys = { path = "consensus-sys" }
-hostname = "^0.1"
 serde_json = "1.0"
 reqwest = { version = "^0.9", default-features = false }
 semver = "0.9"
 serde = "1.0"
 serde_derive = "1.0"
-resolv-conf = "0.6"
 vecio = "0.1"
 derive_builder = "0.7.1"
 base64 = "0.10.1"

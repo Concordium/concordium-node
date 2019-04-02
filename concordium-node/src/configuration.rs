@@ -1,5 +1,5 @@
-use app_dirs::*;
-use preferences::{AppInfo, Preferences, PreferencesMap};
+use app_dirs2::*;
+use preferences::{  Preferences, PreferencesMap};
 use semver::Version;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
