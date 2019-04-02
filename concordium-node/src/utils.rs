@@ -15,12 +15,10 @@ use openssl::x509::extension::SubjectAlternativeName;
 use openssl::x509::{X509Builder, X509NameBuilder, X509};
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
-use resolv_conf::Config as ResolverConfig;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::io::Cursor;
 #[cfg(not(target_os = "windows"))]
-use std::io::Read;
 use std::net::IpAddr;
 use std::str;
 use std::str::FromStr;
@@ -155,32 +153,31 @@ pub fn parse_ip_port(input: &str) -> Option<(IpAddr, u16)> {
 
 #[cfg(not(target_os = "windows"))]
 pub fn get_resolvers(resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
+    use std::io::{BufRead, BufReader};
     if !resolvers.is_empty() {
         resolvers.to_owned()
     } else {
-        let mut buf = Vec::with_capacity(4096);
-
         match File::open(resolv_conf) {
-            Ok(mut f) => {
-                match f.read_to_end(&mut buf) {
-                    Ok(_) => {
-                        match ResolverConfig::parse(&buf) {
-                            Ok(conf) => {
-                                let ret = conf.nameservers
-                                              .iter()
-                                              .map(|x| x.to_string())
-                                              .collect::<Vec<_>>();
-                                if !ret.is_empty() {
-                                    ret
+            Ok(f) => {
+                BufReader::new(f).lines()
+                    .map(|line| {
+                        match line {
+                            Ok(line_valid) => {
+                                if line_valid.starts_with("nameserver ") && line_valid.len() >= 12 {
+                                    let (_, rest) = line_valid.split_at(11);
+                                    let rest_trimmed = rest.trim();
+                                    if !rest_trimmed.is_empty() {
+                                        Some(rest_trimmed.to_owned())
+                                    } else {
+                                        None
+                                    }
                                 } else {
-                                    panic!("No DNS resolvers found in {}", resolv_conf);
+                                    None
                                 }
                             }
-                            _ => panic!("Error reading file {}", resolv_conf),
+                            Err(_) => None,
                         }
-                    }
-                    _ => panic!("Error reading file {}", resolv_conf),
-                }
+                    }).flatten().collect::<Vec<String>>()
             }
             _ => panic!("Can't open {}", resolv_conf),
         }
