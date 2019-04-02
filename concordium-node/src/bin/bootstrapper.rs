@@ -23,7 +23,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
 use std::rc::Rc;
 use std::thread;
-use timer::Timer;
+use std::time;
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_bootstrapper_config();
@@ -222,15 +222,18 @@ fn main() -> Result<(), Error> {
 
     let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap()).ok().unwrap().into_inner();
 
-    let timer = Timer::new();
-
     let _max_nodes = conf.max_nodes;
 
-    let _guard_timer = timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-        match node.get_peer_stats(&[]) {
-            Ok(x) => info!("I currently have {}/{} nodes!", x.len(), _max_nodes),
-            Err(e) => error!("Couldn't get node list, {:?}", e),
-        };
+    let _node_ref_guard_timer = node.clone();
+
+    let _guard_timer = thread::spawn( move || {
+        loop {
+            match _node_ref_guard_timer.get_peer_stats(&[]) {
+                Ok(x) => info!("I currently have {}/{} nodes!", x.len(), _max_nodes),
+                Err(e) => error!("Couldn't get node list, {:?}", e),
+            };
+            thread::sleep(time::Duration::from_secs(30));
+        }
     });
 
     _node_th.join().expect("Node thread panicked!");

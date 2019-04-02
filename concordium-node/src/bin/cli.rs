@@ -32,8 +32,8 @@ use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
 use std::rc::Rc;
 use std::thread;
-use timer::Timer;
 use std::{ str };
+use std::time;
 use failure::{Fallible};
 
 fn main() -> Fallible<()> {
@@ -423,8 +423,6 @@ fn main() -> Fallible<()> {
         };
     }
 
-    let timer = Timer::new();
-
     let _desired_nodes_count = conf.desired_nodes;
     let _no_net_clone = conf.no_network;
     let _bootstrappers_conf = conf.bootstrap_server.clone();
@@ -435,56 +433,59 @@ fn main() -> Fallible<()> {
     let _no_boostrap_dns = conf.no_boostrap_dns.clone();
     let mut _node_ref_guard_timer = node.clone();
     let _guard_timer =
-        timer.schedule_repeating(chrono::Duration::seconds(30), move || {
-            match _node_ref_guard_timer.get_peer_stats(&vec![]) {
-                Ok(ref x) => {
-                    info!("I currently have {}/{} nodes!",
-                          x.len(),
-                          _desired_nodes_count);
-                    let mut count = 0;
-                    for i in x {
-                        info!("Peer {}: {}/{}:{}",
-                              count,
-                              i.id().to_string(),
-                              i.ip().to_string(),
-                              i.port());
-                        count += 1;
-                    }
-                    if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
-                        if x.len() == 0 {
-                            if !_no_boostrap_dns {
-                                info!("No nodes at all - retrying bootstrapping");
-                                match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
-                                                                &_dns_resolvers,
-                                                                _dnssec,
-                                                                &_bootstrap_node)
-                                {
-                                    Ok(nodes) => {
-                                        for (ip, port) in nodes {
-                                            info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                            _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
-                                                                        ip,
-                                                                        port,
-                                                                        None)
-                                                                .map_err(|e| info!("{}", e))
-                                                                .ok();
+        thread::spawn( move || {
+            loop {
+                match _node_ref_guard_timer.get_peer_stats(&vec![]) {
+                    Ok(ref x) => {
+                        info!("I currently have {}/{} nodes!",
+                            x.len(),
+                            _desired_nodes_count);
+                        let mut count = 0;
+                        for i in x {
+                            info!("Peer {}: {}/{}:{}",
+                                count,
+                                i.id().to_string(),
+                                i.ip().to_string(),
+                                i.port());
+                            count += 1;
+                        }
+                        if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
+                            if x.len() == 0 {
+                                if !_no_boostrap_dns {
+                                    info!("No nodes at all - retrying bootstrapping");
+                                    match utils::get_bootstrap_nodes(_bootstrappers_conf.clone(),
+                                                                    &_dns_resolvers,
+                                                                    _dnssec,
+                                                                    &_bootstrap_node)
+                                    {
+                                        Ok(nodes) => {
+                                            for (ip, port) in nodes {
+                                                info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                                                _node_ref_guard_timer.connect(ConnectionType::Bootstrapper,
+                                                                            ip,
+                                                                            port,
+                                                                            None)
+                                                                    .map_err(|e| info!("{}", e))
+                                                                    .ok();
+                                            }
                                         }
+                                        _ => error!("Can't find any bootstrap nodes - check DNS!"),
                                     }
-                                    _ => error!("Can't find any bootstrap nodes - check DNS!"),
+                                } else {
+                                    info!("No nodes at all - Not retrying bootstrapping using DNS since --no-bootstrap is specified");
                                 }
                             } else {
-                                info!("No nodes at all - Not retrying bootstrapping using DNS since --no-bootstrap is specified");
+                                info!("Not enough nodes, sending GetPeers requests");
+                                _node_ref_guard_timer.send_get_peers(_nids.clone())
+                                                    .map_err(|e| error!("{}", e))
+                                                    .ok();
                             }
-                        } else {
-                            info!("Not enough nodes, sending GetPeers requests");
-                            _node_ref_guard_timer.send_get_peers(_nids.clone())
-                                                 .map_err(|e| error!("{}", e))
-                                                 .ok();
                         }
                     }
-                }
-                Err(e) => error!("Couldn't get node list, {:?}", e),
-            };
+                    Err(e) => error!("Couldn't get node list, {:?}", e),
+                };
+                thread::sleep(time::Duration::from_secs(30));
+            }
         });
 
     if let Some(ref mut baker) = baker {
