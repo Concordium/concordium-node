@@ -1,5 +1,4 @@
 use std::cell::{ RefCell };
-use atomic_counter::AtomicCounter;
 
 use crate::common::{ get_current_stamp };
 use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
@@ -7,6 +6,7 @@ use crate::common::functor::{ FunctorResult };
 use crate::network::{ NetworkRequest, NetworkResponse };
 use crate::connection::connection_private::{ ConnectionPrivate };
 
+use std::sync::atomic::Ordering;
 use super::fails;
 use super::handler_utils::*;
 use failure::{ bail };
@@ -28,7 +28,7 @@ pub fn default_network_request_ping_handle(
         _req: &NetworkRequest) -> FunctorResult {
 
     priv_conn.borrow_mut().update_last_seen();
-    TOTAL_MESSAGES_SENT_COUNTER.inc();
+    TOTAL_MESSAGES_SENT_COUNTER.fetch_add( 1, Ordering::Relaxed );
 
     let pong_data = {
         let priv_conn_borrow = priv_conn.borrow();
@@ -81,7 +81,7 @@ pub fn default_network_request_get_peers(
         debug!("Got request for GetPeers");
 
         priv_conn.borrow_mut().update_last_seen();
-        TOTAL_MESSAGES_SENT_COUNTER.inc();
+        TOTAL_MESSAGES_SENT_COUNTER.fetch_add( 1, Ordering::Relaxed);
 
         let peer_list_packet = {
             let priv_conn_borrow = priv_conn.borrow();

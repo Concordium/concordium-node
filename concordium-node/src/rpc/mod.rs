@@ -17,9 +17,9 @@ use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{ SystemTime , UNIX_EPOCH};
-use atomic_counter::AtomicCounter;
 use consensus_sys::consensus::ConsensusContainer;
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
+use std::sync::atomic::Ordering;
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -261,7 +261,7 @@ impl P2P for RpcServerImpl {
                            sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value( TOTAL_MESSAGES_RECEIVED_COUNTER.get() as u64);
+            r.set_value( TOTAL_MESSAGES_RECEIVED_COUNTER.load(Ordering::Relaxed) as u64);
             let f = sink.success(r)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
@@ -274,7 +274,7 @@ impl P2P for RpcServerImpl {
                        sink: ::grpcio::UnarySink<NumberResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: NumberResponse = NumberResponse::new();
-            r.set_value( TOTAL_MESSAGES_SENT_COUNTER.get() as u64);
+            r.set_value( TOTAL_MESSAGES_SENT_COUNTER.load(Ordering::Relaxed) as u64);
             let f = sink.success(r)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);

@@ -2,11 +2,11 @@ use std::cell::{ RefCell };
 use std::sync::Arc;
 use std::sync::mpsc::{ Sender };
 use byteorder::{ NetworkEndian,  WriteBytesExt };
-use atomic_counter::AtomicCounter;
 
 use crate::common::{ P2PPeer };
 use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use crate::common::functor::{ FunctorResult, FunctorError };
+use std::sync::atomic::Ordering;
 use crate::network::{ NetworkRequest, NetworkResponse };
 use crate::connection::{ P2PEvent, P2PNodeMode, CommonSession };
 use crate::connection::connection_private::{ ConnectionPrivate };
@@ -102,7 +102,7 @@ pub fn send_handshake_and_ping(
         &NetworkRequest::Ping(
             self_peer).serialize())?;
 
-    TOTAL_MESSAGES_SENT_COUNTER.add(2);
+    TOTAL_MESSAGES_SENT_COUNTER.fetch_add( 2, Ordering::Relaxed);
     Ok(())
 }
 
@@ -134,7 +134,7 @@ pub fn send_peer_list(
             .map_err(|_| make_fn_error_prometheus())?;
     };
 
-    TOTAL_MESSAGES_SENT_COUNTER.inc();
+    TOTAL_MESSAGES_SENT_COUNTER.fetch_add( 1, Ordering::Relaxed);
 
     Ok(())
 }

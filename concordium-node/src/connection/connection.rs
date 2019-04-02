@@ -6,7 +6,6 @@ use std::net::{Shutdown, IpAddr };
 use std::rc::{ Rc };
 use std::cell::{ RefCell };
 use std::io::{ Cursor };
-use atomic_counter::AtomicCounter;
 
 use mio::{ Poll, PollOpt, Ready, Token, Event, net::TcpStream };
 use rustls::{ ServerSession, ClientSession };
@@ -30,6 +29,7 @@ use crate::connection::writev_adapter::{ WriteVAdapter };
 use crate::connection::connection_default_handlers::*;
 use crate::connection::connection_handshake_handlers::*;
 use super::fails;
+use std::sync::atomic::Ordering;
 
 
 /// This macro clones `dptr` and moves it into callback closure.
@@ -488,7 +488,7 @@ impl Connection {
     fn process_complete_packet(&mut self, buf: &[u8]) -> FunctorResult {
         let outer = Arc::new(Box::new(NetworkMessage::deserialize(self.get_remote_peer(), self.ip(), &buf)));
         self.messages_received += 1;
-        TOTAL_MESSAGES_RECEIVED_COUNTER.inc();
+        TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add( 1, Ordering::Relaxed);
         if let Some(ref prom) = &self.prometheus_exporter() {
             if let Ok(mut plock) = safe_write!(prom) {
                 plock.pkt_received_inc()

@@ -12,7 +12,6 @@ use get_if_addrs;
 use ipconfig;
 use crate::prometheus_exporter::PrometheusServer;
 use rustls::{ Certificate, ClientConfig, NoClientAuth, ServerConfig };
-use atomic_counter::{ AtomicCounter };
 use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
 use std::time::{ Duration };
@@ -21,6 +20,7 @@ use mio::{ Poll, PollOpt, Token, Ready, Events };
 use chrono::prelude::*;
 use crate::utils;
 use std::thread;
+use std::sync::atomic::Ordering;
 
 use crate::common::{ P2PNodeId, P2PPeer, ConnectionType };
 use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
@@ -374,7 +374,7 @@ impl P2PNode {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc().unwrap(); // assuming non-failable
-                    TOTAL_MESSAGES_SENT_COUNTER.inc();
+                    TOTAL_MESSAGES_SENT_COUNTER.fetch_add( 1, Ordering::Relaxed);
                 },
                 Err(e) => {
                     error!("Could not send to peer {} due to {}",

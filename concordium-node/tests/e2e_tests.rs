@@ -5,8 +5,6 @@ extern crate log;
 
 #[cfg(test)]
 mod tests {
-    use atomic_counter::AtomicCounter;
-    use atomic_counter::RelaxedCounter;
     use p2p_client::common::{ ConnectionType };
     use p2p_client::network::{ NetworkMessage, NetworkPacket };
     use p2p_client::connection::{ P2PEvent, P2PNodeMode, MessageManager };
@@ -391,7 +389,7 @@ mod tests {
         let mut peers: Vec<(usize, P2PNode, PrometheusServer)> = Vec::with_capacity(mesh_node_count);
         let mut peer_ports: Vec<usize> = Vec::with_capacity(mesh_node_count);
 
-        let message_counter = Arc::new(RelaxedCounter::new(0));
+        let message_counter = Arc::new(AtomicUsize::new(0));
 
         let mut peer = 0;
 
@@ -422,7 +420,7 @@ mod tests {
                             _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true)
                                 .map_err(|e| error!("Error sending message {}", e))
                                 .ok();
-                            _msg_counter.inc();
+                            _msg_counter.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                 }
@@ -461,7 +459,7 @@ mod tests {
             }
         }
 
-        assert_eq!(message_count_estimated as usize, message_counter.get());
+        assert_eq!(message_count_estimated as usize, message_counter.load(Ordering::Relaxed));
     }
 
     macro_rules! islands_mesh_test {
