@@ -120,7 +120,7 @@ mod tests {
 
             let mut node = P2PNode::new(
                 None, Some("127.0.0.1".to_string()), port,
-                None, None, net_tx, None, P2PNodeMode::NormalPrivateMode, None,
+                None, None, net_tx, None, P2PNodeMode::NormalMode, None,
                 networks.to_owned(), 100, blind_trusted_broadcast);
 
             let mh = node.message_handler();
@@ -403,7 +403,7 @@ mod tests {
                                         None,
                                         inner_sender,
                                         Some(sender.clone()),
-                                        P2PNodeMode::NormalPrivateMode,
+                                        P2PNodeMode::NormalMode,
                                         Some(Arc::new(RwLock::new(prometheus.clone()))),
                                         vec![100],
                                         100,
@@ -533,7 +533,7 @@ mod tests {
                                                 None,
                                                 inner_sender,
                                                 Some(sender.clone()),
-                                                P2PNodeMode::NormalPrivateMode,
+                                                P2PNodeMode::NormalMode,
                                                 Some(Arc::new(RwLock::new(prometheus.clone()))),
                                                 vec![100],
                                                 100,

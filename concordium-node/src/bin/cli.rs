@@ -99,11 +99,7 @@ fn main() -> Fallible<()> {
 
     info!("Debugging enabled {}", conf.debug);
 
-    let mode_type = if conf.private_node {
-        P2PNodeMode::NormalPrivateMode
-    } else {
-        P2PNodeMode::NormalMode
-    };
+    let mode_type = P2PNodeMode::NormalMode;
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 

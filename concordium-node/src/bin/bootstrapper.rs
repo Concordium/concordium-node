@@ -78,11 +78,7 @@ fn main() -> Result<(), Error> {
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-    let mode_type = if conf.private_node {
-        P2PNodeMode::BootstrapperPrivateMode
-    } else {
-        P2PNodeMode::BootstrapperMode
-    };
+    let mode_type = P2PNodeMode::BootstrapperMode;
 
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();

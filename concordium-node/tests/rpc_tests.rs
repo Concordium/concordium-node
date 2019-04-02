@@ -80,9 +80,7 @@ mod tests {
                 });
             let node_type = match &$nt[..] {
                 "NormalMode" => P2PNodeMode::NormalMode,
-                "NormalPrivateMode" => P2PNodeMode::NormalPrivateMode,
                 "BootstrapperMode" => P2PNodeMode::BootstrapperMode,
-                "BootstrapperPrivateMode" => P2PNodeMode::BootstrapperPrivateMode,
                 _ => panic!(),
             };
 
@@ -124,7 +122,7 @@ mod tests {
 
     #[test]
     pub fn test_grpc_version() {
-        let node_type =  "NormalPrivateMode".to_string();
+        let node_type =  "NormalMode".to_string();
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
         let reply = client.peer_version_opt(&Empty::new(), call_options).expect("rpc");
 
@@ -135,7 +133,7 @@ mod tests {
 
     #[test]
     pub fn test_grpc_noauth() {
-        let node_type =  "NormalPrivateMode".to_string();
+        let node_type =  "NormalMode".to_string();
         create_node_rpc_call_option_mode!(client, rpc_serv, _call_options, node_type, None);
         match client.peer_version(&Empty::new()) {
             Err(::grpcio::Error::RpcFailure(ref x)) => {
@@ -152,9 +150,7 @@ mod tests {
     pub fn  test_grpc_peer_list_node_type() {
         let modes = [
             P2PNodeMode::NormalMode,
-            P2PNodeMode::NormalPrivateMode,
             P2PNodeMode::BootstrapperMode,
-            P2PNodeMode::BootstrapperPrivateMode,
         ];
 
         for m in modes.into_iter().map(|x| format!("{:?}", x)) {
@@ -167,8 +163,8 @@ mod tests {
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
         let reply = client.peer_list_opt(&Empty::new(), call_options).expect("rpc");
         let node_type = match node_type.as_str() {
-            "NormalMode" | "NormalPrivateMode" => "Normal",
-            "BootstrapperMode" | "BootstrapperPrivateMode" => "Bootstrapper",
+            "NormalMode" => "Normal",
+            "BootstrapperMode" => "Bootstrapper",
             _ => panic!(),
         };
         assert_eq!(reply.node_type, node_type);
@@ -178,7 +174,7 @@ mod tests {
 
     #[test]
     pub fn test_grpc_node_info() {
-        let node_type =  "NormalPrivateMode";
+        let node_type =  "NormalMode";
         // the she bytestring below is the first 32 characters of an empty SHA256
         let id = utils::to_hex_string(b"e3b0c44298fc1c149afbf4c8996fb924");
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, Some(id.clone()));

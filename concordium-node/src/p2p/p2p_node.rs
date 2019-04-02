@@ -701,9 +701,7 @@ impl P2PNode {
         safe_read!(self.poll)?
             .poll(events, Some(Duration::from_millis(1000)))?;
 
-        if self.mode != P2PNodeMode::BootstrapperMode
-           && self.mode != P2PNodeMode::BootstrapperPrivateMode
-        {
+        if self.mode != P2PNodeMode::BootstrapperMode {
             safe_read!(self.tls_server)?.liveness_check()?;
         }
 
@@ -740,9 +738,7 @@ impl P2PNode {
             let tls_ref = safe_read!(self.tls_server)?;
             let mut poll_ref = safe_write!(self.poll)?;
             tls_ref.cleanup_connections(&mut poll_ref)?;
-            if self.mode == P2PNodeMode::BootstrapperMode
-               || self.mode == P2PNodeMode::BootstrapperPrivateMode
-            {
+            if self.mode == P2PNodeMode::BootstrapperMode {
                 let mut buckets_ref = safe_write!(self.buckets)?;
                 buckets_ref.clean_peers(self.minimum_per_bucket);
             }
