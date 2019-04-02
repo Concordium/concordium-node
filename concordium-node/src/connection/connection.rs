@@ -513,9 +513,7 @@ impl Connection {
                 None
             };
             if let Some(ref bufdata) = buff {
-                if self.mode() == P2PNodeMode::BootstrapperMode
-                   || self.mode() == P2PNodeMode::BootstrapperPrivateMode
-                {
+                if self.mode() == P2PNodeMode::BootstrapperMode {
                     let msg_num = String::from_utf8(bufdata.to_vec()).expect("Unable to get string from utf8");
                     if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
                        || msg_num == PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE

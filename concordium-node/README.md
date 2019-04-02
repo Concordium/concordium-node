@@ -18,7 +18,7 @@ Install the needed dependencies from the list above (Windows build is special, f
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
-$> cargo run -- --debug --private-mode
+$> cargo run --bin p2p_client-cli -- --debug
 ```
 
 ## Running all tests

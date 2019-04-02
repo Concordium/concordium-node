@@ -87,8 +87,7 @@ impl ConnectionPrivate {
     }
 
     pub fn update_last_seen(&mut self) {
-        if self.mode != P2PNodeMode::BootstrapperMode
-            && self.mode != P2PNodeMode::BootstrapperPrivateMode {
+        if self.mode != P2PNodeMode::BootstrapperMode {
             self.last_seen.store( get_current_stamp(), Ordering::Relaxed);
         }
     }

@@ -96,7 +96,6 @@ elif [ "$MODE" == "local_basic" ]; then
 
 
     /build-project/p2p-client/target/debug/p2p_client-cli \
-        --private-node \
         --no-dnssec \
         --testrunner-url http://testrunner:8950 \
         --desired-nodes $DESIRED_PEERS \
@@ -111,13 +110,11 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
     /build-project/p2p-client/target/debug/p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \
-        --private-node
 
 elif [ "$MODE" == "local_testrunner" ]; then
     /build-project/p2p-client/target/debug/testrunner \
-        --private-node \
         --no-dnssec \
         --desired-nodes $DESIRED_PEERS \
         --external-port $EXTERNAL_PORT \
-        --bootstrap-node $BOOTSTRAP_NODE 
+        --bootstrap-node $BOOTSTRAP_NODE
 fi

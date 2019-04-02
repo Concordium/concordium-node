@@ -105,8 +105,6 @@ pub struct CliConfig {
     pub bootstrap_server: String,
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_boostrap_dns: bool,
-    #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
-    pub private_node: bool,
     #[structopt(long = "network-id",
                 short = "n",
                 help = "Enable network id",
@@ -228,8 +226,6 @@ pub struct BootstrapperConfig {
     #[structopt(long = "prometheus-push-gateway-password",
                 help = "Password to use for push gateway, if either username or password is omitted authentication isn't used")]
     pub prometheus_push_password: Option<String>,
-    #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
-    pub private_node: bool,
     #[structopt(long = "network-id",
                 short = "n",
                 help = "Enable network id",
@@ -293,8 +289,6 @@ pub struct TestRunnerConfig {
     #[structopt(long = "no-log-timestamp",
                 help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
-    #[structopt(long = "private-node", help = "Allow RFC1918 peers")]
-    pub private_node: bool,
     #[structopt(long = "network-id",
                 short = "n",
                 help = "Enable network id",

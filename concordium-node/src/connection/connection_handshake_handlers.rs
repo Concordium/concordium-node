@@ -2,6 +2,7 @@ use std::cell::{ RefCell };
 
 use crate::network::{ NetworkRequest, NetworkResponse };
 use crate::common::functor::{ FunctorResult };
+use crate::common::ConnectionType;
 use crate::connection::connection_private::ConnectionPrivate;
 use crate::common::{ P2PPeer, get_current_stamp };
 use super::fails;
@@ -59,10 +60,9 @@ pub fn handshake_request_handle(
             priv_conn_mut.set_measured_ping_sent();
         }
 
-        let valid_mode: bool = is_valid_mode( priv_conn);
-        update_buckets( priv_conn, sender, nets, valid_mode)?;
+        update_buckets(priv_conn, sender, nets)?;
 
-        if valid_mode {
+        if priv_conn.borrow().connection_type == ConnectionType::Bootstrapper {
             send_peer_list( priv_conn, sender, nets)?;
         }
         Ok(())

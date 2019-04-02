@@ -183,8 +183,7 @@ impl TlsServerPrivate {
     {
         let curr_stamp = get_current_stamp();
 
-        if mode == P2PNodeMode::BootstrapperMode || mode == P2PNodeMode::BootstrapperPrivateMode
-        {
+        if mode == P2PNodeMode::BootstrapperMode {
             for rc_conn in self.connections_by_token.values()
             {
                 let mut conn = rc_conn.borrow_mut();

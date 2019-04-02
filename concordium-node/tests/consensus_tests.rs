@@ -99,7 +99,7 @@ mod tests {
                                 None,
                                 pkt_in,
                                 Some(sender),
-                                P2PNodeMode::NormalPrivateMode,
+                                P2PNodeMode::NormalMode,
                                 None,
                                 vec![],
                                 100,

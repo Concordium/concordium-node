@@ -8,7 +8,7 @@ use crate::common::{ P2PPeer };
 use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
 use crate::common::functor::{ FunctorResult, FunctorError };
 use crate::network::{ NetworkRequest, NetworkResponse };
-use crate::connection::{ P2PEvent, P2PNodeMode, CommonSession };
+use crate::connection::{ P2PEvent, CommonSession };
 use crate::connection::connection_private::{ ConnectionPrivate };
 
 use super::fails;
@@ -143,17 +143,13 @@ pub fn update_buckets(
         priv_conn: &RefCell<ConnectionPrivate>,
         sender: &P2PPeer,
         nets: &[u16],
-        valid_mode: bool
     ) -> FunctorResult {
 
     let priv_conn_borrow = priv_conn.borrow();
     let own_id = & priv_conn_borrow.own_id;
     let buckets = & priv_conn_borrow.buckets;
 
-    if valid_mode {
-        safe_write!(buckets)?
-            .insert_into_bucket( sender, &own_id, nets.to_owned());
-    }
+    safe_write!(buckets)?.insert_into_bucket( sender, &own_id, nets.to_owned());
 
     let prometheus_exporter = & priv_conn_borrow.prometheus_exporter;
     if let Some(ref prom) = prometheus_exporter {
@@ -165,13 +161,4 @@ pub fn update_buckets(
     };
 
     Ok(())
-}
-
-/// Node is valid if its mode is `NormalPrivateMode` or `BootstrapperPrivateMode`.
-pub fn is_valid_mode(
-    priv_conn: &RefCell< ConnectionPrivate> ) -> bool {
-    let mode = priv_conn.borrow().mode;
-
-    mode == P2PNodeMode::BootstrapperPrivateMode
-    || mode == P2PNodeMode::NormalPrivateMode
 }
