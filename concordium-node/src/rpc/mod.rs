@@ -30,13 +30,13 @@ pub struct RpcServerImpl {
     server: Option<Arc<Mutex<grpcio::Server>>>,
     subscription_queue_out: RefCell<Option<Arc<Mutex<mpsc::Receiver<Box<NetworkMessage>>>>>>,
     subscription_queue_in: RefCell<Option<mpsc::Sender<Box<NetworkMessage>>>>,
-    db: Option<P2PDB>,
+    db: P2PDB,
     consensus: Option<ConsensusContainer>,
 }
 
 impl RpcServerImpl {
     pub fn new(node: P2PNode,
-               db: Option<P2PDB>,
+               db: P2PDB,
                consensus: Option<ConsensusContainer>,
                listen_addr: String,
                listen_port: u16,
@@ -49,7 +49,7 @@ impl RpcServerImpl {
                         server: None,
                         subscription_queue_out: RefCell::new(None),
                         subscription_queue_in: RefCell::new(None),
-                        db: db,
+                        db,
                         consensus:  consensus.clone(),}
     }
 
@@ -320,9 +320,9 @@ impl P2P for RpcServerImpl {
                                 ::grpcio::RpcStatus::new(::grpcio::RpcStatusCode::Internal, None))
                                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
                             ctx.spawn(f);
-                        }   
+                        }
                     }
-                    
+
                 }
                 _ => {
                     let f = sink.fail(
@@ -616,13 +616,9 @@ impl P2P for RpcServerImpl {
                     let peer =
                         P2PPeer::from(ConnectionType::Node, node_id.unwrap(), ip.unwrap(), port);
                     if node.ban_node(peer.clone()).is_ok() {
-                        let db_done = if let Some(ref db) = self.db {
-                            db.insert_ban(peer.id().to_string(),
-                                          format!("{}", peer.ip()),
-                                          peer.port())
-                        } else {
-                            true
-                        };
+                        let db_done = self.db.insert_ban(&peer.id().to_string(),
+                              &peer.ip().to_string(),
+                              peer.port());
                         if db_done {
                             r.set_value(node.send_ban(peer.clone()).is_ok());
                         } else {
@@ -662,13 +658,9 @@ impl P2P for RpcServerImpl {
                     let peer =
                         P2PPeer::from(ConnectionType::Node, node_id.unwrap(), ip.unwrap(), port);
                     if node.unban_node(peer.clone()).is_ok() {
-                        let db_done = if let Some(ref db) = self.db {
-                            db.delete_ban(peer.id().to_string(),
-                                          format!("{}", peer.ip()),
-                                          peer.port())
-                        } else {
-                            true
-                        };
+                        let db_done = self.db.delete_ban(peer.id().to_string(),
+                              peer.ip().to_string(),
+                              peer.port());
                         if db_done {
                             r.set_value(node.send_unban(peer.clone()).is_ok());
                         } else {

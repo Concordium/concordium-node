@@ -14,6 +14,7 @@ mod tests {
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::proto::*;
     use p2p_client::rpc::RpcServerImpl;
+    use p2p_client::db::P2PDB;
     use std::sync::mpsc;
     use std::sync::Arc;
     use std::thread;
@@ -106,7 +107,7 @@ mod tests {
                                 true);
 
         let mut rpc_serv = RpcServerImpl::new(node,
-                                              None,
+                                              P2PDB::default(),
                                               Some(consensus_container.clone()),
                                               "127.0.0.1".to_string(),
                                               11000+port_node,

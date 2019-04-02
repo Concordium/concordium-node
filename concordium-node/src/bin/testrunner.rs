@@ -412,7 +412,7 @@ fn main() -> Fallible<()> {
                     info!("Ban node request for {:?}", x);
                     let ban = _node_self_clone.ban_node(x.clone()).map_err(|e| error!("{}", e));
                     if ban.is_ok() {
-                        db.insert_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
+                        db.insert_ban(&peer.id().to_string(), &peer.ip().to_string(), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone.send_ban(x.clone()).map_err(|e| error!("{}", e)).ok();
                         }

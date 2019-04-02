@@ -16,6 +16,7 @@ mod tests {
     use p2p_client::proto::*;
     use p2p_client::rpc::RpcServerImpl;
     use p2p_client::utils;
+    use p2p_client::db::P2PDB;
     use std::sync::atomic::{ AtomicUsize, Ordering };
     use std::sync::mpsc;
     use std::sync::Arc;
@@ -100,7 +101,7 @@ mod tests {
 
             let rpc_port =  next_port_offset_rpc(1);
             let mut $r = RpcServerImpl::new(node,
-                                            None,
+                                            P2PDB::default(),
                                             None,
                                             "127.0.0.1".to_string(),
                                             rpc_port,
