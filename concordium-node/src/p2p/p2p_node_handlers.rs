@@ -42,8 +42,8 @@ pub fn forward_network_request(
 pub fn forward_network_packet_message(
         seen_messages: &SeenMessagesList,
         prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-        own_networks: &Arc<RwLock<Vec<u16>>>,
-        send_queue: &Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
+        own_networks: &RwLock<Vec<u16>>,
+        send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
         packet_queue: &Sender<Arc<NetworkMessage>>,
         pac: &NetworkPacket,
         blind_trust_broadcast: bool,) -> FunctorResult {
@@ -78,8 +78,8 @@ fn make_fn_error_prometheus() -> FunctorError {
 fn forward_network_packet_message_common(
         seen_messages: &SeenMessagesList,
         prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-        own_networks: &Arc<RwLock<Vec<u16>>>,
-        send_queue: &Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
+        own_networks: &RwLock<Vec<u16>>,
+        send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
         packet_queue: &Sender<Arc<NetworkMessage>>,
         pac: &NetworkPacket,
         sender: &P2PPeer,

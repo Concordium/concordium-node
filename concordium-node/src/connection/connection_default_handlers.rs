@@ -1,4 +1,3 @@
-use std::rc::{ Rc };
 use std::cell::{ RefCell };
 use atomic_counter::AtomicCounter;
 
@@ -25,7 +24,7 @@ macro_rules! reject_handshake {
 /// Default `NetworkRequest::Ping` handler.
 /// It responds with a pong packet.
 pub fn default_network_request_ping_handle(
-        priv_conn: &Rc< RefCell< ConnectionPrivate >>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         _req: &NetworkRequest) -> FunctorResult {
 
     priv_conn.borrow_mut().update_last_seen();
@@ -50,7 +49,7 @@ pub fn default_network_request_ping_handle(
 
 /// It sends the list of nodes.
 pub fn default_network_request_find_node_handle(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         req: &NetworkRequest
     ) -> FunctorResult {
 
@@ -74,7 +73,7 @@ pub fn default_network_request_find_node_handle(
 }
 
 pub fn default_network_request_get_peers(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         req: &NetworkRequest) -> FunctorResult {
 
     if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
@@ -106,7 +105,7 @@ pub fn default_network_request_get_peers(
 
 
 pub fn default_network_response_find_node (
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         res: &NetworkResponse) -> FunctorResult {
 
     if let NetworkResponse::FindNode(_, ref peers) = res {
@@ -127,7 +126,7 @@ pub fn default_network_response_find_node (
 
 /// It measures network latency.
 pub fn default_network_response_pong(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         _res: &NetworkResponse) -> FunctorResult {
 
     let ping: u64 = priv_conn.borrow().sent_ping.clone();
@@ -142,7 +141,7 @@ pub fn default_network_response_pong(
 
 /// It inserts new peers into buckets.
 pub fn default_network_response_peer_list(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell< ConnectionPrivate>,
         res: &NetworkResponse) -> FunctorResult {
     if let NetworkResponse::PeerList( _, ref peers) = res {
         let priv_conn_borrow = priv_conn.borrow();
@@ -166,7 +165,7 @@ pub fn default_network_response_handshake(
 
 /// It adds new network and update its buckets.
 pub fn default_network_request_join_network(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell< ConnectionPrivate>,
         res: &NetworkRequest) -> FunctorResult {
 
     if let NetworkRequest::JoinNetwork(ref _sender, ref network) = res {
@@ -189,7 +188,7 @@ pub fn default_network_request_join_network(
 
 /// It removes that network from its owns and update buckets.
 pub fn default_network_request_leave_network(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         req: &NetworkRequest) -> FunctorResult {
 
     if let NetworkRequest::LeaveNetwork(sender, network) = req {
@@ -219,7 +218,7 @@ pub fn default_network_request_handshake(
 
 /// Unknown messages only updates statistic information.
 pub fn default_unknown_message(
-        priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+        priv_conn: &RefCell<ConnectionPrivate>,
         _: &()) -> FunctorResult {
 
     debug!("Unknown message received!");
@@ -243,7 +242,7 @@ pub fn default_unknown_message(
 
 /// Invalid messages only updates statistic information.
 pub fn default_invalid_message(
-         priv_conn: &Rc< RefCell< ConnectionPrivate>>,
+         priv_conn: &RefCell<ConnectionPrivate>,
         _: &()) -> FunctorResult {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();
