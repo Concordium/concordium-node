@@ -5,6 +5,7 @@ import qualified ConcordiumTests.Afgjort.Freeze (tests)
 import qualified ConcordiumTests.Afgjort.CSS (tests)
 import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.ABBA (tests)
+import qualified ConcordiumTests.Konsensus (tests)
 
 main :: IO ()
 main = hspec $ do

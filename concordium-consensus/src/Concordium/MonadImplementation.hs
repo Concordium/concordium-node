@@ -33,6 +33,7 @@ data BlockStatus =
     BlockAlive !BlockPointer
     | BlockDead
     | BlockFinalized !BlockPointer !FinalizationRecord
+    deriving (Eq)
 
 data PendingBlock = PendingBlock {
     pbHash :: !BlockHash,

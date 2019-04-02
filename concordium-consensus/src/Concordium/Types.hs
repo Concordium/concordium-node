@@ -154,6 +154,9 @@ instance Hashable BlockPointer where
     hashWithSalt s = hashWithSalt s . bpHash
     hash = hash . bpHash
 
+instance Show BlockPointer where
+    show = show . bpHash
+
 data FinalizationProof = FinalizationProof [(Word32, Sig.Signature)]
     deriving (Eq)
 
