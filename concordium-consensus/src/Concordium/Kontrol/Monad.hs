@@ -6,23 +6,21 @@ module Concordium.Kontrol.Monad(
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
-import Control.Monad.IO.Class
 import Data.Time.Clock.POSIX
 import Data.Time
 import Data.Fixed
 
 import Concordium.Types
 import Concordium.Skov.Monad
+import Concordium.TimeMonad
 
 class SkovMonad m => KontrolMonad m where
     currentTimestamp :: m Timestamp
-    -- default currentTimestamp :: MonadIO m => m Timestamp
-    currentTimestamp = truncate <$> liftIO getPOSIXTime
+    currentTimestamp = truncate . utcTimeToPOSIXSeconds <$> currentTime
     timeUntilNextSlot :: m NominalDiffTime
-    -- default timeUntilNextSlot :: MonadIO m => m NominalDiffTime
     timeUntilNextSlot = do
         gen <- getGenesisData
-        now <- liftIO $ getPOSIXTime
+        now <- utcTimeToPOSIXSeconds <$> currentTime
         return $ (now - (fromInteger $ toInteger (genesisTime gen))) `mod'` (fromInteger $ toInteger $ genesisSlotDuration gen)
 
 instance KontrolMonad m => KontrolMonad (MaybeT m) where

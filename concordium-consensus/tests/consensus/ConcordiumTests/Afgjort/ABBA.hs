@@ -37,7 +37,7 @@ data ABBAInput party
     | BeginABBA Choice
     deriving (Eq,Show)
 
-makeInput :: Ord party => ABBAInput party -> ABBA party ()
+makeInput :: (Ord party, Show party) => ABBAInput party -> ABBA party ()
 makeInput (JustifyABBAChoice c) = justifyABBAChoice c
 makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m
 makeInput (BeginABBA c) = beginABBA c

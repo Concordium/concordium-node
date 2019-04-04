@@ -13,8 +13,9 @@ module Concordium.Afgjort.CSS(
     CSSInstance(CSSInstance), -- Don't export projections or constructor
     justifyChoice,
     receiveCSSMessage,
-    -- * For internal use
     Choices,
+    addChoice,
+    -- * For internal use
     manySawWeight,
     report,
     topJustified,
@@ -41,7 +42,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Maybe
 import Control.Monad.State.Class
-import Control.Monad.RWS
+import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
 type Choice = Bool

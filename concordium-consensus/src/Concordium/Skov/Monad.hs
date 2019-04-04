@@ -3,14 +3,14 @@ module Concordium.Skov.Monad where
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
-import Control.Monad.IO.Class
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Concordium.Types
 import Concordium.Logger
+import Concordium.TimeMonad
 
-class (Monad m, MonadIO m, LoggerMonad m) => SkovMonad m where
+class (Monad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe BlockPointer)
     -- |Store a block in the block table and add it to the tree

@@ -50,6 +50,7 @@ library:
       - -Wcompat
       - -Werror=missing-fields
       - -Wredundant-constraints
+      - -fno-ignore-asserts
   when:
     - condition: os(windows)
       then:
@@ -70,6 +71,7 @@ executables:
     - -with-rtsopts=-N
     - -Wall
     - -Wcompat
+    - -fno-ignore-asserts
     when: 
       - condition: os(windows)
         then:
@@ -88,6 +90,7 @@ executables:
     - -with-rtsopts=-N
     - -Wall
     - -Wcompat
+    - -fno-ignore-asserts
     when: 
       - condition: os(windows)
         then:
@@ -124,6 +127,7 @@ tests:
     - -with-rtsopts=-N
     - -Wall
     - -Wcompat
+    - -fno-ignore-asserts
     when: 
       - condition: os(windows)
         then:

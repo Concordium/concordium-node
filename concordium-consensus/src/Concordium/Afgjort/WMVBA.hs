@@ -156,7 +156,7 @@ instance WMVBAMonad val party sig (WMVBA val party sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad val party sig m, Ord party) => Freeze val party a -> m a
+liftFreeze :: (WMVBAMonad val party sig m, Ord party, Show party) => Freeze val party a -> m a
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -209,11 +209,11 @@ liftABBA a = do
             handleEvents r
 
 -- |Record that an input is justified.
-justifyWMVBAInput :: forall val party sig m. (WMVBAMonad val party sig m, Ord val, Ord party) => val -> m ()
+justifyWMVBAInput :: forall val party sig m. (WMVBAMonad val party sig m, Ord val, Ord party, Show party) => val -> m ()
 justifyWMVBAInput val = liftFreeze $ justifyCandidate val
 
 -- |Handle an incoming 'WMVBAMessage'.
-receiveWMVBAMessage :: (WMVBAMonad val party sig m, Ord val, Ord party, Eq sig) => party -> sig -> WMVBAMessage val party -> m ()
+receiveWMVBAMessage :: (WMVBAMonad val party sig m, Ord val, Ord party, Eq sig, Show party) => party -> sig -> WMVBAMessage val party -> m ()
 receiveWMVBAMessage src _ (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg
 receiveWMVBAMessage src _ (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg

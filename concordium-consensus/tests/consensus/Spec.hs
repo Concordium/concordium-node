@@ -13,3 +13,4 @@ main = hspec $ do
     ConcordiumTests.Afgjort.Freeze.tests
     ConcordiumTests.Afgjort.CSS.tests
     ConcordiumTests.Afgjort.Lottery.tests
+    ConcordiumTests.Konsensus.tests

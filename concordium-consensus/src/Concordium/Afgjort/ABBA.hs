@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings, DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, RecordWildCards, ScopedTypeVariables, GeneralizedNewtypeDeriving, RankNTypes, OverloadedStrings, LambdaCase #-}
 {- |Asynchronous Binary Byzantine Agreement algorithm -}
 module Concordium.Afgjort.ABBA(
     Phase,
@@ -20,14 +20,15 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq(..), (|>))
 import Data.Maybe
 import Data.Word
 import Control.Monad.State.Class
-import Control.Monad.RWS
+import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
-import Control.Exception.Base(assert)
 
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Lottery
@@ -77,7 +78,7 @@ data ABBAInstance party = ABBAInstance {
 -- exceeds the threshold, we record it as @Nothing@, forgetting the exact weigth and parties.
 data PhaseState party = PhaseState {
     _lotteryTickets :: Map (Double, party) Ticket,
-    _phaseCSSState :: CSSState party,
+    _phaseCSSState :: Either (Maybe Choices, Seq (party, CSSMessage party)) (CSSState party),
     _topInputWeight :: Maybe (Int, Set party),
     _botInputWeight :: Maybe (Int, Set party)
 } deriving (Show)
@@ -92,7 +93,7 @@ inputWeight False = botInputWeight
 initialPhaseState :: PhaseState party
 initialPhaseState = PhaseState {
     _lotteryTickets = Map.empty,
-    _phaseCSSState = initialCSSState,
+    _phaseCSSState = Left (Nothing, Seq.empty),
     _topInputWeight = Just (0, Set.empty),
     _botInputWeight = Just (0, Set.empty)
 }
@@ -133,7 +134,7 @@ weAreDoneWeight False = botWeAreDoneWeight
 initialABBAState :: ABBAState party
 initialABBAState = ABBAState {
     _currentPhase = 0,
-    _phaseStates = Map.empty,
+    _phaseStates = Map.singleton 0 (initialPhaseState {_phaseCSSState = Right initialCSSState}),
     _currentGrade = 0,
     _topWeAreDone = Set.empty,
     _topWeAreDoneWeight = 0,
@@ -179,19 +180,54 @@ instance ABBAMonad party (ABBA party) where
     sendABBAMessage msg = ABBA $ tell $ Endo (SendABBAMessage msg :)
     aBBAComplete c = ABBA $ tell $ Endo (ABBAComplete c :)
 
+liftCSSReceiveMessage :: (ABBAMonad party m, Ord party, Show party) => Phase -> party -> CSSMessage party -> m ()
+liftCSSReceiveMessage phase src msg = do
+        ABBAInstance{..} <- ask
+        use (phaseState phase . phaseCSSState) >>= \case
+            Left (justif, msgs) -> phaseState phase . phaseCSSState .= Left (justif, msgs |> (src, msg))
+            Right cssstate -> do
+                let (_, cssstate', evs) = runCSS (receiveCSSMessage src msg) (CSSInstance totalWeight corruptWeight partyWeight) cssstate
+                phaseState phase . phaseCSSState .= Right cssstate'
+                handleCSSEvents phase evs
+
+liftCSSJustifyChoice :: (ABBAMonad party m, Ord party, Show party) => Phase -> Choice -> m ()
+liftCSSJustifyChoice phase c = do
+        ABBAInstance{..} <- ask
+        use (phaseState phase . phaseCSSState) >>= \case
+            Left (justif, msgs) -> phaseState phase . phaseCSSState .= Left (addChoice c justif, msgs)
+            Right cssstate -> do
+                let (_, cssstate', evs) = runCSS (justifyChoice c) (CSSInstance totalWeight corruptWeight partyWeight) cssstate
+                phaseState phase . phaseCSSState .= Right cssstate'
+                handleCSSEvents phase evs
+
+handleCSSEvents :: (ABBAMonad party m, Ord party, Show party) => Phase -> [CSSOutputEvent party] -> m ()
+handleCSSEvents _ [] = return ()
+handleCSSEvents phase (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> handleCSSEvents phase evs
+    where
+        liftMsg (Input _) = undefined -- Should not happen
+        liftMsg (Seen p c) = CSSSeen phase p c
+        liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
+handleCSSEvents phase (SelectCoreSet cs : evs) = handleCoreSet phase cs >> handleCSSEvents phase evs
+
+
 -- |Lift a CSS operation to the ABBA monad in a given phase.
-{-# SPECIALIZE liftCSS :: Ord party => Phase -> CSS party a -> ABBA party a #-}
-liftCSS :: (ABBAMonad party m, Ord party) => Phase -> CSS party a -> m a
+-- {-# SPECIALIZE liftCSS :: (Ord party, Show party) => Phase -> CSS party a -> ABBA party a #-}
+{-
+liftCSS :: (ABBAMonad party m, Ord party, Show party) => Phase -> CSS party a -> m a
 liftCSS phase a = do
         ABBAInstance{..} <- ask
-        cssstate <- use (phaseState phase . phaseCSSState)
-        let (r, cssstate', evs) = runCSS a (CSSInstance totalWeight corruptWeight partyWeight) cssstate
-        phaseState phase . phaseCSSState .= cssstate'
-        cs <- handleEvents evs
-        forM_ cs $ \cs' -> do
-            cp <- use currentPhase
-            assert (phase == cp) $ handleCoreSet phase cs'
-        return r
+        use (phaseState phase . phaseCSSState) >>= \case
+            Right cssstate -> do
+                let (r, cssstate', evs) = runCSS a (CSSInstance totalWeight corruptWeight partyWeight) cssstate
+                phaseState phase . phaseCSSState .= cssstate'
+                cs <- handleEvents evs
+                forM_ cs $ \cs' -> do
+                    cp <- use currentPhase
+                    unless (phase == cp) $ do
+                        st <- get
+                        error $ "liftCSS on phase " ++ show phase ++ " but current phase is " ++ show cp ++ "\n" ++ show st
+                    assert (phase == cp) $ handleCoreSet phase cs'
+                return r
     where
         handleEvents [] = return Nothing
         handleEvents (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> handleEvents evs
@@ -199,43 +235,62 @@ liftCSS phase a = do
         liftMsg (Input _) = undefined -- Should not happen
         liftMsg (Seen p c) = CSSSeen phase p c
         liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
+-}
 
 -- |Deal with a core set being generated by CSS.  The phase should always be the current phase.
-{-# SPECIALIZE handleCoreSet :: Ord party => Phase -> CoreSet party -> ABBA party () #-}
-handleCoreSet :: (ABBAMonad party m, Ord party) => Phase -> CoreSet party -> m ()
+{-# SPECIALIZE handleCoreSet :: (Ord party, Show party) => Phase -> CoreSet party -> ABBA party () #-}
+handleCoreSet :: (ABBAMonad party m, Ord party, Show party) => Phase -> CoreSet party -> m ()
 handleCoreSet phase cs = do
         ABBAInstance{..} <- ask
-        let
-            csTop = fromMaybe Set.empty (coreTop cs)
-            csBot = fromMaybe Set.empty (coreBot cs)
-            csRes p = if p `Set.member` csTop then Just True else
-                        if p `Set.member` csBot then Just False else Nothing
-            topWeight = sum $ partyWeight <$> Set.toList csTop
-            botWeight = sum $ partyWeight <$> Set.toList csBot
-        lid <- view $ lotteryId phase
-        tkts <- filter (\((_,party),tkt) -> checkTicket lid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
-        let (nextBit, newGrade) =
-                if Set.null csBot then
-                    (True, 2)
-                else if Set.null csTop then
-                    (False, 2)
-                else if topWeight >= totalWeight - corruptWeight then
-                    (True, 1)
-                else if botWeight >= totalWeight - corruptWeight then
-                    (False, 1)
-                else if botWeight <= corruptWeight then
-                    (True, 0)
-                else if topWeight <= corruptWeight then
-                    (False, 0)
-                else case catMaybes $ (\((_,party), _) -> csRes party) <$> tkts of
-                    (res:_) -> (res, 0)
-                    [] -> error "Finalization failure: no lottery ticket could be verified" -- This should not be possible under standard assumptions
-        oldGrade <- currentGrade <<.= newGrade
-        when (newGrade == 2 && oldGrade /= 2) $
-            sendABBAMessage (WeAreDone nextBit)
-        currentPhase .= phase + 1
-        tkt <- view $ myTicket (phase + 1)
-        sendABBAMessage (Justified (phase+1) nextBit tkt)
+        cp <- use currentPhase
+        if (phase /= cp) then do
+            st <- get
+            error $ "handleCoreSet on phase " ++ show phase ++ " but current phase is " ++ show cp ++ "\n" ++ show st
+        else do
+            let
+                csTop = fromMaybe Set.empty (coreTop cs)
+                csBot = fromMaybe Set.empty (coreBot cs)
+                csRes p = if p `Set.member` csTop then Just True else
+                            if p `Set.member` csBot then Just False else Nothing
+                topWeight = sum $ partyWeight <$> Set.toList csTop
+                botWeight = sum $ partyWeight <$> Set.toList csBot
+            lid <- view $ lotteryId phase
+            tkts <- filter (\((_,party),tkt) -> checkTicket lid (pubKeys party) tkt) . Map.toDescList <$> use (phaseState phase . lotteryTickets)
+            let (nextBit, newGrade) =
+                    if Set.null csBot then
+                        (True, 2)
+                    else if Set.null csTop then
+                        (False, 2)
+                    else if topWeight >= totalWeight - corruptWeight then
+                        (True, 1)
+                    else if botWeight >= totalWeight - corruptWeight then
+                        (False, 1)
+                    else if botWeight <= corruptWeight then
+                        (True, 0)
+                    else if topWeight <= corruptWeight then
+                        (False, 0)
+                    else case catMaybes $ (\((_,party), _) -> csRes party) <$> tkts of
+                        (res:_) -> (res, 0)
+                        [] -> error "Finalization failure: no lottery ticket could be verified" -- This should not be possible under standard assumptions
+            oldGrade <- currentGrade <<.= newGrade
+            when (newGrade == 2 && oldGrade /= 2) $
+                sendABBAMessage (WeAreDone nextBit)
+            currentPhase .= phase + 1
+            beginPhase (phase + 1)
+            tkt <- view $ myTicket (phase + 1)
+            sendABBAMessage (Justified (phase+1) nextBit tkt)
+
+beginPhase :: (ABBAMonad party m, Ord party, Show party) => Phase -> m ()
+beginPhase phase = use (phaseState phase . phaseCSSState) >>= \case
+        Left (justif, msgs) -> do
+            phaseState phase . phaseCSSState .= Right initialCSSState
+            case justif of
+                Nothing -> return ()
+                Just (Just c) -> liftCSSJustifyChoice phase c
+                Just Nothing -> liftCSSJustifyChoice phase False >> liftCSSJustifyChoice phase True
+            forM_ msgs $ uncurry (liftCSSReceiveMessage phase)
+        Right _ -> return ()
+{-# INLINE beginPhase #-}
 
 -- |Get the lottery identifier string for the given phase.
 lotteryId :: Phase -> SimpleGetter (ABBAInstance party) BS.ByteString
@@ -254,29 +309,29 @@ unlessCompleted a = do
         unless c a
 
 -- |Called to indicate that a given choice is justified.
-{-# SPECIALIZE justifyABBAChoice :: Ord party => Choice -> ABBA party () #-}
-justifyABBAChoice :: (ABBAMonad party m, Ord party) => Choice -> m ()
-justifyABBAChoice c = unlessCompleted $ liftCSS 0 (justifyChoice c)
+{-# SPECIALIZE justifyABBAChoice :: (Ord party, Show party) => Choice -> ABBA party () #-}
+justifyABBAChoice :: (ABBAMonad party m, Ord party, Show party) => Choice -> m ()
+justifyABBAChoice c = unlessCompleted $ liftCSSJustifyChoice 0 c
 
 -- |Called when an 'ABBAMessage' is received.
-{-# SPECIALIZE receiveABBAMessage :: Ord party => party -> ABBAMessage party -> ABBA party () #-}
-receiveABBAMessage :: (ABBAMonad party m, Ord party) => party -> ABBAMessage party -> m ()
+{-# SPECIALIZE receiveABBAMessage :: (Ord party, Show party) => party -> ABBAMessage party -> ABBA party () #-}
+receiveABBAMessage :: (ABBAMonad party m, Ord party, Show party) => party -> ABBAMessage party -> m ()
 receiveABBAMessage src (Justified phase c ticketProof) = unlessCompleted $ do
     ABBAInstance{..} <- ask
-    liftCSS phase (receiveCSSMessage src (Input c))
+    liftCSSReceiveMessage phase src (Input c)
     let ticket = proofToTicket ticketProof (partyWeight src) totalWeight
     phaseState phase . lotteryTickets . at (ticketValue ticket, src) ?= ticket
     inputw <- use $ phaseState phase . inputWeight c
     forM_ inputw $ \(w, ps) -> unless (src `Set.member` ps) $
         if w + partyWeight src > corruptWeight then do
             phaseState phase . inputWeight c .= Nothing
-            liftCSS (phase + 1) (justifyChoice c)
+            liftCSSJustifyChoice (phase + 1) c
         else
             phaseState phase . inputWeight c .= Just (w + partyWeight src, Set.insert src ps)
 receiveABBAMessage src (CSSSeen phase p c) =
-    unlessCompleted $ liftCSS phase (receiveCSSMessage src (Seen p c))
+    unlessCompleted $ liftCSSReceiveMessage phase src (Seen p c)
 receiveABBAMessage src (CSSDoneReporting phase m) =
-    unlessCompleted $ liftCSS phase (receiveCSSMessage src (DoneReporting m))
+    unlessCompleted $ liftCSSReceiveMessage phase src (DoneReporting m)
 receiveABBAMessage src (WeAreDone c) = unlessCompleted $ do
     ABBAInstance{..} <- ask
     alreadyDone <- weAreDone c <<%= Set.insert src
