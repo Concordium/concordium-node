@@ -10,37 +10,41 @@ const DNS_ANCHOR_3: &'static str = ". IN DNSKEY 257 3 8 AwEAAagAIKlVZrpC6Ia7gEza
 
 #[derive(Copy, Clone, Debug)]
 enum LookupType {
-    ARecord = 1,
+    ARecord    = 1,
     AAAARecord = 28,
-    TXTRecord = 16,
+    TXTRecord  = 16,
 }
 
-pub fn resolve_dns_txt_record(entry: &str,
-                              dns_servers: &[IpAddr],
-                              no_dnssec_fail: bool)
-                              -> Result<Vec<String>, String> {
+pub fn resolve_dns_txt_record(
+    entry: &str,
+    dns_servers: &[IpAddr],
+    no_dnssec_fail: bool,
+) -> Result<Vec<String>, String> {
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXTRecord)
 }
 
-pub fn resolve_dns_a_record(entry: &str,
-                            dns_servers: &[IpAddr],
-                            no_dnssec_fail: bool)
-                            -> Result<Vec<String>, String> {
+pub fn resolve_dns_a_record(
+    entry: &str,
+    dns_servers: &[IpAddr],
+    no_dnssec_fail: bool,
+) -> Result<Vec<String>, String> {
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::ARecord)
 }
 
-pub fn resolve_dns_aaaa_record(entry: &str,
-                               dns_servers: &[IpAddr],
-                               no_dnssec_fail: bool)
-                               -> Result<Vec<String>, String> {
+pub fn resolve_dns_aaaa_record(
+    entry: &str,
+    dns_servers: &[IpAddr],
+    no_dnssec_fail: bool,
+) -> Result<Vec<String>, String> {
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAARecord)
 }
 
-fn resolve_dns_record(entry: &str,
-                      dns_servers: &[IpAddr],
-                      no_dnssec_fail: bool,
-                      record_type: LookupType)
-                      -> Result<Vec<String>, String> {
+fn resolve_dns_record(
+    entry: &str,
+    dns_servers: &[IpAddr],
+    no_dnssec_fail: bool,
+    record_type: LookupType,
+) -> Result<Vec<String>, String> {
     let mut res = vec![];
 
     let ctx = unbound::Context::new().unwrap();
@@ -60,7 +64,7 @@ fn resolve_dns_record(entry: &str,
         return Err("Error adding key 3!".to_string());
     }
 
-    //Add forward resolvers
+    // Add forward resolvers
     for ip in dns_servers {
         if let Err(err) = ctx.set_fwd(ip) {
             error!("error adding forwarder: {}", err);
@@ -79,15 +83,15 @@ fn resolve_dns_record(entry: &str,
                 LookupType::ARecord => {
                     res.extend(
                         ans.data()
-                           .map(|data| data_to_ipv4(data).to_string())
-                           .inspect(|ip| debug!("The address is {}", ip))
+                            .map(|data| data_to_ipv4(data).to_string())
+                            .inspect(|ip| debug!("The address is {}", ip)),
                     );
                 }
                 LookupType::AAAARecord => {
                     res.extend(
                         ans.data()
-                           .map(|data| data_to_ipv6(data).to_string())
-                           .inspect(|ip| debug!("The address is {}", ip))
+                            .map(|data| data_to_ipv6(data).to_string())
+                            .inspect(|ip| debug!("The address is {}", ip)),
                     );
                 }
                 LookupType::TXTRecord => {
@@ -132,9 +136,11 @@ mod tests {
 
     #[test]
     pub fn test_googledns_resolve_dns() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("8.8.8.8").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("8.8.8.8").unwrap()],
+            false,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -143,20 +149,24 @@ mod tests {
 
     #[test]
     pub fn test_googledns_resolve_dns_fail() {
-        let res = resolve_dns_txt_record("www.dnssec-failed.org",
-                                         &[IpAddr::from_str("8.8.8.8").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "www.dnssec-failed.org",
+            &[IpAddr::from_str("8.8.8.8").unwrap()],
+            false,
+        );
         if res.is_ok() {
-           panic!("This shouldn't happen - we got a valid response");
+            panic!("This shouldn't happen - we got a valid response");
         }
     }
 
     #[test]
     #[ignore]
     pub fn _test_quadnine_resolve_dns_fail() {
-        let res = resolve_dns_txt_record("www.dnssec-failed.org",
-                                         &[IpAddr::from_str("9.9.9.9").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "www.dnssec-failed.org",
+            &[IpAddr::from_str("9.9.9.9").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -165,9 +175,11 @@ mod tests {
     #[test]
     #[ignore]
     pub fn _test_norton_resolve_dns() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("199.85.126.20").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("199.85.126.20").unwrap()],
+            false,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -177,9 +189,11 @@ mod tests {
     #[test]
     #[ignore]
     pub fn _test_norton_resolve_dns_fail() {
-        let res = resolve_dns_txt_record("www.dnssec-failed.org",
-                                         &[IpAddr::from_str("199.85.126.20").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "www.dnssec-failed.org",
+            &[IpAddr::from_str("199.85.126.20").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -188,9 +202,11 @@ mod tests {
     #[test]
     #[ignore]
     pub fn _test_quadnine_resolve_dns() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("9.9.9.9").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("9.9.9.9").unwrap()],
+            false,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -199,9 +215,11 @@ mod tests {
 
     #[test]
     pub fn test_cloudflare_resolve_dns_fail() {
-        let res = resolve_dns_txt_record("www.dnssec-failed.org",
-                                         &[IpAddr::from_str("1.1.1.1").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "www.dnssec-failed.org",
+            &[IpAddr::from_str("1.1.1.1").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -209,9 +227,11 @@ mod tests {
 
     #[test]
     pub fn test_cloudflare_resolve_dns() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("1.1.1.1").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("1.1.1.1").unwrap()],
+            false,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -221,9 +241,11 @@ mod tests {
     #[test]
     #[ignore]
     pub fn _test_comodo_resolve_dns_fail() {
-        let res = resolve_dns_txt_record("www.dnssec-failed.org",
-                                         &[IpAddr::from_str("8.26.56.26").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "www.dnssec-failed.org",
+            &[IpAddr::from_str("8.26.56.26").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -231,9 +253,11 @@ mod tests {
 
     #[test]
     pub fn test_cleanbrowsing_resolve_dns() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("185.228.168.168").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("185.228.168.168").unwrap()],
+            false,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -243,9 +267,11 @@ mod tests {
     #[test]
     #[ignore]
     pub fn _test_comodo_resolve_dns() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("8.26.56.26").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("8.26.56.26").unwrap()],
+            false,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -254,9 +280,11 @@ mod tests {
 
     #[test]
     pub fn test_cleanbrowsing_resolve_dns_fail() {
-        let res = resolve_dns_txt_record("www.dnssec-failed.org",
-                                         &[IpAddr::from_str("185.228.168.168").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "www.dnssec-failed.org",
+            &[IpAddr::from_str("185.228.168.168").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -264,9 +292,11 @@ mod tests {
 
     #[test]
     pub fn test_opendns_resolve_nodnssec_fail() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("208.67.220.220").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("208.67.220.220").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -274,9 +304,11 @@ mod tests {
 
     #[test]
     pub fn test_yandex_resolve_nodnssec_fail() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("77.88.8.7").unwrap()],
-                                         false);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("77.88.8.7").unwrap()],
+            false,
+        );
         if res.is_ok() {
             panic!("This shouldn't happen - we got a valid response");
         }
@@ -284,9 +316,11 @@ mod tests {
 
     #[test]
     pub fn test_yandex_resolve_nodnssec_fail_nodnssec_test() {
-        let res = resolve_dns_txt_record("concordium.com",
-                                         &[IpAddr::from_str("77.88.8.7").unwrap()],
-                                         true);
+        let res = resolve_dns_txt_record(
+            "concordium.com",
+            &[IpAddr::from_str("77.88.8.7").unwrap()],
+            true,
+        );
         match res {
             Ok(ref resps) => assert_eq!(resps.len(), 4),
             Err(e) => panic!("{}", e),
@@ -295,9 +329,7 @@ mod tests {
 
     #[test]
     pub fn test_googledns_resolve_a_record() {
-        let res = resolve_dns_a_record("google.com",
-                                       &[IpAddr::from_str("8.8.8.8").unwrap()],
-                                       true);
+        let res = resolve_dns_a_record("google.com", &[IpAddr::from_str("8.8.8.8").unwrap()], true);
         match res {
             Ok(ref resps) => assert!(!resps.is_empty()),
             Err(e) => panic!("{}", e),
@@ -306,9 +338,8 @@ mod tests {
 
     #[test]
     pub fn test_googledns_resolve_aaaa_record() {
-        let res = resolve_dns_aaaa_record("google.com",
-                                          &[IpAddr::from_str("8.8.8.8").unwrap()],
-                                          true);
+        let res =
+            resolve_dns_aaaa_record("google.com", &[IpAddr::from_str("8.8.8.8").unwrap()], true);
         match res {
             Ok(ref resps) => assert!(!resps.is_empty()),
             Err(e) => panic!("{}", e),
@@ -317,9 +348,11 @@ mod tests {
 
     #[test]
     pub fn test_txt_record() {
-        let res = resolve_dns_txt_record("bootstrap.p2p.concordium.com",
-                                         &[IpAddr::from_str("8.8.8.8").unwrap()],
-                                         true);
+        let res = resolve_dns_txt_record(
+            "bootstrap.p2p.concordium.com",
+            &[IpAddr::from_str("8.8.8.8").unwrap()],
+            true,
+        );
         match res {
             Ok(ref resps) => assert!(!resps.is_empty()),
             Err(e) => panic!("{}", e),

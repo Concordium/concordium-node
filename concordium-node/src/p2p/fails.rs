@@ -1,4 +1,4 @@
-use failure::{Fail, Error};
+use failure::{Error, Fail};
 
 #[derive(Debug, Fail)]
 #[fail(display = "Peer not found")]
@@ -17,9 +17,7 @@ pub struct DuplicatePeerError;
 pub struct EmptyIdInSendRequest;
 
 impl EmptyIdInSendRequest {
-    pub fn to_err(self) -> Error {
-        Error::from(self)
-    }
+    pub fn to_err(self) -> Error { Error::from(self) }
 }
 
 #[derive(Debug, Fail)]

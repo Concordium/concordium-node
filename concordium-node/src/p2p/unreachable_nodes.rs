@@ -1,7 +1,9 @@
 use crate::common;
 
-use std::sync::{Arc, RwLock};
-use std::net::{ IpAddr };
+use std::{
+    net::IpAddr,
+    sync::{Arc, RwLock},
+};
 
 #[derive(Clone, Debug)]
 pub struct UnreachableNodes {
@@ -10,17 +12,20 @@ pub struct UnreachableNodes {
 
 impl UnreachableNodes {
     pub fn new() -> Self {
-        UnreachableNodes { nodes: Arc::new(RwLock::new(vec![])), }
+        UnreachableNodes {
+            nodes: Arc::new(RwLock::new(vec![])),
+        }
     }
 
     pub fn contains(&self, ip: IpAddr, port: u16) -> bool {
         if let Ok(ref nodes) = safe_read!(self.nodes) {
-            return nodes.iter()
-                        .find(|&&x| {
-                                  let (_, mip, mport) = x;
-                                  ip == mip && port == mport
-                              })
-                        .is_some();
+            return nodes
+                .iter()
+                .find(|&&x| {
+                    let (_, mip, mport) = x;
+                    ip == mip && port == mport
+                })
+                .is_some();
         }
         true
     }
@@ -37,14 +42,12 @@ impl UnreachableNodes {
     pub fn cleanup(&mut self, since: u64) -> bool {
         if let Ok(ref mut nodes) = safe_write!(self.nodes) {
             nodes.retain(|&x| {
-                 let (time, ..) = x;
-                 time >= since
-             });
+                let (time, ..) = x;
+                time >= since
+            });
             true
         } else {
             false
         }
     }
 }
-
-

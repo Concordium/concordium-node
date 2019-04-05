@@ -1,59 +1,59 @@
-use std::{ str };
-use std::net::{ IpAddr, Ipv4Addr };
-
-use nom::{ IResult };
-
-use crate::common::{ UCursor, P2PPeer, P2PPeerBuilder, P2PNodeId, ConnectionType, get_current_stamp };
-use crate::network::{
-    NetworkMessage,
-    PROTOCOL_NAME, PROTOCOL_VERSION,
-    PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
-    PROTOCOL_NODE_ID_LENGTH,
-    PROTOCOL_MESSAGE_TYPE_REQUEST_PING,
-    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,
-    PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    str,
 };
-use crate::network::{ NetworkPacket, NetworkPacketBuilder, NetworkRequest,NetworkResponse };
 
+use nom::IResult;
 
-fn localhost_peer() -> P2PPeer
-{
+use crate::{
+    common::{get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder, UCursor},
+    network::{
+        NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+        PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
+        PROTOCOL_MESSAGE_TYPE_REQUEST_PING, PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, PROTOCOL_NAME,
+        PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH,
+        PROTOCOL_VERSION,
+    },
+};
+
+fn localhost_peer() -> P2PPeer {
     P2PPeerBuilder::default()
-        .connection_type( ConnectionType::Node)
-        .ip( IpAddr::V4(Ipv4Addr::new(127,0,0,1)))
-        .port( 8888)
-        .build().unwrap()
+        .connection_type(ConnectionType::Node)
+        .ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+        .port(8888)
+        .build()
+        .unwrap()
 }
 
-/// *IMPORTANT*: Input HAVE TO be digits because it uses *unchecked* transformation to utf8.
-fn s11n_to_timestamp( input: &[u8] ) -> Result< u64, std::num::ParseIntError> {
-    let input_utf8: &str = str::from_utf8( &input).unwrap_or("0");
-    u64::from_str_radix( input_utf8, 16)
+/// *IMPORTANT*: Input HAVE TO be digits because it uses *unchecked*
+/// transformation to utf8.
+fn s11n_to_timestamp(input: &[u8]) -> Result<u64, std::num::ParseIntError> {
+    let input_utf8: &str = str::from_utf8(&input).unwrap_or("0");
+    u64::from_str_radix(input_utf8, 16)
 }
 
-fn s11n_msg_id( input: &[u8]) -> IResult< &[u8], &str> {
-    let (ref input, ref msg_id_slice) = take!( input, PROTOCOL_MESSAGE_ID_LENGTH)?;
-    let msg_id_str : &str = str::from_utf8(&msg_id_slice).unwrap_or("");
+fn s11n_msg_id(input: &[u8]) -> IResult<&[u8], &str> {
+    let (ref input, ref msg_id_slice) = take!(input, PROTOCOL_MESSAGE_ID_LENGTH)?;
+    let msg_id_str: &str = str::from_utf8(&msg_id_slice).unwrap_or("");
 
     Ok((input, msg_id_str))
 }
 
-fn s11n_network_id(input: &[u8]) -> IResult< &[u8], u16> {
-    let (ref input, ref net_id_slice) = take!( input, PROTOCOL_NETWORK_ID_LENGTH)?;
-    let net_id_str: &str = str::from_utf8( &net_id_slice).unwrap_or("0");
+fn s11n_network_id(input: &[u8]) -> IResult<&[u8], u16> {
+    let (ref input, ref net_id_slice) = take!(input, PROTOCOL_NETWORK_ID_LENGTH)?;
+    let net_id_str: &str = str::from_utf8(&net_id_slice).unwrap_or("0");
     let net_id: u16 = net_id_str.parse::<u16>().unwrap_or(0 as u16);
 
     Ok((input, net_id))
 }
 
-fn s11n_content_size(input: &[u8]) -> IResult< &[u8], usize> {
-    let (ref input, ref cs_slice)= take!(input, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH)?;
-    let cs_str: &str = str::from_utf8( &cs_slice).unwrap_or("0");
+fn s11n_content_size(input: &[u8]) -> IResult<&[u8], usize> {
+    let (ref input, ref cs_slice) = take!(input, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH)?;
+    let cs_str: &str = str::from_utf8(&cs_slice).unwrap_or("0");
     let cs = cs_str.parse::<usize>().unwrap_or(0 as usize);
 
     Ok((input, cs))
 }
-
 
 named!(
     s11n_p2p_node_id<&[u8], P2PNodeId>,
@@ -88,40 +88,41 @@ named!(
     )
 );
 
-
-fn s11n_message_id( input: &[u8], timestamp: u64) -> IResult< &[u8], NetworkMessage> {
-    let (ref input, ref msg_id_slice) = take!( input, 4)?;
-    let msg_id: &str = str::from_utf8( &msg_id_slice).unwrap_or("");
+fn s11n_message_id(input: &[u8], timestamp: u64) -> IResult<&[u8], NetworkMessage> {
+    let (ref input, ref msg_id_slice) = take!(input, 4)?;
+    let msg_id: &str = str::from_utf8(&msg_id_slice).unwrap_or("");
 
     match msg_id {
-        PROTOCOL_MESSAGE_TYPE_REQUEST_PING => {
-            Ok(( &input,
+        PROTOCOL_MESSAGE_TYPE_REQUEST_PING => Ok((
+            &input,
             NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping( localhost_peer()),
+                NetworkRequest::Ping(localhost_peer()),
                 Some(timestamp),
-                Some(get_current_stamp()))))
-        },
-        PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => {
-            Ok(( &input,
+                Some(get_current_stamp()),
+            ),
+        )),
+        PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => Ok((
+            &input,
             NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong( localhost_peer()),
+                NetworkResponse::Pong(localhost_peer()),
                 Some(timestamp),
-                Some(get_current_stamp()))))
-        },
+                Some(get_current_stamp()),
+            ),
+        )),
         PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE => {
-            s11n_network_packet_direct(input)
-                .map( |result_packet_direct|{
-                    let (input, packet_direct) = result_packet_direct;
-                    (
-                        input,
-                        NetworkMessage::NetworkPacket(
-                            packet_direct,
-                            Some(timestamp),
-                            Some(get_current_stamp()))
-                    )
-                })
-        },
-        _ => Ok(( &input, NetworkMessage::InvalidMessage))
+            s11n_network_packet_direct(input).map(|result_packet_direct| {
+                let (input, packet_direct) = result_packet_direct;
+                (
+                    input,
+                    NetworkMessage::NetworkPacket(
+                        packet_direct,
+                        Some(timestamp),
+                        Some(get_current_stamp()),
+                    ),
+                )
+            })
+        }
+        _ => Ok((&input, NetworkMessage::InvalidMessage)),
     }
 }
 
@@ -135,16 +136,9 @@ named!(
     )
 );
 
-named!(
-    s11n_network_request_ping,
-    eof!()
-);
+named!(s11n_network_request_ping, eof!());
 
-named!(
-    s11n_network_response_pong,
-    eof!()
-);
-
+named!(s11n_network_response_pong, eof!());
 
 // It parses stream of bytes into `NetworkMessage`.
 // Expected stream format is:
@@ -164,26 +158,27 @@ named!( s11n_network_message_parse<&[u8], NetworkMessage>,
 );
 
 /// See `s11n_network_message_parse` documentation
-pub fn s11n_network_message( input: &[u8]) -> IResult< &[u8], NetworkMessage> {
-    s11n_network_message_parse( input)
+pub fn s11n_network_message(input: &[u8]) -> IResult<&[u8], NetworkMessage> {
+    s11n_network_message_parse(input)
 }
 
 #[cfg(test)]
 mod unit_test {
-    use nom::{ IResult};
-    use nom::verbose_errors::{ Context };
+    use nom::{verbose_errors::Context, IResult};
 
-    use super::{ localhost_peer, s11n_network_message };
+    use super::{localhost_peer, s11n_network_message};
 
-    use crate::common::{ UCursor, ContainerView, P2PNodeId };
-    use crate::network::{ NetworkRequest, NetworkResponse, NetworkPacketBuilder, NetworkMessage };
-    use crate::network::{
-        PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING,
-        PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
+    use crate::{
+        common::{ContainerView, P2PNodeId, UCursor},
+        network::{
+            NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+            PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_REQUEST_PING,
+            PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG, PROTOCOL_NAME, PROTOCOL_VERSION,
+        },
     };
 
     fn ut_s11n_001_data() -> Vec<(String, IResult<&'static [u8], NetworkMessage>)> {
-        let direct_message_content = ContainerView::from( b"Hello world!".to_vec());
+        let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
 
         vec![
             ( format!( "{}{}{}{}",
@@ -277,13 +272,12 @@ mod unit_test {
     }
 
     #[test]
-    fn ut_s11n_001(){
+    fn ut_s11n_001() {
         let data = ut_s11n_001_data();
         for (input, expected) in &data {
-            let output = s11n_network_message( input.as_bytes());
-            assert_eq!( output, *expected);
+            let output = s11n_network_message(input.as_bytes());
+            assert_eq!(output, *expected);
         }
     }
-
 
 }

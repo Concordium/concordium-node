@@ -1,38 +1,38 @@
-use crate::common::functor::{ AFunctor, FunctorResult };
-use crate::network::{ NetworkPacket, NetworkPacketType };
+use crate::{
+    common::functor::{AFunctor, FunctorResult},
+    network::{NetworkPacket, NetworkPacketType},
+};
 
-use crate::connection::network_handler::{ NetworkPacketCW };
+use crate::connection::network_handler::NetworkPacketCW;
 
 pub struct PacketHandler {
-    pub direct_parser: AFunctor<NetworkPacket>,
+    pub direct_parser:    AFunctor<NetworkPacket>,
     pub broadcast_parser: AFunctor<NetworkPacket>,
 }
 
 impl PacketHandler {
     pub fn new() -> Self {
         PacketHandler {
-            direct_parser: AFunctor::<NetworkPacket>::new(
-                    "Network::Packet::Direct"),
-            broadcast_parser: AFunctor::<NetworkPacket>::new(
-                    "Network::Packet::Broadcast"),
+            direct_parser:    AFunctor::<NetworkPacket>::new("Network::Packet::Direct"),
+            broadcast_parser: AFunctor::<NetworkPacket>::new("Network::Packet::Broadcast"),
         }
     }
 
-    pub fn add_direct_callback( &mut self, callback: NetworkPacketCW) -> &mut Self {
-        self.direct_parser.add_callback( callback);
+    pub fn add_direct_callback(&mut self, callback: NetworkPacketCW) -> &mut Self {
+        self.direct_parser.add_callback(callback);
         self
     }
 
-    pub fn add_broadcast_callback( &mut self, callback: NetworkPacketCW) -> &mut Self {
-        self.broadcast_parser.add_callback( callback);
+    pub fn add_broadcast_callback(&mut self, callback: NetworkPacketCW) -> &mut Self {
+        self.broadcast_parser.add_callback(callback);
         self
     }
 
     /// It runs main parser and specific ones for the internal type of msg.
     pub fn process_message(&self, msg: &NetworkPacket) -> FunctorResult {
-         match msg.packet_type {
-            NetworkPacketType::DirectMessage( _) => self.direct_parser.run_callbacks(&msg),
-            NetworkPacketType::BroadcastedMessage => self.broadcast_parser.run_callbacks(&msg)
+        match msg.packet_type {
+            NetworkPacketType::DirectMessage(_) => self.direct_parser.run_callbacks(&msg),
+            NetworkPacketType::BroadcastedMessage => self.broadcast_parser.run_callbacks(&msg),
         }
     }
 }

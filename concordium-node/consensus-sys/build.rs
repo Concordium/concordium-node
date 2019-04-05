@@ -9,7 +9,11 @@ fn main() {
         }
         _ => {
             // Copy ouput .so file to library path
-            println!("cargo:rustc-link-search=native={}/../.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4/lib/ghc-8.4.4/rts", env!("CARGO_HOME"));
+            println!(
+                "cargo:rustc-link-search=native={}/../.stack/programs/x86_64-linux/ghc-tinfo6-8.4.\
+                 4/lib/ghc-8.4.4/rts",
+                env!("CARGO_HOME")
+            );
             println!("cargo:rustc-link-search=native=/usr/local/lib");
             println!("cargo:rustc-link-lib=dylib=HSConcordium-0.1.0.0");
             println!("cargo:rustc-link-lib=dylib=HSacorn-0.1.0.0");

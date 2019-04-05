@@ -1,15 +1,15 @@
-use failure::{Fail, Backtrace};
+use failure::{Backtrace, Fail};
 
 #[derive(Debug, Fail)]
 #[fail(display = "Resource was poisoned")]
 pub struct PoisonError {
-    backtrace: Backtrace
+    backtrace: Backtrace,
 }
 
 impl<T> From<std::sync::PoisonError<T>> for PoisonError {
     fn from(_: std::sync::PoisonError<T>) -> Self {
         PoisonError {
-            backtrace: Backtrace::new()
+            backtrace: Backtrace::new(),
         }
     }
 }
@@ -46,7 +46,7 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 macro_rules! safe_lock {
     ($e:expr) => {
         $e.lock().map_err($crate::fails::PoisonError::from)
-    }
+    };
 }
 
 /// Wrap a `read()` call to map a `PoisonError` into a `failure::Fail`
@@ -56,7 +56,7 @@ macro_rules! safe_lock {
 macro_rules! safe_read {
     ($e:expr) => {
         $e.read().map_err($crate::fails::PoisonError::from)
-    }
+    };
 }
 
 /// Wrap a `write()` call to map a `PoisonError` into a `failure::Fail`
@@ -66,7 +66,7 @@ macro_rules! safe_read {
 macro_rules! safe_write {
     ($e:expr) => {
         $e.write().map_err($crate::fails::PoisonError::from)
-    }
+    };
 }
 
 /// Wrap a `std::error::Error` into a `failure::Error`
@@ -80,9 +80,9 @@ macro_rules! safe_write {
 ///
 /// # Examples
 /// ```
+/// use failure::Fallible;
 /// use p2p_client::into_err;
 /// use std::io::{Error, ErrorKind};
-/// use failure::Fallible;
 ///
 /// fn foo() -> Fallible<()> {
 ///     let io_error = Error::new(ErrorKind::Other, "oh no!");
@@ -94,5 +94,5 @@ macro_rules! safe_write {
 macro_rules! into_err {
     ($e:expr) => {
         $e.map_err(|x| failure::Error::from_boxed_compat(Box::new(x)))
-    }
+    };
 }
