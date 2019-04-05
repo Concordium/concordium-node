@@ -1,3 +1,4 @@
+use base64;
 use super::{ NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse };
 
 use crate::failure::{ Fallible, err_msg };
@@ -49,7 +50,7 @@ fn deserialize_direct_message( peer: P2PPeer, timestamp :u64, pkt: &mut UCursor)
     let buf = view.as_slice();
 
     // 1. Load receiver_id
-    let receiver_id = P2PNodeId::from_string( str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
+    let receiver_id = P2PNodeId::from_b64_repr( str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
     let buf = &buf[PROTOCOL_NODE_ID_LENGTH..];
 
     // 2. Load msg_id
@@ -127,7 +128,7 @@ fn deserialize_request_find_node(
 
     let view = pkt.read_into_view( PROTOCOL_NODE_ID_LENGTH)?;
     let node_id_str = str::from_utf8( view.as_slice())?;
-    let node_id = P2PNodeId::from_string( node_id_str)?;
+    let node_id = P2PNodeId::from_b64_repr( node_id_str)?;
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::FindNode( peer, node_id),
@@ -256,7 +257,7 @@ fn deserialize_common_handshake(pkt: &mut UCursor) -> Fallible<(P2PNodeId, u16, 
     let view = pkt.read_into_view( min_packet_size)?;
     let buf = view.as_slice();
 
-    let node_id = P2PNodeId::from_string( str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
+    let node_id = P2PNodeId::from_b64_repr(&buf[..PROTOCOL_NODE_ID_LENGTH])?;
     let buf = &buf[PROTOCOL_NODE_ID_LENGTH..];
 
     let port = str::from_utf8(&buf[..PROTOCOL_PORT_LENGTH])?.parse::<u16>()?;
@@ -356,9 +357,16 @@ impl NetworkMessage {
         let header = &header[protocol_version_length..];
 
         // Load timestamp
-        let timestamp = u64::from_str_radix(
-            str::from_utf8( &header[..PROTOCOL_SENT_TIMESTAMP_LENGTH])?,
-            16)?;
+        let timestamp = {
+            let timestamp = base64::decode(&header[..PROTOCOL_SENT_TIMESTAMP_LENGTH])?;
+            if timestamp.len() != 8 {
+                error!( "Invalid timesptamp {:?}", timestamp );
+            }
+            debug_assert_eq!(timestamp.len(), 8);
+            let mut a = [0; 8];
+            a.copy_from_slice(timestamp.as_slice());
+            u64::from_le_bytes(a)
+        };
         let header = &header[PROTOCOL_SENT_TIMESTAMP_LENGTH..];
 
         // Load message type id
@@ -509,14 +517,12 @@ mod unit_test {
     use rand::distributions::{ Alphanumeric };
     use std::net::{ IpAddr, Ipv4Addr };
     use std::io::Write;
+    use std::str::FromStr;
     use failure::{ Fallible };
 
     use super::NetworkMessage;
-    use crate::common::{ P2PPeerBuilder, ConnectionType, UCursor };
-    use crate::network::{ NetworkPacketType };
-    use crate::network::{
-        PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
-    };
+    use crate::common::{ P2PPeerBuilder, ConnectionType, UCursor, P2PNodeId, P2PPeer };
+    use crate::network::{ NetworkPacket, NetworkPacketType, NetworkPacketBuilder};
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
@@ -536,14 +542,32 @@ mod unit_test {
 
     fn make_direct_message_into_disk( content_size: usize) -> Fallible<UCursor>
     {
-        let header = format!("{}{:03}{:016X}{:03}{:064X}{:064}{:05}{:010}",
-                             PROTOCOL_NAME, PROTOCOL_VERSION, 10,
-                             PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-                             42, 100, 111, content_size).as_bytes().to_vec();
+        // Create header
+        let header = {
+            let p2p_node_id = P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mDDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=")?;
+            let pkt = NetworkPacketBuilder::default()
+                .peer(P2PPeer::from(ConnectionType::Node,
+                                         p2p_node_id,
+                                         IpAddr::from_str("127.0.0.1")?,
+                                         8888))
+                .message_id(NetworkPacket::generate_message_id())
+                .network_id(111)
+                .message(UCursor::from(vec![]))
+                .build_direct(P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=")?)?;
 
+            let mut h = pkt.serialize();
+
+            //chop the last 10 bytes which are the length of the message
+            h.truncate( h.len() -10);
+            h
+        };
+
+        // Write header and content size
         let mut cursor = UCursor::build_from_temp_file()?;
         cursor.write_all( header.as_slice())?;
+        cursor.write_all( format!("{:010}", content_size).as_bytes())?;
 
+        // Write content
         let mut pending_content_size = content_size;
         while pending_content_size != 0 {
             let chunk :String = thread_rng()
@@ -555,7 +579,7 @@ mod unit_test {
             cursor.write_all( chunk.as_bytes())?;
         }
 
-        assert_eq!( cursor.len(), (content_size + header.len()) as u64);
+        assert_eq!( cursor.len(), (content_size + 10 + header.len()) as u64);
         Ok(cursor)
     }
 

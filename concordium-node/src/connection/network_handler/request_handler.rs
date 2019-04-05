@@ -146,7 +146,7 @@ mod request_handler_test {
     fn ut_1_data() -> Vec<NRequest> {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
         let p2p_peer =P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080).unwrap();
+        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080);
 
         let data = vec![
             NRequest::Ping( p2p_peer.clone()),

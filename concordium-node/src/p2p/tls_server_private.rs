@@ -143,9 +143,8 @@ impl TlsServerPrivate {
 
         let rc_conn = Rc::new( RefCell::new( conn));
 
-        if let Ok(id) = P2PNodeId::from_ip_port( ip, port){
-            self.connections_by_id.insert( id, rc_conn.clone());
-        }
+        let id = P2PNodeId::from_ip_port( ip, port);
+        self.connections_by_id.insert( id, rc_conn.clone());
 
         self.connections_by_token.insert( token, rc_conn);
     }
