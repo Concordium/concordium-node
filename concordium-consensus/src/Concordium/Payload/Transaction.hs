@@ -31,7 +31,7 @@ data Transaction = Transaction {
     transactionNonce :: TransactionNonce,
     transactionHeader :: !Header,
     transactionPayload :: !SerializedPayload
-} deriving (Generic)
+} deriving (Generic, Eq)
 
 type GlobalState = Types.GlobalState
 

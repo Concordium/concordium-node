@@ -20,6 +20,8 @@ import qualified Data.PQueue.Prio.Min as MPQ
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.SHA256 as H
+import Acorn.Utils.Init.Example(update)
 import Concordium.Payload.Transaction
 import Concordium.Types
 import Concordium.MonadImplementation
@@ -29,6 +31,7 @@ import Concordium.Birk.Bake
 import Concordium.Skov.Monad
 import Concordium.Payload.Monad
 import Concordium.TimeMonad
+import Concordium.Payload.Transaction
 
 import Test.QuickCheck
 import Test.Hspec
@@ -49,7 +52,10 @@ invariantSkovData SkovData{..} = do
             checkBinary (>=) fi (fromIntegral (Seq.length _skovFinalizationList)) ">=" "pending finalization record index" "length of finalization list"
             forM_ frs $ \fr -> do
                 checkBinary (==) fi (finalizationIndex fr) "==" "key in finalization pool" "finalization index"
-        -- TODO: Transactions
+        -- Transactions
+        checkFinTrans lastFin _skovTransactionsFinalized
+        unless (null (Map.intersection _skovTransactionsPending _skovTransactionsFinalized)) $
+            Left $ "Pending and finalized transaction sets are not disjoint"
         return ()
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
@@ -80,6 +86,21 @@ invariantSkovData SkovData{..} = do
                     return (Set.insert ((blockSlot (pbBlock child)), (pbHash child, parent)) q)
             checkBinary (==) (_skovBlockTable ^. at parent) Nothing "==" "pending parent status" "Nothing"
             foldM checkChild queue children
+        checkFinTrans bp finMap
+            | bpHeight bp == 0 = unless (null finMap) $ Left $ "Finalized transactions contains transactions that are not on finalized blocks: " ++ show finMap
+            | otherwise = case toTransactions $ blockData $ bpBlock bp of
+                            Nothing -> Left $ "Could not decode transactions of block " ++ show bp
+                            Just trs -> do
+                                finMap' <- foldM checkTransaction finMap trs
+                                checkFinTrans (bpParent bp) finMap'
+        checkTransaction :: Map.Map TransactionNonce Transaction -> Transaction -> Either String (Map.Map TransactionNonce Transaction)
+        checkTransaction finMap tr = at nonce checkRemoveTransaction finMap
+            where
+                nonce = transactionNonce tr
+                checkRemoveTransaction Nothing = Left $ "Missing transaction: " ++ show tr
+                checkRemoveTransaction (Just tr')
+                    | tr == tr' = return Nothing
+                    | otherwise = Left $ "Finalized transaction mismatch:\n" ++ show tr ++ "\n" ++ show "tr'"
         finSes = FinalizationSessionId (bpHash _skovGenesisBlockPointer) 0
         finCom = makeFinalizationCommittee (genesisFinalizationParameters _skovGenesisData)
         notDead BlockDead = False
@@ -196,6 +217,16 @@ runKonsensusTestSimple steps states events
             let (_, fs', Endo evs) = runDummy (runRWST a fi fs)
             return (fs', handleMessages btargets (evs []))
 
+nAccounts :: Integer
+nAccounts = 2
+
+genTransaction :: Gen Transaction
+genTransaction = do
+        f <- arbitrary
+        g <- arbitrary
+        let (meta, payload) = update (f :: Integer) (g `mod` nAccounts)
+        nonce <- TransactionNonce . toEnum <$> arbitrary
+        return (Transaction nonce meta payload)
 
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
@@ -222,8 +253,16 @@ withInitialStates n run = do
         s0 <- initialiseStates n
         run s0 (initialEvents s0)
 
+withInitialStatesTransactions :: Int -> Int -> (States -> EventPool -> Gen Property) -> Gen Property
+withInitialStatesTransactions n trcount run = do
+        s0 <- initialiseStates n
+        trs <- take trcount <$> infiniteListOf genTransaction
+        run s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
+
 tests :: Spec
 tests = parallel $ describe "Concordium.Konsensus" $ do
+    it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess 10000 $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
+    it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess 1000 $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
     it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
     it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000

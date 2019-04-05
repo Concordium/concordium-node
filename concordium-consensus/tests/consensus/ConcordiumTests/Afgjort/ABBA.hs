@@ -148,6 +148,12 @@ multiWithInactive active inactive = property $ do
     keys <- makeKeys (active + inactive)
     runABBATest "test" active (active + inactive) keys (justifyAll active <> begins)
 
+multiWithInactiveKeys :: Vec.Vector VRF.KeyPair -> Int -> Int -> Property
+multiWithInactiveKeys keys active inactive = property $ do
+    begins <- makeBegins active
+    runABBATest "test" active (active + inactive) keys (justifyAll active <> begins)
+
+
 multiWithCorrupt :: Int -> Int -> Property
 multiWithCorrupt active corrupt = property $ do
         keys <- makeKeys (active + corrupt)
@@ -185,6 +191,7 @@ multiWithCorruptKeysEvil keys active corrupt = property $ do
 
 tests :: Spec
 tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
+    it "3 parties + 1 super inactive" $ withMaxSuccess 1000 $ multiWithInactiveKeys (superCorruptKeys 3 1 6 22636) 3 1
     it "3 parties + 1 super corrupt" $ withMaxSuccess 50000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
     it "3 parties + 1 super corrupt evil" $ withMaxSuccess 50000 $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 22636) 3 1
     it "5 parties + 2 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 5 2 6 4602) 5 2
