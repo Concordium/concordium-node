@@ -1,25 +1,57 @@
 mod fails;
 
 use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
-use crate::network::{ NetworkMessage, NetworkPacket };
+use crate::network::{ NetworkMessage, NetworkPacketType };
 use crate::db::P2PDB;
-use crate::failure::Fallible;
+use crate::failure::{ Fallible, Error };
 
 use futures::future::Future;
 use ::grpcio;
 use ::grpcio::{Environment, ServerBuilder};
 use crate::p2p::P2PNode;
 use crate::proto::*;
-use std::boxed::Box;
 use std::cell::RefCell;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::{ SystemTime , UNIX_EPOCH};
 use consensus_sys::consensus::ConsensusContainer;
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER };
 use std::sync::atomic::Ordering;
+
+
+pub struct RpcServerImplShared {
+    pub server: Option<grpcio::Server>,
+    pub subscription_queue_out: mpsc::Receiver<NetworkMessage>,
+    pub subscription_queue_in: mpsc::Sender<NetworkMessage>,
+}
+
+impl RpcServerImplShared {
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel::<NetworkMessage>();
+
+        RpcServerImplShared {
+            server: None,
+            subscription_queue_out: receiver,
+            subscription_queue_in: sender
+        }
+    }
+
+    pub fn queue_message(&mut self, msg: &NetworkMessage) -> Fallible<()> {
+        self.subscription_queue_in
+            .send(msg.to_owned())
+            .map_err(|_| Error::from( fails::QueueingError))
+    }
+
+    pub fn stop_server(&mut self) -> Fallible<()> {
+        if let Some(ref mut srv) = self.server {
+            srv.shutdown().wait()
+                .map_err(fails::GeneralRpcError::from)?
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct RpcServerImpl {
@@ -27,12 +59,12 @@ pub struct RpcServerImpl {
     listen_port: u16,
     listen_addr: String,
     access_token: String,
-    server: Option<Arc<Mutex<grpcio::Server>>>,
-    subscription_queue_out: RefCell<Option<Arc<Mutex<mpsc::Receiver<Box<NetworkMessage>>>>>>,
-    subscription_queue_in: RefCell<Option<mpsc::Sender<Box<NetworkMessage>>>>,
     db: P2PDB,
     consensus: Option<ConsensusContainer>,
+    dptr: Arc< RwLock< RpcServerImplShared >>,
 }
+
+unsafe impl Send for RpcServerImpl {}
 
 impl RpcServerImpl {
     pub fn new(node: P2PNode,
@@ -42,34 +74,26 @@ impl RpcServerImpl {
                listen_port: u16,
                access_token: String)
                -> Self {
+
         RpcServerImpl { node: RefCell::new(node),
                         listen_addr: listen_addr,
                         listen_port: listen_port,
                         access_token: access_token,
-                        server: None,
-                        subscription_queue_out: RefCell::new(None),
-                        subscription_queue_in: RefCell::new(None),
                         db,
-                        consensus:  consensus.clone(),}
-    }
-
-    pub fn queue_message(&self, msg: &NetworkMessage) -> Fallible<()> {
-        if let Some(ref mut sender) = *self.subscription_queue_in.borrow_mut() {
-            sender.send(Box::new(msg.to_owned()))
-                .map_err(|_| fails::QueueingError)?;
+                        consensus: consensus,
+                        dptr: Arc::new( RwLock::new( RpcServerImplShared::new()))
         }
+    }
+
+    #[inline]
+    pub fn queue_message(&self, msg: &NetworkMessage) -> Fallible<()> {
+        safe_write!( self.dptr)?.queue_message( msg)
+    }
+
+    #[inline]
+    pub fn set_server(&self, server: grpcio::Server) -> Fallible<()> {
+        safe_write!( self.dptr)?.server = Some( server);
         Ok(())
-    }
-
-    fn start_subscription(&self) {
-        let (sender, receiver) = mpsc::channel::<Box<NetworkMessage>>();
-        *self.subscription_queue_in.borrow_mut() = Some(sender);
-        *self.subscription_queue_out.borrow_mut() = Some(Arc::new(Mutex::new(receiver)));
-    }
-
-    fn stop_subscription(&self) {
-        *self.subscription_queue_in.borrow_mut() = None;
-        *self.subscription_queue_out.borrow_mut() = None;
     }
 
     pub fn start_server(&mut self) -> Fallible<()> {
@@ -82,56 +106,56 @@ impl RpcServerImpl {
             .bind(self_clone.listen_addr, self_clone.listen_port)
             .build()
             .map_err(|_| fails::ServerBuildError)?;
+
         server.start();
-        self.server = Some(Arc::new(Mutex::new(server)));
-        Ok(())
+        self.set_server( server)
     }
 
+    #[inline]
     pub fn stop_server(&mut self) -> Fallible<()> {
-        if let Some(ref mut server) = self.server {
-            safe_lock!(server)?
-                .shutdown() .wait().map_err(fails::GeneralRpcError::from)?;
-        }
-        Ok(())
+        safe_write!( self.dptr)?.stop_server()
     }
 
      fn send_message_with_error(&self,
                                    req: &SendMessageRequest) -> Fallible<SuccessResponse> {
             let mut r: SuccessResponse = SuccessResponse::new();
-            if req.has_node_id()
-                && req.has_message()
-                && req.has_broadcast()
-                && !req.get_broadcast().get_value()
-                && req.has_network_id()
-            {
-                let id = P2PNodeId::from_string(&req.get_node_id().get_value().to_string())?;
 
-                info!("Sending direct message to: {:064x}", id.get_id());
-                            r.set_value(self.node
-                                        .borrow_mut()
-                                        .send_message(Some(id),
-                                                      req.get_network_id().get_value() as u16,
-                                                      None,
-                                                      req.get_message().get_value(),
-                                                      false)
-                                        .map_err(|e| error!("{}", e))
-                                        .is_ok());
-            } else if req.has_message() && req.has_broadcast() && req.get_broadcast().get_value() {
-                        info!("Sending broadcast message");
-                        r.set_value(self.node
-                                    .borrow_mut()
-                                    .send_message(None,
-                                                  req.get_network_id().get_value() as u16,
-                                                  None,
-                                                  req.get_message().get_value(),
-                                                  true)
-                                    .map_err(|e| error!("{}", e))
-                                    .is_ok());
+            if req.has_message() && req.has_broadcast()
+            {
+                // TODO avoid double-copy
+                let msg = req.get_message().get_value().to_vec();
+
+                if req.has_node_id()
+                    && !req.get_broadcast().get_value()
+                    && req.has_network_id()
+                {
+                    let id = P2PNodeId::from_string(&req.get_node_id().get_value().to_string())?;
+
+                    info!("Sending direct message to: {:064x}", id.get_id());
+                    r.set_value(self.node.borrow_mut().send_message(
+                            Some(id),
+                            req.get_network_id().get_value() as u16,
+                            None,
+                            msg,
+                            false)
+                        .map_err(|e| error!("{}", e)).is_ok());
+                }
+                else if req.get_broadcast().get_value()
+                {
+                    info!("Sending broadcast message");
+                    r.set_value(self.node.borrow_mut().send_message(
+                            None,
+                            req.get_network_id().get_value() as u16,
+                            None,
+                            msg,
+                            true)
+                        .map_err(|e| error!("{}", e)).is_ok());
+                }
             } else {
                 r.set_value(false);
             }
             Ok(r)
-        }
+     }
 }
 
 macro_rules! authenticate {
@@ -506,7 +530,6 @@ impl P2P for RpcServerImpl {
                           req: Empty,
                           sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
-            self.start_subscription();
             let mut r: SuccessResponse = SuccessResponse::new();
             r.set_value(true);
             let f = sink.success(r)
@@ -520,7 +543,6 @@ impl P2P for RpcServerImpl {
                          req: Empty,
                          sink: ::grpcio::UnarySink<SuccessResponse>) {
         authenticate!(ctx, req, sink, &self.access_token, {
-            self.stop_subscription();
             let mut r: SuccessResponse = SuccessResponse::new();
             r.set_value(true);
             let f = sink.success(r)
@@ -535,60 +557,32 @@ impl P2P for RpcServerImpl {
                          sink: ::grpcio::UnarySink<P2PNetworkMessage>) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
-            if let Some(ref mut receiver) = *self.subscription_queue_out.borrow_mut() {
-                match receiver.lock() {
-                    Err(_) => {r.set_message_none(MessageNone::new()); } ,
-                    Ok(rec) => {
-                        if let Ok(msg) = rec.try_recv() {
-                            match *msg {
-                                NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(sender,
-                                                                                           msgid,
-                                                                                           _,
-                                                                                           network_id,
-                                                                                           msg),
-                                                              sent,
-                                                              received) => {
-                                    let mut i_msg = MessageDirect::new();
-                                    i_msg.set_data(msg);
-                                    r.set_message_direct(i_msg);
-                                    sent.map_or_else(
-                                        || {},
-                                        |sent| {r.set_sent_at(sent);}
-                                    );
-                                    received.map_or_else(
-                                        || {},
-                                        |val| {r.set_received_at(val);}
-                                    );
-                                    r.set_network_id(network_id as u32);
-                                    r.set_message_id(msgid);
-                                    r.set_sender(format!("{:064x}", sender.id().get_id()));
-                                }
-                                NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(sender,
-                                                                                                msg_id,
-                                                                                                network_id,
-                                                                                                msg),
-                                                              sent,
-                                                              received) => {
-                                    let mut i_msg = MessageBroadcast::new();
-                                    i_msg.set_data(msg);
-                                    r.set_message_broadcast(i_msg);
-                                    sent.map_or_else(
-                                        || {},
-                                        |sent| {r.set_sent_at(sent);}
-                                    );
-                                    received.map_or_else(
-                                        || {},
-                                        |val| {r.set_received_at(val);}
-                                    );
-                                    r.set_network_id(network_id as u32);
-                                    r.set_message_id(msg_id);
-                                    r.set_sender(format!("{:064x}", sender.id().get_id()));
-                                }
-                                _ => r.set_message_none(MessageNone::new())
+
+            if let Ok(read_lock_dptr) = self.dptr.read() {
+                if let Ok(msg) = read_lock_dptr.subscription_queue_out.try_recv() {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = msg {
+                        let mut inner_msg = packet.message.clone();
+                        let view_inner_msg = inner_msg.read_all_into_view().unwrap();
+                        let msg = view_inner_msg.as_slice().to_vec();
+
+                        match packet.packet_type {
+                            NetworkPacketType::DirectMessage(..) => {
+                                let mut i_msg = MessageDirect::new();
+                                i_msg.set_data( msg);
+                                r.set_message_direct(i_msg);
+                            },
+                            NetworkPacketType::BroadcastedMessage => {
+                                let mut i_msg = MessageBroadcast::new();
+                                i_msg.set_data(msg);
+                                r.set_message_broadcast(i_msg);
                             }
-                        } else {
-                            r.set_message_none(MessageNone::new());
-                        }
+                        };
+
+                        r.set_network_id( packet.network_id as u32);
+                        r.set_message_id( packet.message_id.clone());
+                        r.set_sender(format!("{:064x}", packet.peer.id().get_id()));
+                    } else {
+                        r.set_message_none(MessageNone::new());
                     }
                 }
             } else {

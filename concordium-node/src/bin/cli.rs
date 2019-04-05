@@ -4,6 +4,8 @@ extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 #[macro_use] extern crate log;
+#[macro_use] extern crate failure;
+
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -13,8 +15,8 @@ static A: System = System;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use consensus_sys::consensus;
 use env_logger::{Builder, Env};
-use p2p_client::common::{ ConnectionType, P2PNodeId };
-use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
+use p2p_client::common::{ UCursor, ConnectionType, P2PNodeId };
+use p2p_client::network::{ NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
@@ -26,7 +28,6 @@ use p2p_client::utils;
 use p2p_client::stats_engine::StatsEngine;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::Cursor;
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
@@ -240,74 +241,88 @@ fn main() -> Fallible<()> {
     let mut _msg_count = 0;
     let _tps_message_count = conf.tps_message_count;
     let _guard_pkt = thread::spawn(move || {
-       fn send_msg_to_baker(baker_ins: &mut Option<consensus::ConsensusContainer>, msg: &[u8]) {
-           if let Some(ref mut baker) = baker_ins {
-               let mut type_id_bytes = Cursor::new(&msg[0..2]);
-               match type_id_bytes.read_u16::<BigEndian>() {
-                        Ok(num) => {
-                            match num {
-                                0 => {
-                                    match consensus::Block::deserialize(&msg[2..]) {
-                                        Some(block) => {
-                                            baker.send_block(&block);
-                                            info!("Sent block from network to baker");
-                                        }
-                                        _ => error!("Couldn't deserialize block, can't move forward with the message"),
-                                    }
-                                }
-                                1 => {
-                                    match baker.send_transaction(&msg[2..]) {
-                                        0 => info!("Transaction sent to baker"),
-                                        x => error!("Baker rejected transaction {}", x ),
-                                    }
-                                }
-                                2 => {
-                                    baker.send_finalization(&msg[2..]);
-                                    info!("Sent finalization package to consensus layer");
-                                }
-                                3 => {
-                                    baker.send_finalization_record(&msg[2..]);
-                                    info!("Sent finalization record to consensus layer");
-                                }
-                                _ => error!("Incorrect message type received"),
+
+        fn send_msg_to_baker(
+            baker_ins: &mut Option<consensus::ConsensusContainer>,
+            mut msg: UCursor) -> Fallible<()>
+        {
+            if let Some(ref mut baker) = baker_ins {
+                ensure!( msg.len() >= msg.position() + 2, "Message needs at least 2 bytes");
+
+                let consensus_type = msg.read_u16::<BigEndian>()?;
+                let view = msg.read_all_into_view()?;
+                let content = view.as_slice();
+
+                match consensus_type {
+                    0 => {
+                        match consensus::Block::deserialize(content) {
+                            Some(block) => {
+                                baker.send_block(&block);
+                                info!("Sent block from network to baker");
                             }
+                            _ => error!("Couldn't deserialize block, can't move forward with the message"),
                         }
-                        _ => error!("Couldn't read bytes properly for type"),
+                    },
+                    1 => {
+                        baker.send_transaction(content);
+                        info!("Sent transaction to baker");
                     }
-           }
+                    2 => {
+                        baker.send_finalization(content);
+                        info!("Sent finalization package to consensus layer");
+                    }
+                    3 => {
+                        baker.send_finalization_record(content);
+                        info!("Sent finalization record to consensus layer");
+                    }
+                    _ => error!("Incorrect message type received"),
+                }
+            } else {
+                error!("Couldn't read bytes properly for type");
+            }
+            Ok(())
        }
+
        loop {
            if let Ok(full_msg) = pkt_out.recv() {
                match *full_msg {
-               NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), ..) => {
-                   if _tps_test_enabled {
-                       _stats_engine.add_stat(msg.len() as u64);
-                       _msg_count += 1;
+               NetworkMessage::NetworkPacket( ref pac,.. ) => {
+                   match pac.packet_type {
+                        NetworkPacketType::DirectMessage(..) => {
+                            if _tps_test_enabled {
+                                _stats_engine.add_stat(pac.message.len() as u64);
+                                _msg_count += 1;
 
-                       if _msg_count == _tps_message_count {
-                           info!("TPS over {} messages is {}", _tps_message_count, _stats_engine.calculate_total_tps_average());
-                           _msg_count = 0;
-                           _stats_engine.clear();
-                       }
-                   }
-                   if let Some(ref mut rpc) = _rpc_clone {
-                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                   }
-                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
-               }
-               NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(_, ref msgid, _, ref msg), ..) => {
-                   if let Some(ref mut rpc) = _rpc_clone {
-                       rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
-                   }
-                   if let Some(testrunner_url ) = _test_runner_url.clone() {
-                       info!("Sending information to test runner");
-                       match reqwest::get(&format!("{}/register/{}/{}", testrunner_url, _node_self_clone.get_own_id().to_string(), msgid)) {
-                           Ok(ref mut res) if res.status().is_success() => info!("Registered packet received with test runner"),
-                           _ => error!("Couldn't register packet received with test runner")
-                       }
+                                if _msg_count == _tps_message_count {
+                                    info!("TPS over {} messages is {}", _tps_message_count, _stats_engine.calculate_total_tps_average());
+                                    _msg_count = 0;
+                                    _stats_engine.clear();
+                                }
+                            }
+                            if let Some(ref mut rpc) = _rpc_clone {
+                                rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
+                            }
+                            info!("DirectMessage/{}/{} with size {} received", pac.network_id,
+                                  pac.message_id, pac.message.len());
+                        },
+                        NetworkPacketType::BroadcastedMessage => {
+                            if let Some(ref mut rpc) = _rpc_clone {
+                                rpc.queue_message(&full_msg).map_err(|e| error!("Couldn't queue message {}", e)).ok();
+                            }
+                            if let Some(ref testrunner_url ) = _test_runner_url {
+                                info!("Sending information to test runner");
+                                match reqwest::get(&format!("{}/register/{}/{}",
+                                      testrunner_url, _node_self_clone.get_own_id(),
+                                      pac.message_id)) {
+                                    Ok(ref mut res) if res.status().is_success() => info!("Registered packet received with test runner"),
+                                    _ => error!("Couldn't register packet received with test runner")
+                                }
+                            };
+                        }
                    };
-                   send_msg_to_baker(&mut _baker_pkt_clone, &msg);
+                   if let Err(e) = send_msg_to_baker(&mut _baker_pkt_clone, pac.message.clone()) {
+                       error!( "Send network message to baker has failed: {:?}", e);
+                   }
                }
 
                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
@@ -505,7 +520,7 @@ fn main() -> Fallible<()> {
                                                       match _node_ref.send_message(None,
                                                                                    _network_id,
                                                                                    None,
-                                                                                   &out_bytes,
+                                                                                   out_bytes,
                                                                                    true)
                                                       {
                                                           Ok(_) => {
@@ -541,7 +556,7 @@ fn main() -> Fallible<()> {
                                             match _node_ref_2.send_message(None,
                                                                         _network_id,
                                                                         None,
-                                                                        &out_bytes,
+                                                                        out_bytes,
                                                                         true)
                                             {
                                                 Ok(_) => {
@@ -572,7 +587,7 @@ fn main() -> Fallible<()> {
                                             match _node_ref_3.send_message(None,
                                                                         _network_id,
                                                                         None,
-                                                                        &out_bytes,
+                                                                        out_bytes,
                                                                         true)
                                             {
                                                 Ok(_) => {
@@ -609,15 +624,16 @@ fn main() -> Fallible<()> {
                         for message in test_messages {
                             let mut out_bytes = vec![];
                             out_bytes.extend(message);
+                            let out_bytes_len = out_bytes.len();
                             let to_send = P2PNodeId::from_string(&_id_clone).ok();
                             match _node_ref.send_message(to_send,
                                                          _network_id,
                                                          None,
-                                                         &out_bytes,
+                                                         out_bytes,
                                                          false) {
                                 Ok(_) => {
                                     info!("Sent TPS test bytes of len {}",
-                                          out_bytes.len());
+                                          out_bytes_len);
                                 }
                                 Err(_) => {
                                     error!("Couldn't send TPS test message!")

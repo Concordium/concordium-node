@@ -2,9 +2,9 @@ use std::sync::{ Arc, RwLock };
 use std::sync::mpsc::{ Sender };
 use std::collections::{ VecDeque };
 
-use crate::common::{ P2PPeer };
 use crate::common::functor::{ FunctorResult, FunctorError };
-use crate::network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse };
+use crate::network::{ NetworkRequest, NetworkMessage, NetworkPacket, NetworkResponse,
+    NetworkPacketType };
 use crate::prometheus_exporter::PrometheusServer;
 use crate::connection::{ SeenMessagesList };
 use failure::{err_msg};
@@ -48,17 +48,17 @@ pub fn forward_network_packet_message(
         pac: &NetworkPacket,
         blind_trust_broadcast: bool,) -> FunctorResult {
 
-    match pac {
-        NetworkPacket::DirectMessage( ref sender, ref msg_id, _, ref network_id, ref msg) =>{
+    match pac.packet_type {
+        NetworkPacketType::DirectMessage(..) =>{
             forward_network_packet_message_common(
                 seen_messages, prometheus_exporter, own_networks, send_queue, packet_queue,
-                pac, sender, msg_id, network_id, msg,
+                pac,
                 "Dropping duplicate direct packet", blind_trust_broadcast)
         },
-        NetworkPacket::BroadcastedMessage(ref sender, ref msg_id, ref network_id, ref msg) => {
+        NetworkPacketType::BroadcastedMessage => {
             forward_network_packet_message_common(
                 seen_messages, prometheus_exporter, own_networks, send_queue, packet_queue,
-                pac, sender, msg_id, network_id, msg,
+                pac,
                 "Dropping duplicate broadcast packet", blind_trust_broadcast)
         }
     }
@@ -82,27 +82,20 @@ fn forward_network_packet_message_common(
         send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
         packet_queue: &Sender<Arc<NetworkMessage>>,
         pac: &NetworkPacket,
-        sender: &P2PPeer,
-        msg_id: &String,
-        network_id: &u16,
-        msg: &[u8],
         drop_message: &str,
         blind_trust_broadcast: bool,
         ) -> FunctorResult {
 
-    debug!("### Forward Broadcast Message: msgid: {}", msg_id);
-    if !seen_messages.contains(msg_id) {
-        if safe_read!(own_networks)?
-            .contains(network_id) {
-            debug!("Received direct message of size {}", msg.len());
+    debug!("### Forward Broadcast Message: msgid: {}", pac.message_id);
+    if !seen_messages.contains( &pac.message_id) {
+        if safe_read!(own_networks)?.contains( &pac.network_id) {
+            debug!("Received direct message of size {}", pac.message.len());
             let outer = Arc::new(NetworkMessage::NetworkPacket( pac.clone(), None, None));
 
-            seen_messages.append(&msg_id);
+            seen_messages.append( &pac.message_id);
             if blind_trust_broadcast {
-                if let NetworkPacket::BroadcastedMessage(..) = pac {
-
-                    safe_write!(send_queue)?
-                        .push_back( outer.clone());
+                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                    safe_write!(send_queue)?.push_back( outer.clone());
                     if let Some(ref prom) = prometheus_exporter {
                         safe_write!(prom)?
                             .queue_size_inc()
@@ -122,7 +115,7 @@ fn forward_network_packet_message_common(
             }
         }
     } else {
-        info!( "{} {}/{}/{}", drop_message, sender.id().to_string(), network_id, msg_id);
+        info!( "{} {}/{}/{}", drop_message, pac.peer.id().to_string(), pac.network_id, pac.message_id);
     }
 
     Ok(())

@@ -1,11 +1,10 @@
 use std::rc::Rc;
-use failure::{Error, Fallible, bail, err_msg};
+use failure::{Error, Fallible, err_msg};
 use std::sync::{Arc, RwLock};
 use std::cell::Cell;
 use std::sync::mpsc::{ Sender, channel };
 use std::collections::{ VecDeque };
 use std::net::{ IpAddr };
-use super::fails;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
 #[cfg(target_os = "windows")]
@@ -14,7 +13,7 @@ use crate::prometheus_exporter::PrometheusServer;
 use rustls::{ Certificate, ClientConfig, NoClientAuth, ServerConfig };
 use std::net::IpAddr::{V4, V6};
 use std::str::FromStr;
-use std::time::{ Duration };
+use std::time::{ Duration, SystemTime };
 use mio::net::{ TcpListener };
 use mio::{ Poll, PollOpt, Token, Ready, Events };
 use chrono::prelude::*;
@@ -22,11 +21,13 @@ use crate::utils;
 use std::thread;
 use std::sync::atomic::Ordering;
 
-use crate::common::{ P2PNodeId, P2PPeer, ConnectionType };
+use crate::common::{ UCursor, P2PNodeId, P2PPeer, ConnectionType };
 use crate::common::counter::{ TOTAL_MESSAGES_SENT_COUNTER };
-use crate::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse, Buckets };
+use crate::network::{ NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPacketBuilder,
+    NetworkRequest, NetworkResponse, Buckets };
 use crate::connection::{ Connection, P2PEvent, P2PNodeMode, SeenMessagesList, MessageManager,
-    MessageHandler, RequestHandler, ResponseHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW};
+    MessageHandler, RequestHandler, ResponseHandler, NetworkPacketCW, NetworkRequestCW,
+    NetworkResponseCW};
 
 use crate::p2p::tls_server::{ TlsServer };
 use crate::p2p::no_certificate_verification::{ NoCertificateVerification };
@@ -37,6 +38,7 @@ const SERVER: Token = Token(0);
 
 #[derive(Clone)]
 pub struct P2PNode {
+
     tls_server: Arc<RwLock<TlsServer>>,
     poll: Arc<RwLock<Poll>>,
     id: P2PNodeId,
@@ -55,7 +57,9 @@ pub struct P2PNode {
     minimum_per_bucket: usize,
     blind_trusted_broadcast: bool,
     process_th: Option<Rc<Cell<thread::JoinHandle<()>>>>,
-    quit_tx: Option<Sender<bool>>
+    quit_tx: Option<Sender<bool>>,
+    pub max_nodes: Option<u16>,
+    pub print_peers: bool
 }
 
 unsafe impl Send for P2PNode {}
@@ -231,7 +235,9 @@ impl P2PNode {
                   minimum_per_bucket,
                   blind_trusted_broadcast,
                   process_th: None,
-                  quit_tx: None
+                  quit_tx: None,
+                  max_nodes: None,
+                  print_peers: true
         };
         mself.add_default_message_handlers();
         mself
@@ -305,19 +311,55 @@ impl P2PNode {
         handler
     }
 
+    /// This function is called periodically to print information about current nodes.
+    fn print_stats(&self) {
+        match self.get_peer_stats(&[]) {
+            Ok(peer_stat_list) => {
+                if let Some(max_nodes) = self.max_nodes {
+                    info!("I currently have {}/{} nodes!", peer_stat_list.len(), max_nodes)
+                } else {
+                    info!("I currently have {} nodes!", peer_stat_list.len())
+                }
+
+                // Print nodes
+                if self.print_peers {
+                    for (i, peer) in peer_stat_list.iter().enumerate() {
+                        info!("Peer {}: {}/{}:{}", i, peer.id(), peer.ip(), peer.port());
+                    }
+                }
+            },
+            Err(e) => error!("Couldn't get node list, {:?}", e),
+        }
+    }
+
     pub fn spawn(&mut self) {
         let mut self_clone = self.clone();
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
-        self.process_th = Some(Rc::new(Cell::new(thread::spawn(move || {
-                          let mut events = Events::with_capacity(1024);
-                          loop {
-                              let _ = self_clone.process(&mut events)
-                                  .map_err(|e| error!("{}", e));
-                              if let Ok(_) = rx.try_recv() {
-                                  break;
-                              }
-                          }}))));
+        self.process_th = Some(Rc::new(Cell::new(thread::spawn(
+            move || {
+                let mut events = Events::with_capacity(1024);
+                let mut log_time = SystemTime::now();
+                loop {
+                    let _ = self_clone.process(&mut events)
+                        .map_err(|e| error!("{}", e));
+
+                    // Check termination channel.
+                    if let Ok(_) = rx.try_recv() {
+                        break;
+                    }
+
+                    // Run periodic tasks (every 30 seconds).
+                    let now = SystemTime::now();
+                    if let Ok(difference) = now.duration_since( log_time) {
+                        if difference > Duration::from_secs(30) {
+                            self_clone.print_stats();
+                            log_time = now;
+                        }
+                    }
+                }
+            }
+        ))));
     }
 
     pub fn get_version(&self) -> String {
@@ -405,29 +447,28 @@ impl P2PNode {
                                 self.check_sent_status( conn, status);
 
                         match **x {
-                            NetworkMessage::NetworkPacket(ref inner_pkt
-                                    @ NetworkPacket::DirectMessage(..), ..) => {
-                                if let NetworkPacket::DirectMessage(_, _msgid, receiver, _network_id,  _) = inner_pkt {
-                                    let data = inner_pkt.serialize();
-                                    let filter = |conn: &Connection|{ is_conn_peer_id( conn, receiver)};
-
+                            NetworkMessage::NetworkPacket(ref inner_pkt, ..) =>
+                            {
+                                let data = inner_pkt.serialize();
+                                match inner_pkt.packet_type
+                                {
+                                    NetworkPacketType::DirectMessage( ref receiver) => {
+                                        let filter = |conn: &Connection|{ is_conn_peer_id( conn, receiver)};
                                     safe_write!(self.tls_server)?
-                                        .send_over_all_connections( &data, &filter,
-                                                                    &check_sent_status_fn);
-                                }
-                            }
-                            NetworkMessage::NetworkPacket(ref inner_pkt @ NetworkPacket::BroadcastedMessage(..), ..) => {
-                                if let NetworkPacket::BroadcastedMessage(ref sender, ref _msgid, ref network_id, _ ) = inner_pkt {
-                                    let data = inner_pkt.serialize();
-                                    let filter = |conn: &Connection| {
-                                        is_valid_connection_in_broadcast( conn, sender, network_id)
-                                    };
-
+                                            .send_over_all_connections( &data, &filter,
+                                                                        &check_sent_status_fn);
+                                    },
+                                    NetworkPacketType::BroadcastedMessage =>  {
+                                        let filter = |conn: &Connection| {
+                                            is_valid_connection_in_broadcast( conn,
+                                                &inner_pkt.peer, inner_pkt.network_id)
+                                        };
                                     safe_write!(self.tls_server)?
-                                        .send_over_all_connections( &data, &filter,
-                                                                    &check_sent_status_fn);
-                                }
-                            }
+                                            .send_over_all_connections( &data, &filter,
+                                                                        &check_sent_status_fn);
+                                    }
+                                };
+                            },
                             NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::UnbanNode(..), ..)
                             | NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::GetPeers(..), ..)
                             | NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(..), ..) => {
@@ -519,47 +560,53 @@ impl P2PNode {
         Ok(())
     }
 
+    #[inline]
     pub fn send_message(&mut self,
                         id: Option<P2PNodeId>,
                         network_id: u16,
                         msg_id: Option<String>,
-                        msg: &[u8],
+                        msg: Vec<u8>,
                         broadcast: bool)
-                        -> Fallible<()> {
+                        -> Fallible<()>
+    {
+        let cursor = UCursor::from( msg);
+        self.send_message_from_cursor(id, network_id, msg_id, cursor, broadcast)
+    }
+
+    pub fn send_message_from_cursor(&mut self,
+                        id: Option<P2PNodeId>,
+                        network_id: u16,
+                        msg_id: Option<String>,
+                        msg: UCursor,
+                        broadcast: bool)
+                        -> Fallible<()>
+    {
         debug!("Queueing message!");
-        if broadcast {
-            safe_write!(self.send_queue)?
-                .push_back( Arc::new(
-                    NetworkMessage::NetworkPacket(
-                        NetworkPacket::BroadcastedMessage(
-                            self.get_self_peer(),
-                            msg_id.unwrap_or(NetworkPacket::generate_message_id()),
-                            network_id,
-                            msg.to_vec()),
-                        None,
-                        None)));
-            self.queue_size_inc()?;
-            Ok(())
+
+        // Create packet.
+        let packet = if broadcast {
+            NetworkPacketBuilder::default()
+                .peer( self.get_self_peer())
+                .message_id( msg_id.unwrap_or(NetworkPacket::generate_message_id()))
+                .network_id( network_id)
+                .message( msg)
+                .build_broadcast()?
         } else {
-            id.map_or_else(
-                || bail!(fails::EmptyIdInSendRequest),
-                |x| {
-                    safe_write!(self.send_queue)?
-                        .push_back( Arc::new(
-                            NetworkMessage::NetworkPacket(
-                                NetworkPacket::DirectMessage(
-                                    self.get_self_peer(),
-                                    msg_id.unwrap_or(NetworkPacket::generate_message_id()),
-                                    x,
-                                    network_id,
-                                    msg.to_vec()),
-                                None,
-                                None)));
-                    self.queue_size_inc()?;
-                    Ok(())
-                }
-            )
-        }
+            let receiver = id.ok_or_else( || err_msg("Direct Message requires a valid target id"))?;
+
+            NetworkPacketBuilder::default()
+                .peer( self.get_self_peer())
+                .message_id( msg_id.unwrap_or(NetworkPacket::generate_message_id()))
+                .network_id( network_id)
+                .message( msg)
+                .build_direct( receiver)?
+        };
+
+        // Push packet into our `send queue`
+        safe_write!(self.send_queue)?.push_back( Arc::new(
+                NetworkMessage::NetworkPacket( packet, None, None)));
+        self.queue_size_inc()?;
+        Ok(())
     }
 
     pub fn send_ban(&mut self, id: P2PPeer) -> Fallible<()> {
@@ -799,12 +846,13 @@ fn is_conn_peer_id( conn: &Connection, id: &P2PNodeId) -> bool {
 pub fn is_valid_connection_in_broadcast(
     conn: &Connection,
     sender: &P2PPeer,
-    network_id: &u16) -> bool {
+    network_id: u16) -> bool {
 
     if let Some(ref peer) = conn.peer() {
         if peer.id() != sender.id() && peer.connection_type() != ConnectionType::Bootstrapper {
             let own_networks = conn.own_networks();
-            return safe_read!(own_networks).expect("Couldn't lock own networks").contains(network_id);
+            return safe_read!(own_networks).expect("Couldn't lock own networks")
+                .contains(&network_id);
         }
     }
     false
