@@ -1,17 +1,19 @@
 use crate::common::get_current_stamp_b64;
 
+pub mod buckets;
+pub mod message;
 pub mod packet;
 pub mod request;
-pub mod message;
-pub mod buckets;
 pub mod response;
 pub mod serialization;
 
-pub use self::packet::{ NetworkPacket, NetworkPacketType, NetworkPacketBuilder };
-pub use self::message::NetworkMessage;
-pub use self::buckets::Buckets;
-pub use self::request::NetworkRequest;
-pub use self::response::NetworkResponse;
+pub use self::{
+    buckets::Buckets,
+    message::NetworkMessage,
+    packet::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
+    request::NetworkRequest,
+    response::NetworkResponse,
+};
 
 pub const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
 pub const PROTOCOL_VERSION: &'static str = "001";
@@ -39,8 +41,10 @@ pub const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &str = "2001";
 pub const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &str = "2002";
 
 pub fn make_header() -> String {
-    format!("{}{}{}",
-            PROTOCOL_NAME,
-            PROTOCOL_VERSION,
-            get_current_stamp_b64())
+    format!(
+        "{}{}{}",
+        PROTOCOL_NAME,
+        PROTOCOL_VERSION,
+        get_current_stamp_b64()
+    )
 }

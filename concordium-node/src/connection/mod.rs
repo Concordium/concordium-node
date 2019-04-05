@@ -1,32 +1,31 @@
 pub mod network_handler;
 
-mod p2p_node_mode;
 mod p2p_event;
+mod p2p_node_mode;
 mod seen_messages_list;
 mod writev_adapter;
 
-mod handler_utils;
+pub mod connection;
 mod connection_default_handlers;
 mod connection_handshake_handlers;
 mod connection_private;
 pub mod fails;
-pub mod connection;
+mod handler_utils;
 
 use rustls::Session;
 
 /// It is a common trait for `rustls::ClientSession` and `rustls::ServerSession`
-pub trait CommonSession : Session + std::io::Write + std::io::Read
-{}
+pub trait CommonSession: Session + std::io::Write + std::io::Read {}
 
-impl<T> CommonSession for T
-    where T: Session + std::io::Write + std::io::Read
-{}
+impl<T> CommonSession for T where T: Session + std::io::Write + std::io::Read {}
 
-pub use self::connection::Connection;
-pub use self::p2p_node_mode::P2PNodeMode;
-pub use self::p2p_event::P2PEvent;
-pub use self::seen_messages_list::SeenMessagesList;
-pub use self::network_handler::{
-    RequestHandler, PacketHandler, ResponseHandler, MessageHandler,
-    NetworkRequestCW, NetworkResponseCW, NetworkPacketCW, EmptyCW,
-    MessageManager };
+pub use self::{
+    connection::Connection,
+    network_handler::{
+        EmptyCW, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
+        NetworkResponseCW, PacketHandler, RequestHandler, ResponseHandler,
+    },
+    p2p_event::P2PEvent,
+    p2p_node_mode::P2PNodeMode,
+    seen_messages_list::SeenMessagesList,
+};

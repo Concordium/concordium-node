@@ -3,8 +3,12 @@ pub mod packet_handler;
 pub mod request_handler;
 pub mod response_handler;
 
-pub use self::message_handler::{ MessageHandler, MessageManager,
-    NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, EmptyCW };
-pub use self::packet_handler::{ PacketHandler };
-pub use self::request_handler::{ RequestHandler };
-pub use self::response_handler::{ ResponseHandler };
+pub use self::{
+    message_handler::{
+        EmptyCW, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
+        NetworkResponseCW,
+    },
+    packet_handler::PacketHandler,
+    request_handler::RequestHandler,
+    response_handler::ResponseHandler,
+};

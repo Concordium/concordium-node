@@ -1,11 +1,9 @@
-use rand::seq::SliceRandom;
-use rand::rngs::OsRng;
-use std::sync::RwLock;
-use num_traits::{ pow };
-use num_bigint::{ BigUint, ToBigUint };
-use std::collections::{ HashMap };
+use num_bigint::{BigUint, ToBigUint};
+use num_traits::pow;
+use rand::{rngs::OsRng, seq::SliceRandom};
+use std::{collections::HashMap, sync::RwLock};
 
-use crate::common::{ P2PPeer, ConnectionType, P2PNodeId };
+use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
 
 const KEY_SIZE: u16 = 256;
 const BUCKET_SIZE: u8 = 20;
@@ -39,7 +37,7 @@ impl Buckets {
                 x.retain(|ref ele| ele.0 != *node);
             }
             if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
-               && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
+                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
             {
                 match self.buckets.get_mut(&i) {
                     Some(x) => {
@@ -77,7 +75,7 @@ impl Buckets {
         let mut ret: i32 = -1;
         for i in 0..KEY_SIZE {
             if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
-               && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
+                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
             {
                 ret = i as i32;
             }
@@ -94,7 +92,7 @@ impl Buckets {
         let mut ret: Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
         let mut count = 0;
         for (_, bucket) in &self.buckets {
-            //Fix later to do correctly
+            // Fix later to do correctly
             if count < KEY_SIZE {
                 for peer in bucket {
                     if count < KEY_SIZE {
@@ -119,15 +117,15 @@ impl Buckets {
                     if retain_minimum < x.len() {
                         debug!("Cleaning buckets currently at {}", self_len);
                         x.sort_by(|a, b| {
-                                      use std::cmp::Ordering;
-                                      if a > b {
-                                          return Ordering::Less;
-                                      } else if a < b {
-                                          return Ordering::Greater;
-                                      } else {
-                                          return Ordering::Equal;
-                                      }
-                                  });
+                            use std::cmp::Ordering;
+                            if a > b {
+                                return Ordering::Less;
+                            } else if a < b {
+                                return Ordering::Greater;
+                            } else {
+                                return Ordering::Equal;
+                            }
+                        });
                         x.drain(retain_minimum..);
                     }
                 }
@@ -145,8 +143,8 @@ impl Buckets {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
                         if sender_peer != &peer.0
-                           && peer.0.connection_type() == ConnectionType::Node
-                           && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
+                            && peer.0.connection_type() == ConnectionType::Node
+                            && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
                         {
                             ret.push(peer.0.clone());
                         }
@@ -157,7 +155,7 @@ impl Buckets {
                 for (_, bucket) in &self.buckets {
                     for peer in bucket {
                         if peer.0.connection_type() == ConnectionType::Node
-                           && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
+                            && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
                         {
                             ret.push(peer.0.clone());
                         }
@@ -169,22 +167,16 @@ impl Buckets {
         ret
     }
 
-    pub fn len(&self) -> usize {
-        self.buckets.iter().map(|(_, y)| y.len()).sum()
-    }
+    pub fn len(&self) -> usize { self.buckets.iter().map(|(_, y)| y.len()).sum() }
 
-    pub fn get_random_nodes(&self,
-                            sender: &P2PPeer,
-                            amount: usize,
-                            nids: &[u16])
-                            -> Vec<P2PPeer> {
+    pub fn get_random_nodes(&self, sender: &P2PPeer, amount: usize, nids: &[u16]) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
-            Ok(ref mut rng) => self.get_all_nodes(Some(sender), nids)
+            Ok(ref mut rng) => self
+                .get_all_nodes(Some(sender), nids)
                 .choose_multiple(&mut **rng, amount)
                 .cloned()
                 .collect(),
             _ => vec![],
         }
-
     }
 }

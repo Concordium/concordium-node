@@ -1,39 +1,45 @@
 #![recursion_limit = "1024"]
-use p2p_client::utils::generate_bootstrap_dns;
-use std::fs::File;
-use std::io::Read;
-use std::process::exit;
-use structopt::StructOpt;
 use failure::Fallible;
+use p2p_client::utils::generate_bootstrap_dns;
+use std::{fs::File, io::Read, process::exit};
+use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Record Generator")]
 struct ConfigCli {
-    #[structopt(raw(required = "true"),
-                long = "add-peers",
-                help = "Peer in format IP:PORT, multiple allowed")]
+    #[structopt(
+        raw(required = "true"),
+        long = "add-peers",
+        help = "Peer in format IP:PORT, multiple allowed"
+    )]
     peers: Vec<String>,
-    #[structopt(help = "Read private key from file",
-                long = "keyfile",
-                raw(required = "true"))]
+    #[structopt(
+        help = "Read private key from file",
+        long = "keyfile",
+        raw(required = "true")
+    )]
     keyfile: String,
-    #[structopt(long = "record-length",
-                help = "DNS record length",
-                default_value = "250")]
+    #[structopt(
+        long = "record-length",
+        help = "DNS record length",
+        default_value = "250"
+    )]
     dns_record_length: usize,
 }
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     if !std::path::Path::new(&conf.keyfile).exists() {
-        println!("Key {} doesn't exist, please specify valid file",
-                 conf.keyfile);
+        println!(
+            "Key {} doesn't exist, please specify valid file",
+            conf.keyfile
+        );
         exit(1);
     }
 
     p2p_client::setup_panics();
 
-    let mut private_key_bytes: [u8;32] = [0;32];
+    let mut private_key_bytes: [u8; 32] = [0; 32];
     match File::open(&conf.keyfile) {
         Ok(ref mut file) => {
             if let Err(e) = file.read_exact(&mut private_key_bytes) {
@@ -48,10 +54,7 @@ pub fn main() -> Fallible<()> {
     }
 
     println!("DNS records:");
-    match generate_bootstrap_dns(private_key_bytes,
-                                 conf.dns_record_length,
-                                 &conf.peers)
-    {
+    match generate_bootstrap_dns(private_key_bytes, conf.dns_record_length, &conf.peers) {
         Ok(entries) => {
             for entry in entries {
                 println!("\tIN\tTXT\t{}", entry);

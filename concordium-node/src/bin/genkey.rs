@@ -1,24 +1,22 @@
- #![recursion_limit = "1024"]
+#![recursion_limit = "1024"]
 
+use failure::Fallible;
 use hacl_star::ed25519::SecretKey;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::process::exit;
+use std::{fs::OpenOptions, io::Write, process::exit};
 use structopt::StructOpt;
-use failure::Fallible;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "DNS Key Generator")]
 struct ConfigCli {
     #[structopt(long = "keyfile", help = "Output key to file in binary")]
     keyfile: String,
-    #[structopt(long = "print-key",
-                short = "p",
-                help = "Print key as HEX when done")]
+    #[structopt(long = "print-key", short = "p", help = "Print key as HEX when done")]
     print_key: bool,
-    #[structopt(long = "force-overwrite",
-                help = "Force overwrite if file already exists")]
+    #[structopt(
+        long = "force-overwrite",
+        help = "Force overwrite if file already exists"
+    )]
     force_overwrite: bool,
 }
 
@@ -26,10 +24,11 @@ pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
     p2p_client::setup_panics();
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {
-        match OpenOptions::new().read(true)
-                                .write(true)
-                                .create(true)
-                                .open(&conf.keyfile)
+        match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&conf.keyfile)
         {
             Ok(mut file) => {
                 let key: [u8; 32] = generate_ed25519_key();

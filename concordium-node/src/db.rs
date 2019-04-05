@@ -1,27 +1,25 @@
-use crate::common;
-use crate::common::{ConnectionType, P2PNodeId};
-use rusqlite::Connection;
-use rusqlite::types::ToSql;
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use crate::common::{self, ConnectionType, P2PNodeId};
+use rusqlite::{types::ToSql, Connection};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 pub struct P2PPeer {
-    ip: String,
+    ip:   String,
     port: u16,
-    id: String,
+    id:   String,
 }
 
 impl P2PPeer {
-    pub fn new(id: String, ip: String, port: u16) -> Self {
-        P2PPeer { id, ip, port }
-    }
+    pub fn new(id: String, ip: String, port: u16) -> Self { P2PPeer { id, ip, port } }
 
     pub fn to_peer(self) -> common::P2PPeer {
         common::P2PPeer::from(
             ConnectionType::Node,
             P2PNodeId::from_b64_repr(&self.id).unwrap(),
             self.ip.parse().unwrap(),
-            self.port
+            self.port,
         )
     }
 }
@@ -32,23 +30,23 @@ pub struct P2PDB {
 }
 
 impl Default for P2PDB {
-    fn default() -> Self {
-        P2PDB { conn: None }
-    }
+    fn default() -> Self { P2PDB { conn: None } }
 }
 
 impl P2PDB {
     pub fn new(path: &Path) -> Self {
-        P2PDB { conn: match Connection::open(path) {
-            Ok(x) => {
-                info!("Database loaded!");
-                Some(Arc::new(Mutex::new(x)))
-            }
-            Err(e) => {
-                error!("Couldn't open database! {:?}", e);
-                None
-            }
-        }, }
+        P2PDB {
+            conn: match Connection::open(path) {
+                Ok(x) => {
+                    info!("Database loaded!");
+                    Some(Arc::new(Mutex::new(x)))
+                }
+                Err(e) => {
+                    error!("Couldn't open database! {:?}", e);
+                    None
+                }
+            },
+        }
     }
 
     pub fn get_banlist(&self) -> Option<Vec<P2PPeer>> {
@@ -60,14 +58,18 @@ impl P2PDB {
                 match res {
                     Ok(mut x) => {
                         match x.query_map(&[] as &[&dyn ToSql], |row| {
-                           Ok( P2PPeer { id: row.get(0)?, ip: row.get(1)?, port: row.get(2)?, } )
+                            Ok(P2PPeer {
+                                id:   row.get(0)?,
+                                ip:   row.get(1)?,
+                                port: row.get(2)?,
+                            })
                         }) {
                             Ok(rows) => {
                                 let mut list = vec![];
                                 for row in rows {
                                     match row {
                                         Ok(x) => list.push(x),
-                                        Err(e) => error!("Couldn't get item, {:?}", e)
+                                        Err(e) => error!("Couldn't get item, {:?}", e),
                                     }
                                 }
 
@@ -94,11 +96,11 @@ impl P2PDB {
             match safe_lock!(conn) {
                 Err(e) => {
                     error!("Couldn't lock connection: {:?}", e);
-                },
+                }
                 Ok(conn_mut) => {
                     if let Err(e) = conn_mut.execute(
                         "CREATE TABLE bans(id VARCHAR, ip VARCHAR, port INTEGER)",
-                        &[] as &[&dyn ToSql]
+                        &[] as &[&dyn ToSql],
                     ) {
                         error!("Couldn't execute query! {:?}", e);
                     }
@@ -109,56 +111,49 @@ impl P2PDB {
 
     pub fn insert_ban(&self, id: &str, ip: &str, port: u16) -> bool {
         match self.conn {
-            Some(ref conn) => {
-                match safe_lock!(conn) {
-                    Err(e) => {
-                        error!("Couldn't lock connection: {:?}", e);
-                        false
-                    },
-                    Ok(conn_mut) => {
-                        match conn_mut.execute(
-                            "INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)",
-                            &[&id, &ip, &port as &dyn ToSql]
-                        ) {
-                            Ok(updated) => {
-                                updated > 0
-                            }
-                            Err(e) => {
-                                error!("Couldn't execute query! {:?}", e);
-                                false
-                            }
+            Some(ref conn) => match safe_lock!(conn) {
+                Err(e) => {
+                    error!("Couldn't lock connection: {:?}", e);
+                    false
+                }
+                Ok(conn_mut) => {
+                    match conn_mut.execute("INSERT INTO bans(id,ip,port) VALUES (?, ?, ?)", &[
+                        &id,
+                        &ip,
+                        &port as &dyn ToSql,
+                    ]) {
+                        Ok(updated) => updated > 0,
+                        Err(e) => {
+                            error!("Couldn't execute query! {:?}", e);
+                            false
                         }
                     }
                 }
-            }
+            },
             None => false,
         }
     }
 
     pub fn delete_ban(&self, id: String, ip: String, port: u16) -> bool {
         match self.conn {
-            Some(ref conn) => {
-                match safe_lock!(conn) {
-                    Err(e) => {
-                        error!("Couldn't lock connection: {:?}", e);
-                        false
-                    },
-                    Ok(conn_mut) => {
-                        match conn_mut.execute(
-                            "DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?",
-                            &[&id, &ip, &port as &dyn ToSql]
-                        ) {
-                            Ok(updated) => {
-                                updated > 0
-                            }
-                            Err(e) => {
-                                error!("Couldn't execute query! {:?}", e);
-                                false
-                            }
+            Some(ref conn) => match safe_lock!(conn) {
+                Err(e) => {
+                    error!("Couldn't lock connection: {:?}", e);
+                    false
+                }
+                Ok(conn_mut) => {
+                    match conn_mut.execute(
+                        "DELETE FROM bans WHERE id = ? AND ip = ? AND port = ?",
+                        &[&id, &ip, &port as &dyn ToSql],
+                    ) {
+                        Ok(updated) => updated > 0,
+                        Err(e) => {
+                            error!("Couldn't execute query! {:?}", e);
+                            false
                         }
                     }
                 }
-            }
+            },
             None => false,
         }
     }

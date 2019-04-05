@@ -5,12 +5,12 @@ use failure::{Error, Fail};
 macro_rules! make_atomic_callback {
     ($callback:expr) => {
         Arc::new(RwLock::new(Box::new($callback)))
-    }
+    };
 }
 
 pub mod afunctor;
 
-pub use self::afunctor::{ FunctorCW, AFunctorCW, AFunctor };
+pub use self::afunctor::{AFunctor, AFunctorCW, FunctorCW};
 
 pub type FunctorResult = Result<(), Error>;
 pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
@@ -18,13 +18,9 @@ pub type FunctorCallback<T> = (Fn(&T) -> FunctorResult);
 #[derive(Debug, Fail)]
 #[fail(display = "Error running functor: {:?}", errors)]
 pub struct FunctorError {
-    pub errors: Vec<Error>
+    pub errors: Vec<Error>,
 }
 
 impl FunctorError {
-    pub fn new(e: Vec<Error>) ->  FunctorError {
-        FunctorError {
-            errors: e
-        }
-    }
+    pub fn new(e: Vec<Error>) -> FunctorError { FunctorError { errors: e } }
 }

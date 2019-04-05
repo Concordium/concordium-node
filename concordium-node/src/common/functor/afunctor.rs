@@ -1,8 +1,8 @@
-use std::sync::{ Arc, RwLock };
-use failure::{ Error, bail };
 use crate::fails as global_fails;
+use failure::{bail, Error};
+use std::sync::{Arc, RwLock};
 
-use super::{ FunctorCallback, FunctorResult, FunctorError };
+use super::{FunctorCallback, FunctorError, FunctorResult};
 
 pub type FunctorCW<T> = Box<FunctorCallback<T>>;
 
@@ -15,38 +15,40 @@ pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 /// ```
 /// extern crate p2p_client;
 ///
-/// use p2p_client::connection::*;
-/// use p2p_client::common::functor::{ AFunctor };
-/// use std::rc::{ Rc };
-/// use std::sync::{ Arc, RwLock };
-/// use std::cell::{ RefCell };
+/// use p2p_client::{common::functor::AFunctor, connection::*};
+/// use std::{
+///     cell::RefCell,
+///     rc::Rc,
+///     sync::{Arc, RwLock},
+/// };
 ///
-/// let acc = Rc::new( RefCell::new(58));
+/// let acc = Rc::new(RefCell::new(58));
 /// let acc_1 = acc.clone();
 /// let acc_2 = acc.clone();
 ///
-/// let mut ph = AFunctor::new( "Closures");
+/// let mut ph = AFunctor::new("Closures");
 ///
 /// ph.add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
-///         *acc_1.borrow_mut() += x;
-///         Ok(()) }))))
-///     .add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
-///         *acc_2.borrow_mut() *= x;
-///         Ok(()) }))));
+///     *acc_1.borrow_mut() += x;
+///     Ok(())
+/// }))))
+/// .add_callback(Arc::new(RwLock::new(Box::new(move |x: &i32| {
+///     *acc_2.borrow_mut() *= x;
+///     Ok(())
+/// }))));
 ///
 /// let value = 42 as i32;
-/// ph.run_callbacks(&value).unwrap();     // acc = (58 + 42) * 42
-/// assert_eq!( *acc.borrow(), 4200);
-///
+/// ph.run_callbacks(&value).unwrap(); // acc = (58 + 42) * 42
+/// assert_eq!(*acc.borrow(), 4200);
 /// ```
 #[derive(Clone)]
 pub struct AFunctor<T> {
-    name: &'static str,
+    name:      &'static str,
     callbacks: Vec<AFunctorCW<T>>,
 }
 
 impl<T> AFunctor<T> {
-    pub fn new( name: &'static str) -> Self {
+    pub fn new(name: &'static str) -> Self {
         AFunctor {
             name,
             callbacks: Vec::new(),
@@ -62,27 +64,24 @@ impl<T> AFunctor<T> {
         self
     }
 
-    pub fn callbacks(&self) -> &[AFunctorCW<T>] {
-        &self.callbacks
-    }
+    pub fn callbacks(&self) -> &[AFunctorCW<T>] { &self.callbacks }
 
     /// It executes each callback using `message` as its argument.
-    /// All errors from callbacks execution are chained. Otherwise, it will return `Ok(())`.
+    /// All errors from callbacks execution are chained. Otherwise, it will
+    /// return `Ok(())`.
     pub fn run_callbacks(&self, message: &T) -> FunctorResult {
-        let mut status : Vec<Error> = vec![];
+        let mut status: Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
             let cb = self.callbacks[i].clone();
 
             if let Err(e) = match safe_read!(cb) {
-                Ok(locked_cb) => {
-                    (*locked_cb)(message)
-                },
-                Err(p) => { Err(Error::from(global_fails::PoisonError::from(p))) }
+                Ok(locked_cb) => (*locked_cb)(message),
+                Err(p) => Err(Error::from(global_fails::PoisonError::from(p))),
             } {
                 status.push(e);
             };
-        };
+        }
 
         if !status.is_empty() {
             bail!(FunctorError::new(status))
@@ -94,21 +93,23 @@ impl<T> AFunctor<T> {
 
 #[cfg(test)]
 mod afunctor_unit_test {
-    use crate::common::functor::{ AFunctor, FunctorResult };
-    use std::rc::{ Rc };
-    use std::sync::{ Arc, RwLock };
-    use std::cell::{ RefCell };
+    use crate::common::functor::{AFunctor, FunctorResult};
+    use std::{
+        cell::RefCell,
+        rc::Rc,
+        sync::{Arc, RwLock},
+    };
 
-    fn raw_func_1( _v: &i32) -> FunctorResult { Ok(()) }
-    fn raw_func_2( _v: &i32) -> FunctorResult { Ok(()) }
+    fn raw_func_1(_v: &i32) -> FunctorResult { Ok(()) }
+    fn raw_func_2(_v: &i32) -> FunctorResult { Ok(()) }
 
     /// It tests if raw functions can be added as callback.
     #[test]
     pub fn test_parse_handler_raw_functions() {
-        let mut ph = AFunctor::new( "Raw functions");
-        ph.add_callback( make_atomic_callback!( raw_func_1 ))
-            .add_callback( make_atomic_callback!( raw_func_2 ))
-            .add_callback( make_atomic_callback!( raw_func_1 ));
+        let mut ph = AFunctor::new("Raw functions");
+        ph.add_callback(make_atomic_callback!(raw_func_1))
+            .add_callback(make_atomic_callback!(raw_func_2))
+            .add_callback(make_atomic_callback!(raw_func_1));
 
         let value = 42 as i32;
         ph.run_callbacks(&value).unwrap();
@@ -117,10 +118,10 @@ mod afunctor_unit_test {
     /// It tests if closures can be added as callback.
     #[test]
     pub fn test_parse_handler_closure() {
-        let mut ph = AFunctor::new( "Closures");
+        let mut ph = AFunctor::new("Closures");
 
-        ph.add_callback( make_atomic_callback!( |_x: &i32| { Ok(()) }))
-            .add_callback( make_atomic_callback!( |_x: &i32| { Ok(()) }));
+        ph.add_callback(make_atomic_callback!(|_x: &i32| { Ok(()) }))
+            .add_callback(make_atomic_callback!(|_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
         ph.run_callbacks(&value).unwrap();
@@ -129,37 +130,39 @@ mod afunctor_unit_test {
     /// It tests if we can mix closures and functions.
     #[test]
     pub fn test_parse_handler_mix() {
-        let mut ph = AFunctor::new( "Raw function and  Closure");
+        let mut ph = AFunctor::new("Raw function and  Closure");
 
-        ph.add_callback( make_atomic_callback!( raw_func_1 ))
-            .add_callback( make_atomic_callback!( raw_func_2 ))
-            .add_callback( make_atomic_callback!( |_x: &i32| { Ok(()) }))
-            .add_callback( make_atomic_callback!( |_x: &i32| { Ok(()) }));
+        ph.add_callback(make_atomic_callback!(raw_func_1))
+            .add_callback(make_atomic_callback!(raw_func_2))
+            .add_callback(make_atomic_callback!(|_x: &i32| { Ok(()) }))
+            .add_callback(make_atomic_callback!(|_x: &i32| { Ok(()) }));
 
         let value = 42 as i32;
         ph.run_callbacks(&value).unwrap();
     }
 
-    /// Test for complex closures, I mean, closures that copy/move some variables from scope.
+    /// Test for complex closures, I mean, closures that copy/move some
+    /// variables from scope.
     #[test]
     pub fn test_parse_hadler_complex_closure() {
-        let shd_counter = Rc::new( RefCell::new(0));
+        let shd_counter = Rc::new(RefCell::new(0));
         let shd_counter_1 = shd_counter.clone();
         let shd_counter_2 = shd_counter.clone();
 
-        let mut ph = AFunctor::new( "Complex Closure");
+        let mut ph = AFunctor::new("Complex Closure");
 
-        ph.add_callback( make_atomic_callback!( move |_x: &i32| {
-                *shd_counter_1.borrow_mut() += 1;
-                Ok(()) }))
-            .add_callback( make_atomic_callback!( move |_: &i32| {
-                *shd_counter_2.borrow_mut() += 1;
-                Ok(()) }));
-
+        ph.add_callback(make_atomic_callback!(move |_x: &i32| {
+            *shd_counter_1.borrow_mut() += 1;
+            Ok(())
+        }))
+        .add_callback(make_atomic_callback!(move |_: &i32| {
+            *shd_counter_2.borrow_mut() += 1;
+            Ok(())
+        }));
 
         let value = 42 as i32;
         ph.run_callbacks(&value).unwrap();
 
-        assert_eq!( *shd_counter.borrow(), 2);
+        assert_eq!(*shd_counter.borrow(), 2);
     }
 }

@@ -1,12 +1,16 @@
 image: "archlinux/base"
 
-cache:
-  paths:
-    - target
-    - deps/internal/consensus/.stack-work
-    - stack
+stages:
+  - lint
+  - test
 
-test:cargo:
+"Rust Tests":
+  stage: test
+  cache:
+    paths:
+      - target
+      - deps/internal/consensus/.stack-work
+      - stack
   variables:
     LD_LIBRARY_PATH: "/usr/local/lib"
     GIT_SUBMODULE_STRATEGY: recursive
@@ -27,3 +31,17 @@ test:cargo:
   - cargo test --all --verbose
   - cp -rf /root/.stack/* stack/
 
+Rustfmt:
+  stage: lint
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  image: rustlang/rust:nightly
+  before_script:
+  - rustup component add rustfmt
+  script:
+  - touch src/proto/concordium_p2p_rpc.rs
+  - touch src/proto/concordium_p2p_rpc_grpc.rs
+  - cargo +nightly fmt
+  - ( cd consensus-sys && cargo +nightly fmt )
+  - ( cd dns && cargo +nightly fmt)
+  - test $(git ls-files --modified | grep -v ".dll" | wc -l) -eq 0 || (echo 'You have introduced some unformated code:'; git ls-files --modified | grep -v ".dll" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)

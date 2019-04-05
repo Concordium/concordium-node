@@ -1,14 +1,8 @@
 use failure::Fallible;
-use iron::headers::ContentType;
-use iron::prelude::*;
-use iron::status;
-use prometheus;
-use prometheus::{Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
+use iron::{headers::ContentType, prelude::*, status};
+use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
 use router::Router;
-use std::fmt;
-use std::sync::Arc;
-use std::thread;
-use std::time;
+use std::{fmt, sync::Arc, thread, time};
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum PrometheusMode {
@@ -88,8 +82,10 @@ impl PrometheusServer {
             registry.register(Box::new(upr.clone())).unwrap();
         }
 
-        let inpr_opts = Opts::new("invalid_network_packets_received",
-                                  "invalid network packets received");
+        let inpr_opts = Opts::new(
+            "invalid_network_packets_received",
+            "invalid network packets received",
+        );
         let inpr = IntCounter::with_opts(inpr_opts).unwrap();
         if mode == PrometheusMode::NodeMode || mode == PrometheusMode::BootstrapperMode {
             registry.register(Box::new(inpr.clone())).unwrap();
@@ -101,18 +97,20 @@ impl PrometheusServer {
             registry.register(Box::new(qrs.clone())).unwrap();
         }
 
-        PrometheusServer { mode: mode,
-                           registry: registry.clone(),
-                           pkts_received_counter: prc.clone(),
-                           pkts_sent_counter: psc.clone(),
-                           peers_gauge: pg.clone(),
-                           connections_received: cr.clone(),
-                           unique_ips_seen: uis.clone(),
-                           invalid_packets_received: ipr.clone(),
-                           unknown_packets_received: upr.clone(),
-                           invalid_network_packets_received: inpr.clone(),
-                           queue_size: qs.clone(),
-                           queue_resent: qrs.clone(), }
+        PrometheusServer {
+            mode,
+            registry: registry.clone(),
+            pkts_received_counter: prc.clone(),
+            pkts_sent_counter: psc.clone(),
+            peers_gauge: pg.clone(),
+            connections_received: cr.clone(),
+            unique_ips_seen: uis.clone(),
+            invalid_packets_received: ipr.clone(),
+            unknown_packets_received: upr.clone(),
+            invalid_network_packets_received: inpr.clone(),
+            queue_size: qs.clone(),
+            queue_resent: qrs.clone(),
+        }
     }
 
     pub fn peers_inc(&mut self) -> Fallible<()> {
@@ -131,7 +129,7 @@ impl PrometheusServer {
     }
 
     pub fn peers_dec_by(&mut self, value: i64) -> Fallible<()> {
-        self.peers_gauge.sub( value);
+        self.peers_gauge.sub(value);
         Ok(())
     }
 
@@ -195,15 +193,17 @@ impl PrometheusServer {
         Ok(())
     }
 
-    pub fn queue_size(&self) -> Fallible<(i64)> {
-        Ok(self.queue_size.get())
-    }
+    pub fn queue_size(&self) -> Fallible<(i64)> { Ok(self.queue_size.get()) }
 
     fn index(&self) -> IronResult<Response> {
-        let mut resp = Response::with((status::Ok,
-                          format!("<html><body><h1>Prometheus for {} v{}</h1>Operational!</p></body></html>",
-                                   super::APPNAME,
-                                   super::VERSION)));
+        let mut resp = Response::with((
+            status::Ok,
+            format!(
+                "<html><body><h1>Prometheus for {} v{}</h1>Operational!</p></body></html>",
+                super::APPNAME,
+                super::VERSION
+            ),
+        ));
         resp.headers.set(ContentType::html());
         Ok(resp)
     }
@@ -222,48 +222,51 @@ impl PrometheusServer {
         let mut router = Router::new();
         let _self_clone = Arc::new(self.clone());
         let _self_clone_2 = _self_clone.clone();
-        router.get("/",
-                   move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
-                   "index");
-        router.get("/metrics",
-                   move |_: &mut Request<'_, '_>| _self_clone_2.clone().metrics(),
-                   "metrics");
+        router.get(
+            "/",
+            move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
+            "index",
+        );
+        router.get(
+            "/metrics",
+            move |_: &mut Request<'_, '_>| _self_clone_2.clone().metrics(),
+            "metrics",
+        );
         let _listen = listen_ip.clone();
         let _th = thread::spawn(move || {
-                                    Iron::new(router).http(format!("{}:{}", _listen, port))
-                                                     .unwrap();
-                                });
+            Iron::new(router)
+                .http(format!("{}:{}", _listen, port))
+                .unwrap();
+        });
         Ok(())
     }
 
-    pub fn start_push_to_gateway(&self,
-                                 prometheus_push_gateway: String,
-                                 prometheus_push_interval: u64,
-                                 prometheus_job_name: String,
-                                 prometheus_instance_name: String,
-                                 prometheus_push_username: Option<String>,
-                                 prometheus_push_password: Option<String>)
-                                 -> Fallible<()> {
+    pub fn start_push_to_gateway(
+        &self,
+        prometheus_push_gateway: String,
+        prometheus_push_interval: u64,
+        prometheus_job_name: String,
+        prometheus_instance_name: String,
+        prometheus_push_username: Option<String>,
+        prometheus_push_password: Option<String>,
+    ) -> Fallible<()> {
         let _registry = self.registry.clone();
         let _mode = self.mode.clone();
-        let _th = thread::spawn(move || {
-                                    loop {
-                                        let username_pass = if prometheus_push_username.is_some()
-                                                               && prometheus_push_password.is_some()
-                                        {
-                                            Some(prometheus::BasicAuthentication { username: prometheus_push_username.clone().unwrap()
-                                                                                     .to_owned(),
-                                                   password: prometheus_push_password.clone().unwrap()
-                                                                                     .to_owned(), })
-                                        } else {
-                                            None
-                                        };
-                                        debug!("Pushing data to push gateway");
-                                        thread::sleep(time::Duration::from_secs(prometheus_push_interval));
-                                        let metrics_families = _registry.gather();
-                                        prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(), "mode".to_owned() => _mode.to_string(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
-                                    }
-                                });
+        let _th = thread::spawn(move || loop {
+            let username_pass =
+                if prometheus_push_username.is_some() && prometheus_push_password.is_some() {
+                    Some(prometheus::BasicAuthentication {
+                        username: prometheus_push_username.clone().unwrap().to_owned(),
+                        password: prometheus_push_password.clone().unwrap().to_owned(),
+                    })
+                } else {
+                    None
+                };
+            debug!("Pushing data to push gateway");
+            thread::sleep(time::Duration::from_secs(prometheus_push_interval));
+            let metrics_families = _registry.gather();
+            prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(), "mode".to_owned() => _mode.to_string(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
+        });
         Ok(())
     }
 }
@@ -273,9 +276,7 @@ mod tests {
     use crate::prometheus_exporter::*;
 
     #[test]
-    pub fn test_node_mode() {
-        let _prom_inst = PrometheusServer::new(PrometheusMode::NodeMode);
-    }
+    pub fn test_node_mode() { let _prom_inst = PrometheusServer::new(PrometheusMode::NodeMode); }
 
     #[test]
     pub fn test_disco_mode() {

@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 #[macro_use]
 extern crate derive_builder;
 #[cfg(not(target_os = "windows"))]
@@ -31,7 +32,8 @@ extern crate tempfile;
 extern crate serde;
 
 #[cfg(feature = "s11n_serde_cbor")]
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde_derive;
 
 #[cfg(feature = "s11n_serde_cbor")]
 extern crate serde_cbor;
@@ -43,9 +45,8 @@ extern crate serde_json;
 extern crate capnp;
 
 #[cfg(feature = "s11n_nom")]
-#[macro_use] extern crate nom;
-
-
+#[macro_use]
+extern crate nom;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
@@ -53,24 +54,24 @@ const DEFAULT_DNS_PUBLIC_KEY: &'static str =
     "58C4FD93586B92A76BA89141667B1C205349C6C38CC8AB2F6613F7483EBFDAA3";
 const ENV_DNS_PUBLIC_KEY: Option<&'static str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
 
-pub fn get_dns_public_key() -> &'static str {
-    ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY)
-}
+pub fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
-#[macro_use] pub mod fails;
-#[macro_use] pub mod common;
-pub mod connection;
+#[macro_use]
+pub mod fails;
+#[macro_use]
+pub mod common;
 pub mod configuration;
+pub mod connection;
 pub mod db;
 
+pub mod crypto;
+pub mod network;
 pub mod p2p;
 pub mod prometheus_exporter;
 pub mod proto;
 pub mod rpc;
-pub mod utils;
-pub mod network;
 pub mod stats_engine;
-pub mod crypto;
+pub mod utils;
 
 #[cfg(feature = "s11n_capnp")]
 pub mod p2p_capnp;

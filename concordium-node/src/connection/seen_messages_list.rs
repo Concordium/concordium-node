@@ -1,4 +1,4 @@
-use std::sync::{ Arc, RwLock };
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone)]
 pub struct SeenMessagesList {
@@ -7,7 +7,9 @@ pub struct SeenMessagesList {
 
 impl SeenMessagesList {
     pub fn new() -> Self {
-        SeenMessagesList { seen_msgs: Arc::new(RwLock::new(Vec::new())), }
+        SeenMessagesList {
+            seen_msgs: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 
     pub fn contains(&self, msgid: &String) -> bool {
@@ -33,5 +35,3 @@ impl SeenMessagesList {
         }
     }
 }
-
-
