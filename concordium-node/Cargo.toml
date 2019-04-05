@@ -17,6 +17,12 @@ edition = "2018"
 default = []
 valgrind = []
 
+s11n_capnp = ["capnp", "capnpc"]
+s11n_serde = [ "s11n_serde_cbor", "s11n_serde_json" ]
+s11n_serde_json = []
+s11n_serde_cbor = ["serde_cbor"]
+s11n_nom = ["nom"]
+
 [dependencies]
 libc = "0.2"
 structopt = "0.2"
@@ -54,11 +60,18 @@ serde = "1.0"
 serde_derive = "1.0"
 vecio = "0.1"
 derive_builder = "0.7.1"
+tempfile = "^3.0.7"
 base64 = "0.10.1"
 sha2 = "0"
 base58 = "^0.1"
 ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+
+# Serialization packets are enable as `features`
+capnp = { version = "^0.9", optional = true }
+serde_cbor = { version = "0.9.0", optional = true }
+nom = { version = "4.2.0", optional = true }
+
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
@@ -78,6 +91,10 @@ features = ["gen", "push", "protobuf"]
 [build-dependencies]
 walkdir         = "2"
 protoc-grpcio   = "0.2.0"
+capnpc          = { version = "^0.9", optional = true }
+
+[dev-dependencies]
+criterion = "0.2"
 
 [lib]
 path = "src/lib.rs"
@@ -110,3 +127,7 @@ name = "testrunner_parser"
 [[bin]]
 path = "src/bin/generate-new-keypair.rs"
 name = "generate-new-keypair"
+
+[[bench]]
+name = "p2p_lib_benchmark"
+harness = false

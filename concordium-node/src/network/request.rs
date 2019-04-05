@@ -1,13 +1,14 @@
 use crate::common::{ P2PPeer, P2PNodeId, get_current_stamp };
 use crate::network::{
-    PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING, 
+    PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_REQUEST_PING,
     PROTOCOL_MESSAGE_TYPE_REQUEST_JOINNETWORK, PROTOCOL_MESSAGE_TYPE_REQUEST_LEAVENETWORK,
     PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE, PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE,
     PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE, PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
     PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr( feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer, P2PNodeId),
@@ -79,10 +80,8 @@ impl NetworkRequest {
                     me.port(),
                     nids.len(),
                     nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
-                    zk.len()
-                ).into_bytes();
-                pkt.extend(zk.iter());
-
+                    zk.len()).into_bytes();
+                pkt.extend_from_slice( zk.as_slice());
                 pkt
             }
             NetworkRequest::GetPeers(_, networks) => {
