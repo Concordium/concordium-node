@@ -35,14 +35,20 @@ import Test.Hspec
 
 invariantSkovData :: SkovData -> Either String ()
 invariantSkovData SkovData{..} = do
+        -- Finalization list
         when (Seq.null _skovFinalizationList) $ Left "Finalization list is empty"
         (finMap, lastFin, _) <- foldM checkFin (HM.empty, _skovGenesisBlockPointer, 0) _skovFinalizationList
+        -- Live blocks
         (liveFinMap, _) <- foldM checkLive (finMap, [lastFin]) _skovBranches
         unless (HM.filter notDead _skovBlockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
+        -- Pending blocks
         queue <- foldM (checkPending (blockSlot $ bpBlock $ lastFin)) (Set.empty) (HM.toList _skovPossiblyPendingTable)
         checkBinary (Set.isSubsetOf) queue (Set.fromList (MPQ.toListU _skovPossiblyPendingQueue)) "is a subset of" "pending blocks" "pending queue"
-        -- TODO: Pending blocks
-        -- TODO: Finalization pool
+        -- Finalization pool
+        forM_ (Map.toList _skovFinalizationPool) $ \(fi, frs) -> do
+            checkBinary (>=) fi (fromIntegral (Seq.length _skovFinalizationList)) ">=" "pending finalization record index" "length of finalization list"
+            forM_ frs $ \fr -> do
+                checkBinary (==) fi (finalizationIndex fr) "==" "key in finalization pool" "finalization index"
         -- TODO: Transactions
         return ()
     where
@@ -218,9 +224,9 @@ withInitialStates n run = do
 
 tests :: Spec
 tests = parallel $ describe "Concordium.Konsensus" $ do
-    it "2 parties, 100 steps, check at every step" $ \s0 -> withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
+    it "2 parties, 100 steps, check at every step" $ withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
     it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
-    it "2 parties, 1000 steps, check at end" $ \s0 -> withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
-    it "2 parties, 10000 steps, check at end" $ \s0 -> withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
-    it "4 parties, 10000 steps, check every step" $ \s0 -> withMaxSuccess 10 $ withInitialStates 4 $ runKonsensusTest 10000
+    it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
+    it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
+    it "4 parties, 10000 steps, check every step" $ withMaxSuccess 10 $ withInitialStates 4 $ runKonsensusTest 10000
     
