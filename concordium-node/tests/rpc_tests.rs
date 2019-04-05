@@ -15,7 +15,6 @@ mod tests {
     use p2p_client::p2p::p2p_node::{ P2PNode };
     use p2p_client::proto::*;
     use p2p_client::rpc::RpcServerImpl;
-    use p2p_client::utils;
     use p2p_client::db::P2PDB;
     use std::sync::atomic::{ AtomicUsize, Ordering };
     use std::sync::mpsc;
@@ -176,7 +175,7 @@ mod tests {
     pub fn test_grpc_node_info() {
         let node_type =  "NormalMode";
         // the she bytestring below is the first 32 characters of an empty SHA256
-        let id = utils::to_hex_string(b"e3b0c44298fc1c149afbf4c8996fb924");
+        let id = "Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=".to_string();
         create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, Some(id.clone()));
         let instant1 = SystemTime::now().duration_since( UNIX_EPOCH ).expect("time").as_secs();
         let reply = client.node_info_opt(&Empty::new(), call_options).expect("rpc");
@@ -185,6 +184,6 @@ mod tests {
         assert_eq!(reply.node_type, "Normal");
         // As the ID gets transformed into a BigUint and then transformed back
         // num_bigint and format! always output the value in lower-case.
-        assert_eq!(reply.node_id.unwrap().get_value(), id.to_lowercase());
+        assert_eq!(reply.node_id.unwrap().get_value(), id);
     }
 }

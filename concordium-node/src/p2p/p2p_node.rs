@@ -103,21 +103,21 @@ impl P2PNode {
 
         let id = match supplied_id {
             Some(x) => {
-                if x.chars().count() != 64 {
-                    panic!("Incorrect ID specified. Should be a sha256 value or 64 characters long!");
+                if x.chars().count() != 44 {
+                    panic!("Incorrect ID specified. Should be a sha256 value or 43 characters long!");
                 }
                 x
             }
             _ => {
                 let current_time = Utc::now();
-                utils::to_hex_string(&utils::sha256(&format!("{}.{}",
+                base64::encode(&utils::sha256(&format!("{}.{}",
                     current_time.timestamp(),
                     current_time.timestamp_subsec_nanos()
                 )))
             }
         };
 
-        let _id = P2PNodeId::from_string(&id).expect("Couldn't parse the id");
+        let _id = P2PNodeId::from_b64_repr(&id).expect("Couldn't parse the id");
 
         let poll = Poll::new().unwrap_or_else(|_|
             panic!("Couldn't create poll")

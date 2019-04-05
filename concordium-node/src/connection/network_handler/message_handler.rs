@@ -191,7 +191,7 @@ mod integration_test {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
         let p2p_peer = P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
         let inner_msg = UCursor::from( b"Message XXX".to_vec());
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080).unwrap();
+        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080);
 
         let data = vec![
             NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer.clone()), Some(100), Some(42)),

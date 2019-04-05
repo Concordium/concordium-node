@@ -1,7 +1,11 @@
 #[macro_use] extern crate criterion;
 
-use p2p_client::common::{ P2PPeer, P2PPeerBuilder, ConnectionType };
+use p2p_client::common::{ P2PPeer, P2PPeerBuilder, ConnectionType, P2PNodeId, UCursor };
+use p2p_client::network::{ NetworkPacketBuilder, NetworkPacket };
+use failure::Fallible;
 use std::net::{ IpAddr, Ipv4Addr };
+use std::str::FromStr;
+
 
 pub fn localhost_peer() -> P2PPeer {
     P2PPeerBuilder::default()
@@ -9,6 +13,26 @@ pub fn localhost_peer() -> P2PPeer {
         .ip( IpAddr::V4(Ipv4Addr::new(127,0,0,1)))
         .port( 8888)
         .build().unwrap()
+}
+
+pub fn make_direct_message_header( content_size: usize) -> Fallible<Vec<u8>> {
+    let p2p_node_id = P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mDDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=")?;
+    let pkt = NetworkPacketBuilder::default()
+        .peer(P2PPeer::from(ConnectionType::Node,
+                            p2p_node_id,
+                            IpAddr::from_str("127.0.0.1")?,
+                            8888))
+        .message_id(NetworkPacket::generate_message_id())
+        .network_id(111)
+        .message(UCursor::from(vec![]))
+        .build_direct(P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=")?)?;
+
+    let mut h = pkt.serialize();
+
+    //chop the last 10 bytes which are the length of the message
+    h.truncate( h.len() -10);
+    h.append( &mut format!( "{:010}", content_size).into_bytes());
+    Ok(h)
 }
 
 mod common {
@@ -64,11 +88,9 @@ mod common {
 
 mod network {
     pub mod message {
+        use crate::make_direct_message_header;
         use p2p_client::common::{ ContainerView, UCursor, P2PPeerBuilder, ConnectionType };
-        use p2p_client::network::{
-            NetworkMessage,
-            PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE };
-
+        use p2p_client::network::{ NetworkMessage };
         use std::net::{ IpAddr, Ipv4Addr };
         use std::io::Write;
         use rand::distributions::{ Alphanumeric };
@@ -79,11 +101,7 @@ mod network {
 
         fn make_direct_message_into_disk( content_size: usize) -> Fallible<UCursor>
         {
-            let header = format!("{}{:03}{:016X}{:03}{:064X}{:064}{:05}{:010}",
-                                 PROTOCOL_NAME, PROTOCOL_VERSION, 10,
-                                 PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-                                 42, 100, 111, content_size).as_bytes().to_vec();
-
+            let header = make_direct_message_header( content_size)?;
             let mut cursor = UCursor::build_from_temp_file()?;
             cursor.write_all( header.as_slice())?;
 
@@ -143,11 +161,9 @@ mod network {
             let content: String = thread_rng().sample_iter( &Alphanumeric)
                 .take( content_size).collect();
 
-            let data_str = format!("{}{:03}{:016X}{:03}{:064X}{:064}{:05}{:010}{}",
-                                   PROTOCOL_NAME, PROTOCOL_VERSION, 10,
-                                   PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-                                   42, 100, 111, content.len(), content);
-            let data = ContainerView::from( Vec::from( data_str));
+            let mut pkt : Vec<u8> = make_direct_message_header( content.len())?;
+            pkt.append( &mut content.into_bytes());
+            let data = ContainerView::from( pkt);
 
             let local_ip = IpAddr::V4( Ipv4Addr::new(127,0,0,1));
             let local_peer = P2PPeerBuilder::default()
@@ -392,7 +408,7 @@ mod serialization {
         use p2p_client::network::{ PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE };
 
         use p2p_client::network::serialization::nom::{ s11n_network_message };
-       
+
         use rand::{ thread_rng, Rng };
         use rand::distributions::{ Alphanumeric };
 
@@ -404,16 +420,14 @@ mod serialization {
             let content: String = thread_rng().sample_iter( &Alphanumeric)
                 .take( content_size).collect();
 
-            let data_str = format!("{}{:03}{:016X}{:03}{:064X}{:064}{:05}{:010}{}",
-                                   PROTOCOL_NAME, PROTOCOL_VERSION, 10,
-                                   PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-                                   42, 100, 111, content.len(), content);
+            let pkt = make_direct_message_header( content.len())?
+                .append( content.into_bytes());
 
             let bench_id = format!( "Benchmark NON using {} bytes", content_size);
             c.bench_function(
                 &bench_id,
                 move |b| {
-                    let data = data_str.as_bytes();
+                    let data = pkt.clone();
 
                     b.iter( move ||{
                         s11n_network_message( data)
@@ -462,11 +476,11 @@ mod serialization {
 
         use criterion::Criterion;
         use failure::{ Fallible };
-   
+
         use rand::{ thread_rng, Rng };
         use rand::distributions::{ Standard };
         use std::net::{ IpAddr, Ipv4Addr };
-       
+
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) -> Fallible<()> {
             let content: Vec<u8> = thread_rng().sample_iter( &Standard)
                 .take( content_size).collect();

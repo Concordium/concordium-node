@@ -1,10 +1,10 @@
-use crate::common::{ UCursor, P2PPeer, P2PNodeId, get_current_stamp };
+use crate::common::{ UCursor, P2PPeer, P2PNodeId };
 use crate::network:: {
     PROTOCOL_NAME, PROTOCOL_VERSION, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
     PROTOCOL_NODE_ID_LENGTH, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
     PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
-    PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH
+    PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH, make_header
 };
 
 use crate::utils;
@@ -75,10 +75,10 @@ impl NetworkPacket
 {
     fn direct_header_as_vec(&self, receiver: &P2PNodeId) -> Vec<u8>
     {
-        format!("{}{}{:016x}{}{:064x}{}{:05}{:010}",
-            PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(),
+        format!("{}{}{}{}{:05}{:010}",
+            make_header(),
             PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-            receiver.get_id(),
+            receiver,
             self.message_id,
             self.network_id,
             self.message.len()).into_bytes()
@@ -86,8 +86,8 @@ impl NetworkPacket
 
     fn broadcast_header_as_vec(&self) -> Vec<u8>
     {
-        format!("{}{}{:016x}{}{}{:05}{:010}",
-            PROTOCOL_NAME, PROTOCOL_VERSION, get_current_stamp(),
+        format!("{}{}{}{:05}{:010}",
+            make_header(),
             PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
             self.message_id,
             self.network_id,
@@ -126,7 +126,7 @@ impl NetworkPacket
         let mut buf = Vec::with_capacity( buf_exp_size);
         let _bytes_read = self.reader().read_to_end( &mut buf).unwrap_or(0 as usize);
 
-        // debug_assert_eq!( buf_exp_size, bytes_read);
+        // debug_assert_eq!( buf_exp_size, bytes_read); 
         buf
     }
 
@@ -136,7 +136,6 @@ impl NetworkPacket
             Ok(mut l) => l.fill_bytes(&mut secure_bytes),
             Err(_) => return String::new()
         }
-        utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
+        base64::encode(&utils::sha256_bytes(&secure_bytes))
     }
 }
-

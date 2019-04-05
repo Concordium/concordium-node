@@ -625,7 +625,7 @@ fn main() -> Fallible<()> {
                             let mut out_bytes = vec![];
                             out_bytes.extend(message);
                             let out_bytes_len = out_bytes.len();
-                            let to_send = P2PNodeId::from_string(&_id_clone).ok();
+                            let to_send = P2PNodeId::from_b64_repr(&_id_clone).ok();
                             match _node_ref.send_message(to_send,
                                                          _network_id,
                                                          None,

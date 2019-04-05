@@ -1,3 +1,5 @@
+use crate::common::get_current_stamp_b64;
+
 pub mod packet;
 pub mod request;
 pub mod message;
@@ -13,12 +15,12 @@ pub use self::response::NetworkResponse;
 
 pub const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
 pub const PROTOCOL_VERSION: &'static str = "001";
-pub const PROTOCOL_NODE_ID_LENGTH: usize = 64;
+pub const PROTOCOL_NODE_ID_LENGTH: usize = 44;
 pub const PROTOCOL_PORT_LENGTH: usize = 5;
-pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 64;
+pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 44;
 pub const PROTOCOL_NETWORK_ID_LENGTH: usize = 5;
 pub const PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH: usize = 10;
-pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 16;
+pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
 pub const PROTOCOL_MESSAGE_TYPE_LENGTH: usize = 4;
 
 pub const PROTOCOL_MESSAGE_TYPE_REQUEST_PING: &str = "0001";
@@ -36,3 +38,9 @@ pub const PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE: &str = "1004";
 pub const PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE: &str = "2001";
 pub const PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE: &str = "2002";
 
+pub fn make_header() -> String {
+    format!("{}{}{}",
+            PROTOCOL_NAME,
+            PROTOCOL_VERSION,
+            get_current_stamp_b64())
+}
