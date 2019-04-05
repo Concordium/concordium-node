@@ -15,7 +15,7 @@ use iron::prelude::*;
 use iron::status;
 use p2p_client::common;
 use p2p_client::common::{ ConnectionType };
-use p2p_client::network::{ NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse };
+use p2p_client::network::{ NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse };
 use p2p_client::configuration;
 use p2p_client::db::P2PDB;
 use p2p_client::p2p::*;
@@ -113,7 +113,7 @@ impl TestRunner {
             self.node
                 .lock()
                 .expect("Couldn't lock node")
-                .send_message(None, self.nid, None, &random_pkt, true)
+                .send_message(None, self.nid, None, random_pkt, true)
                 .map_err(|e| error!("{}", e))
                 .ok();
             Ok(Response::with((status::Ok,
@@ -388,18 +388,21 @@ fn main() -> Fallible<()> {
     let _guard_pkt = thread::spawn(move || { loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
-                NetworkMessage::NetworkPacket(
-                    NetworkPacket::DirectMessage(_, ref msgid, _, ref nid, ref msg), ..) =>
-                {
-                   info!("DirectMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                }
-                NetworkMessage::NetworkPacket(
-                    NetworkPacket::BroadcastedMessage(_, ref msgid, ref nid, ref msg), ..) =>
-                {
-                    if !_no_trust_broadcasts {
-                        info!("BroadcastedMessage/{}/{} with size {} received", nid, msgid, msg.len());
-                        _node_self_clone.send_message(None, *nid, Some(msgid.clone()), &msg, true)
-                                        .map_err(|e| error!("Error sending message {}", e)).ok();
+                NetworkMessage::NetworkPacket( ref pac, ..) => {
+                    match pac.packet_type {
+                        NetworkPacketType::DirectMessage(..) => {
+                            info!("DirectMessage/{}/{} with size {} received", pac.network_id,
+                                  pac.message_id, pac.message.len());
+                        }
+                        NetworkPacketType::BroadcastedMessage => {
+                            if !_no_trust_broadcasts {
+                                info!("BroadcastedMessage/{}/{} with size {} received",
+                                        pac.network_id, pac.message_id, pac.message.len());
+                                _node_self_clone.send_message_from_cursor(None, pac.network_id,
+                                        Some(pac.message_id.clone()), pac.message.clone(), true)
+                                    .map_err(|e| error!("Error sending message {}", e)).ok();
+                            }
+                        }
                     }
                 }
                 NetworkMessage::NetworkRequest(

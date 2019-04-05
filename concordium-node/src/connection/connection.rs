@@ -13,7 +13,7 @@ use crate::prometheus_exporter::{ PrometheusServer };
 
 use failure::{Error, Fallible, bail };
 
-use crate::common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp };
+use crate::common::{ ConnectionType, P2PNodeId, P2PPeer, get_current_stamp, UCursor };
 use crate::common::counter::{ TOTAL_MESSAGES_RECEIVED_COUNTER };
 use crate::common::functor::{ AFunctorCW, FunctorResult, FunctorError };
 use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, Buckets,
@@ -407,9 +407,8 @@ impl Connection {
             }
         }
 
-        if ev_readiness.is_writable()
-        {
-            self.flush_tls()?;
+        if ev_readiness.is_writable() {
+            self.flush_tls();
         }
 
         // Manage clossing event.
@@ -485,8 +484,9 @@ impl Connection {
     }
 
     /// It decodes message from `buf` and processes it using its message handlers.
-    fn process_complete_packet(&mut self, buf: &[u8]) -> FunctorResult {
-        let outer = Arc::new(Box::new(NetworkMessage::deserialize(self.get_remote_peer(), self.ip(), &buf)));
+    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult {
+        let buf_cursor = UCursor::from( buf);
+        let outer = Arc::new(NetworkMessage::deserialize(self.get_remote_peer(), self.ip(), buf_cursor));
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add( 1, Ordering::Relaxed);
         if let Some(ref prom) = &self.prometheus_exporter() {
@@ -543,7 +543,7 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                drop_conn_if_unwanted!(self.process_complete_packet( &buffered), self, poll)
+                drop_conn_if_unwanted!(self.process_complete_packet( buffered), self, poll)
             }
 
             self.clear_buffer();
@@ -563,7 +563,7 @@ impl Connection {
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
                     }
-                   drop_conn_if_unwanted!(self.process_complete_packet( &buffered), self, poll)
+                   drop_conn_if_unwanted!(self.process_complete_packet( buffered), self, poll)
                 }
                 self.clear_buffer();
             }
@@ -578,7 +578,7 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
-                drop_conn_if_unwanted!(self.process_complete_packet( &buffered), self, poll)
+                drop_conn_if_unwanted!(self.process_complete_packet( buffered), self, poll)
             }
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;
@@ -610,10 +610,11 @@ impl Connection {
         self.write_to_tls(&size_vec[..])?;
         self.write_to_tls(pkt)?;
 
-        self.flush_tls()
+        self.flush_tls();
+        Ok( pkt.len() + 4)
     }
 
-    fn flush_tls(&mut self) -> Fallible<usize>
+    fn flush_tls(&mut self)
     {
         let rc = {
             let mut lptr = self.dptr.borrow_mut();
@@ -629,8 +630,6 @@ impl Connection {
             error!("write failed {:?}", rc);
             self.closing = true;
         }
-
-        into_err!(rc)
     }
 
     pub fn prometheus_exporter(&self) -> Option<Arc<RwLock<PrometheusServer>>> {

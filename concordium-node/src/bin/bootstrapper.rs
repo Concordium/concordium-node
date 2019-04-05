@@ -4,6 +4,7 @@ extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 #[macro_use] extern crate log;
+#[macro_use] extern crate p2p_client;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -17,13 +18,12 @@ use p2p_client::db::P2PDB;
 use failure::Error;
 use p2p_client::p2p::*;
 use p2p_client::safe_read;
-use p2p_client::connection::{ P2PEvent, P2PNodeMode };
+use p2p_client::connection::{ P2PEvent, P2PNodeMode, MessageManager };
 use p2p_client::prometheus_exporter::{PrometheusMode, PrometheusServer};
 use std::sync::mpsc;
 use std::sync::{Arc, RwLock};
 use std::rc::Rc;
 use std::thread;
-use std::time;
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_bootstrapper_config();
@@ -76,11 +76,11 @@ fn main() -> Result<(), Error> {
 
     info!("Debugging enabled {}", conf.debug);
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+    let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let mode_type = P2PNodeMode::BootstrapperMode;
 
-    let mut node = if conf.debug {
+    let node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard =
             thread::spawn(move || {
@@ -116,7 +116,7 @@ fn main() -> Result<(), Error> {
                                   }
                               }
                           });
-        P2PNode::new(Some(conf.id),
+        Arc::new( RwLock::new( P2PNode::new(Some(conf.id),
                      conf.listen_address,
                      conf.listen_port,
                      conf.external_ip,
@@ -127,9 +127,9 @@ fn main() -> Result<(), Error> {
                      prometheus.clone(),
                      conf.network_ids,
                      conf.min_peers_bucket,
-                     false)
+                     false)))
     } else {
-        P2PNode::new(Some(conf.id),
+        Arc::new( RwLock::new( P2PNode::new(Some(conf.id),
                      conf.listen_address,
                      conf.listen_port,
                      conf.external_ip,
@@ -140,14 +140,15 @@ fn main() -> Result<(), Error> {
                      prometheus.clone(),
                      conf.network_ids,
                      conf.min_peers_bucket,
-                     false)
+                     false)))
     };
 
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
+            let mut locked_node = safe_write!(node)?;
             for n in nodes {
-                node.ban_node(n.to_peer())?;
+                locked_node.ban_node(n.to_peer())?;
             }
         }
         None => {
@@ -156,55 +157,51 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let mut _node_self_clone = node.clone();
+    let cloned_node = node.clone();
     let _no_trust_bans = conf.no_trust_bans;
 
-    let _guard_pkt = thread::spawn(move || {
-        loop {
-            if let Ok(full_msg) = pkt_out.recv() {
-                match *full_msg {
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
-                        info!("Ban node request for {:?}", x);
-                        let ban = _node_self_clone.ban_node(x.clone())
-                                                  .map_err(|e| error!("{}", e));
-                        if ban.is_ok() {
-                            db.insert_ban(&peer.id().to_string(),
-                                          &peer.ip().to_string(),
-                                          peer.port());
-                            if !_no_trust_bans {
-                                _node_self_clone.send_ban(x.clone())
-                                                .map_err(|e| error!("{}", e))
-                                                .ok();
-                            }
+    // Register handles for ban & unban requests.
+    let message_handler = safe_read!(node)?.message_handler();
+    safe_write!(message_handler)?.add_request_callback( make_atomic_callback!(
+        move |msg: &NetworkRequest | {
+            match msg {
+                NetworkRequest::BanNode( ref peer, ref x) => {
+                    info!("Ban node request for {:?}", x);
+                    let mut locked_cloned_node = safe_write!(cloned_node)?;
+                    let ban = locked_cloned_node.ban_node(x.clone())
+                        .map_err(|e| error!("{}", e));
+                    if ban.is_ok() {
+                        db.insert_ban(&peer.id().to_string(),
+                                      &peer.ip().to_string(),
+                                      peer.port());
+                        if !_no_trust_bans {
+                            locked_cloned_node.send_ban(x.clone())?;
                         }
                     }
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), ..) => {
-                        info!("Unban node requets for {:?}", x);
-                        let req = _node_self_clone.unban_node(x.clone())
-                                                  .map_err(|e| error!("{}", e));
-                        if req.is_ok() {
-                            db.delete_ban(peer.id().to_string(),
-                                          peer.ip().to_string(),
-                                          peer.port());
-                            if !_no_trust_bans {
-                                _node_self_clone.send_unban(x.clone())
-                                                .map_err(|e| error!("{}", e))
-                                                .ok();
-                            }
+                },
+                NetworkRequest::UnbanNode(ref peer, ref x) => {
+                    info!("Unban node requets for {:?}", x);
+                    let req = safe_write!(cloned_node)?.unban_node(x.clone())
+                        .map_err(|e| error!("{}", e));
+                    if req.is_ok() {
+                        db.delete_ban(peer.id().to_string(), peer.ip().to_string(), peer.port());
+                        if !_no_trust_bans {
+                            safe_write!(cloned_node)?.send_unban(x.clone())?;
                         }
                     }
-                    _ => {}
-                }
-            }
+                },
+                _ => {}
+            };
+            Ok(())
         }
-    });
+    ));
 
     if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
             let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
                 instance_id.clone()
             } else {
-                node.get_own_id().to_string()
+                safe_write!(node)?.get_own_id().to_string()
             };
             safe_read!(prom)?
                 .start_push_to_gateway(prom_push_addy.clone(),
@@ -218,24 +215,15 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    node.spawn();
+    {
+        let mut locked_node = safe_write!(node)?;
+        locked_node.max_nodes = Some( conf.max_nodes);
+        locked_node.print_peers = true;
+        locked_node.spawn();
+    }
 
-    let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap()).ok().unwrap().into_inner();
-
-    let _max_nodes = conf.max_nodes;
-
-    let _node_ref_guard_timer = node.clone();
-
-    let _guard_timer = thread::spawn( move || {
-        loop {
-            match _node_ref_guard_timer.get_peer_stats(&[]) {
-                Ok(x) => info!("I currently have {}/{} nodes!", x.len(), _max_nodes),
-                Err(e) => error!("Couldn't get node list, {:?}", e),
-            };
-            thread::sleep(time::Duration::from_secs(30));
-        }
-    });
-
+    let _node_th = Rc::try_unwrap( safe_write!(node)?.process_th_sc().unwrap())
+        .ok().unwrap().into_inner();
     _node_th.join().expect("Node thread panicked!");
 
     Ok(())

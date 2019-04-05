@@ -1,5 +1,5 @@
 use crate::common::functor::{ AFunctor, FunctorResult };
-use crate::network::{ NetworkPacket };
+use crate::network::{ NetworkPacket, NetworkPacketType };
 
 use crate::connection::network_handler::{ NetworkPacketCW };
 
@@ -30,16 +30,9 @@ impl PacketHandler {
 
     /// It runs main parser and specific ones for the internal type of msg.
     pub fn process_message(&self, msg: &NetworkPacket) -> FunctorResult {
-
-        let spec_status = match msg {
-            NetworkPacket::DirectMessage(..) => {
-                self.direct_parser.run_callbacks(&msg)
-            },
-            NetworkPacket::BroadcastedMessage(..) => {
-                self.broadcast_parser.run_callbacks(&msg)
-            }
-        };
-
-        spec_status
+         match msg.packet_type {
+            NetworkPacketType::DirectMessage( _) => self.direct_parser.run_callbacks(&msg),
+            NetworkPacketType::BroadcastedMessage => self.broadcast_parser.run_callbacks(&msg)
+        }
     }
 }

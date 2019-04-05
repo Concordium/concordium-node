@@ -1,10 +1,9 @@
-use base64::{encode};
+use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use ::dns::dns;
 use failure::{Fallible};
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use hacl_star::sha2;
-use hex;
 use crate::crypto;
 use openssl::asn1::Asn1Time;
 use openssl::bn::{BigNum, MsbOption};
@@ -77,9 +76,9 @@ pub struct Cert {
 pub fn crypto_key_to_pem(input: &crypto::KeyPair) -> Vec<u8> {
     let pemheader = b"-----BEGIN EC PRIVATE KEY-----\n";
 
-    let mut pemcontent = hex::decode("302e020100300506032b656e04220420").unwrap(); // static, should never fail
+    let pemcontent = &mut [48, 46, 2, 1, 0, 48, 5, 6, 3, 43, 101, 110, 4, 34, 4, 32][..].to_vec();
     pemcontent.append(&mut input.private_key.to_vec());
-    let pemcontent = encode(&pemcontent);
+    let pemcontent = base64::encode(&pemcontent);
 
     let pemfooter = b"\n-----END EC PRIVATE KEY-----";
 
@@ -345,13 +344,13 @@ pub fn generate_bootstrap_dns(input_key: [u8; 32],
     let secret_key = SecretKey(input_key);
     let public_key = secret_key.get_public();
 
-    let mut return_buffer = hex::encode(&public_key.0);
+    let mut return_buffer = base64::encode(&public_key.0);
 
     match serialize_bootstrap_peers(peers) {
         Ok(ref content) => {
             return_buffer.push_str(content);
             let signature = secret_key.signature(content.as_bytes());
-            return_buffer.push_str(&hex::encode(&(signature.0)[..]));
+            return_buffer.push_str(&base64::encode(&(signature.0)[..]));
         }
         Err(_) => {
             return Err("Couldn't parse peers given");
@@ -362,7 +361,7 @@ pub fn generate_bootstrap_dns(input_key: [u8; 32],
 
     let mut return_size = vec![];
     return_size.write_u16::<NetworkEndian>(return_buffer.len() as u16).unwrap();
-    ret.push_str(&to_hex_string(&return_size));
+    ret.push_str(&base64::encode(&return_size));
     ret.push_str(&return_buffer);
 
     let mut element = 0;
@@ -386,27 +385,27 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                          .map(|x| if x.len() > 3 { &x[3..] } else { &x })
                                          .collect::<String>();
     if buffer.len() > 4 {
-        match hex::decode(&buffer[..4]) {
+        match base64::decode(&buffer[..4]) {
             Ok(size_bytes) => {
                 let mut bytes_buf = Cursor::new(size_bytes);;
                 match bytes_buf.read_u16::<NetworkEndian>() {
                     Ok(size) => {
                         if size as usize == buffer.len() - 4 {
-                            if buffer[4..68].to_lowercase() != public_key_str.to_lowercase() {
+                            if buffer[4..48].to_lowercase() != public_key_str.to_lowercase() {
                                 return Err("Invalid public key");
                             }
-                            match hex::decode(&buffer[4..68]) {
+                            match base64::decode(&buffer[4..48]) {
                                 Ok(input_pub_key_bytes) => {
                                     let mut pub_key_bytes: [u8; 32] = Default::default();
                                     pub_key_bytes.copy_from_slice(&input_pub_key_bytes[..32]);
                                     let public_key = PublicKey(pub_key_bytes);
                                     let mut bytes_taken_for_nodes = 0;
 
-                                    match &buffer[68..73].parse::<u16>() {
+                                    match &buffer[49..53].parse::<u16>() {
                                         Ok(nodes_count) => {
-                                            let inner_buffer = &buffer[73..];
+                                            let inner_buffer = &buffer[53..];
                                             for _ in 0..*nodes_count {
-                                                match &buffer[bytes_taken_for_nodes..][73..76] {
+                                                match &buffer[bytes_taken_for_nodes..][53..56] {
                                                     "IP4" => {
                                                         let ip = &inner_buffer[bytes_taken_for_nodes..][3..3 + 12];
                                                         let port = &inner_buffer[bytes_taken_for_nodes..]
@@ -450,7 +449,7 @@ pub fn read_peers_from_dns_entries(entries: Vec<String>,
                                                     _ => return Err("Invalid data for node"),
                                                 }
                                             }
-                                            match hex::decode(&buffer[(4 + 64 + 5 + bytes_taken_for_nodes)..]) {
+                                            match base64::decode(&buffer[(4 + 44 + 5 + bytes_taken_for_nodes)..]) {
                                                 Ok(signature_bytes) => {
                                                     if signature_bytes.len() == 64 {
                                                         let mut sig_bytes: [u8; 64] = [0; 64];
@@ -541,8 +540,8 @@ mod tests {
         const INPUT: &str = "00002IP401001001001008888IP6deadbeaf00000000000000000000000009999";
         let secret_key = SecretKey { 0: PRIVATE_TEST_KEY, };
         let signature = secret_key.signature(INPUT.as_bytes());
-        let signature_hex = hex::encode(signature.0.to_vec());
-        let signature_unhexed = hex::decode(&signature_hex).unwrap();
+        let signature_hex = base64::encode(&signature.0.to_vec());
+        let signature_unhexed = base64::decode(&signature_hex).unwrap();
         let mut decoded_signature: [u8; 64] = [0; 64];
         for i in 0..64 {
             decoded_signature[i] = signature_unhexed[i];
@@ -556,10 +555,10 @@ mod tests {
         let peers: Vec<String> = vec!["10.10.10.10:8888".to_string(),
                                       "dead:beaf:::9999".to_string()];
         let secret_key = SecretKey { 0: PRIVATE_TEST_KEY, };
-        let public_hex_key = to_hex_string(&secret_key.get_public().0);
+        let public_b64_key = base64::encode(&secret_key.get_public().0);
         match generate_bootstrap_dns(PRIVATE_TEST_KEY, 240, &peers) {
             Ok(res) => {
-                match read_peers_from_dns_entries(res, &public_hex_key) {
+                match read_peers_from_dns_entries(res, &public_b64_key) {
                     Ok(peers) => {
                         assert_eq!(peers.len(), 2);
                         assert!(peers.iter()

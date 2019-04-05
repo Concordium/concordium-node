@@ -1,30 +1,40 @@
+pub mod container_view;
 pub mod counter;
+pub mod ucursor;
+
+pub use self::container_view::ContainerView;
+pub use self::ucursor::UCursor;
 
 #[macro_use] pub mod functor;
 
 pub mod fails;
 
 use num_bigint::BigUint;
-use num_traits::Num;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::net::IpAddr;
+use std::net::{IpAddr};
 use std::str;
 use std::str::FromStr;
-use failure::{Fallible, bail};
+use failure::{Fallible, bail };
 use crate::utils;
 use chrono::prelude::*;
 
-use crate::network::{ PROTOCOL_NODE_ID_LENGTH };
+use crate::network::{ PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH };
+
+const PROTOCOL_IP4_LENGTH :usize = 12;
+const PROTOCOL_IP6_LENGTH :usize = 32;
+const PROTOCOL_IP_TYPE_LENGTH :usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
+#[cfg_attr( feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum ConnectionType {
     Node,
     Bootstrapper,
 }
 
 #[derive(Debug, Clone, Builder)]
+#[cfg_attr( feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
     ip: IpAddr,
@@ -40,14 +50,14 @@ impl P2PPeerBuilder {
         let id_bc = match &self.id {
             None => {
                 if self.ip.is_some() && self.port.is_some() {
-                    Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
+                    Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())))
                 } else {
                     Err(fails::EmptyIpPortError)
                 }
             },
             Some(id) => {
                 if id.id == BigUint::default() {
-                    Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())?))
+                    Ok(Some(P2PNodeId::from_ip_port(self.ip.unwrap(), self.port.unwrap())))
                 } else {
                     Ok(None)
                 }
@@ -74,6 +84,52 @@ impl P2PPeerBuilder {
     }
 }
 
+fn deserialize_ip4( pkt: &mut UCursor) -> Fallible<(IpAddr, u16)>
+{
+    let min_packet_size = PROTOCOL_IP4_LENGTH + PROTOCOL_PORT_LENGTH;
+    ensure!( pkt.len() >= pkt.position() + min_packet_size as u64,
+    "IPv4 package needs {} bytes", min_packet_size);
+
+    let pkt_view = pkt.read_into_view( min_packet_size)?;
+    let buf = str::from_utf8( pkt_view.as_slice())?;
+
+    // Decode IP v4
+    let ip_addr = IpAddr::from_str( &format!("{}.{}.{}.{}",
+                                            &buf[..3],
+                                            &buf[3..6],
+                                            &buf[6..9],
+                                            &buf[9..12]))?;
+    // Decode Port
+    let port = buf[PROTOCOL_IP4_LENGTH..][..PROTOCOL_PORT_LENGTH].parse::<u16>()?;
+    Ok((ip_addr,port))
+}
+
+fn deserialize_ip6( pkt: &mut UCursor) -> Fallible<(IpAddr, u16)>
+{
+    let min_packet_size = PROTOCOL_IP6_LENGTH + PROTOCOL_PORT_LENGTH;
+    ensure!( pkt.len() >= pkt.position() + min_packet_size as u64,
+    "IPv6 package needs {} bytes", min_packet_size);
+
+    let pkt_view = pkt.read_into_view( min_packet_size)?;
+    let pkt_view_slice = pkt_view.as_slice();
+    let buf = str::from_utf8( pkt_view_slice)?;
+
+    // Decode IP v6
+    let ip_addr = IpAddr::from_str(&format!("{}:{}:{}:{}:{}:{}:{}:{}",
+                                            &buf[..4],
+                                            &buf[4..8],
+                                            &buf[8..12],
+                                            &buf[12..16],
+                                            &buf[16..20],
+                                            &buf[20..24],
+                                            &buf[24..28],
+                                            &buf[28..32]))?;
+    // Decode Port
+    let port = buf[PROTOCOL_IP6_LENGTH..][..PROTOCOL_PORT_LENGTH].parse::<u16>()?;
+    Ok((ip_addr, port))
+}
+
+
 impl P2PPeer {
     pub fn from(connection_type: ConnectionType, id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
         P2PPeer {
@@ -87,17 +143,17 @@ impl P2PPeer {
 
     pub fn serialize(&self) -> String {
         match &self.ip {
-            IpAddr::V4(ip4) => format!("{:064x}IP4{:03}{:03}{:03}{:03}{:05}",
-                self.id.get_id(),
+            IpAddr::V4(ip4) => format!("{}IP4{:03}{:03}{:03}{:03}{:05}",
+                self.id.to_b64_repr(),
                 ip4.octets()[0],
                 ip4.octets()[1],
                 ip4.octets()[2],
                 ip4.octets()[3],
                 self.port,
             ),
-            IpAddr::V6(ip6) => format!("{:064x}IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}\
+            IpAddr::V6(ip6) => format!("{}IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}\
                 {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:05}",
-                self.id.get_id(),
+                self.id.to_b64_repr(),
                 ip6.octets()[0],
                 ip6.octets()[1],
                 ip6.octets()[2],
@@ -119,56 +175,31 @@ impl P2PPeer {
         }
     }
 
-    pub fn deserialize(buf: &str) -> Fallible<P2PPeer> {
-        let ip_start = PROTOCOL_NODE_ID_LENGTH + 3;
 
-        if buf.len() > ip_start {
-            let node_id = &buf[..PROTOCOL_NODE_ID_LENGTH];
-            let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..][..3];
-            let (ip_addr, port): (IpAddr, u16) = match ip_type {
-                "IP4" => {
-                    if buf.len() >= PROTOCOL_NODE_ID_LENGTH + 3 + 12 + 5 {
-                        let ip_addr = IpAddr::from_str(&format!("{}.{}.{}.{}",
-                            &buf[ip_start..][..3],
-                            &buf[ip_start + 3..][..3],
-                            &buf[ip_start + 6..][..3],
-                            &buf[ip_start + 9..][..3]
-                        ))?;
-                        let port = buf[ip_start + 12..][..5].parse::<u16>()?;
-                        (ip_addr, port)
-                    } else {
-                        bail!(fails::InvalidLengthForIP::new(ip_type.to_string()))
-                    }
-                }
-                "IP6" => {
-                    if buf.len() >= PROTOCOL_NODE_ID_LENGTH + 3 + 32 + 5 {
-                        let ip_addr = IpAddr::from_str(&format!("{}:{}:{}:{}:{}:{}:{}:{}",
-                            &buf[ip_start..][..4],
-                            &buf[ip_start..][4..8],
-                            &buf[ip_start..][8..12],
-                            &buf[ip_start..][12..16],
-                            &buf[ip_start..][16..20],
-                            &buf[ip_start..][20..24],
-                            &buf[ip_start..][24..28],
-                            &buf[ip_start..][28..32]
-                        ))?;
-                        let port = buf[ip_start..][32..37].parse::<u16>()?;
-                        (ip_addr, port)
-                    } else {
-                        bail!(fails::InvalidLengthForIP::new(ip_type.to_string()))
-                    }
-                }
-                _ => bail!(fails::InvalidIpType::new(ip_type.to_string()))
-            };
-            P2PPeerBuilder::default()
-                .id(P2PNodeId::from_string(&node_id.to_string())?)
+    pub fn deserialize( pkt: &mut UCursor) -> Fallible<P2PPeer> {
+        let min_packet_size = PROTOCOL_NODE_ID_LENGTH + PROTOCOL_IP_TYPE_LENGTH;
+
+        ensure!( pkt.len() >=  pkt.position() + min_packet_size as u64,
+            "P2PPeer package needs {} bytes", min_packet_size);
+
+        let view = pkt.read_into_view( min_packet_size)?;
+        let buf = view.as_slice();
+
+        let node_id = P2PNodeId::from_b64_repr( &str::from_utf8( &buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
+        let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..][..PROTOCOL_IP_TYPE_LENGTH];
+
+        let (ip_addr, port) = match ip_type {
+            b"IP4" => deserialize_ip4(pkt)?,
+            b"IP6" => deserialize_ip6(pkt)?,
+            _ => bail!( "Unsupported Ip type")
+        };
+
+        P2PPeerBuilder::default()
+                .id(node_id)
                 .ip(ip_addr)
                 .port(port)
                 .connection_type(ConnectionType::Node)
                 .build()
-        } else {
-            bail!(fails::InvalidLength)
-        }
     }
 
     pub fn id(&self) -> P2PNodeId {
@@ -218,33 +249,145 @@ impl PartialOrd for P2PPeer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+// #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct P2PNodeId {
-    id: BigUint,
+    // #[serde(skip)]
+    // #[serde(with = "s11n_big_uint")]
+    pub id: BigUint,
+}
+
+#[cfg(feature = "s11n_serde")]
+use serde::ser::{ Serializer, Serialize, SerializeStruct };
+
+#[cfg(feature = "s11n_serde")]
+impl Serialize for P2PNodeId{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let id_bytes_le = self.id.to_bytes_le();
+
+        let mut state = serializer.serialize_struct("P2PNodeId",1)?;
+        state.serialize_field( "id", &id_bytes_le)?;
+        state.end()
+    }
+}
+
+#[cfg(feature = "s11n_serde")]
+use serde::de::{ Deserialize, Deserializer, MapAccess, Visitor, Error };
+
+#[cfg(feature = "s11n_serde")]
+impl<'de> Deserialize<'de> for P2PNodeId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field { Id, }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+                where D: Deserializer<'de>,
+            {
+                struct FieldVisistor;
+
+                impl<'de> Visitor<'de> for FieldVisistor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str("`id`")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field,E>
+                        where E: serde::de::Error,
+                    {
+                        match value {
+                            "id" => Ok(Field::Id),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS))
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisistor)
+            }
+        }
+
+        struct P2PNodeIdVisitor;
+
+        impl<'de> Visitor<'de> for P2PNodeIdVisitor {
+            type Value = P2PNodeId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct P2PNodeId")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<P2PNodeId, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut id_bytes_le: Option<Vec<u8>> = None;
+
+                while let Some(field) = map.next_key()? {
+                    match field {
+                        Field::Id => {
+                            if id_bytes_le.is_some() {
+                                return Err( V::Error::duplicate_field("id"));
+                            }
+                            id_bytes_le = Some(map.next_value()?);
+                        },
+                    }
+                }
+
+                let id = BigUint::from_bytes_le(
+                    id_bytes_le.ok_or_else( || V::Error::missing_field("id"))?
+                        .as_slice());
+
+                Ok( P2PNodeId{ id: id})
+            }
+        }
+
+        const FIELDS: &[&str] = &["id"];
+        deserializer.deserialize_struct( "P2PNodeId", FIELDS, P2PNodeIdVisitor)
+    }
 }
 
 impl P2PNodeId {
-    pub fn from_string(sid: &str) -> Fallible<P2PNodeId> {
-        Ok(P2PNodeId { id: BigUint::from_str_radix(sid, 16)? })
+    /// Convert a slice of bytes in `le` into a `P2PNodeId`
+    pub fn from_bytes_slice(sid: &[u8]) -> P2PNodeId {
+        P2PNodeId { id: BigUint::from_bytes_le(sid) }
     }
 
+    /// Convert a `String` or `str` in `base64` representation into a `P2PNodeId`
+    pub fn from_b64_repr<T: ?Sized + AsRef<[u8]>>(sid: &T) -> Fallible<P2PNodeId> {
+        Ok(P2PNodeId::from_bytes_slice(&base64::decode(&sid)?[..]))
+    }
+
+    /// Get the underlying `BigUint`
     pub fn get_id(&self) -> &BigUint {
         &self.id
     }
 
-    pub fn from_ip_port(ip: IpAddr, port: u16) -> Fallible<P2PNodeId> {
+    /// Convert an `ip` and `port` into a `P2PNocdeId`
+    pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {
         let ip_port = format!("{}:{}", ip, port);
-        P2PNodeId::from_string(&utils::to_hex_string(&utils::sha256(&ip_port)))
+        P2PNodeId::from_ipstring(&ip_port)
     }
 
-    pub fn from_ipstring(ip_port: String) -> Fallible<P2PNodeId> {
-        P2PNodeId::from_string(&utils::to_hex_string(&utils::sha256(&ip_port)))
+    /// Convert the concatenation of `ip` and `port` into a `P2PNodeId`
+    pub fn from_ipstring(ip_port: &str) -> P2PNodeId {
+        let buf_slice = utils::sha256(&ip_port);
+        P2PNodeId::from_bytes_slice(&buf_slice[..])
+    }
+
+    /// Get the `base64` encoding of the underlying `BigUint`
+    pub fn to_b64_repr(&self) -> String {
+        base64::encode(&self.id.to_bytes_le())
     }
 }
 
 impl fmt::Display for P2PNodeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:064x}", self.id)
+        write!(f, "{}", self.to_b64_repr())
     }
 }
 
@@ -252,11 +395,15 @@ pub fn get_current_stamp() -> u64 {
     Utc::now().timestamp_millis() as u64
 }
 
+pub fn get_current_stamp_b64() -> String {
+    base64::encode(&get_current_stamp().to_le_bytes()[..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket };
-
+    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse, NetworkPacket,
+                          NetworkPacketBuilder, NetworkPacketType };
     fn dummy_peer(ip: IpAddr, port: u16) -> P2PPeer {
         P2PPeerBuilder::default()
             .connection_type(ConnectionType::Node)
@@ -271,7 +418,7 @@ mod tests {
     fn peer_000() -> P2PPeer {
         P2PPeerBuilder::default()
             .connection_type(ConnectionType::Node)
-            .id(P2PNodeId::from_string("c19cd000746763871fae95fcdd4508dfd8bf725f9767be68c3038df183527bb2").unwrap())
+            .id(P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=").unwrap())
             .ip(IpAddr::from([10, 10, 10, 10]))
             .port(8888)
             .build()
@@ -319,17 +466,17 @@ mod tests {
         ($msg:ident, $msg_type:ident, $self_peer:expr) => ({
             let self_peer = $self_peer;
             let test_msg = create_message!($msg, $msg_type, self_peer);
-            let serialized = test_msg.serialize();
+            let serialized = UCursor::from( test_msg.serialize());
             let self_peer_ip = self_peer.ip();
-            let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, &serialized);
+            let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
             net_assertion!($msg, $msg_type, deserialized)
         });
         ($msg:ident, $msg_type:ident, $self_peer:expr, $nets:expr) => ({
             let self_peer = $self_peer;
             let test_msg = create_message!($msg, $msg_type, self_peer, $nets);
-            let serialized = test_msg.serialize();
+            let serialized = UCursor::from( test_msg.serialize());
             let self_peer_ip = self_peer.ip();
-            let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, &serialized);
+            let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
             net_assertion!($msg, $msg_type, deserialized, $nets)
         });
         ($msg:ident, $msg_type:ident, $self_peer:expr, $zk:expr, $nets:expr) => ({
@@ -337,9 +484,9 @@ mod tests {
             let zk: Vec<u8> = $zk;
             let nets: Vec<u16> = $nets;
             let test_msg = create_message!($msg, $msg_type, self_peer, nets, zk);
-            let serialized = test_msg.serialize();
+            let serialized = UCursor::from( test_msg.serialize());
             let self_peer_ip = self_peer.ip();
-            let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, &serialized);
+            let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         })
     }
@@ -386,7 +533,7 @@ mod tests {
     #[test]
     fn req_findnode_test() {
         net_test!(NetworkRequest, FindNode, self_peer(),
-            P2PNodeId::from_ipstring("8.8.8.8:9999".to_string()).unwrap()
+            P2PNodeId::from_ipstring("8.8.8.8:9999")
         )
     }
 
@@ -439,44 +586,68 @@ mod tests {
     }
 
     #[test]
-    pub fn direct_message_test() {
-        let ipaddr = IpAddr::from_str("10.10.10.10").unwrap();
+    pub fn direct_message_test() -> Fallible<()> {
+        let ipaddr = IpAddr::from_str("10.10.10.10")?;
         let port = 9999;
         let self_peer = self_peer();
-        let text_msg = b"Hello world!";
-        let msg = NetworkPacket::DirectMessage(self_peer.clone(),
-                                               NetworkPacket::generate_message_id(),
-                                               P2PNodeId::from_ip_port(ipaddr, port).unwrap(),
-                                               100,
-                                               text_msg.to_vec());
+        let text_msg = ContainerView::from( b"Hello world!".to_vec());
+        let msg = NetworkPacketBuilder::default()
+                .peer( self_peer.clone())
+                .message_id( NetworkPacket::generate_message_id())
+                .network_id( 100)
+                .message( UCursor::build_from_view( text_msg.clone()))
+                .build_direct( P2PNodeId::from_ip_port(ipaddr, port))?;
         let serialized = msg.serialize();
-        let self_peer_ip = self_peer.ip();
-        let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, &serialized);
-        assert!(match deserialized {
-            NetworkMessage::NetworkPacket(NetworkPacket::DirectMessage(.., nid, msg), ..) => {
-                text_msg.to_vec() == msg && nid == 100
+        let s11n_cursor = UCursor::build_from_view( ContainerView::from( serialized));
+        let mut deserialized = NetworkMessage::deserialize(
+                Some(self_peer.clone()),
+                ipaddr,
+                s11n_cursor);
+
+        if let NetworkMessage::NetworkPacket( ref mut packet, ..) = deserialized {
+            if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
+                assert_eq!( packet.network_id, 100);
+                assert_eq!( packet.message.read_all_into_view()?, text_msg);
+            } else {
+                bail!( "It should be a direct message");
             }
-            _ => false,
-        })
+        } else {
+            bail!( "It should be a network packet message");
+        }
+
+        Ok(())
     }
 
     #[test]
-    pub fn broadcasted_message_test() {
+    pub fn broadcasted_message_test() -> Fallible<()> {
+        let ipaddr = IpAddr::from_str("10.10.10.10")?;
         let self_peer = self_peer();
-        let text_msg = b"Hello broadcasted world!";
-        let msg = NetworkPacket::BroadcastedMessage(self_peer.clone(),
-                                                    NetworkPacket::generate_message_id(),
-                                                    100,
-                                                    text_msg.to_vec());
+        let text_msg = ContainerView::from( b"Hello  broadcasted world!".to_vec());
+        let msg = NetworkPacketBuilder::default()
+                .peer( self_peer.clone())
+                .message_id( NetworkPacket::generate_message_id())
+                .network_id( 100)
+                .message( UCursor::build_from_view( text_msg.clone()))
+                .build_broadcast()?;
+
         let serialized = msg.serialize();
-        let self_peer_ip = self_peer.ip();
-        let deserialized = NetworkMessage::deserialize(Some(self_peer), self_peer_ip, &serialized);
-        assert!(match deserialized {
-            NetworkMessage::NetworkPacket(NetworkPacket::BroadcastedMessage(.., nid, msg), ..) => {
-                text_msg.to_vec() == msg && nid == 100
+        let s11n_cursor = UCursor::build_from_view( ContainerView::from( serialized));
+        let mut deserialized = NetworkMessage::deserialize(
+                Some(self_peer.clone()),
+                ipaddr,
+                s11n_cursor);
+
+        if let NetworkMessage::NetworkPacket( ref mut packet, ..) = deserialized {
+            if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
+                assert_eq!( packet.network_id, 100);
+                assert_eq!( packet.message.read_all_into_view()?, text_msg);
+            } else {
+                bail!( "Expected broadcast message");
             }
-            _ => false,
-        })
+        } else {
+            bail!( "Expected network packet message");
+        }
+        Ok(())
     }
 
     #[test]
@@ -498,14 +669,14 @@ mod tests {
     #[test]
     fn resp_invalid_version() {
         let deserialized = NetworkMessage::deserialize(
-            None, IpAddr::from([127, 0, 0, 1]), b"CONCORDIUMP2P0021001");
+            None, IpAddr::from([127, 0, 0, 1]), UCursor::from( b"CONCORDIUMP2P0021001".to_vec()));
         assert!(match deserialized { NetworkMessage::InvalidMessage => true, _ => false })
     }
 
     #[test]
     fn resp_invalid_protocol() {
         let deserialized = NetworkMessage::deserialize(
-            None, IpAddr::from([127, 0, 0, 1]), b"CONC0RD1UMP2P0021001");
+            None, IpAddr::from([127, 0, 0, 1]), UCursor::from( b"CONC0RD1UMP2P0021001".to_vec()));
         assert!(match deserialized { NetworkMessage::InvalidMessage => true, _ => false })
     }
 

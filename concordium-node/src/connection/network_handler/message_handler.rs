@@ -171,9 +171,9 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use crate::connection::{ MessageHandler,  PacketHandler };
-    use crate::common::{ ConnectionType, P2PPeerBuilder, P2PNodeId };
-    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse };
-    use crate::network::packet::{ NetworkPacket as NetworkPacketEnum };
+    use crate::common::{ UCursor, ConnectionType, P2PPeerBuilder, P2PNodeId };
+    use crate::network::{ NetworkMessage, NetworkRequest, NetworkResponse,
+        NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder };
     use crate::common::functor::{ FunctorResult };
 
     use std::sync::{ Arc, RwLock };
@@ -190,20 +190,28 @@ mod integration_test {
     pub fn network_request_handler_data() -> Vec<NetworkMessage> {
         let ip = IpAddr::V4(Ipv4Addr::new(127,0,0,1));
         let p2p_peer = P2PPeerBuilder::default().connection_type(ConnectionType::Node).ip(ip).port(8080).build().unwrap();
-        let inner_msg: Vec<u8> = "Message XXX".to_string().as_bytes().to_vec();
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080).unwrap();
+        let inner_msg = UCursor::from( b"Message XXX".to_vec());
+        let node_id: P2PNodeId = P2PNodeId::from_ip_port( ip, 8080);
 
         let data = vec![
             NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer.clone()), Some(100), Some(42)),
             NetworkMessage::NetworkRequest( NetworkRequest::Ping( p2p_peer.clone()), None, None),
             NetworkMessage::NetworkResponse( NetworkResponse::Pong( p2p_peer.clone()), None, None),
             NetworkMessage::NetworkPacket(
-                NetworkPacketEnum::BroadcastedMessage( p2p_peer.clone(), "MSG-ID-1".to_string(),
-                        100 as u16, inner_msg.clone()),
+                NetworkPacketBuilder::default()
+                   .peer( p2p_peer.clone())
+                   .message_id( "MSG-ID-1".to_string())
+                   .network_id( 100 as u16)
+                   .message( inner_msg.clone())
+                   .build_broadcast().unwrap(),
                 None, None),
             NetworkMessage::NetworkPacket(
-                NetworkPacketEnum::DirectMessage( p2p_peer.clone(), "MSG-ID-2".to_string(),
-                        node_id, 100 as u16, inner_msg.clone()),
+                NetworkPacketBuilder::default()
+                    .peer(p2p_peer)
+                    .message_id( "MSG-ID-2".to_string())
+                    .network_id( 100 as u16)
+                    .message( inner_msg)
+                    .build_direct( node_id).unwrap(),
                 None, None)
         ];
 

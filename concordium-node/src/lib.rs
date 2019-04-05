@@ -21,7 +21,31 @@ extern crate cfg_if;
 #[cfg(target_os = "windows")]
 extern crate ipconfig;
 
-use failure;
+#[macro_use]
+extern crate failure;
+extern crate tempfile;
+
+/// # Serialization packets
+/// Benchmark of each serialization requires to enable it on features
+#[cfg(feature = "s11n_serde")]
+extern crate serde;
+
+#[cfg(feature = "s11n_serde_cbor")]
+#[macro_use] extern crate serde_derive;
+
+#[cfg(feature = "s11n_serde_cbor")]
+extern crate serde_cbor;
+
+#[cfg(feature = "s11n_serde_json")]
+extern crate serde_json;
+
+#[cfg(feature = "s11n_capnp")]
+extern crate capnp;
+
+#[cfg(feature = "s11n_nom")]
+#[macro_use] extern crate nom;
+
+
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
@@ -47,6 +71,9 @@ pub mod utils;
 pub mod network;
 pub mod stats_engine;
 pub mod crypto;
+
+#[cfg(feature = "s11n_capnp")]
+pub mod p2p_capnp;
 
 cfg_if! {
     if #[cfg(not(debug_assertions))] {
