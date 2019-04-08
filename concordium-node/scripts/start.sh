@@ -13,7 +13,7 @@ if [ "$MODE" == "tps_receiver" ]; then
     cd $DATA_DIR
     
     /build-project/target/debug/p2p_client-cli \
-    --id 9000000000000000000000000000000000000000000000000000000000000000 \
+    --id $ID \
     --enable-tps-test-recv \
     --listen-port $LISTEN_PORT \
     --num-bakers $NUM_BAKERS \
@@ -50,8 +50,8 @@ elif [ "$MODE" == "tps_sender" ]; then
     # Echo to cron file
 
     /build-project/target/debug/p2p_client-cli \
-    --id 9000000000000000000000000000000000000000000000000000000000000001 \
-    --tps-test-recv-id 9000000000000000000000000000000000000000000000000000000000000000 \
+    --id $ID \
+    --tps-test-recv-id $TPS_RECEIVER_ID \
     --tps-test-data-dir $DATA_DIR/tps_test \
     --listen-port $LISTEN_PORT \
     --num-bakers $NUM_BAKERS \

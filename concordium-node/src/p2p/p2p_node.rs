@@ -115,7 +115,8 @@ impl P2PNode {
             Some(x) => {
                 if x.chars().count() != 44 {
                     panic!(
-                        "Incorrect ID specified. Should be a sha256 value or 43 characters long!"
+                        "Incorrect ID specified. Should be a base64-encoded sha256 value (44 \
+                         characters length)"
                     );
                 }
                 x
