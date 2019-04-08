@@ -608,9 +608,7 @@ impl AppPreferences {
         }
     }
 
-    pub fn get_user_app_dir(&self) -> PathBuf {
-        Self::calculate_data_path(&self.override_data_dir)
-    }
+    pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
 
     pub fn get_user_config_dir(&self) -> PathBuf {
         Self::calculate_config_path(&self.override_config_dir)

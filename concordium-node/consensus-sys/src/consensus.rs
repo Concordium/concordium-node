@@ -528,20 +528,14 @@ impl ConsensusContainer {
 
 extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
     unsafe {
-        let s = slice::from_raw_parts(
-            genesis_data as *const u8,
-            data_length as usize,
-        );
+        let s = slice::from_raw_parts(genesis_data as *const u8, data_length as usize);
         *GENERATED_GENESIS_DATA.write().unwrap() = Some(s.to_owned());
     }
 }
 
 extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, data_length: i64) {
     unsafe {
-        let s = slice::from_raw_parts(
-            private_data as *const u8,
-            data_length as usize,
-        );
+        let s = slice::from_raw_parts(private_data as *const u8, data_length as usize);
         GENERATED_PRIVATE_DATA
             .write()
             .unwrap()
@@ -552,10 +546,7 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
 extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length: i64) {
     debug!("Callback hit - queueing message");
     unsafe {
-        let s = slice::from_raw_parts(
-            block_data as *const u8,
-            data_length as usize,
-        );
+        let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
         match block_type {
             0 => match Block::deserialize(s) {
                 Some(block) => match CALLBACK_QUEUE.clone().send_block(block) {
@@ -566,17 +557,12 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
                 },
                 _ => error!("Deserialization of block failed!"),
             },
-            1 => {
-                match CALLBACK_QUEUE
-                    .clone()
-                    .send_finalization(s.to_owned())
-                {
-                    Ok(_) => {
-                        debug!("Queueing {} bytes of finalization", s.len());
-                    }
-                    _ => error!("Didn't queue finalization message properly"),
+            1 => match CALLBACK_QUEUE.clone().send_finalization(s.to_owned()) {
+                Ok(_) => {
+                    debug!("Queueing {} bytes of finalization", s.len());
                 }
-            }
+                _ => error!("Didn't queue finalization message properly"),
+            },
             2 => {
                 match CALLBACK_QUEUE
                     .clone()

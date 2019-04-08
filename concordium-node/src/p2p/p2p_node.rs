@@ -296,9 +296,11 @@ impl P2PNode {
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
         let seen_messages = self.seen_messages.clone();
-        let own_networks = Arc::clone(&safe_read!(self.tls_server)
-            .expect("Couldn't lock the tls server")
-            .networks());
+        let own_networks = Arc::clone(
+            &safe_read!(self.tls_server)
+                .expect("Couldn't lock the tls server")
+                .networks(),
+        );
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = Arc::clone(&self.send_queue);

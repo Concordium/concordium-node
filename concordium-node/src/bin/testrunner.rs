@@ -317,17 +317,14 @@ impl TestRunner {
         );
         let addr = format!("{}:{}", listen_ip, port);
         thread::spawn(move || {
-            Iron::new(router)
-                .http(addr)
-                .unwrap();
+            Iron::new(router).http(addr).unwrap();
         })
     }
 }
 
 fn main() -> Fallible<()> {
     let conf = configuration::parse_testrunner_config();
-    let mut app_prefs =
-        configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
+    let mut app_prefs = configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
 
     info!(
         "Starting up {}-TestRunner version {}!",

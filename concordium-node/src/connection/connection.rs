@@ -641,9 +641,7 @@ impl Connection {
 
     pub fn mode(&self) -> P2PNodeMode { self.dptr.borrow().mode }
 
-    pub fn buckets(&self) -> Arc<RwLock<Buckets>> {
-        Arc::clone(&self.dptr.borrow().buckets)
-    }
+    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
     pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id.clone() }
 

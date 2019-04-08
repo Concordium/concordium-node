@@ -105,10 +105,7 @@ impl RpcServerImpl {
         let env = Arc::new(Environment::new(1));
         let (listen_addr, listen_port) = (self_clone.listen_addr.clone(), self_clone.listen_port);
         let service = create_p2_p(self_clone);
-        info!(
-            "RPC started on {}:{}",
-            listen_addr, listen_port
-        );
+        info!("RPC started on {}:{}", listen_addr, listen_port);
         let mut server = ServerBuilder::new(env)
             .register_service(service)
             .bind(listen_addr, listen_port)

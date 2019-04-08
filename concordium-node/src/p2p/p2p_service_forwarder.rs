@@ -37,9 +37,7 @@ lazy_static! {
         Arc::new(P2PServiceForwarder::new());
 }
 
-pub fn p2p_service_forwarder() -> Arc<P2PServiceForwarder> {
-    Arc::clone(&P2P_SERVICE_FORWARDER)
-}
+pub fn p2p_service_forwarder() -> Arc<P2PServiceForwarder> { Arc::clone(&P2P_SERVICE_FORWARDER) }
 
 macro_rules! forward_to_targets {
     ($target:expr, $func:ident, $ctx:ident, $req:ident, $sink:ident) => {

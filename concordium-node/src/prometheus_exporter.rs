@@ -234,9 +234,7 @@ impl PrometheusServer {
         );
         let addr = format!("{}:{}", listen_ip, port);
         let _th = thread::spawn(move || {
-            Iron::new(router)
-                .http(addr)
-                .unwrap();
+            Iron::new(router).http(addr).unwrap();
         });
         Ok(())
     }
@@ -267,14 +265,16 @@ impl PrometheusServer {
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(
                 &prometheus_job_name,
-                labels!{
+                labels! {
                     "instance".to_owned() => prometheus_instance_name.clone(),
                     "mode".to_owned() => _mode.clone(),
                 },
                 &prometheus_push_gateway,
                 metrics_families.clone(),
-                username_pass
-            ).map_err(|e| error!("{}", e)).ok();
+                username_pass,
+            )
+            .map_err(|e| error!("{}", e))
+            .ok();
         });
         Ok(())
     }

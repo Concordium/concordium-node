@@ -356,7 +356,5 @@ impl TlsServer {
 }
 
 impl MessageManager for TlsServer {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> {
-        Arc::clone(&self.message_handler)
-    }
+    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { Arc::clone(&self.message_handler) }
 }

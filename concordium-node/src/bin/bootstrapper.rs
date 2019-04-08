@@ -32,8 +32,7 @@ use std::{
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_bootstrapper_config();
-    let app_prefs =
-        configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
+    let app_prefs = configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
 
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")

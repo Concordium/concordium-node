@@ -1,8 +1,5 @@
 use byteorder::{NetworkEndian, WriteBytesExt};
-use std::{
-    cell::RefCell,
-    sync::{mpsc::Sender},
-};
+use std::{cell::RefCell, sync::mpsc::Sender};
 
 use crate::{
     common::{
