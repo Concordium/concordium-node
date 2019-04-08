@@ -5,7 +5,7 @@ use std::{
     io::Cursor,
     net::{IpAddr, Shutdown},
     rc::Rc,
-    sync::{mpsc::Sender, Arc, RwLock},
+    sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
 };
 
 use crate::prometheus_exporter::PrometheusServer;
@@ -35,7 +35,6 @@ use crate::connection::{
     connection_default_handlers::*, connection_handshake_handlers::*,
     connection_private::ConnectionPrivate,
 };
-use std::sync::atomic::Ordering;
 
 /// This macro clones `dptr` and moves it into callback closure.
 /// That closure is just a call to `fn` Fn.
@@ -407,7 +406,13 @@ impl Connection {
         }
 
         if ev_readiness.is_writable() {
-            self.flush_tls();
+            let written_bytes = self.flush_tls()?;
+            if written_bytes > 0 {
+                debug!(
+                    "EV readiness is WRITABLE, {} bytes were written",
+                    written_bytes
+                );
+            }
         }
 
         // Manage clossing event.
@@ -614,24 +619,18 @@ impl Connection {
         self.write_to_tls(&size_vec[..])?;
         self.write_to_tls(pkt)?;
 
-        self.flush_tls();
-        Ok(pkt.len() + 4)
+        self.flush_tls()
     }
 
-    fn flush_tls(&mut self) {
-        let rc = {
-            let mut lptr = self.dptr.borrow_mut();
-            if lptr.tls_session.wants_write() {
-                let mut wr = WriteVAdapter::new(&mut self.socket);
-                lptr.tls_session.writev_tls(&mut wr)
-            } else {
-                Ok(0)
-            }
-        };
-
-        if rc.is_err() {
-            error!("write failed {:?}", rc);
-            self.closing = true;
+    /// It tries to write into socket all pending to write.
+    /// It returns how many bytes were writte into the socket.
+    fn flush_tls(&mut self) -> Fallible<usize> {
+        let mut lptr = self.dptr.borrow_mut();
+        if lptr.tls_session.wants_write() {
+            let mut wr = WriteVAdapter::new(&mut self.socket);
+            into_err!(lptr.tls_session.writev_tls(&mut wr))
+        } else {
+            Ok(0)
         }
     }
 

@@ -14,7 +14,7 @@ mod tests {
         p2p::p2p_node::P2PNode,
         prometheus_exporter::{PrometheusMode, PrometheusServer},
     };
-    use rand::Rng;
+    use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
         sync::{
@@ -791,6 +791,37 @@ mod tests {
         )?;
         let msg_3 = utils::wait_direct_message(&msg_waiter_2)?;
         assert_eq!(msg_3, msg);
+
+        Ok(())
+    }
+
+    #[test]
+    fn e2e_007_rustls_write_would_block() -> Fallible<()> {
+        utils::setup();
+
+        let msg_content: Vec<u8> = thread_rng()
+            .sample_iter(&Standard)
+            .take(16 * 1024 * 1024)
+            .collect();
+        let msg = UCursor::from(msg_content);
+        let networks = [100];
+        let port = utils::next_port_offset(2);
+
+        // 1. Create and connect nodes
+        let (mut node_1, msg_waiter_1) = utils::make_node_and_sync(port, &networks, true)?;
+        let (node_2, msg_waiter_2) = utils::make_node_and_sync(port + 1, &networks, true)?;
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+
+        // 2. Send message from n1 to n2.
+        node_1.send_message_from_cursor(
+            Some(node_2.get_own_id()),
+            100,
+            None,
+            msg.clone(),
+            false,
+        )?;
+        let msg_1 = utils::wait_direct_message(&msg_waiter_2)?;
+        assert_eq!(msg_1, msg);
 
         Ok(())
     }
