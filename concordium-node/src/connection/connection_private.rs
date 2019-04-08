@@ -103,6 +103,8 @@ impl ConnectionPrivate {
         for ele in networks {
             self.networks.insert(*ele);
         }
+        if let Some(ref local_peer) = self.peer {
+            safe_write!(self.buckets).update_network_ids( local_peer,
     }
 
     pub fn remove_network(&mut self, network: &u16) { self.networks.remove(network); }

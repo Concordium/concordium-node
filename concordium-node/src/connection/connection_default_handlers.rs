@@ -186,7 +186,7 @@ pub fn default_network_request_join_network(
     res: &NetworkRequest,
 ) -> FunctorResult {
     if let NetworkRequest::JoinNetwork(ref _sender, ref network) = res {
-        priv_conn.borrow_mut().add_networks(network);
+        priv_conn.borrow_mut().add_network(network);
 
         let priv_conn_borrow = priv_conn.borrow();
         let peer = priv_conn_borrow

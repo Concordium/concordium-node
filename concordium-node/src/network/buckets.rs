@@ -3,6 +3,7 @@ use num_traits::pow;
 use rand::{rngs::OsRng, seq::SliceRandom};
 use std::{
     collections::{HashMap, HashSet},
+    ops::Range,
     sync::RwLock,
 };
 
@@ -17,25 +18,36 @@ pub struct Bucket {
 }
 
 pub struct Buckets {
-    // buckets: HashMap<u16, Vec<Bucket>>,
-    buckets: HashMap<u16, HashMap<P2PPeer, HashSet<u16>>>,
+    buckets: HashMap<u16, Vec<Bucket>>,
+    // buckets: HashMap<u16, HashMap<P2PPeer, HashSet<u16>>>,
+}
+
+fn make_distance_table() -> [Range; KEY_SIZE] {
+    let mut dist_table: [Range; KEY_SIZE] = [(0..1); KEY_SIZE];
+    for i in 0..(KEY_SIZE as usize) {
+        dist_table[i] = Range {
+            start: pow(2_i8.to_biguint().unwrap(), i),
+            end:   pow(2_i8.to_biguint().unwrap(), i + 1),
+        }
+    }
+    dist_table
 }
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
+    static ref DISTANCE_TABLE: [Range; KEY_SIZE] = make_distance_table();
 }
 
 impl Buckets {
     pub fn new() -> Buckets {
-        let mut buckets = HashMap::with_capacity(KEY_SIZE as usize);
+        let mut buckets = HashMap::with_capacity(KEY_SIZE);
         for i in 0..KEY_SIZE {
-            buckets.insert(i, HashMap::new());
+            buckets.insert(i, HashMap::new())
         }
 
         Buckets { buckets }
     }
 
-    #[inline]
     pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> BigUint {
         from.get_id() ^ to.get_id()
     }
@@ -46,6 +58,7 @@ impl Buckets {
             if let Some(bucket_list) = self.buckets.get_mut(&i) {
                 bucket_list.retain(|ref ele| ele.peer != *node);
 
+                if let Ok(index) = DISTANCE_TABLE.binary_search_by(dist) {}
                 if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
                     && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
                 {
