@@ -1,5 +1,3 @@
-use num_bigint::{BigUint, ToBigUint};
-use num_traits::pow;
 use rand::{rngs::OsRng, seq::SliceRandom};
 use std::{collections::HashMap, sync::RwLock};
 
@@ -26,9 +24,7 @@ impl Buckets {
         Buckets { buckets }
     }
 
-    pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> BigUint {
-        from.get_id().to_owned() ^ to.get_id().to_owned()
-    }
+    pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> u64 { from.0 ^ to.0 }
 
     pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
         let dist = self.distance(&own_id, &node.id());
@@ -36,9 +32,7 @@ impl Buckets {
             if let Some(x) = self.buckets.get_mut(&i) {
                 x.retain(|ref ele| ele.0 != *node);
             }
-            if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
-                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
-            {
+            if dist >= 2u64.pow(i as u32) && dist < 2u64.pow(i as u32 + 1) {
                 match self.buckets.get_mut(&i) {
                     Some(x) => {
                         if x.len() >= BUCKET_SIZE as usize {
@@ -74,9 +68,7 @@ impl Buckets {
         let dist = self.distance(&own_id, &id);
         let mut ret: i32 = -1;
         for i in 0..KEY_SIZE {
-            if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
-                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
-            {
+            if dist >= 2u64.pow(i as u32) && dist < 2u64.pow(i as u32 + 1) {
                 ret = i as i32;
             }
         }

@@ -642,7 +642,7 @@ impl Connection {
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id.clone() }
+    pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id }
 
     pub fn peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
 

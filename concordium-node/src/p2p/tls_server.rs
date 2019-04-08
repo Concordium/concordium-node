@@ -201,13 +201,11 @@ impl TlsServer {
             bail!(fails::DuplicatePeerError);
         }
 
-        let target_id = P2PNodeId::from_ip_port(ip, port);
-        if let Some(_rc_conn) = safe_read!(self.dptr)?.find_connection_by_id(&target_id) {
-            bail!(fails::DuplicatePeerError);
-        }
-
         if let Some(ref peer_id) = peer_id_opt {
-            if let Some(_rc_conn) = safe_read!(self.dptr)?.find_connection_by_id(peer_id) {
+            if safe_read!(self.dptr)?
+                .find_connection_by_id(peer_id)
+                .is_some()
+            {
                 bail!(fails::DuplicatePeerError);
             }
         }

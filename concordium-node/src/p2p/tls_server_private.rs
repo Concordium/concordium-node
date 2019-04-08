@@ -131,17 +131,15 @@ impl TlsServerPrivate {
         }
     }
 
-    /// It adds a new connection into each `hashmap` in order to optimice
+    /// It adds a new connection into each `hashmap` in order to optimise
     /// searches.
     pub fn add_connection(&mut self, conn: Connection) {
         let token = conn.token().to_owned();
-        let ip = conn.ip();
-        let port = conn.port();
+        let id = conn.own_id();
 
         let rc_conn = Rc::new(RefCell::new(conn));
 
-        let id = P2PNodeId::from_ip_port(ip, port);
-        self.connections_by_id.insert(id, Rc::clone(&rc_conn));
+        self.connections_by_id.insert(id, rc_conn.clone());
 
         self.connections_by_token.insert(token, rc_conn);
     }
