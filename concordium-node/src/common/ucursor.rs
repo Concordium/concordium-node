@@ -53,23 +53,23 @@ impl UCursorFile {
 /// # TODO
 ///  * Add len to `File` in order to improve `len()` func.
 #[derive(Debug)]
-enum TypeUCursor {
+pub enum UCursor {
     Memory(Cursor<ContainerView>),
     File(UCursorFile),
 }
 
-impl std::cmp::PartialEq for TypeUCursor {
-    fn eq(&self, other: &TypeUCursor) -> bool {
+impl std::cmp::PartialEq for UCursor {
+    fn eq(&self, other: &UCursor) -> bool {
         match self {
-            TypeUCursor::Memory(ref cursor) => {
-                if let TypeUCursor::Memory(ref other_cursor) = other {
+            UCursor::Memory(ref cursor) => {
+                if let UCursor::Memory(ref other_cursor) = other {
                     cursor.get_ref() == other_cursor.get_ref()
                 } else {
                     false
                 }
             }
-            TypeUCursor::File(ref uc_file) => {
-                if let TypeUCursor::File(ref uc_other_file) = other {
+            UCursor::File(ref uc_file) => {
+                if let UCursor::File(ref uc_other_file) = other {
                     uc_file.src_temp_file.path() == uc_other_file.src_temp_file.path()
                         && uc_file.offset == uc_other_file.offset
                 } else {
@@ -80,39 +80,24 @@ impl std::cmp::PartialEq for TypeUCursor {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct UCursor {
-    inner_cursor: TypeUCursor,
-}
-
 impl UCursor {
-    pub fn build_from_temp_file() -> Result<Self> {
-        Ok(UCursor {
-            inner_cursor: TypeUCursor::File(UCursorFile::build()?),
-        })
-    }
+    pub fn build_from_temp_file() -> Result<Self> { Ok(UCursor::File(UCursorFile::build()?)) }
 
     #[inline]
-    pub fn build_from_view(view: ContainerView) -> Self {
-        UCursor {
-            inner_cursor: TypeUCursor::Memory(Cursor::new(view)),
-        }
-    }
+    pub fn build_from_view(view: ContainerView) -> Self { UCursor::Memory(Cursor::new(view)) }
 
     #[inline]
     pub fn sub(&self, offset: u64) -> Result<Self> {
-        let ic = match self.inner_cursor {
-            TypeUCursor::Memory(ref cursor) => {
+        let ic = match self {
+            UCursor::Memory(ref cursor) => {
                 UCursor::build_from_view(cursor.get_ref().sub(offset as usize))
             }
-            TypeUCursor::File(ref uc_file) => {
+            UCursor::File(ref uc_file) => {
                 let mut other = uc_file.try_clone()?;
                 other.offset += offset;
                 other.len -= offset;
 
-                UCursor {
-                    inner_cursor: TypeUCursor::File(other),
-                }
+                UCursor::File(other)
             }
         };
 
@@ -121,18 +106,18 @@ impl UCursor {
 
     #[inline]
     pub fn position(&self) -> u64 {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref cursor) => cursor.position(),
-            TypeUCursor::File(ref uc_file) => uc_file.pos,
+        match self {
+            UCursor::Memory(ref cursor) => cursor.position(),
+            UCursor::File(ref uc_file) => uc_file.pos,
         }
     }
 
     #[inline]
     pub fn set_position(&mut self, pos: u64) -> u64 {
         let prev_position = self.position();
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => cursor.set_position(pos),
-            TypeUCursor::File(ref mut uc_file) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => cursor.set_position(pos),
+            UCursor::File(ref mut uc_file) => {
                 uc_file.pos = pos;
                 let _ = uc_file.file.seek(SeekFrom::Start(pos));
             }
@@ -142,15 +127,15 @@ impl UCursor {
 
     #[inline]
     pub fn len(&self) -> u64 {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref cursor) => cursor.get_ref().len() as u64,
-            TypeUCursor::File(ref uc_file) => uc_file.len,
+        match self {
+            UCursor::Memory(ref cursor) => cursor.get_ref().len() as u64,
+            UCursor::File(ref uc_file) => uc_file.len,
         }
     }
 
     pub fn read_into_view(&mut self, size: usize) -> Result<ContainerView> {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => {
                 let curr_pos = cursor.position() as usize;
                 if curr_pos + size <= cursor.get_ref().len() {
                     let view = cursor.get_ref().sub_range(curr_pos, size);
@@ -160,7 +145,7 @@ impl UCursor {
                     Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
                 }
             }
-            TypeUCursor::File(ref mut uc_file) => {
+            UCursor::File(ref mut uc_file) => {
                 // Generate view and write into it.
                 let mut view_content = Vec::with_capacity(size);
                 unsafe { view_content.set_len(size) };
@@ -187,11 +172,11 @@ impl UCursor {
     }
 
     pub fn clear(&mut self) {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => {
                 cursor.set_position(0);
             }
-            TypeUCursor::File(..) => {
+            UCursor::File(..) => {
                 let mut other =
                     UCursor::build_from_view(ContainerView::from(Vec::with_capacity(4 * 1024)));
                 std::mem::swap(self, &mut other);
@@ -200,11 +185,11 @@ impl UCursor {
     }
 
     pub fn to_file(&mut self) -> Result<()> {
-        if let TypeUCursor::Memory(ref mut cursor) = self.inner_cursor {
+        if let UCursor::Memory(ref mut cursor) = self {
             cursor.set_position(0);
         }
 
-        if let TypeUCursor::Memory(..) = self.inner_cursor {
+        if let UCursor::Memory(..) = self {
             let mut other = UCursor::build_from_temp_file()?;
             std::io::copy(self, &mut other)?;
             other.flush()?;
@@ -217,7 +202,7 @@ impl UCursor {
     pub fn to_memory(&mut self) -> Result<()> {
         let mut data_opt = None;
 
-        if let TypeUCursor::File(ref mut uc_file) = self.inner_cursor {
+        if let UCursor::File(ref mut uc_file) = self {
             // Sync
             uc_file.file.get_mut().sync_all()?;
             uc_file.file.seek(SeekFrom::Start(uc_file.offset))?;
@@ -243,16 +228,14 @@ impl std::clone::Clone for UCursor {
     /// because current implementation is using its `file_path` to open a
     /// new OS descriptor. It will imply `Internal mutability` for files.
     fn clone(&self) -> Self {
-        let c = match self.inner_cursor {
-            TypeUCursor::Memory(ref cursor) => UCursor::build_from_view(cursor.get_ref().clone()),
-            TypeUCursor::File(ref uc_file) => {
+        let c = match self {
+            UCursor::Memory(ref cursor) => UCursor::build_from_view(cursor.get_ref().clone()),
+            UCursor::File(ref uc_file) => {
                 let other_uc_file = uc_file.try_clone().expect(
                     "Unable to clone file cursor, check you have free space on temporary folder",
                 );
 
-                UCursor {
-                    inner_cursor: TypeUCursor::File(other_uc_file),
-                }
+                UCursor::File(other_uc_file)
             }
         };
 
@@ -263,9 +246,9 @@ impl std::clone::Clone for UCursor {
 
 impl std::io::Read for UCursor {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => cursor.read(buf),
-            TypeUCursor::File(ref mut uc_file) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => cursor.read(buf),
+            UCursor::File(ref mut uc_file) => {
                 let bytes_read = uc_file.file.read(buf)?;
                 uc_file.pos += bytes_read as u64;
                 Ok(bytes_read)
@@ -277,9 +260,9 @@ impl std::io::Read for UCursor {
 impl std::io::Write for UCursor {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => cursor.get_mut().write(buf),
-            TypeUCursor::File(ref mut uc_file) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => cursor.get_mut().write(buf),
+            UCursor::File(ref mut uc_file) => {
                 let bytes = uc_file.file.get_mut().write(buf)?;
                 uc_file.pos += bytes as u64;
                 uc_file.len = std::cmp::max(uc_file.len, uc_file.pos + uc_file.offset);
@@ -290,9 +273,9 @@ impl std::io::Write for UCursor {
 
     #[inline]
     fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => cursor.get_mut().write_all(buf),
-            TypeUCursor::File(ref mut uc_file) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => cursor.get_mut().write_all(buf),
+            UCursor::File(ref mut uc_file) => {
                 uc_file.file.get_mut().write_all(buf)?;
                 uc_file.pos += buf.len() as u64;
                 uc_file.len = std::cmp::max(uc_file.len, uc_file.pos + uc_file.offset);
@@ -303,7 +286,7 @@ impl std::io::Write for UCursor {
 
     #[inline]
     fn flush(&mut self) -> Result<()> {
-        if let TypeUCursor::File(ref mut uc_file) = self.inner_cursor {
+        if let UCursor::File(ref mut uc_file) = self {
             uc_file.file.get_mut().flush()
         } else {
             Ok(())
@@ -313,9 +296,9 @@ impl std::io::Write for UCursor {
 
 impl std::io::Seek for UCursor {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        match self.inner_cursor {
-            TypeUCursor::Memory(ref mut cursor) => cursor.seek(pos),
-            TypeUCursor::File(ref mut uc_file) => {
+        match self {
+            UCursor::Memory(ref mut cursor) => cursor.seek(pos),
+            UCursor::File(ref mut uc_file) => {
                 let filtered_pos = match pos {
                     refpos @ SeekFrom::Current(..) => refpos,
                     refpos @ SeekFrom::End(..) => refpos,
