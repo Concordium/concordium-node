@@ -45,7 +45,11 @@ pub struct CliConfig {
     pub listen_port: u16,
     #[structopt(long = "listen-address", short = "l", help = "Address to listen on")]
     pub listen_address: Option<String>,
-    #[structopt(long = "id", short = "i", help = "Set forced node id")]
+    #[structopt(
+        long = "id",
+        short = "i",
+        help = "Set forced node id (SHA256 value in Base64, 44 characters)"
+    )]
     pub id: Option<String>,
     #[structopt(long = "debug", short = "d", help = "Debug mode")]
     pub debug: bool,
@@ -239,7 +243,11 @@ pub struct BootstrapperConfig {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
-    #[structopt(long = "id", short = "i", help = "Own node id")]
+    #[structopt(
+        long = "id",
+        short = "i",
+        help = "Set forced node id (SHA256 value in Base64, 44 characters)"
+    )]
     pub id: String,
     #[structopt(
         long = "listen-port",
@@ -342,7 +350,11 @@ pub struct TestRunnerConfig {
     pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
-    #[structopt(long = "id", short = "i", help = "Own node id")]
+    #[structopt(
+        long = "id",
+        short = "i",
+        help = "Set forced node id (SHA256 value in Base64, 44 characters)"
+    )]
     pub id: Option<String>,
     #[structopt(
         long = "listen-port",
