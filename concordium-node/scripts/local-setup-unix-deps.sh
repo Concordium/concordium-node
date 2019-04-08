@@ -1,8 +1,10 @@
 #!/bin/bash
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	LIBEXTENSION="$LIBEXTENSION"
+        PLATFORM="osx"
 else
 	LIBEXTENSION="so"
+        PLATFORM="linux"
 fi
 sudo rm -f /usr/local/lib/libHSConcordium-*.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libHSlanguage-glsl-*.$LIBEXTENSION
@@ -33,14 +35,16 @@ cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
   sudo cp target/release/libsha_2.$LIBEXTENSION /usr/local/lib &&
   rm -rf target/ )
 
+sudo ldconfig
+
 ( cd deps/internal/consensus &&
   LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic' --force-dirty &&
-  sudo cp .stack-work/install/x86_64-linux-tinfo6/$(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')/8.4.4/lib/x86_64-linux-ghc-8.4.4/libHS*.$LIBEXTENSION /usr/local/lib &&
+  sudo cp .stack-work/install/x86_64-$PLATFORM-tinfo6/$(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')/8.4.4/lib/x86_64-$PLATFORM-ghc-8.4.4/libHS*.$LIBEXTENSION /usr/local/lib &&
   sudo find /usr/local/lib -name libHSConcordium\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSConcordium-0.1.0.0.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSacorn\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSconcordium-crypto\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSconcordium-crypto-0.1.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSglobalstate-\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.$LIBEXTENSION \; &&
-  rm -rf .stack 
+  rm -rf .stack-work
   ) 
 
 sudo ldconfig
