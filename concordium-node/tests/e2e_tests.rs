@@ -650,6 +650,7 @@ mod tests {
         islands_mesh_test(utils::next_port_offset(10) as usize, 3, 3);
     }
 
+    #[ignore]
     #[test]
     pub fn e2e_003_big_mesh_three_islands_net() {
         islands_mesh_test(utils::next_port_offset(20) as usize, 5, 3);
