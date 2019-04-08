@@ -35,7 +35,7 @@ mod tests {
         );
         let p2p_new_replacement_peer = P2PPeer::from(
             ConnectionType::Node,
-            p2p_node_id.clone(),
+            p2p_node_id,
             IpAddr::from_str("127.0.0.1").unwrap(),
             8889,
         );

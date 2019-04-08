@@ -16,7 +16,7 @@ pub fn forward_network_response(
     res: &NetworkResponse,
     queue: &Sender<Arc<NetworkMessage>>,
 ) -> FunctorResult {
-    let outer = Arc::new(NetworkMessage::NetworkResponse(res.clone(), None, None));
+    let outer = Arc::new(NetworkMessage::NetworkResponse(res.to_owned(), None, None));
 
     if let Err(queue_error) = queue.send(outer) {
         warn!("Message cannot be forwarded: {:?}", queue_error);
@@ -30,8 +30,7 @@ pub fn forward_network_request(
     req: &NetworkRequest,
     packet_queue: &Sender<Arc<NetworkMessage>>,
 ) -> FunctorResult {
-    let cloned_req = req.clone();
-    let outer = Arc::new(NetworkMessage::NetworkRequest(cloned_req, None, None));
+    let outer = Arc::new(NetworkMessage::NetworkRequest(req.to_owned(), None, None));
 
     if let Err(e) = packet_queue.send(outer) {
         warn!(
@@ -99,12 +98,12 @@ fn forward_network_packet_message_common(
     if !seen_messages.contains(&pac.message_id) {
         if safe_read!(own_networks)?.contains(&pac.network_id) {
             debug!("Received direct message of size {}", pac.message.len());
-            let outer = Arc::new(NetworkMessage::NetworkPacket(pac.clone(), None, None));
+            let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
             seen_messages.append(&pac.message_id);
             if blind_trust_broadcast {
                 if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                    safe_write!(send_queue)?.push_back(outer.clone());
+                    safe_write!(send_queue)?.push_back(Arc::clone(&outer));
                     if let Some(ref prom) = prometheus_exporter {
                         safe_write!(prom)?
                             .queue_size_inc()

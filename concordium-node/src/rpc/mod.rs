@@ -103,14 +103,15 @@ impl RpcServerImpl {
     pub fn start_server(&mut self) -> Fallible<()> {
         let self_clone = self.clone();
         let env = Arc::new(Environment::new(1));
-        let service = create_p2_p(self_clone.clone());
+        let (listen_addr, listen_port) = (self_clone.listen_addr.clone(), self_clone.listen_port);
+        let service = create_p2_p(self_clone);
         info!(
             "RPC started on {}:{}",
-            self_clone.listen_addr, self_clone.listen_port
+            listen_addr, listen_port
         );
         let mut server = ServerBuilder::new(env)
             .register_service(service)
-            .bind(self_clone.listen_addr, self_clone.listen_port)
+            .bind(listen_addr, listen_port)
             .build()
             .map_err(|_| fails::ServerBuildError)?;
 
@@ -220,7 +221,7 @@ macro_rules! successful_json_response {
             match $inner_match(consensus) {
                 Some(ref res) => {
                     let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
-                    r.set_json_value(res.clone());
+                    r.set_json_value(res.to_owned());
                     let f = $sink
                         .success(r)
                         .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
@@ -507,7 +508,7 @@ impl P2P for RpcServerImpl {
                         .iter()
                         .map(|x| {
                             let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                            peer_resp.set_node_id(x.id.clone());
+                            peer_resp.set_node_id(x.id.to_owned());
                             peer_resp.set_packets_sent(x.sent);
                             peer_resp.set_packets_received(x.received);
                             x.measured_latency()
@@ -649,7 +650,7 @@ impl P2P for RpcServerImpl {
             if let Ok(read_lock_dptr) = self.dptr.read() {
                 if let Ok(msg) = read_lock_dptr.subscription_queue_out.try_recv() {
                     if let NetworkMessage::NetworkPacket(ref packet, ..) = msg {
-                        let mut inner_msg = packet.message.clone();
+                        let mut inner_msg = packet.message.to_owned();
                         let view_inner_msg = inner_msg.read_all_into_view().unwrap();
                         let msg = view_inner_msg.as_slice().to_vec();
 
@@ -667,7 +668,7 @@ impl P2P for RpcServerImpl {
                         };
 
                         r.set_network_id(packet.network_id as u32);
-                        r.set_message_id(packet.message_id.clone());
+                        r.set_message_id(packet.message_id.to_owned());
                         r.set_sender(format!("{:064x}", packet.peer.id().get_id()));
                     } else {
                         r.set_message_none(MessageNone::new());

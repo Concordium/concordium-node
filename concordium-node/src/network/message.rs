@@ -673,7 +673,7 @@ mod unit_test {
 
         let message = NetworkMessage::try_deserialize(
             Some(local_peer.clone()),
-            local_ip.clone(),
+            local_ip,
             cursor_on_disk,
         )?;
 

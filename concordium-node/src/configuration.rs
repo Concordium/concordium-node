@@ -537,14 +537,14 @@ impl AppPreferences {
         }
     }
 
-    fn calculate_config_path(override_path: Option<String>) -> PathBuf {
+    fn calculate_config_path(override_path: &Option<String>) -> PathBuf {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserConfig, &APP_INFO).unwrap(),
         }
     }
 
-    fn calculate_data_path(override_path: Option<String>) -> PathBuf {
+    fn calculate_data_path(override_path: &Option<String>) -> PathBuf {
         match override_path {
             Some(ref path) => PathBuf::from(path),
             None => app_root(AppDataType::UserData, &APP_INFO).unwrap(),
@@ -559,7 +559,7 @@ impl AppPreferences {
                 new_path
             }
             None => {
-                let mut path = Self::calculate_config_path(None);
+                let mut path = Self::calculate_config_path(&None);
                 path.push(&format!("{}.json", key));
                 path
             }
@@ -600,8 +600,8 @@ impl AppPreferences {
 
     pub fn get_config(&self, key: &str) -> Option<String> {
         match safe_read!(self.preferences_map) {
-            Ok(pm) => match pm.get(&key.to_string()) {
-                Some(res) => Some(res.clone()),
+            Ok(pm) => match pm.get(key) {
+                Some(res) => Some(res.to_owned()),
                 _ => None,
             },
             Err(_) => None,
@@ -609,10 +609,10 @@ impl AppPreferences {
     }
 
     pub fn get_user_app_dir(&self) -> PathBuf {
-        Self::calculate_data_path(self.override_data_dir.clone())
+        Self::calculate_data_path(&self.override_data_dir)
     }
 
     pub fn get_user_config_dir(&self) -> PathBuf {
-        Self::calculate_config_path(self.override_config_dir.clone())
+        Self::calculate_config_path(&self.override_config_dir)
     }
 }

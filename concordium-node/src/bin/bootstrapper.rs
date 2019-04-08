@@ -33,7 +33,7 @@ use std::{
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_bootstrapper_config();
     let app_prefs =
-        configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
+        configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
 
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
@@ -177,24 +177,24 @@ fn main() -> Result<(), Error> {
                     info!("Ban node request for {:?}", x);
                     let mut locked_cloned_node = safe_write!(cloned_node)?;
                     let ban = locked_cloned_node
-                        .ban_node(x.clone())
+                        .ban_node(x.to_owned())
                         .map_err(|e| error!("{}", e));
                     if ban.is_ok() {
                         db.insert_ban(&peer.id().to_string(), &peer.ip().to_string(), peer.port());
                         if !_no_trust_bans {
-                            locked_cloned_node.send_ban(x.clone())?;
+                            locked_cloned_node.send_ban(x.to_owned())?;
                         }
                     }
                 }
                 NetworkRequest::UnbanNode(ref peer, ref x) => {
                     info!("Unban node requets for {:?}", x);
                     let req = safe_write!(cloned_node)?
-                        .unban_node(x.clone())
+                        .unban_node(x.to_owned())
                         .map_err(|e| error!("{}", e));
                     if req.is_ok() {
                         db.delete_ban(peer.id().to_string(), peer.ip().to_string(), peer.port());
                         if !_no_trust_bans {
-                            safe_write!(cloned_node)?.send_unban(x.clone())?;
+                            safe_write!(cloned_node)?.send_unban(x.to_owned())?;
                         }
                     }
                 }
@@ -207,13 +207,13 @@ fn main() -> Result<(), Error> {
     if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
             let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
+                instance_id.to_owned()
             } else {
                 safe_write!(node)?.get_own_id().to_string()
             };
             safe_read!(prom)?
                 .start_push_to_gateway(
-                    prom_push_addy.clone(),
+                    prom_push_addy.to_owned(),
                     conf.prometheus_push_interval,
                     conf.prometheus_job_name,
                     instance_name,

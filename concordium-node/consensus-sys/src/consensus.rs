@@ -311,7 +311,7 @@ impl ConsensusOutQueue {
         self.receiver_finalization_record.lock().unwrap().try_recv()
     }
 
-    pub fn clear(self) {
+    pub fn clear(&self) {
         if let Ok(ref mut q) = self.receiver_block.try_lock() {
             debug!("Drained queue for {} element(s)", q.try_iter().count());
         }
@@ -377,7 +377,7 @@ impl ConsensusContainer {
             }
             bakers.remove(&baker_id);
             if bakers.is_empty() {
-                CALLBACK_QUEUE.clone().clear();
+                CALLBACK_QUEUE.clear();
             }
         } else {
             panic!("Can't obtain lock on consensus container bakers");
@@ -716,7 +716,7 @@ mod tests {
         ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
                 match ConsensusContainer::generate_data($genesis_time, $num_bakers) {
-                    Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                    Ok((genesis, private_data)) => (genesis, private_data),
                     _ => panic!("Couldn't read haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);
@@ -727,7 +727,7 @@ mod tests {
             }
 
             let relay_th_guard = Arc::new(RwLock::new(true));
-            let _th_guard = relay_th_guard.clone();
+            let _th_guard = Arc::clone(&relay_th_guard);
             let _th_container = consensus_container.clone();
             let _aux_th = thread::spawn(move || loop {
                 thread::sleep(Duration::from_millis(1_000));
@@ -779,7 +779,7 @@ mod tests {
             debug!("Performing TX test call to Haskell via FFI");
             let (genesis_data, private_data) =
                 match ConsensusContainer::generate_data($genesis_time, 1) {
-                    Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                    Ok((genesis, private_data)) => (genesis, private_data),
                     _ => panic!("Couldn't read haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);

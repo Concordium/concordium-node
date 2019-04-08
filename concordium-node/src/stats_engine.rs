@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct DataPoint {
     size: u64,
     time: u64,
@@ -73,9 +73,9 @@ impl StatsEngine {
             .checked_sub(Duration::from_secs(300))
             .expect("less than 5 minutes spent");
 
-        for point in self.datapoints.clone() {
+        for point in &self.datapoints {
             if Duration::from_millis(point.time) > minusfive {
-                within_slot.push_back(point.clone());
+                within_slot.push_back(point);
             }
         }
 

@@ -41,7 +41,7 @@ impl UCursorFile {
 
     fn try_clone(&self) -> Result<Self> {
         Ok(UCursorFile {
-            src_temp_file: self.src_temp_file.clone(),
+            src_temp_file: Arc::clone(&self.src_temp_file),
             file:          BufReader::new(self.src_temp_file.reopen()?),
             len:           self.len,
             pos:           0,

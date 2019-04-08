@@ -81,7 +81,7 @@ mod s11n {
         let msg = direct.get_msg()?;
 
         let packet = NetworkPacketBuilder::default()
-            .peer(peer.clone())
+            .peer(peer.to_owned())
             .message_id(msg_id.to_string())
             .network_id(network_id)
             .message(UCursor::from(msg.to_vec()))
@@ -468,7 +468,7 @@ mod unit_test {
         let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = vec![];
         for mut message in &mut messages {
             let data: Vec<u8> = save_network_message(&mut message);
-            messages_data.push((data, message.clone()));
+            messages_data.push((data, message));
         }
 
         messages_data
@@ -479,7 +479,7 @@ mod unit_test {
         let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let local_peer = P2PPeerBuilder::default()
             .connection_type(ConnectionType::Node)
-            .ip(local_ip.clone())
+            .ip(local_ip)
             .port(8888)
             .build()
             .unwrap();

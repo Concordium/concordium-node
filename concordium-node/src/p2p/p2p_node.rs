@@ -179,7 +179,7 @@ impl P2PNode {
                                     .as_slice(),
                             ),
                         ) {
-                            Ok(der_keys) => (Certificate(der), der_keys[0].clone()),
+                            Ok(der_keys) => (Certificate(der), der_keys[0].to_owned()),
                             Err(e) => {
                                 panic!("Couldn't convert certificate to DER! {:?}", e);
                             }
@@ -242,7 +242,7 @@ impl P2PNode {
             mode,
             prometheus_exporter.clone(),
             networks,
-            buckets.clone(),
+            Arc::clone(&buckets),
             blind_trusted_broadcast,
         );
 
@@ -296,14 +296,13 @@ impl P2PNode {
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
         let seen_messages = self.seen_messages.clone();
-        let own_networks = safe_read!(self.tls_server)
+        let own_networks = Arc::clone(&safe_read!(self.tls_server)
             .expect("Couldn't lock the tls server")
-            .networks()
-            .clone();
+            .networks());
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
-        let send_queue = self.send_queue.clone();
-        let trusted_broadcast = self.blind_trusted_broadcast.clone();
+        let send_queue = Arc::clone(&self.send_queue);
+        let trusted_broadcast = self.blind_trusted_broadcast;
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
             forward_network_packet_message(
@@ -328,7 +327,7 @@ impl P2PNode {
     fn make_response_handler(&self) -> ResponseHandler {
         let output_handler = self.make_response_output_handler();
         let mut handler = ResponseHandler::new();
-        handler.add_peer_list_callback(output_handler.clone());
+        handler.add_peer_list_callback(output_handler);
         handler
     }
 
@@ -345,9 +344,9 @@ impl P2PNode {
         let mut handler = RequestHandler::new();
 
         handler
-            .add_ban_node_callback(requeue_handler.clone())
-            .add_unban_node_callback(requeue_handler.clone())
-            .add_handshake_callback(requeue_handler.clone());
+            .add_ban_node_callback(Arc::clone(&requeue_handler))
+            .add_unban_node_callback(Arc::clone(&requeue_handler))
+            .add_handshake_callback(Arc::clone(&requeue_handler));
 
         handler
     }
@@ -414,7 +413,7 @@ impl P2PNode {
         port: u16,
         peer_id: Option<P2PNodeId>,
     ) -> Fallible<()> {
-        self.log_event(P2PEvent::InitiatingConnection(ip.clone(), port));
+        self.log_event(P2PEvent::InitiatingConnection(ip, port));
         let mut locked_server = safe_write!(self.tls_server)?;
         let mut locked_poll = safe_write!(self.poll)?;
         locked_server.connect(
@@ -429,7 +428,7 @@ impl P2PNode {
 
     pub fn get_own_id(&self) -> P2PNodeId { self.id.clone() }
 
-    pub fn get_listening_ip(&self) -> IpAddr { self.ip.clone() }
+    pub fn get_listening_ip(&self) -> IpAddr { self.ip }
 
     pub fn get_listening_port(&self) -> u16 { self.port }
 
@@ -448,7 +447,7 @@ impl P2PNode {
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
-        if let Some(ref peer) = conn.peer().clone() {
+        if let Some(ref peer) = conn.peer().to_owned() {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc().unwrap(); // assuming non-failable
@@ -474,7 +473,7 @@ impl P2PNode {
         loop {
             trace!("Processing messages!");
             let outer_pkt = send_q.pop_front();
-            match outer_pkt.clone() {
+            match outer_pkt {
                 Some(ref x) => {
                     if let Some(ref prom) = &self.prometheus_exporter {
                         let ref mut lock = safe_write!(prom)?;
@@ -746,7 +745,7 @@ impl P2PNode {
     #[cfg(not(windows))]
     pub fn get_ip() -> Option<IpAddr> {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
-        let mut ip: IpAddr = localhost.clone();
+        let mut ip: IpAddr = localhost;
 
         for adapter in get_if_addrs::get_if_addrs().unwrap() {
             match adapter.addr.ip() {
@@ -775,7 +774,7 @@ impl P2PNode {
     #[cfg(windows)]
     pub fn get_ip() -> Option<IpAddr> {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
-        let mut ip: IpAddr = localhost.clone();
+        let mut ip: IpAddr = localhost;
 
         for adapter in ipconfig::get_adapters().unwrap() {
             for ip_new in adapter.ip_addresses() {
@@ -807,7 +806,7 @@ impl P2PNode {
         P2PPeer::from(
             ConnectionType::Node,
             self.get_own_id().clone(),
-            self.get_listening_ip().clone(),
+            self.get_listening_ip(),
             self.get_listening_port(),
         )
     }
@@ -836,7 +835,7 @@ impl P2PNode {
                 SERVER => {
                     debug!("Got new connection!");
                     tls_ref
-                        .accept(&mut poll_ref, self.get_self_peer().clone())
+                        .accept(&mut poll_ref, self.get_self_peer())
                         .map_err(|e| error!("{}", e))
                         .ok();
                     if let Some(ref prom) = &self.prometheus_exporter {
@@ -907,7 +906,6 @@ impl MessageManager for P2PNode {
         safe_read!(self.tls_server)
             .expect("Couldn't lock the tls server")
             .message_handler()
-            .clone()
     }
 }
 

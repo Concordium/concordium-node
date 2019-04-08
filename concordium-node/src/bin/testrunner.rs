@@ -226,7 +226,7 @@ impl TestRunner {
                         let return_json = json!({
                             "service_name": "TestRunner",
                             "service_version": p2p_client::VERSION,
-                            "measurements": *inner_vals.clone(),
+                            "measurements": *inner_vals,
                             "test_start_time": *test_start_time,
                             "packet_size": *self.packet_size.lock().expect("Couldn't lock packet size") ,
                         });
@@ -258,22 +258,22 @@ impl TestRunner {
         }
     }
 
-    pub fn start_server(&mut self, listen_ip: &String, port: u16) -> thread::JoinHandle<()> {
+    pub fn start_server(&mut self, listen_ip: &str, port: u16) -> thread::JoinHandle<()> {
         let mut router = Router::new();
         let _self_clone = Arc::new(self.clone());
-        let _self_clone_2 = _self_clone.clone();
-        let _self_clone_3 = _self_clone.clone();
-        let _self_clone_4 = _self_clone.clone();
-        let _self_clone_5 = _self_clone.clone();
-        let _self_clone_6 = _self_clone.clone();
+        let _self_clone_2 = Arc::clone(&_self_clone);
+        let _self_clone_3 = Arc::clone(&_self_clone);
+        let _self_clone_4 = Arc::clone(&_self_clone);
+        let _self_clone_5 = Arc::clone(&_self_clone);
+        let _self_clone_6 = Arc::clone(&_self_clone);
         router.get(
             "/",
-            move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
+            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone).index(),
             "index",
         );
         router.get(
             "/register/:node_id/:packet_id",
-            move |req: &mut Request<'_, '_>| _self_clone_2.clone().register_receipt(req),
+            move |req: &mut Request<'_, '_>| Arc::clone(&_self_clone_2).register_receipt(req),
             "register",
         );
         router.get(
@@ -285,7 +285,7 @@ impl TestRunner {
                 .find("test_packet_size")
             {
                 Some(size_str) => match size_str.parse::<usize>() {
-                    Ok(size) => _self_clone_3.clone().start_test(size),
+                    Ok(size) => Arc::clone(&_self_clone_3).start_test(size),
                     _ => Ok(Response::with((
                         status::BadRequest,
                         "Invalid size for test packet given",
@@ -301,24 +301,24 @@ impl TestRunner {
         router.get(
             "/start_test",
             move |_: &mut Request<'_, '_>| {
-                _self_clone_4.clone().start_test(DEFAULT_TEST_PACKET_SIZE)
+                Arc::clone(&_self_clone_4).start_test(DEFAULT_TEST_PACKET_SIZE)
             },
             "start_test_generic",
         );
         router.get(
             "/reset_test",
-            move |_: &mut Request<'_, '_>| _self_clone_5.clone().reset_test(),
+            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone_5).reset_test(),
             "reset_test",
         );
         router.get(
             "/get_results",
-            move |_: &mut Request<'_, '_>| _self_clone_6.clone().get_results(),
+            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone_6).get_results(),
             "get_results",
         );
-        let _listen = listen_ip.clone();
+        let addr = format!("{}:{}", listen_ip, port);
         thread::spawn(move || {
             Iron::new(router)
-                .http(format!("{}:{}", _listen, port))
+                .http(addr)
                 .unwrap();
         })
     }
@@ -327,7 +327,7 @@ impl TestRunner {
 fn main() -> Fallible<()> {
     let conf = configuration::parse_testrunner_config();
     let mut app_prefs =
-        configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
+        configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
 
     info!(
         "Starting up {}-TestRunner version {}!",
@@ -390,7 +390,7 @@ fn main() -> Fallible<()> {
     };
 
     let node_id = if conf.id.is_some() {
-        conf.id.clone()
+        conf.id
     } else {
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
     };
@@ -495,8 +495,8 @@ fn main() -> Fallible<()> {
                                 .send_message_from_cursor(
                                     None,
                                     pac.network_id,
-                                    Some(pac.message_id.clone()),
-                                    pac.message.clone(),
+                                    Some(pac.message_id.to_owned()),
+                                    pac.message.to_owned(),
                                     true,
                                 )
                                 .map_err(|e| error!("Error sending message {}", e))
@@ -507,13 +507,13 @@ fn main() -> Fallible<()> {
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
                     info!("Ban node request for {:?}", x);
                     let ban = _node_self_clone
-                        .ban_node(x.clone())
+                        .ban_node(x.to_owned())
                         .map_err(|e| error!("{}", e));
                     if ban.is_ok() {
                         db.insert_ban(&peer.id().to_string(), &peer.ip().to_string(), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone
-                                .send_ban(x.clone())
+                                .send_ban(x.to_owned())
                                 .map_err(|e| error!("{}", e))
                                 .ok();
                         }
@@ -522,13 +522,13 @@ fn main() -> Fallible<()> {
                 NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), ..) => {
                     info!("Unban node requets for {:?}", x);
                     let req = _node_self_clone
-                        .unban_node(x.clone())
+                        .unban_node(x.to_owned())
                         .map_err(|e| error!("{}", e));
                     if req.is_ok() {
                         db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
                         if !_no_trust_bans {
                             _node_self_clone
-                                .send_unban(x.clone())
+                                .send_unban(x.to_owned())
                                 .map_err(|e| error!("{}", e))
                                 .ok();
                         }
@@ -600,10 +600,10 @@ fn main() -> Fallible<()> {
     let _desired_nodes_count = conf.desired_nodes;
     let _bootstrappers_conf = conf.bootstrap_server;
     let _dnssec = conf.no_dnssec;
-    let _dns_resolvers = dns_resolvers.clone();
-    let _bootstrap_node = conf.bootstrap_node.clone();
-    let _nids = conf.network_ids.clone();
-    let mut _node_ref_guard_timer = node.clone();
+    let _dns_resolvers = dns_resolvers;
+    let _bootstrap_node = conf.bootstrap_node;
+    let _nids = conf.network_ids;
+    let mut _node_ref_guard_timer = node;
     let _guard_more_peers = thread::spawn(move || loop {
         match _node_ref_guard_timer.get_peer_stats(&vec![]) {
             Ok(ref x) => {
@@ -627,7 +627,7 @@ fn main() -> Fallible<()> {
                     if x.len() == 0 {
                         info!("No nodes at all - retrying bootstrapping");
                         match utils::get_bootstrap_nodes(
-                            _bootstrappers_conf.clone(),
+                            _bootstrappers_conf.to_owned(),
                             &_dns_resolvers,
                             _dnssec,
                             &_bootstrap_node,
@@ -646,7 +646,7 @@ fn main() -> Fallible<()> {
                     } else {
                         info!("Not enough nodes, sending GetPeers requests");
                         _node_ref_guard_timer
-                            .send_get_peers(_nids.clone())
+                            .send_get_peers(_nids.to_owned())
                             .map_err(|e| error!("{}", e))
                             .ok();
                     }

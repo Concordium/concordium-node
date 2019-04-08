@@ -35,7 +35,7 @@ impl ContainerView {
         let valid_len = min(len, data_len - valid_offset);
 
         ContainerView {
-            data:   self.data.clone(),
+            data:   Arc::clone(&self.data),
             offset: valid_offset,
             len:    valid_len,
         }
