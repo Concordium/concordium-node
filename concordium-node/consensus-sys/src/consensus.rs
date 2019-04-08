@@ -326,9 +326,9 @@ impl ConsensusOutQueue {
 
 lazy_static! {
     static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
-    static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> =
-        { Mutex::new(HashMap::new()) };
-    static ref GENERATED_GENESIS_DATA: Mutex<Option<Vec<u8>>> = { Mutex::new(None) };
+    static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
+        { RwLock::new(HashMap::new()) };
+    static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
 #[derive(Clone)]
@@ -417,10 +417,10 @@ impl ConsensusContainer {
         genesis_time: u64,
         num_bakers: u64,
     ) -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
-        if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.lock() {
+        if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
-        if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.lock() {
+        if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.write() {
             lock.clear();
         }
         unsafe {
@@ -432,17 +432,17 @@ impl ConsensusContainer {
             );
         }
         for _ in 0..num_bakers {
-            if !GENERATED_GENESIS_DATA.lock().unwrap().is_some()
-                || GENERATED_PRIVATE_DATA.lock().unwrap().len() < num_bakers as usize
+            if !GENERATED_GENESIS_DATA.read().unwrap().is_some()
+                || GENERATED_PRIVATE_DATA.read().unwrap().len() < num_bakers as usize
             {
                 thread::sleep(time::Duration::from_millis(200));
             }
         }
-        let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
+        let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.write() {
             Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
             _ => return Err("Didn't get genesis from haskell"),
         };
-        if let Ok(priv_data) = GENERATED_PRIVATE_DATA.lock() {
+        if let Ok(priv_data) = GENERATED_PRIVATE_DATA.read() {
             if priv_data.len() < num_bakers as usize {
                 return Err("Didn't get private data from haskell");
             } else {
@@ -532,7 +532,7 @@ extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
             genesis_data as *const u8,
             data_length as usize,
         ));
-        *GENERATED_GENESIS_DATA.lock().unwrap() = Some(s.to_owned().into_bytes());
+        *GENERATED_GENESIS_DATA.write().unwrap() = Some(s.to_owned().into_bytes());
     }
 }
 
@@ -543,7 +543,7 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
             data_length as usize,
         ));
         GENERATED_PRIVATE_DATA
-            .lock()
+            .write()
             .unwrap()
             .insert(baker_id, s.to_owned().into_bytes());
     }
