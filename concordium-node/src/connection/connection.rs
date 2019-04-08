@@ -123,7 +123,6 @@ impl Connection {
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
-        own_networks: Arc<RwLock<Vec<u16>>>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -133,7 +132,6 @@ impl Connection {
             mode,
             own_id,
             self_peer,
-            own_networks,
             buckets,
             tls_server_session,
             tls_client_session,
@@ -648,11 +646,7 @@ impl Connection {
 
     pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
 
-    pub fn networks(&self) -> Vec<u16> { self.dptr.borrow().networks.clone() }
-
     pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
-
-    pub fn own_networks(&self) -> Arc<RwLock<Vec<u16>>> { self.dptr.borrow().own_networks.clone() }
 
     pub fn token(&self) -> &Token { &self.token }
 }

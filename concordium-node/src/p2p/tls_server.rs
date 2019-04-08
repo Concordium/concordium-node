@@ -6,6 +6,7 @@ use mio::{
 };
 use rustls::{ClientConfig, ClientSession, ServerConfig, ServerSession};
 use std::{
+    collections::HashSet,
     net::{IpAddr, SocketAddr},
     rc::Rc,
     sync::{
@@ -59,7 +60,7 @@ impl TlsServer {
         self_peer: P2PPeer,
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-        networks: Vec<u16>,
+        networks: HashSet<u16>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -99,7 +100,8 @@ impl TlsServer {
 
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
-    pub fn networks(&self) -> Arc<RwLock<Vec<u16>>> { self.dptr.read().unwrap().networks.clone() }
+    #[inline]
+    pub fn networks(&self) -> HashSet<u16> { safe_read!(self.dptr).unwrap().networks.clone() }
 
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
         self.dptr.write().unwrap().remove_network(network_id)
@@ -155,7 +157,6 @@ impl TlsServer {
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
-        let networks = self.dptr.read().unwrap().networks.clone();
         let mut conn = Connection::new(
             ConnectionType::Node,
             socket,
@@ -169,7 +170,6 @@ impl TlsServer {
             self.mode,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
-            networks,
             self.buckets.clone(),
             self.blind_trusted_broadcast,
         );
@@ -226,7 +226,6 @@ impl TlsServer {
 
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
-                let networks = self.dptr.read().unwrap().networks.clone();
                 let mut conn = Connection::new(
                     connection_type,
                     x,
@@ -240,7 +239,6 @@ impl TlsServer {
                     self.mode,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
-                    networks.clone(),
                     self.buckets.clone(),
                     self.blind_trusted_broadcast,
                 );
@@ -260,14 +258,10 @@ impl TlsServer {
                 if let Some(ref rc_conn) =
                     self.dptr.read().unwrap().find_connection_by_token(&token)
                 {
+                    let networks = self.networks();
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
-                        &NetworkRequest::Handshake(
-                            self_peer,
-                            safe_read!(networks)?.clone(),
-                            vec![],
-                        )
-                        .serialize(),
+                        &NetworkRequest::Handshake(self_peer, networks, vec![]).serialize(),
                     )?;
                     conn.set_measured_handshake_sent();
                 }

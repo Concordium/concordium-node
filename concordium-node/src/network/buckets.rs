@@ -1,15 +1,24 @@
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::pow;
 use rand::{rngs::OsRng, seq::SliceRandom};
-use std::{collections::HashMap, sync::RwLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::RwLock,
+};
 
 use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
 
 const KEY_SIZE: u16 = 256;
 const BUCKET_SIZE: u8 = 20;
 
+pub struct Bucket {
+    pub peer:     P2PPeer,
+    pub networks: HashSet<u16>,
+}
+
 pub struct Buckets {
-    buckets: HashMap<u16, Vec<(P2PPeer, Vec<u16>)>>,
+    // buckets: HashMap<u16, Vec<Bucket>>,
+    buckets: HashMap<u16, HashMap<P2PPeer, HashSet<u16>>>,
 }
 
 lazy_static! {
@@ -18,38 +27,36 @@ lazy_static! {
 
 impl Buckets {
     pub fn new() -> Buckets {
-        let mut buckets = HashMap::new();
+        let mut buckets = HashMap::with_capacity(KEY_SIZE as usize);
         for i in 0..KEY_SIZE {
-            buckets.insert(i, Vec::new());
+            buckets.insert(i, HashMap::new());
         }
 
         Buckets { buckets }
     }
 
+    #[inline]
     pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> BigUint {
-        from.get_id().clone() ^ to.get_id().clone()
+        from.get_id() ^ to.get_id()
     }
 
-    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
+    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: HashSet<u16>) {
         let dist = self.distance(&own_id, &node.id());
         for i in 0..KEY_SIZE {
-            if let Some(x) = self.buckets.get_mut(&i) {
-                x.retain(|ref ele| ele.0 != *node);
-            }
-            if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
-                && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
-            {
-                match self.buckets.get_mut(&i) {
-                    Some(x) => {
-                        if x.len() >= BUCKET_SIZE as usize {
-                            x.remove(0);
-                        }
-                        x.push((node.clone(), nids.clone()));
-                        break;
+            if let Some(bucket_list) = self.buckets.get_mut(&i) {
+                bucket_list.retain(|ref ele| ele.peer != *node);
+
+                if dist >= pow(2_i8.to_biguint().unwrap(), i as usize)
+                    && dist < pow(2_i8.to_biguint().unwrap(), (i as usize) + 1)
+                {
+                    if bucket_list.len() >= BUCKET_SIZE as usize {
+                        bucket_list.remove(0);
                     }
-                    None => {
-                        error!("Couldn't get bucket as mutable");
-                    }
+                    bucket_list.push(Bucket {
+                        peer:     node.clone(),
+                        networks: nids,
+                    });
+                    break;
                 }
             }
         }

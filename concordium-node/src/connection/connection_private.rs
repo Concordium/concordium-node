@@ -1,8 +1,11 @@
 use rustls::{ClientSession, ServerSession};
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    mpsc::Sender,
-    Arc, RwLock,
+use std::{
+    collections::HashSet,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc::Sender,
+        Arc, RwLock,
+    },
 };
 
 use crate::{
@@ -23,8 +26,7 @@ pub struct ConnectionPrivate {
     pub mode:            P2PNodeMode,
     pub self_peer:       P2PPeer,
     peer:                Option<P2PPeer>,
-    pub networks:        Vec<u16>,
-    pub own_networks:    Arc<RwLock<Vec<u16>>>,
+    pub networks:        HashSet<u16>,
     pub buckets:         Arc<RwLock<Buckets>>,
 
     // Session
@@ -50,7 +52,6 @@ impl ConnectionPrivate {
         mode: P2PNodeMode,
         own_id: P2PNodeId,
         self_peer: P2PPeer,
-        own_networks: Arc<RwLock<Vec<u16>>>,
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
@@ -73,8 +74,7 @@ impl ConnectionPrivate {
             own_id,
             self_peer,
             peer: None,
-            networks: vec![],
-            own_networks,
+            networks: HashSet::new(),
             buckets,
             tls_session,
             last_seen: AtomicU64::new(get_current_stamp()),
@@ -96,15 +96,16 @@ impl ConnectionPrivate {
 
     pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::Relaxed) }
 
+    #[inline]
+    pub fn add_network(&mut self, network: u16) { self.networks.insert(network); }
+
     pub fn add_networks(&mut self, networks: &[u16]) {
         for ele in networks {
-            if !self.networks.contains(ele) {
-                self.networks.push(*ele);
-            }
+            self.networks.insert(*ele);
         }
     }
 
-    pub fn remove_network(&mut self, network: &u16) { self.networks.retain(|x| x != network); }
+    pub fn remove_network(&mut self, network: &u16) { self.networks.remove(network); }
 
     pub fn set_measured_ping_sent(&mut self) { self.sent_ping = get_current_stamp() }
 

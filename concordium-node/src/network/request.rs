@@ -7,6 +7,7 @@ use crate::{
         PROTOCOL_MESSAGE_TYPE_REQUEST_PING, PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE,
     },
 };
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -14,7 +15,7 @@ pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer, P2PNodeId),
     BanNode(P2PPeer, P2PPeer),
-    Handshake(P2PPeer, Vec<u16>, Vec<u8>),
+    Handshake(P2PPeer, HashSet<u16>, Vec<u8>),
     GetPeers(P2PPeer, Vec<u16>),
     UnbanNode(P2PPeer, P2PPeer),
     JoinNetwork(P2PPeer, u16),
