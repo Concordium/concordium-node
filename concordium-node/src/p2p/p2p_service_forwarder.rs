@@ -22,9 +22,10 @@ impl P2PServiceForwarder {
             targets: Arc::new(RwLock::new(Vec::new())),
             service: Arc::new(None),
         };
-        let service = create_p2_p(part_mself.clone());
+        let targets = Arc::clone(&part_mself.targets);
+        let service = create_p2_p(part_mself);
         let mself = P2PServiceForwarder {
-            targets: part_mself.targets.clone(),
+            targets,
             service: Arc::new(Some(service)),
         };
         mself
@@ -36,7 +37,7 @@ lazy_static! {
         Arc::new(P2PServiceForwarder::new());
 }
 
-pub fn p2p_service_forwarder() -> Arc<P2PServiceForwarder> { P2P_SERVICE_FORWARDER.clone() }
+pub fn p2p_service_forwarder() -> Arc<P2PServiceForwarder> { Arc::clone(&P2P_SERVICE_FORWARDER) }
 
 macro_rules! forward_to_targets {
     ($target:expr, $func:ident, $ctx:ident, $req:ident, $sink:ident) => {

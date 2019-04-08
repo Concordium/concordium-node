@@ -311,7 +311,7 @@ impl ConsensusOutQueue {
         self.receiver_finalization_record.lock().unwrap().try_recv()
     }
 
-    pub fn clear(self) {
+    pub fn clear(&self) {
         if let Ok(ref mut q) = self.receiver_block.try_lock() {
             debug!("Drained queue for {} element(s)", q.try_iter().count());
         }
@@ -326,9 +326,9 @@ impl ConsensusOutQueue {
 
 lazy_static! {
     static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
-    static ref GENERATED_PRIVATE_DATA: Mutex<HashMap<i64, Vec<u8>>> =
-        { Mutex::new(HashMap::new()) };
-    static ref GENERATED_GENESIS_DATA: Mutex<Option<Vec<u8>>> = { Mutex::new(None) };
+    static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
+        { RwLock::new(HashMap::new()) };
+    static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
 #[derive(Clone)]
@@ -377,7 +377,7 @@ impl ConsensusContainer {
             }
             bakers.remove(&baker_id);
             if bakers.is_empty() {
-                CALLBACK_QUEUE.clone().clear();
+                CALLBACK_QUEUE.clear();
             }
         } else {
             panic!("Can't obtain lock on consensus container bakers");
@@ -417,10 +417,10 @@ impl ConsensusContainer {
         genesis_time: u64,
         num_bakers: u64,
     ) -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
-        if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.lock() {
+        if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
-        if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.lock() {
+        if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.write() {
             lock.clear();
         }
         unsafe {
@@ -432,17 +432,17 @@ impl ConsensusContainer {
             );
         }
         for _ in 0..num_bakers {
-            if !GENERATED_GENESIS_DATA.lock().unwrap().is_some()
-                || GENERATED_PRIVATE_DATA.lock().unwrap().len() < num_bakers as usize
+            if !GENERATED_GENESIS_DATA.read().unwrap().is_some()
+                || GENERATED_PRIVATE_DATA.read().unwrap().len() < num_bakers as usize
             {
                 thread::sleep(time::Duration::from_millis(200));
             }
         }
-        let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.lock() {
+        let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.write() {
             Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
             _ => return Err("Didn't get genesis from haskell"),
         };
-        if let Ok(priv_data) = GENERATED_PRIVATE_DATA.lock() {
+        if let Ok(priv_data) = GENERATED_PRIVATE_DATA.read() {
             if priv_data.len() < num_bakers as usize {
                 return Err("Didn't get private data from haskell");
             } else {
@@ -528,36 +528,27 @@ impl ConsensusContainer {
 
 extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
     unsafe {
-        let s = str::from_utf8_unchecked(slice::from_raw_parts(
-            genesis_data as *const u8,
-            data_length as usize,
-        ));
-        *GENERATED_GENESIS_DATA.lock().unwrap() = Some(s.to_owned().into_bytes());
+        let s = slice::from_raw_parts(genesis_data as *const u8, data_length as usize);
+        *GENERATED_GENESIS_DATA.write().unwrap() = Some(s.to_owned());
     }
 }
 
 extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, data_length: i64) {
     unsafe {
-        let s = str::from_utf8_unchecked(slice::from_raw_parts(
-            private_data as *const u8,
-            data_length as usize,
-        ));
+        let s = slice::from_raw_parts(private_data as *const u8, data_length as usize);
         GENERATED_PRIVATE_DATA
-            .lock()
+            .write()
             .unwrap()
-            .insert(baker_id, s.to_owned().into_bytes());
+            .insert(baker_id, s.to_owned());
     }
 }
 
 extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length: i64) {
     debug!("Callback hit - queueing message");
     unsafe {
-        let s = str::from_utf8_unchecked(slice::from_raw_parts(
-            block_data as *const u8,
-            data_length as usize,
-        ));
+        let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
         match block_type {
-            0 => match Block::deserialize(s.as_bytes()) {
+            0 => match Block::deserialize(s) {
                 Some(block) => match CALLBACK_QUEUE.clone().send_block(block) {
                     Ok(_) => {
                         debug!("Queueing {} block bytes", data_length);
@@ -566,21 +557,16 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
                 },
                 _ => error!("Deserialization of block failed!"),
             },
-            1 => {
-                match CALLBACK_QUEUE
-                    .clone()
-                    .send_finalization(s.to_owned().into_bytes())
-                {
-                    Ok(_) => {
-                        debug!("Queueing {} bytes of finalization", s.len());
-                    }
-                    _ => error!("Didn't queue finalization message properly"),
+            1 => match CALLBACK_QUEUE.clone().send_finalization(s.to_owned()) {
+                Ok(_) => {
+                    debug!("Queueing {} bytes of finalization", s.len());
                 }
-            }
+                _ => error!("Didn't queue finalization message properly"),
+            },
             2 => {
                 match CALLBACK_QUEUE
                     .clone()
-                    .send_finalization_record(s.to_owned().into_bytes())
+                    .send_finalization_record(s.to_owned())
                 {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization record", s.len());
@@ -716,7 +702,7 @@ mod tests {
         ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
                 match ConsensusContainer::generate_data($genesis_time, $num_bakers) {
-                    Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                    Ok((genesis, private_data)) => (genesis, private_data),
                     _ => panic!("Couldn't read haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);
@@ -727,7 +713,7 @@ mod tests {
             }
 
             let relay_th_guard = Arc::new(RwLock::new(true));
-            let _th_guard = relay_th_guard.clone();
+            let _th_guard = Arc::clone(&relay_th_guard);
             let _th_container = consensus_container.clone();
             let _aux_th = thread::spawn(move || loop {
                 thread::sleep(Duration::from_millis(1_000));
@@ -779,7 +765,7 @@ mod tests {
             debug!("Performing TX test call to Haskell via FFI");
             let (genesis_data, private_data) =
                 match ConsensusContainer::generate_data($genesis_time, 1) {
-                    Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+                    Ok((genesis, private_data)) => (genesis, private_data),
                     _ => panic!("Couldn't read haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);

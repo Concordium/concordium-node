@@ -27,7 +27,7 @@ impl Buckets {
     }
 
     pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> BigUint {
-        from.get_id().clone() ^ to.get_id().clone()
+        from.get_id().to_owned() ^ to.get_id().to_owned()
     }
 
     pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
@@ -44,7 +44,7 @@ impl Buckets {
                         if x.len() >= BUCKET_SIZE as usize {
                             x.remove(0);
                         }
-                        x.push((node.clone(), nids.clone()));
+                        x.push((node.to_owned(), nids.clone()));
                         break;
                     }
                     None => {
@@ -60,7 +60,7 @@ impl Buckets {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
                     x.retain(|ref ele| ele.0 != *node);
-                    x.push((node.clone(), nids.clone()));
+                    x.push((node.to_owned(), nids.clone()));
                     break;
                 }
                 None => {
@@ -96,7 +96,7 @@ impl Buckets {
             if count < KEY_SIZE {
                 for peer in bucket {
                     if count < KEY_SIZE {
-                        ret.push(peer.0.clone());
+                        ret.push(peer.0.to_owned());
                         count += 1;
                     } else {
                         break;
@@ -146,7 +146,7 @@ impl Buckets {
                             && peer.0.connection_type() == ConnectionType::Node
                             && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
                         {
-                            ret.push(peer.0.clone());
+                            ret.push(peer.0.to_owned());
                         }
                     }
                 }
@@ -157,7 +157,7 @@ impl Buckets {
                         if peer.0.connection_type() == ConnectionType::Node
                             && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
                         {
-                            ret.push(peer.0.clone());
+                            ret.push(peer.0.to_owned());
                         }
                     }
                 }

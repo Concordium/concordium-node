@@ -17,17 +17,17 @@ pub fn handshake_response_handle(
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.sent_handshake = get_current_stamp();
             priv_conn_mut.add_networks(nets);
-            priv_conn_mut.set_peer(rpeer.clone());
+            priv_conn_mut.set_peer(rpeer.to_owned());
         }
 
         let priv_conn_borrow = priv_conn.borrow();
         let conn_type = priv_conn_borrow.connection_type;
-        let own_id = priv_conn_borrow.own_id.clone();
-        let bucket_sender = P2PPeer::from(conn_type, rpeer.id().clone(), rpeer.ip(), rpeer.port());
+        let own_id = priv_conn_borrow.own_id.to_owned();
+        let bucket_sender = P2PPeer::from(conn_type, rpeer.id(), rpeer.ip(), rpeer.port());
         safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(
             &bucket_sender,
             &own_id,
-            nets.clone(),
+            nets.to_owned(),
         );
 
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
@@ -52,7 +52,7 @@ pub fn handshake_request_handle(
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.add_networks(nets);
-            priv_conn_mut.set_peer(sender.clone());
+            priv_conn_mut.set_peer(sender.to_owned());
         }
         send_handshake_and_ping(priv_conn)?;
         {

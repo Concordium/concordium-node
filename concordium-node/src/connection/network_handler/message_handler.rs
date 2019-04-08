@@ -67,27 +67,27 @@ impl MessageHandler {
     /// It merges into `this` all parsers from `other` `MessageHandler`.
     pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
         for cb in other.general_parser.callbacks().iter() {
-            self.add_callback(cb.clone());
+            self.add_callback(Arc::clone(&cb));
         }
 
         for cb in other.packet_parser.callbacks().iter() {
-            self.add_packet_callback(cb.clone());
+            self.add_packet_callback(Arc::clone(&cb));
         }
 
         for cb in other.response_parser.callbacks().iter() {
-            self.add_response_callback(cb.clone());
+            self.add_response_callback(Arc::clone(&cb));
         }
 
         for cb in other.request_parser.callbacks().iter() {
-            self.add_request_callback(cb.clone());
+            self.add_request_callback(Arc::clone(&cb));
         }
 
         for cb in other.unknown_parser.callbacks().iter() {
-            self.add_unknown_callback(cb.clone());
+            self.add_unknown_callback(Arc::clone(&cb));
         }
 
         for cb in other.invalid_parser.callbacks().iter() {
-            self.add_invalid_callback(cb.clone());
+            self.add_invalid_callback(Arc::clone(&cb));
         }
         self
     }

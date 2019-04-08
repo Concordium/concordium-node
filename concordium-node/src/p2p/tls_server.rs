@@ -99,7 +99,9 @@ impl TlsServer {
 
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
-    pub fn networks(&self) -> Arc<RwLock<Vec<u16>>> { self.dptr.read().unwrap().networks.clone() }
+    pub fn networks(&self) -> Arc<RwLock<Vec<u16>>> {
+        Arc::clone(&self.dptr.read().unwrap().networks)
+    }
 
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
         self.dptr.write().unwrap().remove_network(network_id)
@@ -155,7 +157,7 @@ impl TlsServer {
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
-        let networks = self.dptr.read().unwrap().networks.clone();
+        let networks = self.networks();
         let mut conn = Connection::new(
             ConnectionType::Node,
             socket,
@@ -164,13 +166,13 @@ impl TlsServer {
             None,
             self.own_id.clone(),
             self_id,
-            addr.ip().clone(),
-            addr.port().clone(),
+            addr.ip(),
+            addr.port(),
             self.mode,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
             networks,
-            self.buckets.clone(),
+            Arc::clone(&self.buckets),
             self.blind_trusted_broadcast,
         );
         self.register_message_handlers(&mut conn);
@@ -226,7 +228,7 @@ impl TlsServer {
 
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
-                let networks = self.dptr.read().unwrap().networks.clone();
+                let networks = self.networks();
                 let mut conn = Connection::new(
                     connection_type,
                     x,
@@ -240,8 +242,8 @@ impl TlsServer {
                     self.mode,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
-                    networks.clone(),
-                    self.buckets.clone(),
+                    Arc::clone(&networks),
+                    Arc::clone(&self.buckets),
                     self.blind_trusted_broadcast,
                 );
 
@@ -255,7 +257,7 @@ impl TlsServer {
                     ip.to_string(),
                     port
                 );
-                let self_peer = self.get_self_peer().clone();
+                let self_peer = self.get_self_peer();
 
                 if let Some(ref rc_conn) =
                     self.dptr.read().unwrap().find_connection_by_token(&token)
@@ -354,5 +356,5 @@ impl TlsServer {
 }
 
 impl MessageManager for TlsServer {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { self.message_handler.clone() }
+    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { Arc::clone(&self.message_handler) }
 }

@@ -99,7 +99,7 @@ impl TlsServerPrivate {
                 if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
                     ret.push(PeerStatistic::new(
                         x.id().to_string(),
-                        x.ip().clone(),
+                        x.ip(),
                         x.port(),
                         conn.get_messages_sent(),
                         conn.get_messages_received(),
@@ -134,14 +134,14 @@ impl TlsServerPrivate {
     /// It adds a new connection into each `hashmap` in order to optimice
     /// searches.
     pub fn add_connection(&mut self, conn: Connection) {
-        let token = conn.token().clone();
+        let token = conn.token().to_owned();
         let ip = conn.ip();
         let port = conn.port();
 
         let rc_conn = Rc::new(RefCell::new(conn));
 
         let id = P2PNodeId::from_ip_port(ip, port);
-        self.connections_by_id.insert(id, rc_conn.clone());
+        self.connections_by_id.insert(id, Rc::clone(&rc_conn));
 
         self.connections_by_token.insert(token, rc_conn);
     }
@@ -243,7 +243,7 @@ impl TlsServerPrivate {
             .for_each(|ref rc_conn| {
                 let mut conn = rc_conn.borrow_mut();
 
-                let self_peer = conn.get_self_peer().clone();
+                let self_peer = conn.get_self_peer().to_owned();
                 conn.serialize_bytes(&NetworkRequest::Ping(self_peer).serialize())
                     .map_err(|e| error!("{}", e))
                     .ok();

@@ -40,7 +40,7 @@ pub fn default_network_request_ping_handle(
         // Make `Pong` response and send
         let peer = priv_conn_borrow
             .peer()
-            .clone()
+            .to_owned()
             .ok_or_else(|| make_fn_error_peer("Couldn't get peer"))?;
 
         NetworkResponse::Pong(peer.clone()).serialize()
@@ -65,7 +65,7 @@ pub fn default_network_request_find_node_handle(
             let priv_conn_borrow = priv_conn.borrow();
             let peer = priv_conn_borrow
                 .peer()
-                .clone()
+                .to_owned()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
             let nodes = safe_read!(priv_conn_borrow.buckets)?.closest_nodes(node_id);
             NetworkResponse::FindNode(peer, nodes).serialize()
@@ -103,7 +103,7 @@ pub fn default_network_request_get_peers(
 
             let peer = priv_conn_borrow
                 .peer()
-                .clone()
+                .to_owned()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
             NetworkResponse::PeerList(peer, nodes).serialize()
         };
@@ -146,7 +146,7 @@ pub fn default_network_response_pong(
     priv_conn: &RefCell<ConnectionPrivate>,
     _res: &NetworkResponse,
 ) -> FunctorResult {
-    let ping: u64 = priv_conn.borrow().sent_ping.clone();
+    let ping: u64 = priv_conn.borrow().sent_ping;
     let curr: u64 = get_current_stamp();
 
     if curr >= ping {
@@ -192,7 +192,7 @@ pub fn default_network_request_join_network(
         let priv_conn_borrow = priv_conn.borrow();
         let peer = priv_conn_borrow
             .peer()
-            .clone()
+            .to_owned()
             .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
         let priv_conn_networks = priv_conn_borrow.networks.clone();
 
@@ -214,7 +214,7 @@ pub fn default_network_request_leave_network(
         let priv_conn_borrow = priv_conn.borrow();
         let peer = priv_conn_borrow
             .peer()
-            .clone()
+            .to_owned()
             .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
 
         safe_write!(priv_conn_borrow.buckets)?

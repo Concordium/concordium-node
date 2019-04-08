@@ -23,8 +23,8 @@ pub type AFunctorCW<T> = Arc<RwLock<FunctorCW<T>>>;
 /// };
 ///
 /// let acc = Rc::new(RefCell::new(58));
-/// let acc_1 = acc.clone();
-/// let acc_2 = acc.clone();
+/// let acc_1 = Rc::clone(&acc);
+/// let acc_2 = Rc::clone(&acc);
 ///
 /// let mut ph = AFunctor::new("Closures");
 ///
@@ -73,7 +73,7 @@ impl<T> AFunctor<T> {
         let mut status: Vec<Error> = vec![];
 
         for i in 0..self.callbacks.len() {
-            let cb = self.callbacks[i].clone();
+            let cb = self.callbacks[i].to_owned();
 
             if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => (*locked_cb)(message),
@@ -146,8 +146,8 @@ mod afunctor_unit_test {
     #[test]
     pub fn test_parse_hadler_complex_closure() {
         let shd_counter = Rc::new(RefCell::new(0));
-        let shd_counter_1 = shd_counter.clone();
-        let shd_counter_2 = shd_counter.clone();
+        let shd_counter_1 = Rc::clone(&shd_counter);
+        let shd_counter_2 = Rc::clone(&shd_counter);
 
         let mut ph = AFunctor::new("Complex Closure");
 
