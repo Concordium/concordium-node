@@ -100,7 +100,7 @@ invariantSkovData SkovData{..} = do
                 checkRemoveTransaction Nothing = Left $ "Missing transaction: " ++ show tr
                 checkRemoveTransaction (Just tr')
                     | tr == tr' = return Nothing
-                    | otherwise = Left $ "Finalized transaction mismatch:\n" ++ show tr ++ "\n" ++ show "tr'"
+                    | otherwise = Left $ "Finalized transaction mismatch:\n" ++ show tr ++ "\n" ++ show tr'
         finSes = FinalizationSessionId (bpHash _skovGenesisBlockPointer) 0
         finCom = makeFinalizationCommittee (genesisFinalizationParameters _skovGenesisData)
         notDead BlockDead = False

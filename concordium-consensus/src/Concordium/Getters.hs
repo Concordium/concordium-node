@@ -14,6 +14,8 @@ import Concordium.Skov.Monad
 import Concordium.Logger
 
 import qualified Acorn.Types as AT
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.Information
 
 import Data.IORef
 import Text.Read hiding (get)
@@ -37,25 +39,25 @@ getLastFinalState sfsRef = do
     sfs <- readIORef sfsRef
     runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
 
-getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AT.AccountAddress]
+getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AccountAddress]
 getLastFinalAccountList sfsRef = (HashMap.keys . AT.accounts) <$> getLastFinalState sfsRef
 
-getLastFinalInstances :: IORef SkovFinalizationState -> IO [AT.ContractAddress]
+getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
 getLastFinalInstances sfsRef = (HashMap.keys . AT.instances) <$> getLastFinalState sfsRef
 
-getLastFinalAccountInfo :: IORef SkovFinalizationState -> AT.AccountAddress -> IO (Maybe AT.AccountInfo)
+getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
 getLastFinalAccountInfo sfsRef addr = do
   maybeAccount <- (HashMap.lookup addr . AT.accounts) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just acc -> return $ Just (AT.AccountInfo (AT.anonce acc) (AT.aamount acc))
+    Just acc -> return $ Just (AccountInfo (AT.accountNonce acc) (AT.accountAmount acc))
 
-getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe AT.InstanceInfo)
+getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
   maybeAccount <- (HashMap.lookup addr . AT.instances) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just is -> return $ Just (AT.InstanceInfo (AT.imsgTy is) (AT.lState is) (AT.iamount is))
+    Just is -> return $ Just (InstanceInfo (AT.imsgTy is) (AT.lState is) (AT.iamount is))
 
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
