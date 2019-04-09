@@ -261,7 +261,7 @@ impl std::io::Write for UCursor {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         match self {
-            UCursor::Memory(ref mut cursor) => cursor.get_mut().write(buf),
+            UCursor::Memory(_) => unimplemented!(), // we don't write to memory
             UCursor::File(ref mut uc_file) => {
                 let bytes = uc_file.file.get_mut().write(buf)?;
                 uc_file.pos += bytes as u64;
@@ -274,7 +274,7 @@ impl std::io::Write for UCursor {
     #[inline]
     fn write_all(&mut self, buf: &[u8]) -> Result<()> {
         match self {
-            UCursor::Memory(ref mut cursor) => cursor.get_mut().write_all(buf),
+            UCursor::Memory(_) => unimplemented!(), // we don't write to memory
             UCursor::File(ref mut uc_file) => {
                 uc_file.file.get_mut().write_all(buf)?;
                 uc_file.pos += buf.len() as u64;
