@@ -37,6 +37,7 @@ packages:
 - Concordium
 - crypto
 - acorn
+- scheduler
 - globalstate-mockup/globalstate-types
 - globalstate-mockup/globalstate
 

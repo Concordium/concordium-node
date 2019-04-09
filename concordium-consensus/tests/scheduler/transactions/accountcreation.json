@@ -1,0 +1,13 @@
+[
+    {
+        "payload": {
+            "transactionType": "CreateAccount",
+            "verifyKey16" : "1jyjLAXRgJ3kJZnLpSB2wagBRrdi"
+        },
+        "metadata": {
+            "nonce" : 1,
+            "sender": "1mcCFDQBgpb8936qeGXaukCqttwu",
+            "gasAmount": 123
+        }
+    }
+]

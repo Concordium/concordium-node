@@ -1,0 +1,41 @@
+ [
+    {
+        "payload": {
+            "moduleName": "FibContract",
+            "transactionType": "DeployModule"
+        },
+        "metadata": {
+            "nonce" : 1,
+            "sender": "1jyjLAXRgJ3kJZnLpSB2wagBRrdi",
+            "gasAmount": 1000
+        }
+    },
+    {
+        "payload": {
+            "moduleName": "FibContract",
+            "parameter": "Unit.Unit",
+            "transactionType": "InitContract",
+            "amount": 100,
+            "contractName": "Fibonacci"
+        },
+        "metadata": {
+            "nonce" : 2,
+            "sender": "1jyjLAXRgJ3kJZnLpSB2wagBRrdi",
+            "gasAmount": 1000
+        }
+    },
+    {
+        "payload": {
+            "moduleName": "FibContract",
+            "message": "Fib 30 <0,0>",
+            "transactionType": "Update",
+            "amount": 0,
+            "address": { "contractIndex" : 0, "contractVersion" : 0 }
+        },
+        "metadata": {
+            "nonce" : 3,
+            "sender": "1jyjLAXRgJ3kJZnLpSB2wagBRrdi",
+            "gasAmount": 1000000
+        }
+    }
+]

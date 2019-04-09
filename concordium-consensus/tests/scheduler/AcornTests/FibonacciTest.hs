@@ -1,0 +1,88 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_GHC -Wall #-}
+module AcornTests.FibonacciTest where
+
+import Test.Hspec
+
+import qualified Concordium.ID.AccountHolder as AH
+import qualified Concordium.ID.Types as AH
+import qualified Concordium.Crypto.Signature as S
+import System.Random
+
+import qualified Acorn.Types as Types
+import qualified Acorn.EnvironmentImplementation as Types
+import qualified Acorn.Utils.Init as Init
+import qualified Acorn.Parser.Runner as PR
+import qualified Acorn.Scheduler as Sch
+import qualified Acorn.Core as Core
+
+import qualified Data.HashMap.Strict as Map
+
+import qualified Data.Text.IO as TIO
+import qualified Data.ByteString.Lazy.Char8 as BSL
+
+import Control.Monad.IO.Class
+import Data.Maybe
+import qualified Data.List as List
+import Data.Int
+
+shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
+shouldReturnP action f = action >>= (`shouldSatisfy` f)
+
+alesACI :: AH.AccountCreationInformation
+alesACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 1))))
+
+alesAccount :: Types.AccountAddress
+alesAccount = AH.accountAddress alesACI
+
+initialGlobalState :: Types.GlobalState
+initialGlobalState = (Types.GlobalState Map.empty (Map.fromList [(alesAccount, Types.Account alesAccount 1 1000000000 alesACI)])
+                      (let (_, _, gs) = Init.baseState in gs))
+
+testFibonacci ::
+  PR.Context
+    IO
+    ([(Types.MessageTy, Types.ValidResult)],
+     [(Types.MessageTy, Types.FailureKind)],
+     Map.HashMap Types.ContractAddress Types.Instance)
+testFibonacci = do
+    source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
+    (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
+    transactionsText <- liftIO $ BSL.readFile "test/transactions/fibonaccitransactions.json"
+    transactions <- PR.processTransactions transactionsText
+    let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
+                                         Types.dummyChainMeta
+                                         initialGlobalState
+    return (suc, fails, Types.instances gs)
+
+fib :: [Int64]
+fib = 1:1:zipWith (+) fib (tail fib)
+
+checkFibonacciResult ::
+  ([(a, Types.ValidResult)], [b], Map.HashMap Types.ContractAddress Types.Instance) -> Bool
+checkFibonacciResult (suc, fails, instances) =
+  null fails && -- should be no failed transactions
+  length reject == 0 && -- no rejected transactions either
+  Map.size instances == 1 && -- only a single contract instance should be created
+  Map.member (Types.ContractAddress 0 0) instances && -- and it should have the 0, 0 index
+  checkLocalState (instances Map.! Types.ContractAddress 0 0) -- and the local state should match the 
+  where
+    reject = filter (\case (_, Types.TxSuccess _) -> False
+                           (_, Types.TxReject _) -> True
+                    )
+                        suc
+    checkLocalState (Types.Instance{..}) = do
+      case lState of
+        Types.VDict mp ->
+          let results = List.sort (mapMaybe (\case (Types.VLiteral (Core.Int64 i)) -> Just i
+                                                   _ -> Nothing) (Map.elems mp))
+          in results == take 31 fib
+        _ -> False
+
+tests :: SpecWith ()
+tests =
+  describe "Fibonacci with self reference." $ do
+    specify "Check first 31 fibonacci are correct." $ do
+      PR.evalContext Init.initialContextData testFibonacci `shouldReturnP` checkFibonacciResult

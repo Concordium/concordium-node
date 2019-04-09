@@ -1,0 +1,27 @@
+ [
+    {
+        "payload": {
+            "moduleName": "ChainMetaTest",
+            "transactionType": "DeployModule"
+        },
+        "metadata": {
+            "nonce" : 1,
+            "sender": "1jyjLAXRgJ3kJZnLpSB2wagBRrdi",
+            "gasAmount": 1000
+        }
+    },
+    {
+        "payload": {
+            "moduleName": "ChainMetaTest",
+            "parameter": "Unit.Unit",
+            "transactionType": "InitContract",
+            "amount": 100,
+            "contractName": "Simple"
+        },
+        "metadata": {
+            "nonce" : 2,
+            "sender": "1jyjLAXRgJ3kJZnLpSB2wagBRrdi",
+            "gasAmount": 1000
+        }
+    }
+]
