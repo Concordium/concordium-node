@@ -1,8 +1,5 @@
 use byteorder::{NetworkEndian, WriteBytesExt};
-use std::{
-    cell::RefCell,
-    sync::{mpsc::Sender, Arc},
-};
+use std::{cell::RefCell, sync::mpsc::Sender};
 
 use crate::{
     common::{
@@ -59,7 +56,7 @@ pub fn log_as_joined_network(
 ) -> FunctorResult {
     if let Some(ref log) = event_log {
         for ele in networks.iter() {
-            log.send(P2PEvent::JoinedNetwork(peer.clone(), *ele))
+            log.send(P2PEvent::JoinedNetwork(peer.to_owned(), *ele))
                 .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
         }
     }
@@ -73,7 +70,7 @@ pub fn log_as_leave_network(
     network: u16,
 ) -> FunctorResult {
     if let Some(ref log) = event_log {
-        log.send(P2PEvent::LeftNetwork(sender.clone(), network))
+        log.send(P2PEvent::LeftNetwork(sender.to_owned(), network))
             .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
     };
     Ok(())
@@ -83,8 +80,8 @@ pub fn log_as_leave_network(
 pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = safe_read!(Arc::clone(&priv_conn_borrow.own_networks))?.clone();
-        let self_peer = priv_conn_borrow.self_peer.clone();
+        let my_nets = safe_read!(&priv_conn_borrow.own_networks)?.to_owned();
+        let self_peer = priv_conn_borrow.self_peer.to_owned();
         (my_nets, self_peer)
     };
 
@@ -120,7 +117,7 @@ pub fn send_peer_list(
         );
 
         let self_peer = &priv_conn_borrow.self_peer;
-        NetworkResponse::PeerList(self_peer.clone(), random_nodes).serialize()
+        NetworkResponse::PeerList(self_peer.to_owned(), random_nodes).serialize()
     };
 
     serialize_bytes(&mut priv_conn.borrow_mut().tls_session, &data)?;

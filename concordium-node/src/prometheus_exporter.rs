@@ -99,17 +99,17 @@ impl PrometheusServer {
 
         PrometheusServer {
             mode,
-            registry: registry.clone(),
-            pkts_received_counter: prc.clone(),
-            pkts_sent_counter: psc.clone(),
-            peers_gauge: pg.clone(),
-            connections_received: cr.clone(),
-            unique_ips_seen: uis.clone(),
-            invalid_packets_received: ipr.clone(),
-            unknown_packets_received: upr.clone(),
-            invalid_network_packets_received: inpr.clone(),
-            queue_size: qs.clone(),
-            queue_resent: qrs.clone(),
+            registry,
+            pkts_received_counter: prc,
+            pkts_sent_counter: psc,
+            peers_gauge: pg,
+            connections_received: cr,
+            unique_ips_seen: uis,
+            invalid_packets_received: ipr,
+            unknown_packets_received: upr,
+            invalid_network_packets_received: inpr,
+            queue_size: qs,
+            queue_resent: qrs,
         }
     }
 
@@ -221,22 +221,20 @@ impl PrometheusServer {
     pub fn start_server(&mut self, listen_ip: &String, port: u16) -> Fallible<()> {
         let mut router = Router::new();
         let _self_clone = Arc::new(self.clone());
-        let _self_clone_2 = _self_clone.clone();
+        let _self_clone_2 = Arc::clone(&_self_clone);
         router.get(
             "/",
-            move |_: &mut Request<'_, '_>| _self_clone.clone().index(),
+            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone).index(),
             "index",
         );
         router.get(
             "/metrics",
-            move |_: &mut Request<'_, '_>| _self_clone_2.clone().metrics(),
+            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone_2).metrics(),
             "metrics",
         );
-        let _listen = listen_ip.clone();
+        let addr = format!("{}:{}", listen_ip, port);
         let _th = thread::spawn(move || {
-            Iron::new(router)
-                .http(format!("{}:{}", _listen, port))
-                .unwrap();
+            Iron::new(router).http(addr).unwrap();
         });
         Ok(())
     }
@@ -250,22 +248,33 @@ impl PrometheusServer {
         prometheus_push_username: Option<String>,
         prometheus_push_password: Option<String>,
     ) -> Fallible<()> {
-        let _registry = self.registry.clone();
-        let _mode = self.mode.clone();
+        let metrics_families = self.registry.gather();
+        let _mode = self.mode.to_string();
+
         let _th = thread::spawn(move || loop {
             let username_pass =
                 if prometheus_push_username.is_some() && prometheus_push_password.is_some() {
                     Some(prometheus::BasicAuthentication {
-                        username: prometheus_push_username.clone().unwrap().to_owned(),
-                        password: prometheus_push_password.clone().unwrap().to_owned(),
+                        username: prometheus_push_username.clone().unwrap(),
+                        password: prometheus_push_username.clone().unwrap(),
                     })
                 } else {
                     None
                 };
             debug!("Pushing data to push gateway");
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
-            let metrics_families = _registry.gather();
-            prometheus::push_metrics(&prometheus_job_name, labels!{"instance".to_owned() => prometheus_instance_name.clone(), "mode".to_owned() => _mode.to_string(),}, &prometheus_push_gateway, metrics_families, username_pass).map_err(|e| error!("{}", e)).ok();
+            prometheus::push_metrics(
+                &prometheus_job_name,
+                labels! {
+                    "instance".to_owned() => prometheus_instance_name.clone(),
+                    "mode".to_owned() => _mode.clone(),
+                },
+                &prometheus_push_gateway,
+                metrics_families.clone(),
+                username_pass,
+            )
+            .map_err(|e| error!("{}", e))
+            .ok();
         });
         Ok(())
     }

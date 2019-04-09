@@ -671,11 +671,8 @@ mod unit_test {
             .port(8888)
             .build()?;
 
-        let message = NetworkMessage::try_deserialize(
-            Some(local_peer.clone()),
-            local_ip.clone(),
-            cursor_on_disk,
-        )?;
+        let message =
+            NetworkMessage::try_deserialize(Some(local_peer.clone()), local_ip, cursor_on_disk)?;
 
         if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {

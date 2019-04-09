@@ -35,9 +35,9 @@ impl PeerStatistic {
 
     pub fn received(&self) -> u64 { self.received }
 
-    pub fn measured_latency(&self) -> Option<u64> { self.measured_latency.clone() }
+    pub fn measured_latency(&self) -> Option<u64> { self.measured_latency }
 
-    pub fn ip(&self) -> IpAddr { self.ip.clone() }
+    pub fn ip(&self) -> IpAddr { self.ip }
 
     pub fn port(&self) -> u16 { self.port }
 }

@@ -43,7 +43,7 @@ use std::{
 fn main() -> Fallible<()> {
     let conf = configuration::parse_cli_config();
     let mut app_prefs =
-        configuration::AppPreferences::new(conf.config_dir.clone(), conf.data_dir.clone());
+        configuration::AppPreferences::new(conf.config_dir.to_owned(), conf.data_dir.to_owned());
 
     let env = if conf.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
@@ -103,7 +103,7 @@ fn main() -> Fallible<()> {
     } else if conf.prometheus_push_gateway.is_some() {
         info!(
             "Enabling prometheus push gateway at {}",
-            &conf.prometheus_push_gateway.clone().unwrap()
+            &conf.prometheus_push_gateway.to_owned().unwrap()
         );
         let srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(RwLock::new(srv)))
@@ -160,7 +160,7 @@ fn main() -> Fallible<()> {
         });
         P2PNode::new(
             node_id,
-            conf.listen_address.clone(),
+            conf.listen_address.to_owned(),
             conf.listen_port,
             external_ip,
             conf.external_port,
@@ -168,14 +168,14 @@ fn main() -> Fallible<()> {
             Some(sender),
             mode_type,
             prometheus.clone(),
-            conf.network_ids.clone(),
+            conf.network_ids.to_owned(),
             conf.min_peers_bucket,
             !conf.no_trust_broadcasts,
         )
     } else {
         P2PNode::new(
             node_id,
-            conf.listen_address.clone(),
+            conf.listen_address.to_owned(),
             conf.listen_port,
             external_ip,
             conf.external_port,
@@ -183,7 +183,7 @@ fn main() -> Fallible<()> {
             None,
             mode_type,
             prometheus.clone(),
-            conf.network_ids.clone(),
+            conf.network_ids.to_owned(),
             conf.min_peers_bucket,
             !conf.no_trust_broadcasts,
         )
@@ -233,9 +233,9 @@ fn main() -> Fallible<()> {
             node.clone(),
             db.clone(),
             baker.clone(),
-            conf.rpc_server_addr.clone(),
+            conf.rpc_server_addr,
             conf.rpc_server_port,
-            conf.rpc_server_token.clone(),
+            conf.rpc_server_token,
         );
         serv.start_server()?;
         rpc_serv = Some(serv);
@@ -247,7 +247,7 @@ fn main() -> Fallible<()> {
     let _no_trust_broadcasts = conf.no_trust_broadcasts;
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.desired_nodes;
-    let _test_runner_url = conf.test_runner_url.clone();
+    let _test_runner_url = conf.test_runner_url;
     let mut _baker_pkt_clone = baker.clone();
     let _tps_test_enabled = conf.enable_tps_test;
     let mut _stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
@@ -355,7 +355,7 @@ fn main() -> Fallible<()> {
                             }
                         };
                         if let Err(e) =
-                            send_msg_to_baker(&mut _baker_pkt_clone, pac.message.clone())
+                            send_msg_to_baker(&mut _baker_pkt_clone, pac.message.to_owned())
                         {
                             error!("Send network message to baker has failed: {:?}", e);
                         }
@@ -367,7 +367,7 @@ fn main() -> Fallible<()> {
                     ) => {
                         info!("Ban node request for {:?}", x);
                         let ban = _node_self_clone
-                            .ban_node(x.clone())
+                            .ban_node(x.to_owned())
                             .map_err(|e| error!("{}", e));
                         if ban.is_ok() {
                             db.insert_ban(
@@ -377,7 +377,7 @@ fn main() -> Fallible<()> {
                             );
                             if !_no_trust_bans {
                                 _node_self_clone
-                                    .send_ban(x.clone())
+                                    .send_ban(x.to_owned())
                                     .map_err(|e| error!("{}", e))
                                     .ok();
                             }
@@ -389,7 +389,7 @@ fn main() -> Fallible<()> {
                     ) => {
                         info!("Unban node requets for {:?}", x);
                         let req = _node_self_clone
-                            .unban_node(x.clone())
+                            .unban_node(x.to_owned())
                             .map_err(|e| error!("{}", e));
                         if req.is_ok() {
                             db.delete_ban(
@@ -399,7 +399,7 @@ fn main() -> Fallible<()> {
                             );
                             if !_no_trust_bans {
                                 _node_self_clone
-                                    .send_unban(x.clone())
+                                    .send_unban(x.to_owned())
                                     .map_err(|e| error!("{}", e))
                                     .ok();
                             }
@@ -459,18 +459,18 @@ fn main() -> Fallible<()> {
     if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
             let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
+                instance_id.to_owned()
             } else {
                 node.get_own_id().to_string()
             };
             safe_read!(prom)?
                 .start_push_to_gateway(
-                    prom_push_addy.clone(),
+                    prom_push_addy.to_owned(),
                     conf.prometheus_push_interval,
-                    conf.prometheus_job_name.clone(),
+                    conf.prometheus_job_name,
                     instance_name,
-                    conf.prometheus_push_username.clone(),
-                    conf.prometheus_push_password.clone(),
+                    conf.prometheus_push_username,
+                    conf.prometheus_push_password,
                 )
                 .map_err(|e| error!("{}", e))
                 .ok();
@@ -515,12 +515,12 @@ fn main() -> Fallible<()> {
 
     let _desired_nodes_count = conf.desired_nodes;
     let _no_net_clone = conf.no_network;
-    let _bootstrappers_conf = conf.bootstrap_server.clone();
+    let _bootstrappers_conf = conf.bootstrap_server;
     let _dnssec = conf.no_dnssec;
-    let _dns_resolvers = dns_resolvers.clone();
-    let _bootstrap_node = conf.bootstrap_node.clone();
+    let _dns_resolvers = dns_resolvers;
+    let _bootstrap_node = conf.bootstrap_node;
     let _nids = conf.network_ids.clone();
-    let _no_boostrap_dns = conf.no_boostrap_dns.clone();
+    let _no_boostrap_dns = conf.no_boostrap_dns;
     let mut _node_ref_guard_timer = node.clone();
     let _guard_timer = thread::spawn(move || loop {
         match _node_ref_guard_timer.get_peer_stats(&vec![]) {
@@ -583,9 +583,9 @@ fn main() -> Fallible<()> {
     });
 
     if let Some(ref mut baker) = baker {
-        let mut _baker_clone = baker.clone();
+        let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = conf.network_ids.first().unwrap().clone(); // defaulted so there's always first()
+        let _network_id = conf.network_ids.first().unwrap().to_owned(); // defaulted so there's always first()
         thread::spawn(move || loop {
             match _baker_clone.out_queue().recv_block() {
                 Ok(x) => match x.serialize() {
@@ -615,7 +615,7 @@ fn main() -> Fallible<()> {
                 _ => error!("Error receiving block from baker"),
             }
         });
-        let _baker_clone_2 = baker.clone();
+        let _baker_clone_2 = baker.to_owned();
         let mut _node_ref_2 = node.clone();
         thread::spawn(move || loop {
             match _baker_clone_2.out_queue().recv_finalization() {
@@ -636,7 +636,7 @@ fn main() -> Fallible<()> {
                 _ => error!("Error receiving finalization packet from baker"),
             }
         });
-        let _baker_clone_3 = baker.clone();
+        let _baker_clone_3 = baker.to_owned();
         let mut _node_ref_3 = node.clone();
         thread::spawn(move || loop {
             match _baker_clone_3.out_queue().recv_finalization_record() {
@@ -662,10 +662,10 @@ fn main() -> Fallible<()> {
     // TPS test
 
     if let Some(ref tps_test_recv_id) = conf.tps_test_recv_id {
-        let mut _id_clone = tps_test_recv_id.clone();
-        let mut _dir_clone = conf.tps_test_data_dir.clone();
+        let mut _id_clone = tps_test_recv_id.to_owned();
+        let mut _dir_clone = conf.tps_test_data_dir.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = conf.network_ids.first().unwrap().clone();
+        let _network_id = conf.network_ids.first().unwrap().to_owned();
         thread::spawn(move || {
             let mut done = false;
             while !done {
@@ -728,7 +728,7 @@ fn get_baker_data(
             conf.baker_genesis,
             conf.baker_num_bakers,
         ) {
-            Ok((genesis, private_data)) => (genesis.clone(), private_data.clone()),
+            Ok((genesis, private_data)) => (genesis, private_data),
             Err(_) => return Err("Error generating genesis and/or private baker data via haskell!"),
         }
     } else {
@@ -742,7 +742,7 @@ fn get_baker_data(
             .open(&genesis_loc)
         {
             Ok(mut file) => match file.write_all(&generated_genesis) {
-                Ok(_) => generated_genesis.clone(),
+                Ok(_) => generated_genesis,
                 Err(_) => return Err("Couldn't write out genesis data"),
             },
             Err(_) => return Err("Couldn't open up genesis file for writing"),
@@ -773,7 +773,7 @@ fn get_baker_data(
                     Ok(_) => {
                         generated_private_data.get(&(conf.baker_id.unwrap() as i64))
                                               .unwrap()
-                                              .clone()
+                                              .to_owned()
                     }
                     Err(_) => return Err("Couldn't write out private baker data"),
                 }
@@ -785,7 +785,7 @@ fn get_baker_data(
             Ok(mut file) => {
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
-                    Ok(_) => read_data.clone().to_vec(),
+                    Ok(_) => read_data,
                     Err(_) => return Err("Couldn't open up private baker file for reading"),
                 }
             }

@@ -66,7 +66,7 @@ impl Buckets {
                         bucket_list.remove(0);
                     }
                     bucket_list.push(Bucket {
-                        peer:     node.clone(),
+                        peer:     node.to_owned(),
                         networks: nids,
                     });
                     break;
@@ -80,7 +80,7 @@ impl Buckets {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
                     x.retain(|ref ele| ele.peer != *node);
-                    x.push( Bucket{ peer: node.clone(), networks: network_ids.clone()});
+                    x.push( Bucket{ peer: node.to_owned(), networks: network_ids.to_owned()});
                     break;
                 }
                 None => {
@@ -114,7 +114,7 @@ impl Buckets {
             if count < KEY_SIZE {
                 for bucket in bucket_list {
                     if count < KEY_SIZE {
-                        ret.push(bucket.peer.clone());
+                        ret.push(bucket.peer.to_owned());
                         count += 1;
                     } else {
                         break;
@@ -165,7 +165,7 @@ impl Buckets {
                             && bucket.peer.connection_type() == ConnectionType::Node
                             && (networks.is_empty() || networks.iter().any( |net_id| bucket.networks.contains(net_id)))
                         {
-                            ret.push(bucket.peer.clone());
+                            ret.push(bucket.peer.to_owned());
                         }
                     }
                 }
@@ -176,7 +176,7 @@ impl Buckets {
                         if bucket.peer.connection_type() == ConnectionType::Node
                             && (networks.is_empty() || networks.iter().any( |net_id| bucket.networks.contains(net_id)))
                         {
-                            ret.push(bucket.peer.clone());
+                            ret.push(bucket.peer.to_owned());
                         }
                     }
                 }

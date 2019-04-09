@@ -40,7 +40,7 @@ use crate::connection::{
 /// That closure is just a call to `fn` Fn.
 macro_rules! handle_by_private {
     ($dptr:expr, $message_type:ty, $fn:ident) => {{
-        let dptr_cloned = $dptr.clone();
+        let dptr_cloned = Rc::clone(&$dptr);
         make_atomic_callback!(move |m: $message_type| { $fn(&dptr_cloned, m) })
     }};
 }
@@ -192,7 +192,7 @@ impl Connection {
     // ============================
 
     fn make_update_last_seen_handler<T>(&self) -> AFunctorCW<T> {
-        let priv_conn = self.dptr.clone();
+        let priv_conn = Rc::clone(&self.dptr);
 
         make_atomic_callback!(move |_: &T| -> FunctorResult {
             priv_conn.borrow_mut().update_last_seen();
@@ -232,10 +232,10 @@ impl Connection {
         .add_handshake_callback(make_atomic_callback!(move |m: &NetworkRequest| {
             default_network_request_handshake(m)
         }))
-        .add_ban_node_callback(update_last_seen_handler.clone())
-        .add_unban_node_callback(update_last_seen_handler.clone())
-        .add_join_network_callback(update_last_seen_handler.clone())
-        .add_leave_network_callback(update_last_seen_handler.clone());
+        .add_ban_node_callback(Arc::clone(&update_last_seen_handler))
+        .add_unban_node_callback(Arc::clone(&update_last_seen_handler))
+        .add_join_network_callback(Arc::clone(&update_last_seen_handler))
+        .add_leave_network_callback(Arc::clone(&update_last_seen_handler));
 
         rh
     }
@@ -313,9 +313,9 @@ impl Connection {
 
     pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
 
-    pub fn ip(&self) -> IpAddr { self.peer_ip.clone() }
+    pub fn ip(&self) -> IpAddr { self.peer_ip }
 
-    pub fn port(&self) -> u16 { self.peer_port.clone() }
+    pub fn port(&self) -> u16 { self.peer_port }
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
@@ -331,7 +331,7 @@ impl Connection {
 
     pub fn get_self_peer(&self) -> P2PPeer { self.dptr.borrow().self_peer.clone() }
 
-    fn get_remote_peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().clone() }
+    fn get_remote_peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received }
 
@@ -638,11 +638,11 @@ impl Connection {
 
     pub fn mode(&self) -> P2PNodeMode { self.dptr.borrow().mode }
 
-    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { self.dptr.borrow().buckets.clone() }
+    pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
     pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id.clone() }
 
-    pub fn peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().clone() }
+    pub fn peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
 
     pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
 

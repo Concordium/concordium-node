@@ -102,6 +102,7 @@ impl TlsServer {
 
     #[inline]
     pub fn networks(&self) -> HashSet<u16> { safe_read!(self.dptr).unwrap().networks.clone() }
+    }
 
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
         self.dptr.write().unwrap().remove_network(network_id)
@@ -165,12 +166,12 @@ impl TlsServer {
             None,
             self.own_id.clone(),
             self_id,
-            addr.ip().clone(),
-            addr.port().clone(),
+            addr.ip(),
+            addr.port(),
             self.mode,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
-            self.buckets.clone(),
+            Arc::clone(&self.buckets),
             self.blind_trusted_broadcast,
         );
         self.register_message_handlers(&mut conn);
@@ -239,7 +240,7 @@ impl TlsServer {
                     self.mode,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
-                    self.buckets.clone(),
+                    Arc::clone(&self.buckets),
                     self.blind_trusted_broadcast,
                 );
 
@@ -253,7 +254,7 @@ impl TlsServer {
                     ip.to_string(),
                     port
                 );
-                let self_peer = self.get_self_peer().clone();
+                let self_peer = self.get_self_peer();
 
                 if let Some(ref rc_conn) =
                     self.dptr.read().unwrap().find_connection_by_token(&token)
@@ -348,5 +349,5 @@ impl TlsServer {
 }
 
 impl MessageManager for TlsServer {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { self.message_handler.clone() }
+    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { Arc::clone(&self.message_handler) }
 }
