@@ -11,10 +11,11 @@ import qualified Concordium.ID.Types as AH
 import qualified Concordium.Crypto.Signature as S
 import System.Random
 
-import qualified Acorn.Types as Types
+import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
-import Acorn.Parser.Runner as PR
+import Concordium.Scheduler.Runner
+import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler.Scheduler as Sch
 import qualified Acorn.Core as Core
 
@@ -51,7 +52,7 @@ transactionsInput =
                                   , moduleName = "FibContract"
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
-                                 }
+                                  }
         , metadata = Types.Header { sender = alesAccount
                                   , nonce = 2
                                   , gasAmount = 1000}}
@@ -75,7 +76,7 @@ testFibonacci ::
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactions <- PR.processTransactions transactionsInput
+    transactions <- processTransactions transactionsInput
     let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
                                          Types.dummyChainMeta
                                          initialGlobalState

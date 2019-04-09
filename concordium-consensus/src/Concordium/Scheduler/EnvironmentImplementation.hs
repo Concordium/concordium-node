@@ -11,7 +11,7 @@ import Data.HashMap.Strict as Map
 import Control.Monad.Reader
 import Control.Monad.RWS.Strict
 
-import Acorn.Types
+import Concordium.Scheduler.Types
 
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWS ChainMetadata () GlobalState a }
     deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState GlobalState)

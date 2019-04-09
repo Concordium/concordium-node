@@ -11,7 +11,7 @@ import qualified Concordium.Crypto.Signature as S
 import Concordium.GlobalState.Types
 import qualified Concordium.ID.AccountHolder as AH
 import qualified Concordium.ID.Types as AH
-import qualified Acorn.Types as Types
+import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 
 import Data.Maybe(fromJust)

@@ -11,10 +11,11 @@ import qualified Concordium.ID.Types as AH
 import qualified Concordium.Crypto.Signature as S
 import System.Random
 
-import qualified Acorn.Types as Types
+import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
-import Acorn.Parser.Runner as PR
+import Concordium.Scheduler.Runner
+import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler.Scheduler as Sch
 
 import qualified Data.HashMap.Strict as Map
@@ -114,7 +115,7 @@ testCommCounter ::
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
-    transactions <- PR.processTransactions transactionsInput
+    transactions <- processTransactions transactionsInput
     let (suc, fails) = Types.evalSI (Sch.makeValidBlock transactions)
                                     Types.dummyChainMeta
                                     initialGlobalState

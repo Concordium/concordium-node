@@ -49,7 +49,7 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
     -> (Core.Type Core.ModuleRef) -- ^The type of messages its receive function supports.
     -> Value -- ^The initial local state of the instance.
     -> Amount -- ^And the initial amount of GTUs
-    -> Map (ModuleRef, Core.TyName) ImplementsValue   -- ^And the set of constraints it supports.
+    -> Map.HashMap (Core.ModuleRef, Core.TyName) ImplementsValue   -- ^And the set of constraints it supports.
     -> m ContractAddress
 
   -- |Create new account in the global state. Return @False@ if the account was
@@ -89,8 +89,8 @@ class StaticEnvironmentMonad m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {newAccounts :: Map AccountAddress Account
-    ,newContractStates :: Map ContractAddress (Amount, Value)
+    {newAccounts :: Map.HashMap AccountAddress Account
+    ,newContractStates :: Map.HashMap ContractAddress (Amount, Value)
     }
 
 emptyCS :: ChangeSet

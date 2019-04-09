@@ -160,7 +160,7 @@ handleInit
      -> m (Either
              FailureKind
              (Either InvalidKind
-                (UpdateType, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount, Map (Core.ModuleRef, Core.TyName) ImplementsValue)),
+                (UpdateType, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount, Map.HashMap (Core.ModuleRef, Core.TyName) ImplementsValue)),
            Energy)
 handleInit meta senderAmount amount modref cname param energy = do
   if senderAmount >= amount then do
