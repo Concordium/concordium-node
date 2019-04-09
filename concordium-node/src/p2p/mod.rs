@@ -44,3 +44,6 @@ mod tests {
         assert_eq!(bucket.len(), 1);
     }
 }
+
+pub use self::tls_server::TlsServer;
+pub use self::tls_server_private::TlsServerPrivate;

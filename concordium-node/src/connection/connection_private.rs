@@ -52,6 +52,7 @@ impl ConnectionPrivate {
         mode: P2PNodeMode,
         own_id: P2PNodeId,
         self_peer: P2PPeer,
+        networks: &HashSet<u16>,
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
@@ -74,7 +75,7 @@ impl ConnectionPrivate {
             own_id,
             self_peer,
             peer: None,
-            networks: HashSet::new(),
+            networks: networks.clone(),
             buckets,
             tls_session,
             last_seen: AtomicU64::new(get_current_stamp()),
@@ -99,12 +100,10 @@ impl ConnectionPrivate {
     #[inline]
     pub fn add_network(&mut self, network: u16) { self.networks.insert(network); }
 
-    pub fn add_networks(&mut self, networks: &[u16]) {
-        for ele in networks {
+    pub fn add_networks(&mut self, networks: &HashSet<u16>) {
+        for ele in networks.iter() {
             self.networks.insert(*ele);
         }
-        if let Some(ref local_peer) = self.peer {
-            safe_write!(self.buckets).update_network_ids( local_peer,
     }
 
     pub fn remove_network(&mut self, network: &u16) { self.networks.remove(network); }

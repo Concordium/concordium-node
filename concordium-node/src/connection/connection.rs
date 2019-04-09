@@ -5,10 +5,10 @@ use std::{
     io::Cursor,
     net::{IpAddr, Shutdown},
     rc::Rc,
+    collections::HashSet,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
 };
 
-use crate::prometheus_exporter::PrometheusServer;
 use mio::{net::TcpStream, Event, Poll, PollOpt, Ready, Token};
 use rustls::{ClientSession, ServerSession};
 
@@ -24,9 +24,11 @@ use crate::{
         Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     },
+    prometheus_exporter::PrometheusServer,
+    connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
+    p2p::TlsServerPrivate
 };
 
-use crate::connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler};
 
 use super::fails;
 #[cfg(not(target_os = "windows"))]
@@ -84,6 +86,7 @@ pub enum ConnectionStatus {
 }
 
 pub struct Connection {
+    tls:                     Arc<RwLock<TlsServerPrivate>>,
     socket:                  TcpStream,
     token:                   Token,
     pub closing:             bool,
@@ -111,6 +114,7 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(
+        tls: Arc<RwLock<TlsServerPrivate>>,
         connection_type: ConnectionType,
         socket: TcpStream,
         token: Token,
@@ -127,11 +131,14 @@ impl Connection {
         blind_trusted_broadcast: bool,
     ) -> Self {
         let curr_stamp = get_current_stamp();
+        let own_networks = safe_read!(tls).unwrap().networks();
+
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             connection_type,
             mode,
             own_id,
             self_peer,
+            own_networks,
             buckets,
             tls_server_session,
             tls_client_session,
@@ -141,6 +148,7 @@ impl Connection {
         )));
 
         let mut lself = Connection {
+            tls,
             socket,
             token,
             closing: false,
@@ -647,6 +655,8 @@ impl Connection {
     pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
 
     pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
+
+    pub fn own_networks(&self) -> &HashSet<u16> { &self.dptr.borrow().networks }
 
     pub fn token(&self) -> &Token { &self.token }
 }

@@ -1,5 +1,9 @@
 use byteorder::{NetworkEndian, WriteBytesExt};
-use std::{cell::RefCell, sync::mpsc::Sender};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    sync::mpsc::Sender
+};
 
 use crate::{
     common::{
@@ -52,11 +56,11 @@ pub fn serialize_bytes(session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> Func
 pub fn log_as_joined_network(
     event_log: &Option<Sender<P2PEvent>>,
     peer: &P2PPeer,
-    networks: &[u16],
+    networks: HashSet<u16>,
 ) -> FunctorResult {
     if let Some(ref log) = event_log {
-        for ele in networks.iter() {
-            log.send(P2PEvent::JoinedNetwork(peer.to_owned(), *ele))
+        for net_id in networks.iter() {
+            log.send(P2PEvent::JoinedNetwork(peer.to_owned(), *net_id))
                 .map_err(|_| make_log_error("Join Network Event cannot be sent to log"))?;
         }
     }
@@ -80,7 +84,7 @@ pub fn log_as_leave_network(
 pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = safe_read!(&priv_conn_borrow.own_networks)?.to_owned();
+        let my_nets = priv_conn_borrow.own_networks.clone();
         let self_peer = priv_conn_borrow.self_peer.to_owned();
         (my_nets, self_peer)
     };
@@ -101,7 +105,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
 pub fn send_peer_list(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
-    nets: &[u16],
+    nets: &HashSet<u16>,
 ) -> FunctorResult {
     debug!(
         "Running in bootstrapper mode, so instantly sending peers {} random peers",
@@ -137,7 +141,7 @@ pub fn send_peer_list(
 pub fn update_buckets(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
-    nets: &[u16],
+    nets: &HashSet<u16>,
 ) -> FunctorResult {
     let priv_conn_borrow = priv_conn.borrow();
     let own_id = &priv_conn_borrow.own_id;

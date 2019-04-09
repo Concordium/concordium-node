@@ -55,7 +55,7 @@ impl Buckets {
         from.get_id() ^ to.get_id()
     }
 
-    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: P2PNodeId, nids: HashSet<u16>) {
+    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: HashSet<u16>) {
         let index_opt = self.find_bucket_id( own_id, node.id());
         for i in 0..KEY_SIZE as u16 {
             if let Some(bucket_list) = self.buckets.get_mut(&i) {
@@ -90,7 +90,7 @@ impl Buckets {
         }
     }
 
-    fn find_bucket_id(&self, own_id: P2PNodeId, id: P2PNodeId) -> Option<usize> {
+    fn find_bucket_id(&self, own_id: &P2PNodeId, id: P2PNodeId) -> Option<usize> {
         // TODO
         let dist = self.distance(&own_id, &id).to_u64().unwrap_or( 0u64);
 
@@ -154,7 +154,7 @@ impl Buckets {
         }
     }
 
-    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &[u16]) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &HashSet<u16>) -> Vec<P2PPeer> {
         let mut ret: Vec<P2PPeer> = Vec::new();
 
         match sender {
@@ -163,7 +163,7 @@ impl Buckets {
                     for bucket in bucket_list {
                         if sender_peer != &bucket.peer
                             && bucket.peer.connection_type() == ConnectionType::Node
-                            && (networks.is_empty() || networks.iter().any( |net_id| bucket.networks.contains(net_id)))
+                            && (networks.is_empty() || bucket.networks.is_disjoin(networks) == false)
                         {
                             ret.push(bucket.peer.to_owned());
                         }
@@ -174,7 +174,7 @@ impl Buckets {
                 for (_, bucket_list) in &self.buckets {
                     for bucket in bucket_list {
                         if bucket.peer.connection_type() == ConnectionType::Node
-                            && (networks.is_empty() || networks.iter().any( |net_id| bucket.networks.contains(net_id)))
+                            && (networks.is_empty() || bucket.networks.is_disjoin(networks) == false)
                         {
                             ret.push(bucket.peer.to_owned());
                         }
@@ -188,7 +188,7 @@ impl Buckets {
 
     pub fn len(&self) -> usize { self.buckets.iter().map(|(_, y)| y.len()).sum() }
 
-    pub fn get_random_nodes(&self, sender: &P2PPeer, amount: usize, nids: &[u16]) -> Vec<P2PPeer> {
+    pub fn get_random_nodes(&self, sender: &P2PPeer, amount: usize, nids: &HashSet<u16>) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
             Ok(ref mut rng) => self
                 .get_all_nodes(Some(sender), nids)

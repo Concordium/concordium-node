@@ -36,7 +36,7 @@ pub struct TlsServerPrivate {
     connections_by_id:       HashMap<P2PNodeId, Rc<RefCell<Connection>>>,
     pub unreachable_nodes:   UnreachableNodes,
     pub banned_peers:        HashSet<P2PPeer>,
-    networks:                Arc<RwLock<HashSet<u16>>>,
+    networks:                HashSet<u16>,
     pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
 }
 
@@ -50,7 +50,7 @@ impl TlsServerPrivate {
             connections_by_id: HashMap::new(),
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: HashSet::new(),
-            networks: Arc::new(RwLock::new(networks)),
+            networks: networks,
             prometheus_exporter,
         }
     }
@@ -95,7 +95,7 @@ impl TlsServerPrivate {
             let conn = rc_conn.borrow();
             if let Some(ref x) = conn.peer() {
                 // TODO Review this!!!!
-                if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
+                if nids.is_empty() || nids.iter().any( |nid| self.networks.contains(nid)) {
                     ret.push(PeerStatistic::new(
                         x.id().to_string(),
                         x.ip(),
@@ -275,4 +275,7 @@ impl TlsServerPrivate {
             }
         }
     }
+
+    #[inline]
+    pub fn networks(&self) -> &HashSet<u16> { &self.networks }
 }

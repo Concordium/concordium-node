@@ -6,6 +6,7 @@ use crate::{
         PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,
     },
 };
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -13,7 +14,7 @@ pub enum NetworkResponse {
     Pong(P2PPeer),
     FindNode(P2PPeer, Vec<P2PPeer>),
     PeerList(P2PPeer, Vec<P2PPeer>),
-    Handshake(P2PPeer, Vec<u16>, Vec<u8>),
+    Handshake(P2PPeer, HashSet<u16>, Vec<u8>),
 }
 
 impl NetworkResponse {

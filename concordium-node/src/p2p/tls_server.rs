@@ -101,8 +101,7 @@ impl TlsServer {
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
     #[inline]
-    pub fn networks(&self) -> HashSet<u16> { safe_read!(self.dptr).unwrap().networks.clone() }
-    }
+    pub fn networks(&self) -> &HashSet<u16> { safe_read!(self.dptr).unwrap().networks() }
 
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
         self.dptr.write().unwrap().remove_network(network_id)
@@ -159,6 +158,7 @@ impl TlsServer {
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
         let mut conn = Connection::new(
+            Arc::clone(&self.dptr),
             ConnectionType::Node,
             socket,
             token,
@@ -212,7 +212,7 @@ impl TlsServer {
         }
 
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
-            Ok(x) => {
+            Ok(socket) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
                     safe_write!(prom)?
                         .conn_received_inc()
@@ -228,8 +228,9 @@ impl TlsServer {
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
                 let mut conn = Connection::new(
+                    Arc::clone(&self.dptr),
                     connection_type,
-                    x,
+                    socket,
                     token,
                     None,
                     Some(tls_session),
@@ -262,7 +263,11 @@ impl TlsServer {
                     let networks = self.networks();
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
-                        &NetworkRequest::Handshake(self_peer, networks, vec![]).serialize(),
+                        &NetworkRequest::Handshake(
+                            self_peer,
+                            networks.clone(),
+                            vec![]
+                        ).serialize()
                     )?;
                     conn.set_measured_handshake_sent();
                 }
