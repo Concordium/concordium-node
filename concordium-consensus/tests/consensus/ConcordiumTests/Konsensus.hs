@@ -21,7 +21,7 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.SHA256 as H
-import Acorn.Utils.Init.Example(update)
+import Concordium.Scheduler.Utils.Init.Example(update)
 import Concordium.Payload.Transaction
 import Concordium.Types
 import Concordium.MonadImplementation
