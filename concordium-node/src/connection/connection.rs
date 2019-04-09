@@ -417,7 +417,7 @@ impl Connection {
 
         // Manage clossing event.
         if self.closing {
-            self.close(poll).map_err(|e| error!("{}", e)).ok();
+            self.close(poll).unwrap_or_else(|e| error!("{}", e));
         }
 
         let session_wants_read = self.dptr.borrow().tls_session.wants_read();
@@ -497,7 +497,7 @@ impl Connection {
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref prom) = &self.prometheus_exporter() {
             if let Ok(mut plock) = safe_write!(prom) {
-                plock.pkt_received_inc().map_err(|e| error!("{}", e)).ok();
+                plock.pkt_received_inc().unwrap_or_else(|e| error!("{}", e));
             }
         };
 

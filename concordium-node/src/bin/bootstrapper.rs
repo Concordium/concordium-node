@@ -13,6 +13,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use chrono::prelude::Utc;
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
@@ -22,7 +23,7 @@ use p2p_client::{
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
     prometheus_exporter::{PrometheusMode, PrometheusServer},
-    safe_read,
+    safe_read, utils,
 };
 use std::{
     rc::Rc,
@@ -31,19 +32,22 @@ use std::{
 };
 
 fn main() -> Result<(), Error> {
-    let conf = configuration::parse_bootstrapper_config();
-    let app_prefs = configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
+    let conf = configuration::parse_config();
+    let app_prefs = configuration::AppPreferences::new(
+        conf.common.config_dir.to_owned(),
+        conf.common.data_dir.to_owned(),
+    );
 
-    let env = if conf.trace {
+    let env = if conf.common.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
-    } else if conf.debug {
+    } else if conf.common.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
 
     let mut log_builder = Builder::from_env(env);
-    if conf.no_log_timestamp {
+    if conf.common.no_log_timestamp {
         log_builder.default_format_timestamp(false);
     }
     log_builder.init();
@@ -69,14 +73,17 @@ fn main() -> Result<(), Error> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    let prometheus = if conf.prometheus_server {
+    let prometheus = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
-        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
-            .map_err(|e| error!("{}", e))
-            .ok();
+        srv.start_server(
+            &conf.prometheus.prometheus_listen_addr,
+            conf.prometheus.prometheus_listen_port,
+        )
+        .map_err(|e| error!("{}", e))
+        .ok();
         Some(Arc::new(RwLock::new(srv)))
-    } else if let Some(ref gateway) = conf.prometheus_push_gateway {
+    } else if let Some(ref gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", gateway);
         let srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
         Some(Arc::new(RwLock::new(srv)))
@@ -84,13 +91,29 @@ fn main() -> Result<(), Error> {
         None
     };
 
-    info!("Debugging enabled {}", conf.debug);
+    let arc_prometheus = if let Some(ref p) = prometheus {
+        Some(Arc::clone(p))
+    } else {
+        None
+    };
+
+    info!("Debugging enabled {}", conf.common.debug);
+
+    let id = match conf.common.id {
+        Some(ref x) => x.to_owned(),
+        _ => {
+            let current_time = Utc::now();
+            base64::encode(&utils::sha256(&format!(
+                "{}.{}",
+                current_time.timestamp(),
+                current_time.timestamp_subsec_nanos()
+            )))
+        }
+    };
 
     let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-    let mode_type = P2PNodeMode::BootstrapperMode;
-
-    let node = if conf.debug {
+    let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
@@ -120,33 +143,21 @@ fn main() -> Result<(), Error> {
             }
         });
         Arc::new(RwLock::new(P2PNode::new(
-            Some(conf.id),
-            conf.listen_address,
-            conf.listen_port,
-            conf.external_ip,
-            conf.external_port,
+            Some(id),
+            &conf,
             pkt_in,
             Some(sender),
-            mode_type,
-            prometheus.clone(),
-            conf.network_ids,
-            conf.min_peers_bucket,
-            false,
+            P2PNodeMode::BootstrapperMode,
+            arc_prometheus,
         )))
     } else {
         Arc::new(RwLock::new(P2PNode::new(
-            Some(conf.id),
-            conf.listen_address,
-            conf.listen_port,
-            conf.external_ip,
-            conf.external_port,
+            Some(id),
+            &conf,
             pkt_in,
             None,
-            mode_type,
-            prometheus.clone(),
-            conf.network_ids,
-            conf.min_peers_bucket,
-            false,
+            P2PNodeMode::BootstrapperMode,
+            arc_prometheus,
         )))
     };
 
@@ -165,7 +176,7 @@ fn main() -> Result<(), Error> {
     };
 
     let cloned_node = node.clone();
-    let _no_trust_bans = conf.no_trust_bans;
+    let _no_trust_bans = conf.common.no_trust_bans;
 
     // Register handles for ban & unban requests.
     let message_handler = safe_read!(node)?.message_handler();
@@ -204,20 +215,21 @@ fn main() -> Result<(), Error> {
     ));
 
     if let Some(ref prom) = prometheus {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.to_owned()
-            } else {
-                safe_write!(node)?.get_own_id().to_string()
-            };
+        if let Some(ref prom_push_addy) = conf.prometheus.prometheus_push_gateway {
+            let instance_name =
+                if let Some(ref instance_id) = conf.prometheus.prometheus_instance_name {
+                    instance_id.to_owned()
+                } else {
+                    safe_write!(node)?.get_own_id().to_string()
+                };
             safe_read!(prom)?
                 .start_push_to_gateway(
                     prom_push_addy.to_owned(),
-                    conf.prometheus_push_interval,
-                    conf.prometheus_job_name,
+                    conf.prometheus.prometheus_push_interval,
+                    conf.prometheus.prometheus_job_name,
                     instance_name,
-                    conf.prometheus_push_username,
-                    conf.prometheus_push_password,
+                    conf.prometheus.prometheus_push_username,
+                    conf.prometheus.prometheus_push_password,
                 )
                 .map_err(|e| error!("{}", e))
                 .ok();
@@ -226,7 +238,7 @@ fn main() -> Result<(), Error> {
 
     {
         let mut locked_node = safe_write!(node)?;
-        locked_node.max_nodes = Some(conf.max_nodes);
+        locked_node.max_nodes = Some(conf.bootstrapper.max_nodes);
         locked_node.print_peers = true;
         locked_node.spawn();
     }

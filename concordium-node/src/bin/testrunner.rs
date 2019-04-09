@@ -29,7 +29,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
     },
-    thread, time,
+    thread,
 };
 
 #[derive(Clone)]
@@ -323,8 +323,11 @@ impl TestRunner {
 }
 
 fn main() -> Fallible<()> {
-    let conf = configuration::parse_testrunner_config();
-    let mut app_prefs = configuration::AppPreferences::new(conf.config_dir, conf.data_dir);
+    let conf = configuration::parse_config();
+    let mut app_prefs = configuration::AppPreferences::new(
+        conf.common.config_dir.to_owned(),
+        conf.common.data_dir.to_owned(),
+    );
 
     info!(
         "Starting up {}-TestRunner version {}!",
@@ -340,16 +343,16 @@ fn main() -> Fallible<()> {
         app_prefs.get_user_config_dir()
     );
 
-    let env = if conf.trace {
+    let env = if conf.common.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
-    } else if conf.debug {
+    } else if conf.common.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
 
     let mut log_builder = Builder::from_env(env);
-    if conf.no_log_timestamp {
+    if conf.common.no_log_timestamp {
         log_builder.default_format_timestamp(false);
     }
     log_builder.init();
@@ -361,38 +364,31 @@ fn main() -> Fallible<()> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    info!("Debugging enabled {}", conf.debug);
+    info!("Debugging enabled {}", conf.common.debug);
 
-    let dns_resolvers = utils::get_resolvers(&conf.resolv_conf, &conf.dns_resolver);
+    let dns_resolvers =
+        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
 
     for resolver in &dns_resolvers {
         debug!("Using resolver: {}", resolver);
     }
 
     let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.bootstrap_server.clone(),
+        conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
-        conf.no_dnssec,
-        &conf.bootstrap_node,
+        conf.connection.no_dnssec,
+        &conf.connection.bootstrap_node,
     );
-
-    let mode_type = P2PNodeMode::NormalMode;
 
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-    let external_ip = if conf.external_ip.is_some() {
-        conf.external_ip
-    } else {
-        None
-    };
-
-    let node_id = if conf.id.is_some() {
-        conf.id
+    let node_id = if conf.common.id.is_some() {
+        conf.common.id.clone()
     } else {
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
     };
 
-    let node_sender = if conf.debug {
+    let node_sender = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
@@ -428,17 +424,11 @@ fn main() -> Fallible<()> {
 
     let mut node = P2PNode::new(
         node_id,
-        conf.listen_address,
-        conf.listen_port,
-        external_ip,
-        conf.external_port,
+        &conf,
         pkt_in,
         node_sender,
-        mode_type,
+        P2PNodeMode::NormalMode,
         None,
-        conf.network_ids.clone(),
-        conf.min_peers_bucket,
-        false,
     );
 
     let _node_th = node.spawn();
@@ -465,9 +455,9 @@ fn main() -> Fallible<()> {
 
     let mut _node_self_clone = node.clone();
 
-    let _no_trust_bans = conf.no_trust_bans;
-    let _no_trust_broadcasts = conf.no_trust_broadcasts;
-    let _desired_nodes_clone = conf.desired_nodes;
+    let _no_trust_bans = conf.common.no_trust_bans;
+    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
+    let _desired_nodes_clone = conf.connection.desired_nodes;
     let _guard_pkt = thread::spawn(move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
@@ -564,8 +554,8 @@ fn main() -> Fallible<()> {
         }
     });
 
-    for connect_to in conf.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
+    for connect_to in conf.connection.connect_to {
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
                 node.connect(ConnectionType::Node, ip, port, None)
@@ -576,7 +566,7 @@ fn main() -> Fallible<()> {
         }
     }
 
-    if !conf.no_boostrap_dns {
+    if !conf.connection.no_bootstrap_dns {
         info!("Attempting to bootstrap");
         match bootstrap_nodes {
             Ok(nodes) => {
@@ -591,72 +581,14 @@ fn main() -> Fallible<()> {
         };
     }
 
-    // defaulted so it is always set
-    let mut testrunner = TestRunner::new(node.clone(), *conf.network_ids.first().unwrap());
+    let mut testrunner = TestRunner::new(node.clone(), *conf.common.network_ids.first().unwrap());
 
-    let _desired_nodes_count = conf.desired_nodes;
-    let _bootstrappers_conf = conf.bootstrap_server;
-    let _dnssec = conf.no_dnssec;
-    let _dns_resolvers = dns_resolvers;
-    let _bootstrap_node = conf.bootstrap_node;
-    let _nids = conf.network_ids;
-    let mut _node_ref_guard_timer = node;
-    let _guard_more_peers = thread::spawn(move || loop {
-        match _node_ref_guard_timer.get_peer_stats(&vec![]) {
-            Ok(ref x) => {
-                info!(
-                    "I currently have {}/{} nodes!",
-                    x.len(),
-                    _desired_nodes_count
-                );
-                let mut count = 0;
-                for i in x {
-                    info!(
-                        "Peer {}: {}/{}:{}",
-                        count,
-                        i.id().to_string(),
-                        i.ip().to_string(),
-                        i.port()
-                    );
-                    count += 1;
-                }
-                if _desired_nodes_count > x.len() as u8 {
-                    if x.len() == 0 {
-                        info!("No nodes at all - retrying bootstrapping");
-                        match utils::get_bootstrap_nodes(
-                            _bootstrappers_conf.to_owned(),
-                            &_dns_resolvers,
-                            _dnssec,
-                            &_bootstrap_node,
-                        ) {
-                            Ok(nodes) => {
-                                for (ip, port) in nodes {
-                                    info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                    _node_ref_guard_timer
-                                        .connect(ConnectionType::Bootstrapper, ip, port, None)
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
-                                }
-                            }
-                            _ => error!("Can't find any bootstrap nodes - check DNS!"),
-                        }
-                    } else {
-                        info!("Not enough nodes, sending GetPeers requests");
-                        _node_ref_guard_timer
-                            .send_get_peers(_nids.to_owned())
-                            .map_err(|e| error!("{}", e))
-                            .ok();
-                    }
-                }
-            }
-            Err(e) => error!("Couldn't get node list, {:?}", e),
-        };
-        thread::sleep(time::Duration::from_secs(30));
-    });
+    let _th = testrunner.start_server(
+        &conf.testrunner.listen_http_address,
+        conf.testrunner.listen_http_port,
+    );
 
-    let _th = testrunner.start_server(&conf.listen_http_address, conf.listen_http_port);
-
-    _th.join().map_err(|e| error!("{:?}", e)).ok();
+    _th.join().unwrap_or_else(|e| error!("{:?}", e));
 
     Ok(())
 }
