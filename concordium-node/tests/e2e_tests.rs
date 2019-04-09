@@ -9,6 +9,7 @@ mod tests {
     use failure::Fallible;
     use p2p_client::{
         common::{ConnectionType, UCursor},
+        configuration::Config,
         connection::{MessageManager, P2PEvent, P2PNodeMode},
         network::{NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::p2p_node::P2PNode,
@@ -38,6 +39,7 @@ mod tests {
 
         use p2p_client::{
             common::{ConnectionType, UCursor},
+            configuration::Config,
             connection::{MessageManager, P2PNodeMode},
             network::{NetworkMessage, NetworkPacketType, NetworkResponse},
             p2p::p2p_node::P2PNode,
@@ -129,20 +131,11 @@ mod tests {
             let (net_tx, _) = std::sync::mpsc::channel();
             let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::channel();
 
-            let mut node = P2PNode::new(
-                None,
-                Some("127.0.0.1".to_string()),
-                port,
-                None,
-                None,
-                net_tx,
-                None,
-                P2PNodeMode::NormalMode,
-                None,
-                networks.to_owned(),
-                100,
-                blind_trusted_broadcast,
-            );
+            let mut config =
+                Config::new(Some("127.0.0.1".to_owned()), port, networks.to_owned(), 100);
+            config.connection.no_trust_broadcasts = blind_trusted_broadcast;
+
+            let mut node = P2PNode::new(None, &config, net_tx, None, P2PNodeMode::NormalMode, None);
 
             let mh = node.message_handler();
             safe_write!(mh)?.add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
@@ -407,20 +400,23 @@ mod tests {
         for instance_port in test_port_added..(test_port_added + mesh_node_count as u16) {
             let (inner_sender, inner_receiver) = mpsc::channel();
             let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
+
+            let config = Config::new(
+                Some("127.0.0.1".to_owned()),
+                instance_port as u16,
+                vec![100],
+                100,
+            );
+
             let mut node = P2PNode::new(
                 None,
-                Some("127.0.0.1".to_string()),
-                instance_port as u16,
-                None,
-                None,
+                &config,
                 inner_sender,
                 Some(sender.clone()),
                 P2PNodeMode::NormalMode,
                 Some(Arc::new(RwLock::new(prometheus.clone()))),
-                vec![100],
-                100,
-                false,
             );
+
             let mut _node_self_clone = node.clone();
             let _msg_counter = message_counter.clone();
             let _guard_pkt = thread::spawn(move || loop {
@@ -540,19 +536,21 @@ mod tests {
             {
                 let (inner_sender, inner_receiver) = mpsc::channel();
                 let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
+
+                let config = Config::new(
+                    Some("127.0.0.1".to_owned()),
+                    instance_port as u16,
+                    vec![100],
+                    100,
+                );
+
                 let mut node = P2PNode::new(
                     None,
-                    Some("127.0.0.1".to_string()),
-                    instance_port as u16,
-                    None,
-                    None,
+                    &config,
                     inner_sender,
                     Some(sender.clone()),
                     P2PNodeMode::NormalMode,
                     Some(Arc::new(RwLock::new(prometheus.clone()))),
-                    vec![100],
-                    100,
-                    false,
                 );
                 let mut _node_self_clone = node.clone();
 

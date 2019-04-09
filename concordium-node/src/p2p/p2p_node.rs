@@ -24,6 +24,7 @@ use std::{
 
 use crate::{
     common::{counter::TOTAL_MESSAGES_SENT_COUNTER, ConnectionType, P2PNodeId, P2PPeer, UCursor},
+    configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
         NetworkResponseCW, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler,
@@ -47,28 +48,40 @@ use crate::p2p::{
 const SERVER: Token = Token(0);
 
 #[derive(Clone)]
-pub struct P2PNode {
-    tls_server: Arc<RwLock<TlsServer>>,
-    poll: Arc<RwLock<Poll>>,
-    id: P2PNodeId,
-    buckets: Arc<RwLock<Buckets>>,
-    send_queue: Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
-    ip: IpAddr,
-    port: u16,
-    incoming_pkts: Sender<Arc<NetworkMessage>>,
-    event_log: Option<Sender<P2PEvent>>,
-    start_time: DateTime<Utc>,
-    prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-    mode: P2PNodeMode,
-    external_ip: IpAddr,
-    external_port: u16,
-    seen_messages: SeenMessagesList,
-    minimum_per_bucket: usize,
+pub struct P2PNodeConfig {
+    no_net:                  bool,
+    desired_nodes_count:     u8,
+    no_bootstrap_dns:        bool,
+    bootstrappers_conf:      String,
+    dns_resolvers:           Vec<String>,
+    dnssec:                  bool,
+    bootstrap_node:          Vec<String>,
+    minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
-    process_th: Option<Rc<Cell<thread::JoinHandle<()>>>>,
-    quit_tx: Option<Sender<bool>>,
-    pub max_nodes: Option<u16>,
-    pub print_peers: bool,
+}
+
+#[derive(Clone)]
+pub struct P2PNode {
+    tls_server:          Arc<RwLock<TlsServer>>,
+    poll:                Arc<RwLock<Poll>>,
+    id:                  P2PNodeId,
+    buckets:             Arc<RwLock<Buckets>>,
+    send_queue:          Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
+    ip:                  IpAddr,
+    port:                u16,
+    incoming_pkts:       Sender<Arc<NetworkMessage>>,
+    event_log:           Option<Sender<P2PEvent>>,
+    start_time:          DateTime<Utc>,
+    prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+    mode:                P2PNodeMode,
+    external_ip:         IpAddr,
+    external_port:       u16,
+    seen_messages:       SeenMessagesList,
+    process_th:          Option<Rc<Cell<thread::JoinHandle<()>>>>,
+    quit_tx:             Option<Sender<bool>>,
+    pub max_nodes:       Option<u16>,
+    pub print_peers:     bool,
+    config:              P2PNodeConfig,
 }
 
 unsafe impl Send for P2PNode {}
@@ -76,39 +89,37 @@ unsafe impl Send for P2PNode {}
 impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
-        listen_address: Option<String>,
-        listen_port: u16,
-        external_ip: Option<String>,
-        external_port: Option<u16>,
+        conf: &configuration::Config,
         pkt_queue: Sender<Arc<NetworkMessage>>,
         event_log: Option<Sender<P2PEvent>>,
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-        networks: Vec<u16>,
-        minimum_per_bucket: usize,
-        blind_trusted_broadcast: bool,
     ) -> Self {
-        let addr = if let Some(ref addy) = listen_address {
-            format!("{}:{}", addy, listen_port)
+        let addr = if let Some(ref addy) = conf.common.listen_address {
+            format!("{}:{}", addy, conf.common.listen_port)
                 .parse()
                 .unwrap_or_else(|_| {
                     warn!("Supplied listen address coulnd't be parsed");
-                    format!("0.0.0.0:{}", listen_port).parse().unwrap()
+                    format!("0.0.0.0:{}", conf.common.listen_port)
+                        .parse()
+                        .unwrap()
                 })
         } else {
-            format!("0.0.0.0:{}", listen_port).parse().unwrap()
+            format!("0.0.0.0:{}", conf.common.listen_port)
+                .parse()
+                .unwrap()
         };
 
         trace!("Creating new P2PNode");
 
         // Retrieve IP address octets, format to IP and SHA256 hash it
-        let ip = if let Some(ref addy) = listen_address {
+        let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy)
                 .unwrap_or_else(|_| P2PNode::get_ip().expect("Couldn't retrieve my own ip"))
         } else {
             P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
-        let ip_port = format!("{}:{}", ip.to_string(), listen_port);
+        let ip_port = format!("{}:{}", ip.to_string(), conf.common.listen_port);
         debug!("Listening on {:?}", ip_port);
 
         let id = match supplied_id {
@@ -207,7 +218,7 @@ impl P2PNode {
             .dangerous()
             .set_certificate_verifier(Arc::new(NoCertificateVerification));
 
-        let own_peer_ip = if let Some(ref own_ip) = external_ip {
+        let own_peer_ip = if let Some(ref own_ip) = conf.common.external_ip {
             match IpAddr::from_str(own_ip) {
                 Ok(ip) => ip,
                 _ => ip,
@@ -216,10 +227,10 @@ impl P2PNode {
             ip
         };
 
-        let own_peer_port = if let Some(own_port) = external_port {
+        let own_peer_port = if let Some(own_port) = conf.common.external_port {
             own_port
         } else {
-            listen_port
+            conf.common.listen_port
         };
 
         let self_peer = P2PPeer::from(
@@ -242,10 +253,22 @@ impl P2PNode {
             self_peer,
             mode,
             prometheus_exporter.clone(),
-            networks,
+            conf.common.network_ids.clone(),
             Arc::clone(&buckets),
-            blind_trusted_broadcast,
+            conf.connection.no_trust_broadcasts,
         );
+
+        let config = P2PNodeConfig {
+            no_net:                  conf.cli.no_network,
+            desired_nodes_count:     conf.connection.desired_nodes,
+            no_bootstrap_dns:        conf.connection.no_bootstrap_dns,
+            bootstrappers_conf:      conf.connection.bootstrap_server.clone(),
+            dns_resolvers:           conf.connection.dns_resolver.clone(),
+            dnssec:                  !conf.connection.no_dnssec,
+            bootstrap_node:          conf.connection.bootstrap_node.clone(),
+            minimum_per_bucket:      conf.common.min_peers_bucket,
+            blind_trusted_broadcast: conf.connection.no_trust_broadcasts,
+        };
 
         let mut mself = P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
@@ -254,7 +277,7 @@ impl P2PNode {
             buckets,
             send_queue: Arc::new(RwLock::new(VecDeque::new())),
             ip,
-            port: listen_port,
+            port: conf.common.listen_port,
             incoming_pkts: pkt_queue,
             event_log,
             start_time: Utc::now(),
@@ -263,12 +286,11 @@ impl P2PNode {
             external_port: own_peer_port,
             mode,
             seen_messages,
-            minimum_per_bucket,
-            blind_trusted_broadcast,
             process_th: None,
             quit_tx: None,
             max_nodes: None,
             print_peers: true,
+            config,
         };
         mself.add_default_message_handlers();
         mself
@@ -305,7 +327,7 @@ impl P2PNode {
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = Arc::clone(&self.send_queue);
-        let trusted_broadcast = self.blind_trusted_broadcast;
+        let trusted_broadcast = self.config.blind_trusted_broadcast;
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
             forward_network_packet_message(
@@ -356,27 +378,61 @@ impl P2PNode {
 
     /// This function is called periodically to print information about current
     /// nodes.
-    fn print_stats(&self) {
-        match self.get_peer_stats(&[]) {
-            Ok(peer_stat_list) => {
-                if let Some(max_nodes) = self.max_nodes {
-                    info!(
-                        "I currently have {}/{} nodes!",
-                        peer_stat_list.len(),
-                        max_nodes
-                    )
-                } else {
-                    info!("I currently have {} nodes!", peer_stat_list.len())
-                }
+    fn print_stats(&self, peer_stat_list: &[PeerStatistic]) {
+        if let Some(max_nodes) = self.max_nodes {
+            info!(
+                "I currently have {}/{} nodes!",
+                peer_stat_list.len(),
+                max_nodes
+            )
+        } else {
+            info!("I currently have {} nodes!", peer_stat_list.len())
+        }
 
-                // Print nodes
-                if self.print_peers {
-                    for (i, peer) in peer_stat_list.iter().enumerate() {
-                        info!("Peer {}: {}/{}:{}", i, peer.id(), peer.ip(), peer.port());
+        // Print nodes
+        if self.print_peers {
+            for (i, peer) in peer_stat_list.iter().enumerate() {
+                info!("Peer {}: {}/{}:{}", i, peer.id(), peer.ip(), peer.port());
+            }
+        }
+    }
+
+    fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
+        if !self.config.no_net && self.config.desired_nodes_count > peer_stat_list.len() as u8 {
+            if peer_stat_list.is_empty() {
+                if !self.config.no_bootstrap_dns {
+                    info!("No nodes at all - retrying bootstrapping");
+                    match utils::get_bootstrap_nodes(
+                        self.config.bootstrappers_conf.clone(),
+                        &self.config.dns_resolvers,
+                        self.config.dnssec,
+                        &self.config.bootstrap_node,
+                    ) {
+                        Ok(nodes) => {
+                            for (ip, port) in nodes {
+                                info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                                self.connect(ConnectionType::Bootstrapper, ip, port, None)
+                                    .map_err(|e| info!("{}", e))
+                                    .ok();
+                            }
+                        }
+                        _ => error!("Can't find any bootstrap nodes - check DNS!"),
                     }
+                } else {
+                    info!(
+                        "No nodes at all - Not retrying bootstrapping using DNS since \
+                         --no-bootstrap is specified"
+                    );
+                }
+            } else {
+                info!("Not enough nodes, sending GetPeers requests");
+                if let Ok(nids) = safe_read!(self.tls_server)
+                    .and_then(|x| safe_read!(x.networks()).map(|nets| nets.clone()))
+                {
+                    self.send_get_peers(nids)
+                        .unwrap_or_else(|e| error!("{}", e));
                 }
             }
-            Err(e) => error!("Couldn't get node list, {:?}", e),
         }
     }
 
@@ -399,7 +455,13 @@ impl P2PNode {
                 let now = SystemTime::now();
                 if let Ok(difference) = now.duration_since(log_time) {
                     if difference > Duration::from_secs(30) {
-                        self_clone.print_stats();
+                        match self_clone.get_peer_stats(&[]) {
+                            Ok(peer_stat_list) => {
+                                self_clone.print_stats(&peer_stat_list);
+                                self_clone.check_peers(&peer_stat_list);
+                            }
+                            Err(e) => error!("Couldn't get node list, {:?}", e),
+                        }
                         log_time = now;
                     }
                 }
@@ -480,7 +542,7 @@ impl P2PNode {
                 Some(ref x) => {
                     if let Some(ref prom) = &self.prometheus_exporter {
                         let ref mut lock = safe_write!(prom)?;
-                        lock.queue_size_dec().map_err(|e| error!("{}", e)).ok();
+                        lock.queue_size_dec().unwrap_or_else(|e| error!("{}", e));
                     };
                     trace!("Got message to process!");
                     let check_sent_status_fn = |conn: &Connection, status: Fallible<usize>| {
@@ -611,7 +673,7 @@ impl P2PNode {
         if let Some(ref prom) = &self.prometheus_exporter {
             match safe_write!(prom) {
                 Ok(ref mut lock) => {
-                    lock.queue_size_inc().map_err(|e| error!("{}", e)).ok();
+                    lock.queue_size_inc().unwrap_or_else(|e| error!("{}", e));
                 }
                 _ => error!("Couldn't lock prometheus instance"),
             }
@@ -623,7 +685,7 @@ impl P2PNode {
         if let Some(ref prom) = &self.prometheus_exporter {
             match safe_write!(prom) {
                 Ok(ref mut lock) => {
-                    lock.pkt_sent_inc().map_err(|e| error!("{}", e)).ok();
+                    lock.pkt_sent_inc().unwrap_or_else(|e| error!("{}", e));
                 }
                 _ => error!("Couldn't lock prometheus instance"),
             }
@@ -866,7 +928,7 @@ impl P2PNode {
             tls_ref.cleanup_connections(&mut poll_ref)?;
             if self.mode == P2PNodeMode::BootstrapperMode {
                 let mut buckets_ref = safe_write!(self.buckets)?;
-                buckets_ref.clean_peers(self.minimum_per_bucket);
+                buckets_ref.clean_peers(self.config.minimum_per_bucket);
             }
         }
 
