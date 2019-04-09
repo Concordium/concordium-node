@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
-module AcornTests.SimpleTransfersTest where
+module SchedulerTests.SimpleTransfersTest where
 
 import Test.Hspec
 
@@ -11,16 +12,12 @@ import qualified Concordium.Crypto.Signature as S
 import System.Random
 
 import qualified Acorn.Types as Types
-import qualified Acorn.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
-import qualified Acorn.Scheduler as Sch
+import Acorn.Parser.Runner as PR
+import qualified Concordium.Scheduler.Scheduler as Sch
 
 import qualified Data.HashMap.Strict as Map
-
-import qualified Data.ByteString.Lazy.Char8 as BSL
-
-import Control.Monad.IO.Class
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -42,14 +39,48 @@ initialGlobalState :: Types.GlobalState
 initialGlobalState = Types.GlobalState Map.empty (Map.fromList [(alesAccount, Types.Account alesAccount 1 100000 alesACI),
                                                                  (thomasAccount, Types.Account thomasAccount 1 100000 thomasACI)]) (let (_,_, gs) = Init.baseState in gs)
 
+transactionsInput :: [TransactionJSON]
+transactionsInput =
+  [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
+         , metadata = Types.Header {sender = alesAccount
+                                   ,nonce = 1
+                                   ,gasAmount = 123
+                                   }
+         }
+  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
+         , metadata = Types.Header {sender = alesAccount
+                                   ,nonce = 2
+                                   ,gasAmount = 123
+                                   }
+         }
+  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 99812 }
+         , metadata = Types.Header {sender = alesAccount
+                                   ,nonce = 3
+                                   ,gasAmount = 100
+                                   }
+         }    
+  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
+         , metadata = Types.Header {sender = thomasAccount
+                                   ,nonce = 1
+                                   ,gasAmount = 100
+                                   }
+         }    
+  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 101 }
+         , metadata = Types.Header {sender = alesAccount
+                                   ,nonce = 4
+                                   ,gasAmount = 100
+                                   }
+         }    
+  ]
+
+
 testSimpleTransfer
   :: PR.Context
        IO
        ([(Types.MessageTy, Types.ValidResult)],
         [(Types.MessageTy, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
-    transactionsText <- liftIO $ BSL.readFile "test/transactions/simpletransfers.json"
-    transactions <- PR.processTransactions transactionsText
+    transactions <- PR.processTransactions transactionsInput
     let ((suc, fails), gstate) = Types.runSI (Sch.makeValidBlock transactions)
                                              Types.dummyChainMeta
                                              initialGlobalState

@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
-module AcornTests.ChainMetatest where
+module SchedulerTests.ChainMetatest where
 
 import Test.Hspec
 
@@ -12,16 +12,15 @@ import qualified Concordium.Crypto.Signature as S
 import System.Random
 
 import qualified Acorn.Types as Types
-import qualified Acorn.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
-import qualified Acorn.Scheduler as Sch
+import Acorn.Parser.Runner as PR
+import qualified Concordium.Scheduler.Scheduler as Sch
 import qualified Acorn.Core as Core
 
 import qualified Data.HashMap.Strict as Map
 
 import qualified Data.Text.IO as TIO
-import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import Control.Monad.IO.Class
 
@@ -44,6 +43,27 @@ chainMeta = Types.ChainMetadata{..}
         blockHeight = 13
         finalizedHeight = 10
 
+transactionsInput :: [TransactionJSON]
+transactionsInput =
+    [TJSON { payload = DeployModule "ChainMetaTest"
+           , metadata = Types.Header {sender = alesAccount
+                                     ,nonce = 1
+                                     ,gasAmount = 10000
+                                     }
+           }
+    ,TJSON { payload = InitContract {amount = 100
+                                    ,contractName = "Simple"
+                                    ,moduleName = "ChainMetaTest"
+                                    ,parameter = "Unit.Unit"
+                                    }
+           , metadata = Types.Header {sender = alesAccount
+                                     ,nonce = 2
+                                     ,gasAmount = 10000
+                                     }
+           }
+    ]
+
+
 testChainMeta ::
   PR.Context
     IO
@@ -53,8 +73,7 @@ testChainMeta ::
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactionsText <- liftIO $ BSL.readFile "test/transactions/chainmetatransactions.json"
-    transactions <- PR.processTransactions transactionsText
+    transactions <- PR.processTransactions transactionsInput
     let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
                                          chainMeta
                                          initialGlobalState

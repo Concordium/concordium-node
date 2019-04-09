@@ -1,16 +1,15 @@
 module Main where
 
-import qualified AcornTests.ContractCommSpec(tests)
-import qualified AcornTests.SimpleTransfersTest(tests)
-import qualified AcornTests.ChainMetatest(tests)
-import qualified AcornTests.FibonacciTest(tests)
-
-import Test.Hspec.QuickCheck
+import qualified SchedulerTests.ContractCommSpec(tests)
+import qualified SchedulerTests.SimpleTransfersTest(tests)
+import qualified SchedulerTests.ChainMetatest(tests)
+import qualified SchedulerTests.FibonacciTest(tests)
 
 import Test.Hspec
 
+main :: IO ()
 main = do 
-          hspec AcornTests.ContractCommSpec.tests
-          hspec AcornTests.SimpleTransfersTest.tests
-          hspec AcornTests.ChainMetatest.tests
-          hspec AcornTests.FibonacciTest.tests
+          hspec SchedulerTests.ContractCommSpec.tests
+          hspec SchedulerTests.SimpleTransfersTest.tests
+          hspec SchedulerTests.ChainMetatest.tests
+          hspec SchedulerTests.FibonacciTest.tests

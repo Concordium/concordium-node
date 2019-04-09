@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
-module AcornTests.FibonacciTest where
+module SchedulerTests.FibonacciTest where
 
 import Test.Hspec
 
@@ -12,16 +12,15 @@ import qualified Concordium.Crypto.Signature as S
 import System.Random
 
 import qualified Acorn.Types as Types
-import qualified Acorn.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
-import qualified Acorn.Scheduler as Sch
+import Acorn.Parser.Runner as PR
+import qualified Concordium.Scheduler.Scheduler as Sch
 import qualified Acorn.Core as Core
 
 import qualified Data.HashMap.Strict as Map
 
 import qualified Data.Text.IO as TIO
-import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import Control.Monad.IO.Class
 import Data.Maybe
@@ -41,6 +40,32 @@ initialGlobalState :: Types.GlobalState
 initialGlobalState = (Types.GlobalState Map.empty (Map.fromList [(alesAccount, Types.Account alesAccount 1 1000000000 alesACI)])
                       (let (_, _, gs) = Init.baseState in gs))
 
+transactionsInput :: [TransactionJSON]
+transactionsInput =
+  [TJSON { payload = DeployModule "FibContract"
+         , metadata = Types.Header { sender = alesAccount
+                                   , nonce = 1
+                                   , gasAmount = 1000}}
+  
+  ,TJSON { payload = InitContract { amount = 100
+                                  , moduleName = "FibContract"
+                                  , parameter = "Unit.Unit"
+                                  , contractName = "Fibonacci"
+                                 }
+        , metadata = Types.Header { sender = alesAccount
+                                  , nonce = 2
+                                  , gasAmount = 1000}}
+  ,TJSON { payload = Update { amount = 0
+                            , moduleName = "FibContract"
+                            , message = "Fib 30 <0,0>"
+                            , address = Types.ContractAddress { contractIndex = 0, contractVersion = 0}
+                            }
+        , metadata = Types.Header { sender = alesAccount
+                                  , nonce = 3
+                                  , gasAmount = 100000}}
+  ]
+
+
 testFibonacci ::
   PR.Context
     IO
@@ -50,8 +75,7 @@ testFibonacci ::
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactionsText <- liftIO $ BSL.readFile "test/transactions/fibonaccitransactions.json"
-    transactions <- PR.processTransactions transactionsText
+    transactions <- PR.processTransactions transactionsInput
     let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
                                          Types.dummyChainMeta
                                          initialGlobalState
@@ -81,7 +105,7 @@ checkFibonacciResult (suc, fails, instances) =
           in results == take 31 fib
         _ -> False
 
-tests :: SpecWith ()
+tests :: Spec
 tests =
   describe "Fibonacci with self reference." $ do
     specify "Check first 31 fibonacci are correct." $ do
