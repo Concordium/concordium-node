@@ -16,7 +16,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
-import qualified Concordium.Scheduler.Scheduler as Sch
+import qualified Concordium.Scheduler as Sch
 import qualified Acorn.Core as Core
 
 import qualified Data.HashMap.Strict as Map

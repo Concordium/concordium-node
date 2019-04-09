@@ -13,7 +13,7 @@ import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
 import Concordium.Logger
 
-import qualified Acorn.Types as AT
+import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Information
 

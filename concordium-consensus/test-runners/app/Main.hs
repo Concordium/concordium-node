@@ -25,8 +25,8 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Acorn.Utils.Init.Example(update, initialState)
-import Acorn.Types(lState, instances, instances)
+import Concordium.Scheduler.Utils.Init.Example(update, initialState)
+import Concordium.Scheduler.Types(lState, instances)
 import Concordium.GlobalState.Types
 
 import Concordium.Crypto.SHA256

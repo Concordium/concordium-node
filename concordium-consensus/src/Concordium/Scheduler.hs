@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Scheduler
+module Concordium.Scheduler
   (makeValidBlock
   ,runBlock
   ,execBlock

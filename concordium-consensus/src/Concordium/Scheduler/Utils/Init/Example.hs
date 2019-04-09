@@ -22,7 +22,7 @@ import Prelude hiding(mod)
 
 import qualified Acorn.Core as Core
 import qualified Acorn.Parser as Parser
-import Concordium.Scheduler.Scheduler(execBlock)
+import Concordium.Scheduler(execBlock)
 
 import Acorn.Utils.Init
 import Acorn.Utils.Init.TH

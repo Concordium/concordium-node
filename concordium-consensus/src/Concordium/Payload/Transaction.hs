@@ -13,11 +13,11 @@ import Data.Hashable
 import Data.Foldable(toList)
 
 import Concordium.GlobalState.Types
-import Acorn.Types(Message(..))
-import qualified Acorn.Types as Types
-import qualified Acorn.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init.Example as Init
-import qualified Acorn.Scheduler as Sch
+import Concordium.Scheduler.Types(Message(..))
+import qualified Concordium.Scheduler.Types as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.Utils.Init.Example as Init
+import qualified Concordium.Scheduler as Sch
 
 newtype TransactionNonce = TransactionNonce Hash
     deriving (Eq, Ord, Hashable, Generic)
