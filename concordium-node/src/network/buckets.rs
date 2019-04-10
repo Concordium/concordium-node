@@ -1,173 +1,88 @@
-use rand::{rngs::OsRng, seq::SliceRandom};
-use std::{collections::HashMap, sync::RwLock};
+use rand::{rngs::OsRng, seq::IteratorRandom};
+use std::{collections::HashSet, sync::RwLock};
 
-use crate::common::{ConnectionType, P2PNodeId, P2PPeer};
+use crate::common::{ConnectionType, P2PPeer};
 
-const KEY_SIZE: u16 = 256;
-const BUCKET_SIZE: u8 = 20;
+const BUCKET_COUNT: usize = 1;
 
-pub struct Buckets {
-    buckets: HashMap<u16, Vec<(P2PPeer, Vec<u16>)>>,
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct Node {
+    pub peer:     P2PPeer,
+    pub networks: Vec<u16>,
 }
+
+pub type Bucket = HashSet<Node>;
+
+pub struct Buckets(pub Vec<Bucket>);
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
 }
 
 impl Buckets {
-    pub fn new() -> Buckets {
-        let mut buckets = HashMap::new();
-        for i in 0..KEY_SIZE {
-            buckets.insert(i, Vec::new());
-        }
+    pub fn new() -> Buckets { Buckets(vec![HashSet::new(); BUCKET_COUNT]) }
 
-        Buckets { buckets }
+    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
+        let bucket = &mut self.0[0];
+
+        bucket.insert(Node {
+            peer: peer.to_owned(),
+            networks,
+        });
     }
 
-    pub fn distance(&self, from: &P2PNodeId, to: &P2PNodeId) -> u64 { from.0 ^ to.0 }
+    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
+        let bucket = &mut self.0[0];
 
-    pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: Vec<u16>) {
-        let dist = self.distance(&own_id, &node.id());
-        for i in 0..KEY_SIZE {
-            if let Some(x) = self.buckets.get_mut(&i) {
-                x.retain(|ref ele| ele.0 != *node);
-            }
-            if dist >= 2u64.pow(i as u32) && dist < 2u64.pow(i as u32 + 1) {
-                match self.buckets.get_mut(&i) {
-                    Some(x) => {
-                        if x.len() >= BUCKET_SIZE as usize {
-                            x.remove(0);
-                        }
-                        x.push((node.to_owned(), nids.clone()));
-                        break;
-                    }
-                    None => {
-                        error!("Couldn't get bucket as mutable");
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn update_network_ids(&mut self, node: &P2PPeer, nids: Vec<u16>) {
-        for i in 0..KEY_SIZE {
-            match self.buckets.get_mut(&i) {
-                Some(x) => {
-                    x.retain(|ref ele| ele.0 != *node);
-                    x.push((node.to_owned(), nids.clone()));
-                    break;
-                }
-                None => {
-                    error!("Couldn't get buck as mutable");
-                }
-            }
-        }
-    }
-
-    fn _find_bucket_id(&mut self, own_id: P2PNodeId, id: P2PNodeId) -> Option<u16> {
-        let dist = self.distance(&own_id, &id);
-        let mut ret: i32 = -1;
-        for i in 0..KEY_SIZE {
-            if dist >= 2u64.pow(i as u32) && dist < 2u64.pow(i as u32 + 1) {
-                ret = i as i32;
-            }
-        }
-
-        if ret == -1 {
-            None
-        } else {
-            Some(ret as u16)
-        }
-    }
-
-    pub fn closest_nodes(&self, _id: &P2PNodeId) -> Vec<P2PPeer> {
-        let mut ret: Vec<P2PPeer> = Vec::with_capacity(KEY_SIZE as usize);
-        let mut count = 0;
-        for (_, bucket) in &self.buckets {
-            // Fix later to do correctly
-            if count < KEY_SIZE {
-                for peer in bucket {
-                    if count < KEY_SIZE {
-                        ret.push(peer.0.to_owned());
-                        count += 1;
-                    } else {
-                        break;
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-        ret
-    }
-
-    pub fn clean_peers(&mut self, retain_minimum: usize) {
-        let self_len = self.len();
-        for i in 0..KEY_SIZE {
-            match self.buckets.get_mut(&i) {
-                Some(x) => {
-                    if retain_minimum < x.len() {
-                        debug!("Cleaning buckets currently at {}", self_len);
-                        x.sort_by(|a, b| {
-                            use std::cmp::Ordering;
-                            if a > b {
-                                return Ordering::Less;
-                            } else if a < b {
-                                return Ordering::Greater;
-                            } else {
-                                return Ordering::Equal;
-                            }
-                        });
-                        x.drain(retain_minimum..);
-                    }
-                }
-                None => {
-                    error!("Couldn't get bucket as mutable");
-                }
-            }
-        }
+        bucket.replace(Node {
+            peer: peer.to_owned(),
+            networks,
+        });
     }
 
     pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &[u16]) -> Vec<P2PPeer> {
-        let mut ret: Vec<P2PPeer> = Vec::new();
-        match sender {
-            Some(sender_peer) => {
-                for (_, bucket) in &self.buckets {
-                    for peer in bucket {
-                        if sender_peer != &peer.0
-                            && peer.0.connection_type() == ConnectionType::Node
-                            && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
-                        {
-                            ret.push(peer.0.to_owned());
-                        }
-                    }
+        let mut nodes = Vec::new();
+        let filter_criteria = |node: &&Node| {
+            node.peer.connection_type() == ConnectionType::Node
+                && if let Some(sender) = sender {
+                    node.peer != *sender
+                } else {
+                    true
                 }
-            }
-            None => {
-                for (_, bucket) in &self.buckets {
-                    for peer in bucket {
-                        if peer.0.connection_type() == ConnectionType::Node
-                            && (networks.len() == 0 || peer.1.iter().any(|x| networks.contains(x)))
-                        {
-                            ret.push(peer.0.to_owned());
-                        }
-                    }
-                }
-            }
+                && (networks.is_empty() || node.networks.iter().any(|net| networks.contains(net)))
+        };
+
+        for bucket in &self.0 {
+            nodes.extend(
+                bucket
+                    .iter()
+                    .filter(filter_criteria)
+                    .map(|node| node.peer.to_owned()),
+            )
         }
 
-        ret
+        nodes
     }
 
-    pub fn len(&self) -> usize { self.buckets.iter().map(|(_, y)| y.len()).sum() }
+    pub fn len(&self) -> usize {
+        self.0
+            .iter()
+            .flat_map(|bucket| bucket.iter())
+            .map(|node| node.networks.len())
+            .sum()
+    }
 
-    pub fn get_random_nodes(&self, sender: &P2PPeer, amount: usize, nids: &[u16]) -> Vec<P2PPeer> {
+    pub fn get_random_nodes(
+        &self,
+        sender: &P2PPeer,
+        amount: usize,
+        networks: &[u16],
+    ) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
             Ok(ref mut rng) => self
-                .get_all_nodes(Some(sender), nids)
-                .choose_multiple(&mut **rng, amount)
-                .cloned()
-                .collect(),
+                .get_all_nodes(Some(sender), networks)
+                .into_iter()
+                .choose_multiple(&mut **rng, amount),
             _ => vec![],
         }
     }

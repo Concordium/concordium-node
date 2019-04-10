@@ -57,7 +57,7 @@ pub fn default_network_request_find_node_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest,
 ) -> FunctorResult {
-    if let NetworkRequest::FindNode(_, node_id) = req {
+    if let NetworkRequest::FindNode(..) = req {
         priv_conn.borrow_mut().update_last_seen();
 
         // Return list of nodes
@@ -67,7 +67,14 @@ pub fn default_network_request_find_node_handle(
                 .peer()
                 .to_owned()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
-            let nodes = safe_read!(priv_conn_borrow.buckets)?.closest_nodes(node_id);
+            let nodes = safe_read!(priv_conn_borrow.buckets)?
+                .0
+                .get(0)
+                .unwrap()
+                .clone()
+                .into_iter()
+                .map(|node| node.peer)
+                .collect::<Vec<_>>();
             NetworkResponse::FindNode(peer, nodes).serialize()
         };
 
@@ -130,7 +137,7 @@ pub fn default_network_response_find_node(
         // Process the received node list
         let mut ref_buckets = safe_write!(priv_conn_borrow.buckets)?;
         for peer in peers.iter() {
-            ref_buckets.insert_into_bucket(peer, &priv_conn_borrow.own_id, vec![]);
+            ref_buckets.insert_into_bucket(peer, vec![]);
         }
 
         Ok(())
@@ -165,7 +172,7 @@ pub fn default_network_response_peer_list(
         let priv_conn_borrow = priv_conn.borrow();
         let mut locked_buckets = safe_write!(priv_conn_borrow.buckets)?;
         for peer in peers.iter() {
-            locked_buckets.insert_into_bucket(peer, &priv_conn_borrow.own_id, vec![]);
+            locked_buckets.insert_into_bucket(peer, vec![]);
         }
     };
     Ok(())
