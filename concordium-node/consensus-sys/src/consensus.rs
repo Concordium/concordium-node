@@ -183,16 +183,18 @@ impl ConsensusBaker {
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> String {
+        let c_str = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, baker, |baker| getBlockInfo(
             baker,
-            (CString::new(block_hash).unwrap()).as_ptr() as *const u8
+            c_str.as_ptr() as *const u8
         ))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> String {
+        let c_str = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, baker, |baker| getAncestors(
             baker,
-            (CString::new(block_hash).unwrap()).as_ptr() as *const u8,
+            c_str.as_ptr() as *const u8,
             amount
         ))
     }
