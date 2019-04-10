@@ -187,6 +187,7 @@ class Monad m => TreeStateMonad m where
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
+    -- Returns @True@ if the transaction is purged.
     purgeTransaction :: HashedTransaction -> m Bool
     -- * Operations on statistics
     -- |Get the current consensus statistics.
