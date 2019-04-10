@@ -87,3 +87,33 @@ impl Buckets {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::P2PNodeId;
+    use std::{net::IpAddr, str::FromStr};
+
+    #[test]
+    pub fn test_buckets_insert_duplicate_peer_id() {
+        let mut buckets = Buckets::new();
+
+        let p2p_node_id = P2PNodeId::default();
+
+        let p2p_peer = P2PPeer::from(
+            ConnectionType::Node,
+            p2p_node_id,
+            IpAddr::from_str("127.0.0.1").unwrap(),
+            8888,
+        );
+        let p2p_duplicate_peer = P2PPeer::from(
+            ConnectionType::Node,
+            p2p_node_id,
+            IpAddr::from_str("127.0.0.1").unwrap(),
+            8889,
+        );
+        buckets.insert_into_bucket(&p2p_peer, vec![]);
+        buckets.insert_into_bucket(&p2p_duplicate_peer, vec![]);
+        assert_eq!(buckets.0.len(), 1);
+    }
+}
