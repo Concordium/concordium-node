@@ -1,11 +1,70 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 module Concordium.GlobalState.TreeState where
 
 import qualified Data.Sequence as Seq
+import Lens.Micro.Platform
+import Data.Time
+import Data.Time.Clock.POSIX
+import Data.List
+import Data.Maybe
 
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Transactions
+
+
+data ConsensusStatistics = ConsensusStatistics {
+    _blocksReceivedCount :: Int,
+    _blocksVerifiedCount :: Int,
+    _blockLastReceived :: Maybe UTCTime,
+    _blockReceiveLatencyEMA :: Double,
+    _blockReceiveLatencyEMVar :: Double,
+    _blockReceivePeriodEMA :: Maybe Double,
+    _blockReceivePeriodEMVar :: Maybe Double,
+    _blockLastArrive :: Maybe UTCTime,
+    _blockArriveLatencyEMA :: Double,
+    _blockArriveLatencyEMVar :: Double,
+    _blockArrivePeriodEMA :: Maybe Double,
+    _blockArrivePeriodEMVar :: Maybe Double,
+    _transactionsPerBlockEMA :: Double,
+    _transactionsPerBlockEMVar :: Double,
+    _finalizationCount :: Int,
+    _lastFinalizedTime :: Maybe UTCTime,
+    _finalizationPeriodEMA :: Maybe Double,
+    _finalizationPeriodEMVar :: Maybe Double
+}
+makeLenses ''ConsensusStatistics
+
+instance Show ConsensusStatistics where
+    show ConsensusStatistics{..} = intercalate "," $ [show (fromMaybe 0 (realToFrac . utcTimeToPOSIXSeconds <$> (_blockLastArrive)) :: Double), show _blockArriveLatencyEMA, show _blockArriveLatencyEMVar, show _blockArrivePeriodEMA, show _blockArrivePeriodEMVar] ++
+                                                [show (fromMaybe 0 (realToFrac . utcTimeToPOSIXSeconds <$> (_blockLastReceived)) :: Double), show _blockReceiveLatencyEMA, show _blockReceiveLatencyEMVar, show _blockReceivePeriodEMA, show _blockReceivePeriodEMVar]
+
+
+initialConsensusStatistics :: ConsensusStatistics
+initialConsensusStatistics = ConsensusStatistics {
+    _blocksReceivedCount = 0,
+    _blocksVerifiedCount = 0,
+    _blockLastReceived = Nothing,
+    _blockReceiveLatencyEMA = 0,
+    _blockReceiveLatencyEMVar = 0,
+    _blockReceivePeriodEMA = Nothing,
+    _blockReceivePeriodEMVar = Nothing,
+    _blockLastArrive = Nothing,
+    _blockArriveLatencyEMA = 0,
+    _blockArriveLatencyEMVar = 0,
+    _blockArrivePeriodEMA = Nothing,
+    _blockArrivePeriodEMVar = Nothing,
+    _transactionsPerBlockEMA = 0,
+    _transactionsPerBlockEMVar = 0,
+    _finalizationCount = 0,
+    _lastFinalizedTime = Nothing,
+    _finalizationPeriodEMA = Nothing,
+    _finalizationPeriodEMVar = Nothing
+}
+
 
 data BlockStatus =
     BlockAlive !BlockPointer
@@ -30,7 +89,7 @@ type Branches = Seq.Seq [BlockPointer]
 class Monad m => TreeStateMonad m where
     -- * Operations on the block table
     -- |Get the current status of a block.
-    getBlockStatus :: BlockHash -> m BlockStatus
+    getBlockStatus :: BlockHash -> m (Maybe BlockStatus)
     -- |Mark a block as dead.
     markDead :: BlockHash -> m ()
     -- |Mark a block as finalized (by a particular 'FinalizationRecord').
@@ -75,7 +134,7 @@ class Monad m => TreeStateMonad m where
     addPendingBlock :: PendingBlock -> m ()
     -- |Return the next block that is pending its parent with slot number
     -- less than or equal to the given value, removing it from the pending
-    -- table.  (Returns 'Nothing' if there is no such pending block.)
+    -- table.  Returns 'Nothing' if there is no such pending block.
     takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
     -- * Operations on blocks that are pending the finalization of their
     -- last finalized block
@@ -95,3 +154,42 @@ class Monad m => TreeStateMonad m where
     -- block that is awaiting finalization is less than or equal to the given
     -- value.
     takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe PendingBlock)
+    -- * Operations on the pending transaction table
+    --
+    -- $pendingTransactions
+    -- We maintain a 'PendingTransactionTable' for a particular block that is
+    -- designated the best block.  (Ideally, this should be the actual best
+    -- block, however, it shouldn't be a problem if it's not.)
+    -- |Return the designated best block.
+    getBestBlock :: m BlockPointer
+    -- |Update the designated best block.
+    putBestBlock :: BlockPointer -> m ()
+    -- |Get the pending transactions after execution of the designated best block.
+    getPendingTransactions :: m PendingTransactionTable
+    -- |Set the pending transactions after execution of the designated best block.
+    putPendingTransactions :: PendingTransactionTable -> m ()
+    -- * Operations on the transaction table
+    -- |Add a transaction to the transaction table.
+    -- Does nothing if the transaction's nonce preceeds the next available nonce
+    -- for the account at the last finalized block, or if a transaction with the same
+    -- hash is already in the table.
+    -- Otherwise, adds the transaction to the table and the non-finalized transactions
+    -- for its account.
+    addTransaction :: HashedTransaction -> m ()
+    -- |Finalize a list of transactions.  Per account, the transactions must be in
+    -- continuous sequence by nonce, starting from the next available non-finalized
+    -- nonce.
+    finalizeTransactions :: [HashedTransaction] -> m ()
+    -- |Mark a transaction as committed on a block with the given slot number.
+    -- This will prevent it from being purged while the slot number exceeds
+    -- that of the last finalized block.
+    commitTransaction :: Slot -> HashedTransaction -> m ()
+    -- |Purge a transaction from the transaction table if its last committed slot
+    -- number does not exceed the slot number of the last finalized block.
+    -- (A transaction that has been committed to a finalized block should not be purged.)
+    purgeTransaction :: HashedTransaction -> m Bool
+    -- * Operations on statistics
+    -- |Get the current consensus statistics.
+    getConsensusStatistics :: m ConsensusStatistics
+    -- |Set the consensus statistics.
+    putConsensusStatistics :: ConsensusStatistics -> m ()

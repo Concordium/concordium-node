@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, RecordWildCards #-}
 
 module Concordium.GlobalState.Block where
 
@@ -6,6 +6,7 @@ import Data.ByteString
 import Data.Serialize.Put
 import Data.Serialize
 import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import Data.Hashable hiding (unhashed, hashed)
 
 import qualified Concordium.Crypto.Signature as Sig
@@ -157,3 +158,20 @@ instance Show BlockPointer where
 
 instance HashableTo Hash.Hash BlockPointer where
     getHash = bpHash
+
+
+makeGenesisBlock :: GenesisData -> Block
+makeGenesisBlock genData = GenesisBlock 0 genData
+
+makeGenesisBlockPointer :: GenesisData -> BlockState -> BlockPointer
+makeGenesisBlockPointer genData bpState = theBlockPointer
+    where
+        theBlockPointer = BlockPointer {..}
+        bpBlock = makeGenesisBlock genData
+        bpHash = getHash bpBlock
+        bpParent = theBlockPointer
+        bpLastFinalized = theBlockPointer
+        bpHeight = 0
+        bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+        bpArriveTime = bpReceiveTime
+        bpTransactionCount = 0
