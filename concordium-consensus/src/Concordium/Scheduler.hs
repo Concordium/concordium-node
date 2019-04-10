@@ -97,7 +97,7 @@ dispatch msg = do
               (Right (Left reason), energy') -> do
                 refundEnergy (sender meta) energy'
                 return $ TxValid (TxReject reason)
-    
+
           Update amount cref maybeMsg -> do
             accountamount <- payForExecution (sender meta) energy
             result <- evalLocalT (handleUpdate (getHeader msg) accountamount amount cref maybeMsg energy)
@@ -115,7 +115,10 @@ dispatch msg = do
             if AH.verifyAccount aci
             then do -- if account information is correct then we create the account with initial nonce 1
               let aaddr = AH.accountAddress aci
-              let account = Account { accountAddress = aaddr, accountNonce = 1, accountAmount = 0, accountCreationInformation = aci }
+              let account = Account { accountAddress = aaddr
+                                    , accountNonce = 1
+                                    , accountAmount = 0
+                                    , accountCreationInformation = aci }
               r <- putNewAccount account
               if r then
                 return $ TxValid (TxReject (AccountAlreadyExists aaddr))
@@ -400,7 +403,8 @@ makeValidBlock = go [] []
             TxInvalid reason -> go valid ((t, reason):invalid) ts
         go valid invalid [] = return (reverse valid, invalid)
 
--- |Execute transactions in sequence. 
+-- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
+-- fails, and otherwise return a list of transactions with their outcome.
 runBlock :: (Message msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
 runBlock = go []
   where go valid (t:ts) = do
@@ -409,6 +413,10 @@ runBlock = go []
             TxInvalid _ -> return Nothing
         go valid [] = return (Just (reverse valid))
 
+-- |Execute transactions in sequence only for sideffects on global state.
+-- Returns 'Nothing' if block executed successfully, and 'Just' 'FailureKind' at
+-- first failed transaction. This is more efficient than 'runBlock' since it
+-- does not have to build a list of results.
 execBlock :: (Message msg, SchedulerMonad m) => [msg] -> m (Maybe FailureKind)
 execBlock = go
   where go (t:ts) = do
