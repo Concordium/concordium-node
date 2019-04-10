@@ -31,7 +31,7 @@ use p2p_client::{
     utils,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::OpenOptions,
     io::{Read, Write},
     rc::Rc,
@@ -129,6 +129,7 @@ fn main() -> Fallible<()> {
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
     };
 
+    let network_ids: HashSet<u16> = conf.network_ids.iter().cloned().collect();
     let mut node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -168,7 +169,7 @@ fn main() -> Fallible<()> {
             Some(sender),
             mode_type,
             prometheus.clone(),
-            conf.network_ids.to_owned(),
+            network_ids,
             conf.min_peers_bucket,
             !conf.no_trust_broadcasts,
         )
@@ -183,7 +184,7 @@ fn main() -> Fallible<()> {
             None,
             mode_type,
             prometheus.clone(),
-            conf.network_ids.to_owned(),
+            network_ids,
             conf.min_peers_bucket,
             !conf.no_trust_broadcasts,
         )
@@ -519,7 +520,7 @@ fn main() -> Fallible<()> {
     let _dnssec = conf.no_dnssec;
     let _dns_resolvers = dns_resolvers;
     let _bootstrap_node = conf.bootstrap_node;
-    let _nids = conf.network_ids.clone();
+    let _nids: HashSet<u16> = conf.network_ids.iter().cloned().collect();
     let _no_boostrap_dns = conf.no_boostrap_dns;
     let mut _node_ref_guard_timer = node.clone();
     let _guard_timer = thread::spawn(move || loop {

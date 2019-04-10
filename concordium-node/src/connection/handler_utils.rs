@@ -1,9 +1,5 @@
 use byteorder::{NetworkEndian, WriteBytesExt};
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    sync::mpsc::Sender
-};
+use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
 
 use crate::{
     common::{
@@ -84,7 +80,7 @@ pub fn log_as_leave_network(
 pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = priv_conn_borrow.own_networks.clone();
+        let my_nets = priv_conn_borrow.networks.clone();
         let self_peer = priv_conn_borrow.self_peer.to_owned();
         (my_nets, self_peer)
     };

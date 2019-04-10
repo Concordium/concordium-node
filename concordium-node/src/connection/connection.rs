@@ -2,10 +2,10 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, BytesMut};
 use std::{
     cell::RefCell,
+    collections::HashSet,
     io::Cursor,
     net::{IpAddr, Shutdown},
     rc::Rc,
-    collections::HashSet,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
 };
 
@@ -20,15 +20,14 @@ use crate::{
         functor::{AFunctorCW, FunctorError, FunctorResult},
         get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, UCursor,
     },
+    connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
     network::{
         Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     },
+    p2p::TlsServerPrivate,
     prometheus_exporter::PrometheusServer,
-    connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
-    p2p::TlsServerPrivate
 };
-
 
 use super::fails;
 #[cfg(not(target_os = "windows"))]
@@ -131,7 +130,7 @@ impl Connection {
         blind_trusted_broadcast: bool,
     ) -> Self {
         let curr_stamp = get_current_stamp();
-        let own_networks = safe_read!(tls).unwrap().networks();
+        let own_networks = safe_read!(tls).unwrap().networks().clone();
 
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             connection_type,
@@ -656,7 +655,7 @@ impl Connection {
 
     pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
 
-    pub fn own_networks(&self) -> &HashSet<u16> { &self.dptr.borrow().networks }
+    pub fn own_networks(&self) -> HashSet<u16> { self.dptr.borrow().networks.clone() }
 
     pub fn token(&self) -> &Token { &self.token }
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     sync::{mpsc::Sender, Arc, RwLock},
 };
 
@@ -47,7 +47,7 @@ pub fn forward_network_request(
 pub fn forward_network_packet_message(
     seen_messages: &SeenMessagesList,
     prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &RwLock<Vec<u16>>,
+    own_networks: HashSet<u16>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
@@ -87,7 +87,7 @@ fn make_fn_error_prometheus() -> FunctorError { make_fn_err("Prometheus has fail
 fn forward_network_packet_message_common(
     seen_messages: &SeenMessagesList,
     prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &RwLock<Vec<u16>>,
+    own_networks: HashSet<u16>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
@@ -96,7 +96,7 @@ fn forward_network_packet_message_common(
 ) -> FunctorResult {
     debug!("### Forward Broadcast Message: msgid: {}", pac.message_id);
     if !seen_messages.contains(&pac.message_id) {
-        if safe_read!(own_networks)?.contains(&pac.network_id) {
+        if own_networks.contains(&pac.network_id) {
             debug!("Received direct message of size {}", pac.message.len());
             let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 

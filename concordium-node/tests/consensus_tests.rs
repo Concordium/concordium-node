@@ -8,8 +8,8 @@ extern crate grpciowin as grpcio;
 
 #[cfg(test)]
 mod tests {
-    use ::grpcio::{ChannelBuilder, EnvBuilder};
     use consensus_sys::consensus::*;
+    use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
         connection::{P2PEvent, P2PNodeMode},
         db::P2PDB,
@@ -19,6 +19,7 @@ mod tests {
         rpc::RpcServerImpl,
     };
     use std::{
+        collections::HashSet,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,
@@ -101,7 +102,7 @@ mod tests {
             Some(sender),
             P2PNodeMode::NormalMode,
             None,
-            vec![],
+            HashSet::new(),
             100,
             true,
         );

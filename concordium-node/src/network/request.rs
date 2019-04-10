@@ -16,7 +16,7 @@ pub enum NetworkRequest {
     FindNode(P2PPeer, P2PNodeId),
     BanNode(P2PPeer, P2PPeer),
     Handshake(P2PPeer, HashSet<u16>, Vec<u8>),
-    GetPeers(P2PPeer, Vec<u16>),
+    GetPeers(P2PPeer, HashSet<u16>),
     UnbanNode(P2PPeer, P2PPeer),
     JoinNetwork(P2PPeer, u16),
     LeaveNetwork(P2PPeer, u16),

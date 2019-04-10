@@ -9,7 +9,7 @@ use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
 use std::{
     cell::Cell,
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     net::IpAddr::{self, V4, V6},
     rc::Rc,
     str::FromStr,
@@ -84,7 +84,7 @@ impl P2PNode {
         event_log: Option<Sender<P2PEvent>>,
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-        networks: Vec<u16>,
+        networks: HashSet<u16>,
         minimum_per_bucket: usize,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -296,22 +296,20 @@ impl P2PNode {
 
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
+        let tls_server = Arc::clone(&self.tls_server);
         let seen_messages = self.seen_messages.clone();
-        let own_networks = Arc::clone(
-            &safe_read!(self.tls_server)
-                .expect("Couldn't lock the tls server")
-                .networks(),
-        );
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = Arc::clone(&self.send_queue);
         let trusted_broadcast = self.blind_trusted_broadcast;
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
+            let own_networks = safe_read!(tls_server)?.networks();
+
             forward_network_packet_message(
                 &seen_messages,
                 &prometheus_exporter,
-                &own_networks,
+                own_networks,
                 &send_queue,
                 &packet_queue,
                 pac,
@@ -721,12 +719,13 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_get_peers(&mut self, nids: Vec<u16>) -> Fallible<()> {
-        safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
-            NetworkRequest::GetPeers(self.get_self_peer(), nids.clone()),
+    pub fn send_get_peers(&mut self, nids: HashSet<u16>) -> Fallible<()> {
+        let msg = NetworkMessage::NetworkRequest(
+            NetworkRequest::GetPeers(self.get_self_peer(), nids),
             None,
             None,
-        )));
+        );
+        safe_write!(self.send_queue)?.push_back(Arc::new(msg));
         self.queue_size_inc()?;
         Ok(())
     }
@@ -930,10 +929,7 @@ pub fn is_valid_connection_in_broadcast(
 ) -> bool {
     if let Some(ref peer) = conn.peer() {
         if peer.id() != sender.id() && peer.connection_type() != ConnectionType::Bootstrapper {
-            let own_networks = conn.own_networks();
-            return safe_read!(own_networks)
-                .expect("Couldn't lock own networks")
-                .contains(&network_id);
+            return conn.own_networks().contains(&network_id);
         }
     }
     false

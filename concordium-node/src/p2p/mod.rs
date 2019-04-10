@@ -14,7 +14,7 @@ pub use self::p2p_node::P2PNode;
 
 #[cfg(test)]
 mod tests {
-    use std::{net::IpAddr, str::FromStr};
+    use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
     use crate::{
         common::{ConnectionType, P2PNodeId, P2PPeer},
@@ -39,11 +39,10 @@ mod tests {
             IpAddr::from_str("127.0.0.1").unwrap(),
             8889,
         );
-        bucket.insert_into_bucket(&p2p_new_peer, &p2p_self, vec![]);
-        bucket.insert_into_bucket(&p2p_new_replacement_peer, &p2p_self, vec![]);
+        bucket.insert_into_bucket(&p2p_new_peer, &p2p_self, HashSet::new());
+        bucket.insert_into_bucket(&p2p_new_replacement_peer, &p2p_self, HashSet::new());
         assert_eq!(bucket.len(), 1);
     }
 }
 
-pub use self::tls_server::TlsServer;
-pub use self::tls_server_private::TlsServerPrivate;
+pub use self::{tls_server::TlsServer, tls_server_private::TlsServerPrivate};

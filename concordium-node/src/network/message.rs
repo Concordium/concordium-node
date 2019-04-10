@@ -23,6 +23,7 @@ use crate::{
 use crate::network::serialization::nom::s11n_network_message;
 
 use std::{
+    collections::HashSet,
     io::{Seek, SeekFrom},
     net::IpAddr,
     str,
@@ -290,12 +291,12 @@ fn deserialize_request_get_peers(
     let view = pkt.read_into_view(min_packet_size)?;
     let buf = view.as_slice();
 
-    let mut networks = Vec::with_capacity(network_ids_count);
+    let mut networks = HashSet::with_capacity(network_ids_count);
     let mut offset = 0;
     for _ in 0..network_ids_count {
         let network_id =
             str::from_utf8(&buf[offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?;
-        networks.push(network_id);
+        networks.insert(network_id);
         offset += PROTOCOL_NETWORK_ID_LENGTH;
     }
 
@@ -311,7 +312,7 @@ fn deserialize_request_get_peers(
 /// packet directly
 fn deserialize_common_handshake(
     pkt: &mut UCursor,
-) -> Fallible<(P2PNodeId, u16, Vec<u16>, ContainerView)> {
+) -> Fallible<(P2PNodeId, u16, HashSet<u16>, ContainerView)> {
     let min_packet_size =
         PROTOCOL_NODE_ID_LENGTH + PROTOCOL_PORT_LENGTH + PROTOCOL_NETWORK_IDS_COUNT_LENGTH;
 
@@ -343,12 +344,12 @@ fn deserialize_common_handshake(
     let view = pkt.read_into_view(min_packet_size)?;
     let buf = view.as_slice();
 
-    let mut network_ids = Vec::with_capacity(network_ids_count);
+    let mut network_ids = HashSet::with_capacity(network_ids_count);
     let mut buf_offset = 0;
     for _ in 0..network_ids_count {
         let nid =
             str::from_utf8(&buf[buf_offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?;
-        network_ids.push(nid);
+        network_ids.insert(nid);
         buf_offset += PROTOCOL_NETWORK_ID_LENGTH;
     }
     let buf = &buf[buf_offset..];

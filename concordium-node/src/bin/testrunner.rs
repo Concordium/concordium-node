@@ -25,6 +25,7 @@ use p2p_client::{
 use rand::{distributions::Standard, thread_rng, Rng};
 use router::Router;
 use std::{
+    collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -426,6 +427,7 @@ fn main() -> Fallible<()> {
         None
     };
 
+    let network_ids: HashSet<u16> = conf.network_ids.iter().cloned().collect();
     let mut node = P2PNode::new(
         node_id,
         conf.listen_address,
@@ -436,7 +438,7 @@ fn main() -> Fallible<()> {
         node_sender,
         mode_type,
         None,
-        conf.network_ids.clone(),
+        network_ids,
         conf.min_peers_bucket,
         false,
     );
@@ -599,7 +601,7 @@ fn main() -> Fallible<()> {
     let _dnssec = conf.no_dnssec;
     let _dns_resolvers = dns_resolvers;
     let _bootstrap_node = conf.bootstrap_node;
-    let _nids = conf.network_ids;
+    let _nids: HashSet<u16> = conf.network_ids.iter().cloned().collect();
     let mut _node_ref_guard_timer = node;
     let _guard_more_peers = thread::spawn(move || loop {
         match _node_ref_guard_timer.get_peer_stats(&vec![]) {

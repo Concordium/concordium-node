@@ -25,6 +25,7 @@ use p2p_client::{
     safe_read,
 };
 use std::{
+    collections::HashSet,
     rc::Rc,
     sync::{mpsc, Arc, RwLock},
     thread,
@@ -90,6 +91,7 @@ fn main() -> Result<(), Error> {
 
     let mode_type = P2PNodeMode::BootstrapperMode;
 
+    let network_ids: HashSet<u16> = conf.network_ids.into_iter().collect();
     let node = if conf.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -129,7 +131,7 @@ fn main() -> Result<(), Error> {
             Some(sender),
             mode_type,
             prometheus.clone(),
-            conf.network_ids,
+            network_ids,
             conf.min_peers_bucket,
             false,
         )))
@@ -144,7 +146,7 @@ fn main() -> Result<(), Error> {
             None,
             mode_type,
             prometheus.clone(),
-            conf.network_ids,
+            network_ids,
             conf.min_peers_bucket,
             false,
         )))

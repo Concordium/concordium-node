@@ -101,14 +101,14 @@ impl TlsServer {
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
     #[inline]
-    pub fn networks(&self) -> &HashSet<u16> { safe_read!(self.dptr).unwrap().networks() }
+    pub fn networks(&self) -> HashSet<u16> { safe_read!(self.dptr).unwrap().networks().clone() }
 
-    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.dptr.write().unwrap().remove_network(network_id)
+    pub fn remove_network(&mut self, network_id: u16) -> Fallible<bool> {
+        Ok(safe_write!(self.dptr)?.remove_network(network_id))
     }
 
-    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.dptr.write().unwrap().add_network(network_id)
+    pub fn add_network(&mut self, network_id: u16) -> Fallible<bool> {
+        Ok(safe_write!(self.dptr)?.add_network(network_id))
     }
 
     /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
@@ -257,17 +257,12 @@ impl TlsServer {
                 );
                 let self_peer = self.get_self_peer();
 
-                if let Some(ref rc_conn) =
-                    self.dptr.read().unwrap().find_connection_by_token(&token)
-                {
-                    let networks = self.networks();
+                let lptr = safe_read!(self.dptr).unwrap();
+                if let Some(ref rc_conn) = lptr.find_connection_by_token(&token) {
+                    let networks = lptr.networks().clone();
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
-                        &NetworkRequest::Handshake(
-                            self_peer,
-                            networks.clone(),
-                            vec![]
-                        ).serialize()
+                        &NetworkRequest::Handshake(self_peer, networks, vec![]).serialize(),
                     )?;
                     conn.set_measured_handshake_sent();
                 }

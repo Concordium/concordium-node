@@ -1,11 +1,9 @@
-use num_bigint::{BigUint };
-use num_traits::{
-    cast::ToPrimitive,
-};
+use num_bigint::BigUint;
+use num_traits::cast::ToPrimitive;
 use rand::{rngs::OsRng, seq::SliceRandom};
 use std::{
-    collections::{HashMap, HashSet},
     cmp::Ordering,
+    collections::{HashMap, HashSet},
     ops::Range,
     sync::RwLock,
 };
@@ -25,11 +23,11 @@ pub struct Buckets {
 }
 
 fn make_distance_table() -> Vec<Range<u64>> {
-    let mut dist_table = Vec::with_capacity( KEY_SIZE as usize);
+    let mut dist_table = Vec::with_capacity(KEY_SIZE as usize);
     for i in 0..(KEY_SIZE as usize) {
-       dist_table.push( Range {
+        dist_table.push(Range {
             start: 2u64.pow(i as u32),
-            end:   2u64.pow(i as u32 + 1)
+            end:   2u64.pow(i as u32 + 1),
         });
     }
 
@@ -38,7 +36,7 @@ fn make_distance_table() -> Vec<Range<u64>> {
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
-    static ref DISTANCE_TABLE : Vec<Range<u64>> = make_distance_table();
+    static ref DISTANCE_TABLE: Vec<Range<u64>> = make_distance_table();
 }
 
 impl Buckets {
@@ -56,7 +54,7 @@ impl Buckets {
     }
 
     pub fn insert_into_bucket(&mut self, node: &P2PPeer, own_id: &P2PNodeId, nids: HashSet<u16>) {
-        let index_opt = self.find_bucket_id( own_id, node.id());
+        let index_opt = self.find_bucket_id(own_id, node.id());
         for i in 0..KEY_SIZE as u16 {
             if let Some(bucket_list) = self.buckets.get_mut(&i) {
                 bucket_list.retain(|ref ele| ele.peer != *node);
@@ -80,7 +78,10 @@ impl Buckets {
             match self.buckets.get_mut(&i) {
                 Some(x) => {
                     x.retain(|ref ele| ele.peer != *node);
-                    x.push( Bucket{ peer: node.to_owned(), networks: network_ids.to_owned()});
+                    x.push(Bucket {
+                        peer:     node.to_owned(),
+                        networks: network_ids.to_owned(),
+                    });
                     break;
                 }
                 None => {
@@ -92,18 +93,19 @@ impl Buckets {
 
     fn find_bucket_id(&self, own_id: &P2PNodeId, id: P2PNodeId) -> Option<usize> {
         // TODO
-        let dist = self.distance(&own_id, &id).to_u64().unwrap_or( 0u64);
+        let dist = self.distance(&own_id, &id).to_u64().unwrap_or(0u64);
 
-        DISTANCE_TABLE.binary_search_by(
-            |ref range|{
-                if range.contains( &dist) {
+        DISTANCE_TABLE
+            .binary_search_by(|ref range| {
+                if range.contains(&dist) {
                     Ordering::Equal
                 } else if range.end < dist {
                     Ordering::Less
                 } else {
                     Ordering::Greater
                 }
-        }).ok()
+            })
+            .ok()
     }
 
     pub fn closest_nodes(&self, _id: &P2PNodeId) -> Vec<P2PPeer> {
@@ -163,7 +165,8 @@ impl Buckets {
                     for bucket in bucket_list {
                         if sender_peer != &bucket.peer
                             && bucket.peer.connection_type() == ConnectionType::Node
-                            && (networks.is_empty() || bucket.networks.is_disjoin(networks) == false)
+                            && (networks.is_empty()
+                                || bucket.networks.is_disjoint(networks) == false)
                         {
                             ret.push(bucket.peer.to_owned());
                         }
@@ -174,7 +177,8 @@ impl Buckets {
                 for (_, bucket_list) in &self.buckets {
                     for bucket in bucket_list {
                         if bucket.peer.connection_type() == ConnectionType::Node
-                            && (networks.is_empty() || bucket.networks.is_disjoin(networks) == false)
+                            && (networks.is_empty()
+                                || bucket.networks.is_disjoint(networks) == false)
                         {
                             ret.push(bucket.peer.to_owned());
                         }
@@ -188,7 +192,12 @@ impl Buckets {
 
     pub fn len(&self) -> usize { self.buckets.iter().map(|(_, y)| y.len()).sum() }
 
-    pub fn get_random_nodes(&self, sender: &P2PPeer, amount: usize, nids: &HashSet<u16>) -> Vec<P2PPeer> {
+    pub fn get_random_nodes(
+        &self,
+        sender: &P2PPeer,
+        amount: usize,
+        nids: &HashSet<u16>,
+    ) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
             Ok(ref mut rng) => self
                 .get_all_nodes(Some(sender), nids)

@@ -50,7 +50,7 @@ impl TlsServerPrivate {
             connections_by_id: HashMap::new(),
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: HashSet::new(),
-            networks: networks,
+            networks,
             prometheus_exporter,
         }
     }
@@ -75,17 +75,10 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other
     /// instances.
-    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
-        safe_write!(self.networks)?.remove(&network_id);
-        Ok(())
-    }
+    pub fn remove_network(&mut self, network_id: u16) -> bool { self.networks.remove(&network_id) }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
-        let mut networks = safe_write!(self.networks)?;
-        networks.insert(network_id);
-        Ok(())
-    }
+    pub fn add_network(&mut self, network_id: u16) -> bool { self.networks.insert(network_id) }
 
     /// It generates a peer statistic list for each connected peer which belongs
     /// to any of networks in `nids`.
@@ -95,7 +88,7 @@ impl TlsServerPrivate {
             let conn = rc_conn.borrow();
             if let Some(ref x) = conn.peer() {
                 // TODO Review this!!!!
-                if nids.is_empty() || nids.iter().any( |nid| self.networks.contains(nid)) {
+                if nids.is_empty() || nids.iter().any(|nid| self.networks.contains(nid)) {
                     ret.push(PeerStatistic::new(
                         x.id().to_string(),
                         x.ip(),
