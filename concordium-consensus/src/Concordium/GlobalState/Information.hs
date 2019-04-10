@@ -6,8 +6,9 @@ module Concordium.GlobalState.Information where
 import qualified Data.Serialize as S
 import GHC.Generics
 
-import qualified Acorn.Core as Core
-import Acorn.Types
+import qualified Concordium.GlobalState.Acorn.Core as Core
+import Concordium.GlobalState.Acorn.Interfaces
+import Concordium.GlobalState.Types
 
 -- *Summary of global state to be sent over the network.
 
