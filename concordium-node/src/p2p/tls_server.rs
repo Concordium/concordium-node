@@ -213,7 +213,7 @@ impl TlsServer {
             }
         }
 
-        // Avoid dupliate ip+port connections
+        // Avoid duplicate ip+port connections
         if safe_read!(self.dptr)?
             .find_connection_by_ip_addr(ip, port)
             .is_some()

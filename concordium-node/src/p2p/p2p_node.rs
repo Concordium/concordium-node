@@ -128,7 +128,10 @@ impl P2PNode {
 
         let id = if let Some(s) = supplied_id {
             if s.chars().count() != 16 {
-                panic!("Incorrect ID specified; expected a zero-padded, hex-encoded u64.");
+                panic!(
+                    "Incorrect ID specified; expected a zero-padded, hex-encoded u64 that's 16 \
+                     characters long."
+                );
             } else {
                 P2PNodeId::from_str(s).unwrap_or_else(|_| P2PNodeId::default())
             }

@@ -12,18 +12,23 @@ pub struct Node {
 }
 
 pub type Bucket = HashSet<Node>;
-
-pub struct Buckets(pub Vec<Bucket>);
+pub struct Buckets {
+    pub buckets: Vec<Bucket>,
+}
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
 }
 
 impl Buckets {
-    pub fn new() -> Buckets { Buckets(vec![HashSet::new(); BUCKET_COUNT]) }
+    pub fn new() -> Buckets {
+        Buckets {
+            buckets: vec![HashSet::new(); BUCKET_COUNT],
+        }
+    }
 
     pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
-        let bucket = &mut self.0[0];
+        let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
             peer: peer.to_owned(),
@@ -32,7 +37,7 @@ impl Buckets {
     }
 
     pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
-        let bucket = &mut self.0[0];
+        let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
             peer: peer.to_owned(),
@@ -52,7 +57,7 @@ impl Buckets {
                 && (networks.is_empty() || node.networks.iter().any(|net| networks.contains(net)))
         };
 
-        for bucket in &self.0 {
+        for bucket in &self.buckets {
             nodes.extend(
                 bucket
                     .iter()
@@ -65,7 +70,7 @@ impl Buckets {
     }
 
     pub fn len(&self) -> usize {
-        self.0
+        self.buckets
             .iter()
             .flat_map(|bucket| bucket.iter())
             .map(|node| node.networks.len())
@@ -114,6 +119,6 @@ mod tests {
         );
         buckets.insert_into_bucket(&p2p_peer, vec![]);
         buckets.insert_into_bucket(&p2p_duplicate_peer, vec![]);
-        assert_eq!(buckets.0.len(), 1);
+        assert_eq!(buckets.buckets.len(), 1);
     }
 }

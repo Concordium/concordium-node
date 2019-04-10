@@ -68,9 +68,9 @@ pub fn default_network_request_find_node_handle(
                 .to_owned()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
             let nodes = safe_read!(priv_conn_borrow.buckets)?
-                .0
+                .buckets
                 .get(0)
-                .unwrap()
+                .unwrap() // the Buckets object is never empty
                 .clone()
                 .into_iter()
                 .map(|node| node.peer)
