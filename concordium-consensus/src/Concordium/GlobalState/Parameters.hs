@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
-
+-- |This module defines types for blockchain parameters, including genesis data,
+-- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters where
 
 import GHC.Generics
