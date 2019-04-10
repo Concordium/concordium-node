@@ -65,7 +65,7 @@ impl AsRef<[u8]> for ContainerView {
 
 #[cfg(test)]
 mod unit_test {
-    use std::io::{Cursor, Read, Write};
+    use std::io::{Cursor, Read};
 
     use super::ContainerView;
     use failure::Fallible;
