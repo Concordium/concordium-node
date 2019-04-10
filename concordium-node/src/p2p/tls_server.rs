@@ -196,18 +196,29 @@ impl TlsServer {
             error!("Node marked as unreachable, so not allowing the connection");
             bail!(fails::UnreachablePeerError);
         }
+
+        // Avoid duplicate ip+port peers
         let self_peer = self.get_self_peer();
         if self_peer.ip() == ip && self_peer.port() == port {
             bail!(fails::DuplicatePeerError);
         }
 
-        if let Some(ref peer_id) = peer_id_opt {
+        // Avoid duplicate Id entries
+        if let Some(peer_id) = peer_id_opt {
             if safe_read!(self.dptr)?
                 .find_connection_by_id(peer_id)
                 .is_some()
             {
                 bail!(fails::DuplicatePeerError);
             }
+        }
+
+        // Avoid dupliate ip+port connections
+        if safe_read!(self.dptr)?
+            .find_connection_by_ip_addr(ip, port)
+            .is_some()
+        {
+            bail!(fails::DuplicatePeerError);
         }
 
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
