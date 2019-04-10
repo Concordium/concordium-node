@@ -22,13 +22,8 @@ pub fn handshake_response_handle(
 
         let priv_conn_borrow = priv_conn.borrow();
         let conn_type = priv_conn_borrow.connection_type;
-        let own_id = priv_conn_borrow.own_id.to_owned();
         let bucket_sender = P2PPeer::from(conn_type, rpeer.id(), rpeer.ip(), rpeer.port());
-        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(
-            &bucket_sender,
-            &own_id,
-            nets.to_owned(),
-        );
+        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(&bucket_sender, nets.to_owned());
 
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
             safe_write!(prom)?.peers_inc()?;

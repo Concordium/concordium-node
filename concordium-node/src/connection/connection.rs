@@ -315,6 +315,8 @@ impl Connection {
 
     pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
 
+    pub fn id(&self) -> P2PNodeId { self.dptr.borrow().own_id }
+
     pub fn ip(&self) -> IpAddr { self.peer_ip }
 
     pub fn port(&self) -> u16 { self.peer_port }
@@ -642,7 +644,7 @@ impl Connection {
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id.clone() }
+    pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id }
 
     pub fn peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
 

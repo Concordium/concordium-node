@@ -2,8 +2,8 @@ use failure::{bail, Fallible};
 use mio::{Event, Poll, Token};
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
-    net::SocketAddr,
+    collections::HashSet,
+    net::{IpAddr, SocketAddr},
     rc::Rc,
     sync::{mpsc::Sender, Arc, RwLock},
 };
@@ -32,8 +32,7 @@ const MAX_NORMAL_KEEP_ALIVE: u64 = 1200000;
 /// Connections are stored in RC in two `hashmap`s in order to improve
 /// performance access for specific look-ups.
 pub struct TlsServerPrivate {
-    connections_by_token:    HashMap<Token, Rc<RefCell<Connection>>>,
-    connections_by_id:       HashMap<P2PNodeId, Rc<RefCell<Connection>>>,
+    connections:             Vec<Rc<RefCell<Connection>>>,
     pub unreachable_nodes:   UnreachableNodes,
     pub banned_peers:        HashSet<P2PPeer>,
     pub networks:            Arc<RwLock<Vec<u16>>>,
@@ -46,8 +45,7 @@ impl TlsServerPrivate {
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     ) -> Self {
         TlsServerPrivate {
-            connections_by_token: HashMap::new(),
-            connections_by_id: HashMap::new(),
+            connections: Vec::new(),
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: HashSet::new(),
             networks: Arc::new(RwLock::new(networks)),
@@ -93,7 +91,7 @@ impl TlsServerPrivate {
     /// to any of networks in `nids`.
     pub fn get_peer_stats(&self, nids: &[u16]) -> Vec<PeerStatistic> {
         let mut ret = vec![];
-        for (_, ref rc_conn) in &self.connections_by_token {
+        for ref rc_conn in &self.connections {
             let conn = rc_conn.borrow();
             if let Some(ref x) = conn.peer() {
                 if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
@@ -112,38 +110,36 @@ impl TlsServerPrivate {
         ret
     }
 
-    /// It find a connection by its `P2PNodeId`.
-    pub fn find_connection_by_id(&self, id: &P2PNodeId) -> Option<&Rc<RefCell<Connection>>> {
-        self.connections_by_id.get(id)
+    pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<&Rc<RefCell<Connection>>> {
+        self.connections
+            .iter()
+            .find(|&conn| conn.borrow().id() == id)
     }
 
     pub fn find_connection_by_token(&self, token: &Token) -> Option<&Rc<RefCell<Connection>>> {
-        self.connections_by_token.get(token)
+        self.connections
+            .iter()
+            .find(|&conn| conn.borrow().token() == token)
     }
 
-    /// It removes connection `conn` from each `hashmap`.
-    fn remove_connection(&mut self, conn: &Connection) {
-        self.connections_by_token.remove(conn.token());
-
-        if let Some(peer) = conn.peer() {
-            let id = peer.id();
-            self.connections_by_id.remove(&id);
-        }
+    pub fn find_connection_by_ip_addr(
+        &self,
+        ip: IpAddr,
+        port: u16,
+    ) -> Option<&Rc<RefCell<Connection>>> {
+        self.connections.iter().find(|&conn| {
+            let borrowed = conn.borrow();
+            borrowed.ip() == ip && borrowed.port() == port
+        })
     }
 
-    /// It adds a new connection into each `hashmap` in order to optimice
-    /// searches.
+    fn remove_connection(&mut self, to_remove: &Connection) {
+        self.connections
+            .retain(|conn| conn.borrow().token() != to_remove.token());
+    }
+
     pub fn add_connection(&mut self, conn: Connection) {
-        let token = conn.token().to_owned();
-        let ip = conn.ip();
-        let port = conn.port();
-
-        let rc_conn = Rc::new(RefCell::new(conn));
-
-        let id = P2PNodeId::from_ip_port(ip, port);
-        self.connections_by_id.insert(id, Rc::clone(&rc_conn));
-
-        self.connections_by_token.insert(token, rc_conn);
+        self.connections.push(Rc::new(RefCell::new(conn)));
     }
 
     pub fn conn_event(
@@ -155,7 +151,7 @@ impl TlsServerPrivate {
         let token = event.token();
         let mut rc_conn_to_be_removed: Option<_> = None;
 
-        if let Some(rc_conn) = self.connections_by_token.get(&token) {
+        if let Some(rc_conn) = self.find_connection_by_token(&token) {
             let mut conn = rc_conn.borrow_mut();
             conn.ready(poll, event, packet_queue)?;
 
@@ -178,14 +174,14 @@ impl TlsServerPrivate {
         let curr_stamp = get_current_stamp();
 
         if mode == P2PNodeMode::BootstrapperMode {
-            for rc_conn in self.connections_by_token.values() {
+            for rc_conn in self.connections.iter() {
                 let mut conn = rc_conn.borrow_mut();
                 if conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp {
                     conn.close(&mut poll)?;
                 }
             }
         } else {
-            for rc_conn in self.connections_by_token.values() {
+            for rc_conn in self.connections.iter() {
                 let mut conn = rc_conn.borrow_mut();
                 if (conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
                     && conn.connection_type() == ConnectionType::Node)
@@ -201,15 +197,15 @@ impl TlsServerPrivate {
 
         // Kill banned connections
         for peer in self.banned_peers.iter() {
-            if let Some(rc_conn) = self.connections_by_id.get(&peer.id()) {
+            if let Some(rc_conn) = self.find_connection_by_id(peer.id()) {
                 rc_conn.borrow_mut().close(&mut poll)?;
             }
         }
 
         // Remove connections which status is 'closing'.
         let closing_conns: Vec<_> = self
-            .connections_by_token
-            .values()
+            .connections
+            .iter()
             .filter(|ref rc_conn| rc_conn.borrow().closing)
             .map(|ref rc_conn| Rc::clone(rc_conn))
             .collect();
@@ -233,8 +229,8 @@ impl TlsServerPrivate {
     pub fn liveness_check(&mut self) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
 
-        self.connections_by_token
-            .values()
+        self.connections
+            .iter()
             .filter(|ref rc_conn| {
                 let conn = rc_conn.borrow();
                 conn.last_seen() + 120000 < curr_stamp
@@ -268,7 +264,7 @@ impl TlsServerPrivate {
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<usize>),
     ) {
-        for rc_conn in self.connections_by_token.values() {
+        for rc_conn in self.connections.iter() {
             let mut conn = rc_conn.borrow_mut();
             if filter_conn(&conn) {
                 let status = conn.serialize_bytes(data);
