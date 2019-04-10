@@ -8,7 +8,7 @@ import Blockchain
 import Unit
 import Bool
 
-data MsgFib = Fib [Int64, <address>]
+data MsgFib = Fib [Int64]
 
 definition mkReturn = Prod.Pair [Prim.Dict Int64 Int64] [Prim.Transaction]
 
@@ -26,7 +26,8 @@ contract Fibonacci where
       Maybe.Nothing -> mkReturn model Prim.TxNone
       Maybe.Just msg' -> 
           case msg' of
-              Fib n addr ->
+              Fib n ->
+                let addr = Blockchain.receiveSelfAddress c in
                 case castFibonacci addr of
                   Maybe.Nothing -> mkReturn model Prim.TxReject
                   Maybe.Just i -> 
@@ -39,12 +40,12 @@ contract Fibonacci where
                           Bool.False -> 
                              case lookup (Prim.minusInt64 n 1) amodel of
                                Maybe.Nothing ->
-                                 mkReturn amodel (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1) addr) amount)
-                                                               (sendFibonacci i (Fib n addr) amount))
+                                 mkReturn amodel (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1)) amount)
+                                                               (sendFibonacci i (Fib n) amount))
                                Maybe.Just v -> -- the value already exists, now check for n-2
                                  case lookup (Prim.minusInt64 n 2) amodel of
                                    Maybe.Nothing -> mkReturn amodel (Prim.TxBatch
-                                                                      (sendFibonacci i (Fib (Prim.minusInt64 n 2) addr) amount)
-                                                                      (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1) addr) amount)
-                                                                                    (sendFibonacci i (Fib n addr) amount)))
+                                                                      (sendFibonacci i (Fib (Prim.minusInt64 n 2)) amount)
+                                                                      (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1)) amount)
+                                                                                    (sendFibonacci i (Fib n) amount)))
                                    Maybe.Just u -> mkReturn (Prim.insertDict [Int64] [Int64] n (Prim.plusInt64 u v) amodel) Prim.TxNone

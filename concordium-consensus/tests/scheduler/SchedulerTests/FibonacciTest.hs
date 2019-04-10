@@ -58,7 +58,7 @@ transactionsInput =
                                   , gasAmount = 1000}}
   ,TJSON { payload = Update { amount = 0
                             , moduleName = "FibContract"
-                            , message = "Fib 30 <0,0>"
+                            , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractVersion = 0}
                             }
         , metadata = Types.Header { sender = alesAccount
