@@ -11,6 +11,7 @@ mod tests {
     use consensus_sys::consensus::*;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
+        configuration::Config,
         connection::{P2PEvent, P2PNodeMode},
         db::P2PDB,
         network::NetworkMessage,
@@ -19,7 +20,6 @@ mod tests {
         rpc::RpcServerImpl,
     };
     use std::{
-        collections::HashSet,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,
@@ -92,28 +92,25 @@ mod tests {
             }
         });
 
+        let mut config = Config::new(Some("127.0.0.1".to_owned()), 18888 + port_node, vec![], 100);
+        config.cli.rpc.rpc_server_port = 11000 + port_node;
+        config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
+        config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
+
         let node = P2PNode::new(
             None,
-            Some("127.0.0.1".to_string()),
-            18888 + port_node,
-            None,
-            None,
+            &config,
             pkt_in,
             Some(sender),
             P2PNodeMode::NormalMode,
             None,
-            HashSet::new(),
-            100,
-            true,
         );
 
         let mut rpc_serv = RpcServerImpl::new(
             node,
             P2PDB::default(),
             Some(consensus_container.clone()),
-            "127.0.0.1".to_string(),
-            11000 + port_node,
-            "rpcadmin".to_string(),
+            &config.cli.rpc,
         );
         rpc_serv.start_server().expect("rpc");
 

@@ -9,6 +9,7 @@ mod tests {
     use failure::Fallible;
     use p2p_client::{
         common::{ConnectionType, UCursor},
+        configuration::Config,
         connection::{MessageManager, P2PEvent, P2PNodeMode},
         network::{NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::p2p_node::P2PNode,
@@ -17,7 +18,6 @@ mod tests {
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
-        collections::HashSet,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc, RwLock,
@@ -29,7 +29,6 @@ mod tests {
         use failure::Fallible;
         use std::{
             cell::RefCell,
-            collections::HashSet,
             sync::{
                 atomic::{AtomicUsize, Ordering},
                 mpsc::Receiver,
@@ -40,6 +39,7 @@ mod tests {
 
         use p2p_client::{
             common::{ConnectionType, UCursor},
+            configuration::Config,
             connection::{MessageManager, P2PNodeMode},
             network::{NetworkMessage, NetworkPacketType, NetworkResponse},
             p2p::p2p_node::P2PNode,
@@ -107,7 +107,7 @@ mod tests {
         pub fn make_nodes_from_port(
             port: u16,
             count: usize,
-            networks: HashSet<u16>,
+            networks: Vec<u16>,
         ) -> Fallible<Vec<(RefCell<P2PNode>, Receiver<NetworkMessage>)>> {
             let mut nodes_and_receivers = Vec::with_capacity(count);
 
@@ -125,26 +125,16 @@ mod tests {
         /// Using this approach protocol tests will be easier and cleaner.
         pub fn make_node_and_sync(
             port: u16,
-            networks: HashSet<u16>,
+            networks: Vec<u16>,
             blind_trusted_broadcast: bool,
         ) -> Fallible<(P2PNode, Receiver<NetworkMessage>)> {
             let (net_tx, _) = std::sync::mpsc::channel();
             let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::channel();
 
-            let mut node = P2PNode::new(
-                None,
-                Some("127.0.0.1".to_string()),
-                port,
-                None,
-                None,
-                net_tx,
-                None,
-                P2PNodeMode::NormalMode,
-                None,
-                networks,
-                100,
-                blind_trusted_broadcast,
-            );
+            let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
+            config.connection.no_trust_broadcasts = blind_trusted_broadcast;
+
+            let mut node = P2PNode::new(None, &config, net_tx, None, P2PNodeMode::NormalMode, None);
 
             let mh = node.message_handler();
             safe_write!(mh)?.add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
@@ -266,7 +256,7 @@ mod tests {
 
         let msg = b"Hello other brother!".to_vec();
         let port = utils::next_port_offset(2);
-        let networks: HashSet<u16> = vec![100].into_iter().collect();
+        let networks = vec![100];
 
         let (mut node_1, msg_waiter_1) = utils::make_node_and_sync(port, networks.clone(), true)?;
         let (mut node_2, _msg_waiter_2) = utils::make_node_and_sync(port + 1, networks, true)?;
@@ -285,8 +275,8 @@ mod tests {
         utils::setup();
 
         let port = utils::next_port_offset(5);
-        let networks_1: HashSet<u16> = vec![100].into_iter().collect();
-        let networks_2: HashSet<u16> = vec![200].into_iter().collect();
+        let networks_1 = vec![100];
+        let networks_2 = vec![200];
         let msg = b"Hello other brother!".to_vec();
 
         let (mut node_1, msg_waiter_1) = utils::make_node_and_sync(port, networks_1, true)?;
@@ -309,7 +299,7 @@ mod tests {
 
         let msg = b"Hello other brother!".to_vec();
         let port = utils::next_port_offset(3);
-        let networks: HashSet<u16> = vec![100].into_iter().collect();
+        let networks = vec![100];
 
         let (mut node_1, _msg_waiter_1) = utils::make_node_and_sync(port, networks.clone(), true)?;
         let (mut node_2, msg_waiter_2) =
@@ -331,8 +321,8 @@ mod tests {
 
         let msg = b"Hello other brother!".to_vec();
         let port = utils::next_port_offset(3);
-        let networks_1: HashSet<u16> = vec![100].into_iter().collect();
-        let networks_2: HashSet<u16> = vec![200].into_iter().collect();
+        let networks_1 = vec![100];
+        let networks_2 = vec![200];
 
         let (mut node_1, _msg_waiter_1) = utils::make_node_and_sync(port, networks_1, true)?;
         let (mut node_2, msg_waiter_2) =
@@ -407,25 +397,27 @@ mod tests {
         let message_counter = Arc::new(AtomicUsize::new(0));
 
         let mut peer = 0;
-        let networks: HashSet<u16> = vec![100].into_iter().collect();
 
         for instance_port in test_port_added..(test_port_added + mesh_node_count as u16) {
             let (inner_sender, inner_receiver) = mpsc::channel();
             let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
+
+            let config = Config::new(
+                Some("127.0.0.1".to_owned()),
+                instance_port as u16,
+                vec![100],
+                100,
+            );
+
             let mut node = P2PNode::new(
                 None,
-                Some("127.0.0.1".to_string()),
-                instance_port as u16,
-                None,
-                None,
+                &config,
                 inner_sender,
                 Some(sender.clone()),
                 P2PNodeMode::NormalMode,
                 Some(Arc::new(RwLock::new(prometheus.clone()))),
-                networks.clone(),
-                100,
-                false,
             );
+
             let mut _node_self_clone = node.clone();
             let _msg_counter = message_counter.clone();
             let _guard_pkt = thread::spawn(move || loop {
@@ -534,7 +526,6 @@ mod tests {
             Vec::with_capacity(islands_count);
         let localhost = "127.0.0.1".parse().unwrap();
 
-        let networks: HashSet<u16> = vec![100].into_iter().collect();
         for island in 0..islands_count {
             let mut peers_islands_and_ports: Vec<(usize, P2PNode, PrometheusServer, usize)> =
                 Vec::with_capacity(island_size);
@@ -546,19 +537,21 @@ mod tests {
             {
                 let (inner_sender, inner_receiver) = mpsc::channel();
                 let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
+
+                let config = Config::new(
+                    Some("127.0.0.1".to_owned()),
+                    instance_port as u16,
+                    vec![100],
+                    100,
+                );
+
                 let mut node = P2PNode::new(
                     None,
-                    Some("127.0.0.1".to_string()),
-                    instance_port as u16,
-                    None,
-                    None,
+                    &config,
                     inner_sender,
                     Some(sender.clone()),
                     P2PNodeMode::NormalMode,
                     Some(Arc::new(RwLock::new(prometheus.clone()))),
-                    networks.clone(),
-                    100,
-                    false,
                 );
                 let mut _node_self_clone = node.clone();
 
@@ -686,7 +679,7 @@ mod tests {
     fn no_relay_broadcast_to_sender(num_nodes: usize) -> Fallible<()> {
         utils::setup();
         let network_id = 100 as u16;
-        let networks: HashSet<u16> = vec![network_id].into_iter().collect();
+        let networks = vec![network_id];
         let test_port_added = utils::next_port_offset(num_nodes);
 
         // 1.1. Root node adds callback for receive last broadcast packet.
@@ -757,7 +750,7 @@ mod tests {
     fn e2e_006_rustls_ready_writeable() -> Fallible<()> {
         utils::setup();
         let msg = UCursor::from(b"Direct message between nodes".to_vec());
-        let networks: HashSet<u16> = vec![100].into_iter().collect();
+        let networks = vec![100];
         let port = utils::next_port_offset(2);
 
         // 1. Create and connect nodes
@@ -808,7 +801,7 @@ mod tests {
             .take(16 * 1024 * 1024)
             .collect();
         let msg = UCursor::from(msg_content);
-        let networks: HashSet<u16> = vec![100].into_iter().collect();
+        let networks = vec![100];
         let port = utils::next_port_offset(2);
 
         // 1. Create and connect nodes
@@ -845,7 +838,7 @@ mod tests {
         max_node_per_level: usize,
     ) -> Fallible<()> {
         let network_id = 100 as u16;
-        let networks: HashSet<u16> = vec![network_id].into_iter().collect();
+        let networks = vec![network_id];
         let test_port_added = utils::next_port_offset(levels * max_node_per_level);
         let mut rng = rand::thread_rng();
 

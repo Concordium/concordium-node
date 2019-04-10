@@ -31,30 +31,35 @@ use p2p_client::{
     utils,
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::OpenOptions,
     io::{Read, Write},
+    net::IpAddr,
     rc::Rc,
     str,
     sync::{mpsc, Arc, RwLock},
-    thread, time,
+    thread,
 };
 
 fn main() -> Fallible<()> {
-    let conf = configuration::parse_cli_config();
-    let mut app_prefs =
-        configuration::AppPreferences::new(conf.config_dir.to_owned(), conf.data_dir.to_owned());
+    // Get config and app preferences
+    let conf = configuration::parse_config();
+    let mut app_prefs = configuration::AppPreferences::new(
+        conf.common.config_dir.to_owned(),
+        conf.common.data_dir.to_owned(),
+    );
 
-    let env = if conf.trace {
+    // Prepare the logger
+    let env = if conf.common.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
-    } else if conf.debug {
+    } else if conf.common.debug {
         Env::default().filter_or("MY_LOG_LEVEL", "debug")
     } else {
         Env::default().filter_or("MY_LOG_LEVEL", "info")
     };
 
     let mut log_builder = Builder::from_env(env);
-    if conf.no_log_timestamp {
+    if conf.common.no_log_timestamp {
         log_builder.default_format_timestamp(false);
     }
     log_builder.init();
@@ -75,35 +80,39 @@ fn main() -> Fallible<()> {
         app_prefs.get_user_config_dir()
     );
 
-    let dns_resolvers = utils::get_resolvers(&conf.resolv_conf, &conf.dns_resolver);
-
+    // Retrieving bootstrap nodes
+    let dns_resolvers =
+        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
     for resolver in &dns_resolvers {
         debug!("Using resolver: {}", resolver);
     }
-
     let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.bootstrap_server.clone(),
+        conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
-        conf.no_dnssec,
-        &conf.bootstrap_node,
+        conf.connection.no_dnssec,
+        &conf.connection.bootstrap_node,
     );
 
+    // Create the database
     let mut db_path = app_prefs.get_user_app_dir();
     db_path.push("p2p.db");
-
     let db = P2PDB::new(db_path.as_path());
 
-    let prometheus = if conf.prometheus_server {
+    // Instantiate prometheus
+    let prometheus = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        srv.start_server(&conf.prometheus_listen_addr, conf.prometheus_listen_port)
-            .map_err(|e| error!("{}", e))
-            .ok();
+        srv.start_server(
+            &conf.prometheus.prometheus_listen_addr,
+            conf.prometheus.prometheus_listen_port,
+        )
+        .map_err(|e| error!("{}", e))
+        .ok();
         Some(Arc::new(RwLock::new(srv)))
-    } else if conf.prometheus_push_gateway.is_some() {
+    } else if conf.prometheus.prometheus_push_gateway.is_some() {
         info!(
             "Enabling prometheus push gateway at {}",
-            &conf.prometheus_push_gateway.to_owned().unwrap()
+            &conf.prometheus.prometheus_push_gateway.to_owned().unwrap()
         );
         let srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(RwLock::new(srv)))
@@ -111,26 +120,30 @@ fn main() -> Fallible<()> {
         None
     };
 
-    info!("Debugging enabled {}", conf.debug);
+    info!("Debugging enabled {}", conf.common.debug);
 
-    let mode_type = P2PNodeMode::NormalMode;
-
+    // Instantiate the p2p node
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
-
-    let external_ip = if conf.external_ip.is_some() {
-        conf.external_ip.clone()
+    let node_id = conf.common.id.clone().map_or(
+        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
+        |id| {
+            if !app_prefs.set_config(
+                configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
+                Some(id.clone()),
+            ) {
+                error!("Failed to persist own node id");
+            };
+            Some(id)
+        },
+    );
+    let arc_prometheus = if let Some(ref p) = prometheus {
+        Some(Arc::clone(p))
     } else {
         None
     };
 
-    let node_id = if conf.id.is_some() {
-        conf.id.clone()
-    } else {
-        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
-    };
-
-    let network_ids: HashSet<u16> = conf.network_ids.iter().cloned().collect();
-    let mut node = if conf.debug {
+    // Thread #1: Read P2PEvents from P2PNode
+    let mut node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
@@ -161,35 +174,24 @@ fn main() -> Fallible<()> {
         });
         P2PNode::new(
             node_id,
-            conf.listen_address.to_owned(),
-            conf.listen_port,
-            external_ip,
-            conf.external_port,
+            &conf,
             pkt_in,
             Some(sender),
-            mode_type,
-            prometheus.clone(),
-            network_ids,
-            conf.min_peers_bucket,
-            !conf.no_trust_broadcasts,
+            P2PNodeMode::NormalMode,
+            arc_prometheus,
         )
     } else {
         P2PNode::new(
             node_id,
-            conf.listen_address.to_owned(),
-            conf.listen_port,
-            external_ip,
-            conf.external_port,
+            &conf,
             pkt_in,
             None,
-            mode_type,
-            prometheus.clone(),
-            network_ids,
-            conf.min_peers_bucket,
-            !conf.no_trust_broadcasts,
+            P2PNodeMode::NormalMode,
+            arc_prometheus,
         )
     };
 
+    // Banning nodes in database
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
@@ -203,390 +205,276 @@ fn main() -> Fallible<()> {
         }
     };
 
-    if !app_prefs.set_config(
-        configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
-        Some(node.get_own_id().to_string()),
-    ) {
-        error!("Failed to persist own node id");
-    }
+    // Starting baker
+    let mut baker = start_baker(&conf.cli.baker, &app_prefs);
 
-    let mut baker = if conf.baker_id.is_some() {
-        info!("Starting up baker thread");
-        consensus::ConsensusContainer::start_haskell();
-        match get_baker_data(&app_prefs, &conf) {
-            Ok((genesis, private_data)) => {
-                let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
-                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
-                Some(consensus_runner)
-            }
-            Err(_) => {
-                error!("Can't read needed data...");
-                None
-            }
-        }
+    // Starting rpc server
+    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
+        serv.start_server()?;
+        Some(serv)
     } else {
         None
     };
 
-    let mut rpc_serv: Option<RpcServerImpl> = None;
-    if !conf.no_rpc_server {
-        let mut serv = RpcServerImpl::new(
-            node.clone(),
-            db.clone(),
-            baker.clone(),
-            conf.rpc_server_addr,
-            conf.rpc_server_port,
-            conf.rpc_server_token,
-        );
-        serv.start_server()?;
-        rpc_serv = Some(serv);
-    }
+    // Connect outgoing messages to be forwarded into the baker
+    // or editing the db, or triggering new connections
+    //
+    // Thread #2: Read P2PNode output
+    {
+        let mut _node_self_clone = node.clone();
 
-    let mut _node_self_clone = node.clone();
+        let _no_trust_bans = conf.common.no_trust_bans;
+        let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
+        let mut _rpc_clone = rpc_serv.clone();
+        let _desired_nodes_clone = conf.connection.desired_nodes;
+        let _test_runner_url = conf.cli.test_runner_url.clone();
+        let mut _baker_pkt_clone = baker.clone();
+        let _tps_test_enabled = conf.cli.tps.enable_tps_test;
+        let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
+        let mut _msg_count = 0;
+        let _tps_message_count = conf.cli.tps.tps_message_count;
+        let _guard_pkt = thread::spawn(move || {
+            fn send_msg_to_baker(
+                baker_ins: &mut Option<consensus::ConsensusContainer>,
+                mut msg: UCursor,
+            ) -> Fallible<()> {
+                if let Some(ref mut baker) = baker_ins {
+                    ensure!(
+                        msg.len() >= msg.position() + 2,
+                        "Message needs at least 2 bytes"
+                    );
 
-    let _no_trust_bans = conf.no_trust_bans;
-    let _no_trust_broadcasts = conf.no_trust_broadcasts;
-    let mut _rpc_clone = rpc_serv.clone();
-    let _desired_nodes_clone = conf.desired_nodes;
-    let _test_runner_url = conf.test_runner_url;
-    let mut _baker_pkt_clone = baker.clone();
-    let _tps_test_enabled = conf.enable_tps_test;
-    let mut _stats_engine = StatsEngine::new(conf.tps_stats_save_amount);
-    let mut _msg_count = 0;
-    let _tps_message_count = conf.tps_message_count;
-    let _guard_pkt = thread::spawn(move || {
-        fn send_msg_to_baker(
-            baker_ins: &mut Option<consensus::ConsensusContainer>,
-            mut msg: UCursor,
-        ) -> Fallible<()> {
-            if let Some(ref mut baker) = baker_ins {
-                ensure!(
-                    msg.len() >= msg.position() + 2,
-                    "Message needs at least 2 bytes"
-                );
+                    let consensus_type = msg.read_u16::<BigEndian>()?;
+                    let view = msg.read_all_into_view()?;
+                    let content = view.as_slice();
 
-                let consensus_type = msg.read_u16::<BigEndian>()?;
-                let view = msg.read_all_into_view()?;
-                let content = view.as_slice();
-
-                match consensus_type {
-                    0 => match consensus::Block::deserialize(content) {
-                        Some(block) => {
-                            baker.send_block(&block);
-                            info!("Sent block from network to baker");
-                        }
-                        _ => error!(
-                            "Couldn't deserialize block, can't move forward with the message"
-                        ),
-                    },
-                    1 => {
-                        baker.send_transaction(content);
-                        info!("Sent transaction to baker");
-                    }
-                    2 => {
-                        baker.send_finalization(content);
-                        info!("Sent finalization package to consensus layer");
-                    }
-                    3 => {
-                        baker.send_finalization_record(content);
-                        info!("Sent finalization record to consensus layer");
-                    }
-                    _ => error!("Incorrect message type received"),
-                }
-            } else {
-                error!("Couldn't read bytes properly for type");
-            }
-            Ok(())
-        }
-
-        loop {
-            if let Ok(full_msg) = pkt_out.recv() {
-                match *full_msg {
-                    NetworkMessage::NetworkPacket(ref pac, ..) => {
-                        match pac.packet_type {
-                            NetworkPacketType::DirectMessage(..) => {
-                                if _tps_test_enabled {
-                                    _stats_engine.add_stat(pac.message.len() as u64);
-                                    _msg_count += 1;
-
-                                    if _msg_count == _tps_message_count {
-                                        info!(
-                                            "TPS over {} messages is {}",
-                                            _tps_message_count,
-                                            _stats_engine.calculate_total_tps_average()
-                                        );
-                                        _msg_count = 0;
-                                        _stats_engine.clear();
-                                    }
-                                }
-                                if let Some(ref mut rpc) = _rpc_clone {
-                                    rpc.queue_message(&full_msg)
-                                        .map_err(|e| error!("Couldn't queue message {}", e))
-                                        .ok();
-                                }
-                                info!(
-                                    "DirectMessage/{}/{} with size {} received",
-                                    pac.network_id,
-                                    pac.message_id,
-                                    pac.message.len()
-                                );
+                    match consensus_type {
+                        0 => match consensus::Block::deserialize(content) {
+                            Some(block) => {
+                                baker.send_block(&block);
+                                info!("Sent block from network to baker");
                             }
-                            NetworkPacketType::BroadcastedMessage => {
-                                if let Some(ref mut rpc) = _rpc_clone {
-                                    rpc.queue_message(&full_msg)
-                                        .map_err(|e| error!("Couldn't queue message {}", e))
-                                        .ok();
-                                }
-                                if let Some(ref testrunner_url) = _test_runner_url {
-                                    info!("Sending information to test runner");
-                                    match reqwest::get(&format!(
-                                        "{}/register/{}/{}",
-                                        testrunner_url,
-                                        _node_self_clone.get_own_id(),
-                                        pac.message_id
-                                    )) {
-                                        Ok(ref mut res) if res.status().is_success() => {
-                                            info!("Registered packet received with test runner")
+                            _ => error!(
+                                "Couldn't deserialize block, can't move forward with the message"
+                            ),
+                        },
+                        1 => {
+                            baker.send_transaction(content);
+                            info!("Sent transaction to baker");
+                        }
+                        2 => {
+                            baker.send_finalization(content);
+                            info!("Sent finalization package to consensus layer");
+                        }
+                        3 => {
+                            baker.send_finalization_record(content);
+                            info!("Sent finalization record to consensus layer");
+                        }
+                        _ => {
+                            error!("Couldn't read bytes properly for type");
+                        }
+                    }
+                }
+                Ok(())
+            }
+
+            loop {
+                if let Ok(full_msg) = pkt_out.recv() {
+                    match *full_msg {
+                        NetworkMessage::NetworkPacket(ref pac, ..) => {
+                            match pac.packet_type {
+                                NetworkPacketType::DirectMessage(..) => {
+                                    if _tps_test_enabled {
+                                        _stats_engine.add_stat(pac.message.len() as u64);
+                                        _msg_count += 1;
+
+                                        if _msg_count == _tps_message_count {
+                                            info!(
+                                                "TPS over {} messages is {}",
+                                                _tps_message_count,
+                                                _stats_engine.calculate_total_tps_average()
+                                            );
+                                            _msg_count = 0;
+                                            _stats_engine.clear();
                                         }
-                                        _ => error!(
-                                            "Couldn't register packet received with test runner"
-                                        ),
                                     }
-                                };
-                            }
-                        };
-                        if let Err(e) =
-                            send_msg_to_baker(&mut _baker_pkt_clone, pac.message.to_owned())
-                        {
-                            error!("Send network message to baker has failed: {:?}", e);
-                        }
-                    }
-
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::BanNode(ref peer, ref x),
-                        ..
-                    ) => {
-                        info!("Ban node request for {:?}", x);
-                        let ban = _node_self_clone
-                            .ban_node(x.to_owned())
-                            .map_err(|e| error!("{}", e));
-                        if ban.is_ok() {
-                            db.insert_ban(
-                                &peer.id().to_string(),
-                                &peer.ip().to_string(),
-                                peer.port(),
-                            );
-                            if !_no_trust_bans {
-                                _node_self_clone
-                                    .send_ban(x.to_owned())
-                                    .map_err(|e| error!("{}", e))
-                                    .ok();
-                            }
-                        }
-                    }
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::UnbanNode(ref peer, ref x),
-                        ..
-                    ) => {
-                        info!("Unban node requets for {:?}", x);
-                        let req = _node_self_clone
-                            .unban_node(x.to_owned())
-                            .map_err(|e| error!("{}", e));
-                        if req.is_ok() {
-                            db.delete_ban(
-                                peer.id().to_string(),
-                                peer.ip().to_string(),
-                                peer.port(),
-                            );
-                            if !_no_trust_bans {
-                                _node_self_clone
-                                    .send_unban(x.to_owned())
-                                    .map_err(|e| error!("{}", e))
-                                    .ok();
-                            }
-                        }
-                    }
-                    NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(ref peer, ref peers),
-                        ..
-                    ) => {
-                        info!("Received PeerList response, attempting to satisfy desired peers");
-                        let mut new_peers = 0;
-                        match _node_self_clone.get_peer_stats(&[]) {
-                            Ok(x) => {
-                                for peer_node in peers {
-                                    debug!(
-                                        "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                                        peer.id().to_string(),
-                                        peer.ip(),
-                                        peer.port(),
-                                        peer_node.id().to_string(),
-                                        peer_node.ip(),
-                                        peer_node.port()
+                                    if let Some(ref mut rpc) = _rpc_clone {
+                                        rpc.queue_message(&full_msg)
+                                            .map_err(|e| error!("Couldn't queue message {}", e))
+                                            .ok();
+                                    }
+                                    info!(
+                                        "DirectMessage/{}/{} with size {} received",
+                                        pac.network_id,
+                                        pac.message_id,
+                                        pac.message.len()
                                     );
-                                    if _node_self_clone
-                                        .connect(
-                                            ConnectionType::Node,
-                                            peer_node.ip(),
-                                            peer_node.port(),
-                                            Some(peer_node.id()),
-                                        )
-                                        .map_err(|e| info!("{}", e))
-                                        .is_ok()
-                                    {
-                                        new_peers += 1;
+                                }
+                                NetworkPacketType::BroadcastedMessage => {
+                                    if let Some(ref mut rpc) = _rpc_clone {
+                                        rpc.queue_message(&full_msg)
+                                            .map_err(|e| error!("Couldn't queue message {}", e))
+                                            .ok();
                                     }
-                                    if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                        break;
-                                    }
+                                    if let Some(ref testrunner_url) = _test_runner_url {
+                                        info!("Sending information to test runner");
+                                        match reqwest::get(&format!(
+                                            "{}/register/{}/{}",
+                                            testrunner_url,
+                                            _node_self_clone.get_own_id(),
+                                            pac.message_id
+                                        )) {
+                                            Ok(ref mut res) if res.status().is_success() => {
+                                                info!("Registered packet received with test runner")
+                                            }
+                                            _ => error!(
+                                                "Couldn't register packet received with test \
+                                                 runner"
+                                            ),
+                                        }
+                                    };
+                                }
+                            };
+                            if let Err(e) =
+                                send_msg_to_baker(&mut _baker_pkt_clone, pac.message.clone())
+                            {
+                                error!("Send network message to baker has failed: {:?}", e);
+                            }
+                        }
+
+                        NetworkMessage::NetworkRequest(
+                            NetworkRequest::BanNode(ref peer, ref x),
+                            ..
+                        ) => {
+                            info!("Ban node request for {:?}", x);
+                            let ban = _node_self_clone
+                                .ban_node(x.clone())
+                                .map_err(|e| error!("{}", e));
+                            if ban.is_ok() {
+                                db.insert_ban(
+                                    &peer.id().to_string(),
+                                    &peer.ip().to_string(),
+                                    peer.port(),
+                                );
+                                if !_no_trust_bans {
+                                    _node_self_clone
+                                        .send_ban(x.clone())
+                                        .map_err(|e| error!("{}", e))
+                                        .ok();
                                 }
                             }
-                            _ => {
-                                error!("Can't get nodes - so not trying to connect to new peers!");
+                        }
+                        NetworkMessage::NetworkRequest(
+                            NetworkRequest::UnbanNode(ref peer, ref x),
+                            ..
+                        ) => {
+                            info!("Unban node requets for {:?}", x);
+                            let req = _node_self_clone
+                                .unban_node(x.to_owned())
+                                .map_err(|e| error!("{}", e));
+                            if req.is_ok() {
+                                db.delete_ban(
+                                    peer.id().to_string(),
+                                    peer.ip().to_string(),
+                                    peer.port(),
+                                );
+                                if !_no_trust_bans {
+                                    _node_self_clone
+                                        .send_unban(x.to_owned())
+                                        .map_err(|e| error!("{}", e))
+                                        .ok();
+                                }
                             }
                         }
+                        NetworkMessage::NetworkResponse(
+                            NetworkResponse::PeerList(ref peer, ref peers),
+                            ..
+                        ) => {
+                            info!(
+                                "Received PeerList response, attempting to satisfy desired peers"
+                            );
+                            let mut new_peers = 0;
+                            match _node_self_clone.get_peer_stats(&[]) {
+                                Ok(x) => {
+                                    for peer_node in peers {
+                                        debug!(
+                                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                                            peer.id().to_string(),
+                                            peer.ip(),
+                                            peer.port(),
+                                            peer_node.id().to_string(),
+                                            peer_node.ip(),
+                                            peer_node.port()
+                                        );
+                                        if _node_self_clone
+                                            .connect(
+                                                ConnectionType::Node,
+                                                peer_node.ip(),
+                                                peer_node.port(),
+                                                Some(peer_node.id()),
+                                            )
+                                            .map_err(|e| info!("{}", e))
+                                            .is_ok()
+                                        {
+                                            new_peers += 1;
+                                        }
+                                        if new_peers + x.len() as u8 >= _desired_nodes_clone {
+                                            break;
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    error!(
+                                        "Can't get nodes - so not trying to connect to new peers!"
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
-    });
+        });
 
-    info!(
-        "Concordium P2P layer. Network disabled: {}",
-        conf.no_network
-    );
-
-    if let Some(ref prom) = prometheus {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.to_owned()
-            } else {
-                node.get_own_id().to_string()
-            };
-            safe_read!(prom)?
-                .start_push_to_gateway(
-                    prom_push_addy.to_owned(),
-                    conf.prometheus_push_interval,
-                    conf.prometheus_job_name,
-                    instance_name,
-                    conf.prometheus_push_username,
-                    conf.prometheus_push_password,
-                )
-                .map_err(|e| error!("{}", e))
-                .ok();
-        }
+        info!(
+            "Concordium P2P layer. Network disabled: {}",
+            conf.cli.no_network
+        );
     }
 
-    node.spawn();
+    // Start push gateway to prometheus
+    {
+        let id = node.get_own_id();
+        start_push_gateway(&conf.prometheus, &prometheus, &id)?;
+    }
 
+    // Start the P2PNode
+    //
+    // Thread #3: P2P event loop
+    node.spawn();
     let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap())
         .ok()
         .unwrap()
         .into_inner();
 
-    if !conf.no_network {
-        for connect_to in &conf.connect_to {
-            match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
-                Some((ip, port)) => {
-                    info!("Connecting to peer {}", &connect_to);
-                    node.connect(ConnectionType::Node, ip, port, None)
-                        .map_err(|e| error!("{}", e))
-                        .ok();
-                }
-                None => error!("Can't parse IP to connect to '{}'", &connect_to),
-            }
+    // Connect to nodes (args and bootstrap)
+    if !conf.cli.no_network {
+        info!("Concordium P2P layer, Network disabled");
+        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
+        if !conf.connection.no_bootstrap_dns {
+            info!("Attempting to bootstrap");
+            bootstrap(&bootstrap_nodes, &mut node);
         }
     }
 
-    if !conf.no_network && !conf.no_boostrap_dns {
-        info!("Attempting to bootstrap");
-        match bootstrap_nodes {
-            Ok(nodes) => {
-                for (ip, port) in nodes {
-                    info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                    node.connect(ConnectionType::Bootstrapper, ip, port, None)
-                        .map_err(|e| error!("{}", e))
-                        .ok();
-                }
-            }
-            Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
-        };
-    }
-
-    let _desired_nodes_count = conf.desired_nodes;
-    let _no_net_clone = conf.no_network;
-    let _bootstrappers_conf = conf.bootstrap_server;
-    let _dnssec = conf.no_dnssec;
-    let _dns_resolvers = dns_resolvers;
-    let _bootstrap_node = conf.bootstrap_node;
-    let _nids: HashSet<u16> = conf.network_ids.iter().cloned().collect();
-    let _no_boostrap_dns = conf.no_boostrap_dns;
-    let mut _node_ref_guard_timer = node.clone();
-    let _guard_timer = thread::spawn(move || loop {
-        match _node_ref_guard_timer.get_peer_stats(&vec![]) {
-            Ok(ref x) => {
-                info!(
-                    "I currently have {}/{} nodes!",
-                    x.len(),
-                    _desired_nodes_count
-                );
-                let mut count = 0;
-                for i in x {
-                    info!(
-                        "Peer {}: {}/{}:{}",
-                        count,
-                        i.id().to_string(),
-                        i.ip().to_string(),
-                        i.port()
-                    );
-                    count += 1;
-                }
-                if !_no_net_clone && _desired_nodes_count > x.len() as u8 {
-                    if x.len() == 0 {
-                        if !_no_boostrap_dns {
-                            info!("No nodes at all - retrying bootstrapping");
-                            match utils::get_bootstrap_nodes(
-                                _bootstrappers_conf.clone(),
-                                &_dns_resolvers,
-                                _dnssec,
-                                &_bootstrap_node,
-                            ) {
-                                Ok(nodes) => {
-                                    for (ip, port) in nodes {
-                                        info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                        _node_ref_guard_timer
-                                            .connect(ConnectionType::Bootstrapper, ip, port, None)
-                                            .map_err(|e| info!("{}", e))
-                                            .ok();
-                                    }
-                                }
-                                _ => error!("Can't find any bootstrap nodes - check DNS!"),
-                            }
-                        } else {
-                            info!(
-                                "No nodes at all - Not retrying bootstrapping using DNS since \
-                                 --no-bootstrap is specified"
-                            );
-                        }
-                    } else {
-                        info!("Not enough nodes, sending GetPeers requests");
-                        _node_ref_guard_timer
-                            .send_get_peers(_nids.clone())
-                            .map_err(|e| error!("{}", e))
-                            .ok();
-                    }
-                }
-            }
-            Err(e) => error!("Couldn't get node list, {:?}", e),
-        };
-        thread::sleep(time::Duration::from_secs(30));
-    });
-
+    // Create listeners on baker output to forward to P2PNode
+    //
+    // Threads #4, #5, #6
     if let Some(ref mut baker) = baker {
         let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = conf.network_ids.first().unwrap().to_owned(); // defaulted so there's always first()
+        let _network_id = conf.common.network_ids.first().unwrap().to_owned(); // defaulted so there's always first()
         thread::spawn(move || loop {
             match _baker_clone.out_queue().recv_block() {
                 Ok(x) => match x.serialize() {
@@ -595,7 +483,7 @@ fn main() -> Fallible<()> {
                         match out_bytes.write_u16::<BigEndian>(0 as u16) {
                             Ok(_) => {
                                 out_bytes.extend(bytes);
-                                match _node_ref.send_message(
+                                match &_node_ref.send_message(
                                     None,
                                     _network_id,
                                     None,
@@ -625,8 +513,13 @@ fn main() -> Fallible<()> {
                     match out_bytes.write_u16::<BigEndian>(2 as u16) {
                         Ok(_) => {
                             out_bytes.extend(x);
-                            match _node_ref_2.send_message(None, _network_id, None, out_bytes, true)
-                            {
+                            match &_node_ref_2.send_message(
+                                None,
+                                _network_id,
+                                None,
+                                out_bytes,
+                                true,
+                            ) {
                                 Ok(_) => info!("Broadcasted finalization packet"),
                                 Err(_) => error!("Couldn't broadcast finalization packet!"),
                             }
@@ -646,8 +539,13 @@ fn main() -> Fallible<()> {
                     match out_bytes.write_u16::<BigEndian>(3 as u16) {
                         Ok(_) => {
                             out_bytes.extend(x);
-                            match _node_ref_3.send_message(None, _network_id, None, out_bytes, true)
-                            {
+                            match &_node_ref_3.send_message(
+                                None,
+                                _network_id,
+                                None,
+                                out_bytes,
+                                true,
+                            ) {
                                 Ok(_) => info!("Broadcasted finalization record"),
                                 Err(_) => error!("Couldn't broadcast finalization record!"),
                             }
@@ -662,11 +560,11 @@ fn main() -> Fallible<()> {
 
     // TPS test
 
-    if let Some(ref tps_test_recv_id) = conf.tps_test_recv_id {
+    if let Some(ref tps_test_recv_id) = conf.cli.tps.tps_test_recv_id {
         let mut _id_clone = tps_test_recv_id.to_owned();
-        let mut _dir_clone = conf.tps_test_data_dir.to_owned();
+        let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = conf.network_ids.first().unwrap().to_owned();
+        let _network_id = conf.common.network_ids.first().unwrap().to_owned();
         thread::spawn(move || {
             let mut done = false;
             while !done {
@@ -700,23 +598,104 @@ fn main() -> Fallible<()> {
         });
     }
 
+    // Wait for node closing
     _node_th.join().expect("Node thread panicked!");
 
+    // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {
         serv.stop_server()?;
     }
 
+    // Close baker if present
     if let Some(ref mut baker_ref) = baker {
-        baker_ref.stop_baker(conf.baker_id.unwrap()); // only reached if not None, so it's safe
+        baker_ref.stop_baker(conf.cli.baker.baker_id.unwrap()); // only reached if not None, so it's safe
         consensus::ConsensusContainer::stop_haskell();
     }
 
     Ok(())
 }
 
+fn start_baker(
+    conf: &configuration::BakerConfig,
+    app_prefs: &configuration::AppPreferences,
+) -> Option<consensus::ConsensusContainer> {
+    conf.baker_id.and_then(|_| {
+        info!("Starting up baker thread");
+        consensus::ConsensusContainer::start_haskell();
+        match get_baker_data(app_prefs, conf) {
+            Ok((genesis, private_data)) => {
+                let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
+                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
+                Some(consensus_runner)
+            }
+            Err(_) => {
+                error!("Can't read needed data...");
+                None
+            }
+        }
+    })
+}
+
+fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &mut P2PNode) {
+    match bootstrap_nodes {
+        Ok(nodes) => {
+            for (ip, port) in nodes {
+                info!("Found bootstrap node IP: {} and port: {}", ip, port);
+                node.connect(ConnectionType::Bootstrapper, *ip, *port, None)
+                    .map_err(|e| error!("{}", e))
+                    .ok();
+            }
+        }
+        Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
+    };
+}
+
+fn create_connections_from_config(
+    conf: &configuration::ConnectionConfig,
+    dns_resolvers: &[String],
+    node: &mut P2PNode,
+) {
+    for connect_to in &conf.connect_to {
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
+            Some((ip, port)) => {
+                info!("Connecting to peer {}", &connect_to);
+                node.connect(ConnectionType::Node, ip, port, None)
+                    .map_err(|e| error!("{}", e))
+                    .ok();
+            }
+            None => error!("Can't parse IP to connect to '{}'", &connect_to),
+        }
+    }
+}
+
+fn start_push_gateway(
+    conf: &configuration::PrometheusConfig,
+    prometheus: &Option<Arc<RwLock<PrometheusServer>>>,
+    id: &P2PNodeId,
+) -> Fallible<()> {
+    if let Some(ref prom) = prometheus {
+        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
+            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
+                instance_id.clone()
+            } else {
+                id.to_string()
+            };
+            safe_read!(prom)?.start_push_to_gateway(
+                prom_push_addy.clone(),
+                conf.prometheus_push_interval,
+                conf.prometheus_job_name.clone(),
+                instance_name,
+                conf.prometheus_push_username.clone(),
+                conf.prometheus_push_password.clone(),
+            )?
+        }
+    }
+    Ok(())
+}
+
 fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
-    conf: &configuration::CliConfig,
+    conf: &configuration::BakerConfig,
 ) -> Result<(Vec<u8>, Vec<u8>), &'static str> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push("genesis.dat");

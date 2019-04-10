@@ -9,8 +9,8 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 pub struct P2PServiceForwarder {
-    pub targets: Arc<RwLock<Vec<Arc<Box<dyn P2P>>>>>,
-    service:     Arc<Option<::grpcio::Service>>,
+    pub targets: Arc<RwLock<Vec<Box<dyn P2P>>>>,
+    service:     Option<Arc<::grpcio::Service>>,
 }
 
 unsafe impl Send for P2PServiceForwarder {}
@@ -20,13 +20,13 @@ impl P2PServiceForwarder {
     pub fn new() -> Self {
         let part_mself = P2PServiceForwarder {
             targets: Arc::new(RwLock::new(Vec::new())),
-            service: Arc::new(None),
+            service: None,
         };
         let targets = Arc::clone(&part_mself.targets);
         let service = create_p2_p(part_mself);
         let mself = P2PServiceForwarder {
             targets,
-            service: Arc::new(Some(service)),
+            service: Some(Arc::new(service)),
         };
         mself
     }

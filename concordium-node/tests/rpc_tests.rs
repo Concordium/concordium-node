@@ -10,6 +10,7 @@ extern crate grpciowin as grpcio;
 mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
+        configuration::Config,
         connection::{P2PEvent, P2PNodeMode},
         db::P2PDB,
         network::NetworkMessage,
@@ -18,7 +19,6 @@ mod tests {
         rpc::RpcServerImpl,
     };
     use std::{
-        collections::HashSet,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,
@@ -82,30 +82,20 @@ mod tests {
                 _ => panic!(),
             };
 
-            let node = P2PNode::new(
-                $id,
-                Some("127.0.0.1".to_string()),
+            let mut config = Config::new(
+                Some("127.0.0.1".to_owned()),
                 next_port_offset_node(1),
-                None,
-                None,
-                pkt_in,
-                Some(sender),
-                node_type,
-                None,
-                HashSet::new(),
+                vec![],
                 100,
-                true,
             );
 
+            let node = P2PNode::new($id, &config, pkt_in, Some(sender), node_type, None);
+
             let rpc_port = next_port_offset_rpc(1);
-            let mut $r = RpcServerImpl::new(
-                node,
-                P2PDB::default(),
-                None,
-                "127.0.0.1".to_string(),
-                rpc_port,
-                "rpcadmin".to_string(),
-            );
+            config.cli.rpc.rpc_server_port = rpc_port;
+            config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
+            config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
+            let mut $r = RpcServerImpl::new(node, P2PDB::default(), None, &config.cli.rpc);
             $r.start_server().expect("rpc");
 
             let env = Arc::new(EnvBuilder::new().build());

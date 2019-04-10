@@ -2,6 +2,7 @@ mod fails;
 
 use crate::{
     common::{ConnectionType, P2PNodeId, P2PPeer},
+    configuration,
     db::P2PDB,
     failure::{Error, Fallible},
     network::{NetworkMessage, NetworkPacketType},
@@ -74,15 +75,13 @@ impl RpcServerImpl {
         node: P2PNode,
         db: P2PDB,
         consensus: Option<ConsensusContainer>,
-        listen_addr: String,
-        listen_port: u16,
-        access_token: String,
+        conf: &configuration::RpcCliConfig,
     ) -> Self {
         RpcServerImpl {
             node: RefCell::new(node),
-            listen_addr,
-            listen_port,
-            access_token,
+            listen_addr: conf.rpc_server_addr.clone(),
+            listen_port: conf.rpc_server_port,
+            access_token: conf.rpc_server_token.clone(),
             db,
             consensus,
             dptr: Arc::new(RwLock::new(RpcServerImplShared::new())),
