@@ -204,7 +204,7 @@ pub fn default_network_request_join_network(
         safe_write!(priv_conn_borrow.buckets)?.update_network_ids(&peer, networks);
 
         let networks: HashSet<u16> = vec![*network].into_iter().collect();
-        log_as_joined_network(&priv_conn_borrow.event_log, &peer, networks)?;
+        log_as_joined_network(&priv_conn_borrow.event_log, &peer, &networks)?;
     }
 
     Ok(())

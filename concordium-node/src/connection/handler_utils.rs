@@ -52,7 +52,7 @@ pub fn serialize_bytes(session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> Func
 pub fn log_as_joined_network(
     event_log: &Option<Sender<P2PEvent>>,
     peer: &P2PPeer,
-    networks: HashSet<u16>,
+    networks: &HashSet<u16>,
 ) -> FunctorResult {
     if let Some(ref log) = event_log {
         for net_id in networks.iter() {

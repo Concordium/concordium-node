@@ -102,10 +102,9 @@ impl ConnectionPrivate {
     #[inline]
     pub fn add_network(&mut self, network: u16) { self.networks.insert(network); }
 
+    #[inline]
     pub fn add_networks(&mut self, networks: &HashSet<u16>) {
-        for ele in networks.iter() {
-            self.networks.insert(*ele);
-        }
+        self.networks.extend(networks.iter())
     }
 
     pub fn remove_network(&mut self, network: &u16) { self.networks.remove(network); }
