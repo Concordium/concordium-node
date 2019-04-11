@@ -629,6 +629,14 @@ impl Connection {
     fn flush_tls(&mut self) -> Fallible<usize> {
         let mut lptr = self.dptr.borrow_mut();
         if lptr.tls_session.wants_write() {
+            debug!(
+                "{}/{}:{} is attempting to write to socket {:?}",
+                self.id(),
+                self.ip(),
+                self.port(),
+                self.socket
+            );
+
             let mut wr = WriteVAdapter::new(&mut self.socket);
             into_err!(lptr.tls_session.writev_tls(&mut wr))
         } else {
