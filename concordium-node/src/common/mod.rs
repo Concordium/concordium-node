@@ -197,7 +197,12 @@ impl P2PPeer {
             _ => bail!("Unsupported Ip type"),
         };
 
-        Ok(P2PPeer::from(ConnectionType::Node, node_id, ip_addr, port))
+        P2PPeerBuilder::default()
+            .id(node_id)
+            .ip(ip_addr)
+            .port(port)
+            .connection_type(ConnectionType::Node)
+            .build()
     }
 
     pub fn id(&self) -> P2PNodeId { self.id }
