@@ -23,7 +23,7 @@ pub fn handshake_response_handle(
         let priv_conn_borrow = priv_conn.borrow();
         let conn_type = priv_conn_borrow.connection_type;
         let bucket_sender = P2PPeer::from(conn_type, rpeer.id(), rpeer.ip(), rpeer.port());
-        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(&bucket_sender, nets.to_owned());
+        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(&bucket_sender, nets.clone());
 
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
             safe_write!(prom)?.peers_inc()?;
@@ -56,7 +56,7 @@ pub fn handshake_request_handle(
             priv_conn_mut.set_measured_ping_sent();
         }
 
-        update_buckets(priv_conn, sender, nets)?;
+        update_buckets(priv_conn, sender, nets.clone())?;
 
         if priv_conn.borrow().connection_type == ConnectionType::Bootstrapper {
             send_peer_list(priv_conn, sender, nets)?;

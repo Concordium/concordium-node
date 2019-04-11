@@ -265,6 +265,8 @@ mod tests {
         NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkRequest,
         NetworkResponse,
     };
+    use std::collections::HashSet;
+
     fn dummy_peer(ip: IpAddr, port: u16) -> P2PPeer {
         P2PPeerBuilder::default()
             .connection_type(ConnectionType::Node)
@@ -338,7 +340,7 @@ mod tests {
         ($msg:ident, $msg_type:ident, $zk:expr, $nets:expr) => {{
             let self_peer = self_peer();
             let zk: Vec<u8> = $zk;
-            let nets: Vec<u16> = $nets;
+            let nets: HashSet<u16> = $nets.into_iter().collect();
             let test_msg = create_message!($msg, $msg_type, self_peer, nets, zk);
             let serialized = UCursor::from(test_msg.serialize());
             let self_peer_ip = self_peer.ip();
@@ -379,7 +381,10 @@ mod tests {
     fn resp_handshake_no_nets() { net_test!(NetworkResponse, Handshake, ZK.to_vec(), vec![]) }
 
     #[test]
-    fn req_get_peers() { net_test!(NetworkRequest, GetPeers, vec![100u16, 200]) }
+    fn req_get_peers() {
+        let networks: HashSet<u16> = vec![100u16, 200].into_iter().collect();
+        net_test!(NetworkRequest, GetPeers, networks)
+    }
 
     #[test]
     fn resp_findnode_empty_test() { net_test!(NetworkResponse, FindNode, vec![] as Vec<P2PPeer>) }

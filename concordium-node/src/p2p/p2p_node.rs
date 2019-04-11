@@ -9,7 +9,7 @@ use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
 use std::{
     cell::Cell,
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     net::IpAddr::{self, V4, V6},
     rc::Rc,
     str::FromStr,
@@ -234,6 +234,7 @@ impl P2PNode {
 
         let buckets = Arc::new(RwLock::new(Buckets::new()));
 
+        let networks: HashSet<u16> = conf.common.network_ids.iter().cloned().collect();
         let tlsserv = TlsServer::new(
             server,
             Arc::new(server_conf),
@@ -243,7 +244,7 @@ impl P2PNode {
             self_peer,
             mode,
             prometheus_exporter.clone(),
-            conf.common.network_ids.clone(),
+            networks,
             Arc::clone(&buckets),
             conf.connection.no_trust_broadcasts,
         );
@@ -773,7 +774,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_get_peers(&mut self, nids: Vec<u16>) -> Fallible<()> {
+    pub fn send_get_peers(&mut self, nids: HashSet<u16>) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::GetPeers(self.get_self_peer(), nids.clone()),
             None,

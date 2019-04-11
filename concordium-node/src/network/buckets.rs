@@ -1,14 +1,22 @@
 use rand::{rngs::OsRng, seq::IteratorRandom};
-use std::{collections::HashSet, sync::RwLock};
+use std::{
+    collections::HashSet,
+    hash::{Hash, Hasher},
+    sync::RwLock,
+};
 
 use crate::common::{ConnectionType, P2PPeer};
 
 const BUCKET_COUNT: usize = 1;
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Node {
     pub peer:     P2PPeer,
-    pub networks: Vec<u16>,
+    pub networks: HashSet<u16>,
+}
+
+impl Hash for Node {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.peer.hash(state) }
 }
 
 pub type Bucket = HashSet<Node>;
@@ -27,7 +35,7 @@ impl Buckets {
         }
     }
 
-    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
+    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: HashSet<u16>) {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
@@ -36,7 +44,7 @@ impl Buckets {
         });
     }
 
-    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
+    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: HashSet<u16>) {
         let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
@@ -45,7 +53,7 @@ impl Buckets {
         });
     }
 
-    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &[u16]) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &HashSet<u16>) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.connection_type() == ConnectionType::Node
@@ -54,7 +62,7 @@ impl Buckets {
                 } else {
                     true
                 }
-                && (networks.is_empty() || node.networks.iter().any(|net| networks.contains(net)))
+                && (networks.is_empty() || !node.networks.is_disjoint(networks))
         };
 
         for bucket in &self.buckets {
@@ -81,7 +89,7 @@ impl Buckets {
         &self,
         sender: &P2PPeer,
         amount: usize,
-        networks: &[u16],
+        networks: &HashSet<u16>,
     ) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
             Ok(ref mut rng) => self
@@ -97,7 +105,7 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use std::{net::IpAddr, str::FromStr};
+    use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
@@ -117,8 +125,8 @@ mod tests {
             IpAddr::from_str("127.0.0.1").unwrap(),
             8889,
         );
-        buckets.insert_into_bucket(&p2p_peer, vec![]);
-        buckets.insert_into_bucket(&p2p_duplicate_peer, vec![]);
+        buckets.insert_into_bucket(&p2p_peer, HashSet::new());
+        buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());
         assert_eq!(buckets.buckets.len(), 1);
     }
 }

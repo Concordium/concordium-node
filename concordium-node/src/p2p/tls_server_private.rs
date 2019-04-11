@@ -35,13 +35,13 @@ pub struct TlsServerPrivate {
     connections:             Vec<Rc<RefCell<Connection>>>,
     pub unreachable_nodes:   UnreachableNodes,
     pub banned_peers:        HashSet<P2PPeer>,
-    pub networks:            Arc<RwLock<Vec<u16>>>,
+    pub networks:            Arc<RwLock<HashSet<u16>>>,
     pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
 }
 
 impl TlsServerPrivate {
     pub fn new(
-        networks: Vec<u16>,
+        networks: HashSet<u16>,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     ) -> Self {
         TlsServerPrivate {
@@ -80,10 +80,7 @@ impl TlsServerPrivate {
 
     /// It adds this server to `network_id` network.
     pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
-        let mut networks = safe_write!(self.networks)?;
-        if !networks.contains(&network_id) {
-            networks.push(network_id)
-        }
+        safe_write!(self.networks)?.insert(network_id);
         Ok(())
     }
 

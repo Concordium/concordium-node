@@ -2,13 +2,13 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::{BufMut, BytesMut};
 use std::{
     cell::RefCell,
+    collections::HashSet,
     io::Cursor,
     net::{IpAddr, Shutdown},
     rc::Rc,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
 };
 
-use crate::prometheus_exporter::PrometheusServer;
 use mio::{net::TcpStream, Event, Poll, PollOpt, Ready, Token};
 use rustls::{ClientSession, ServerSession};
 
@@ -20,13 +20,13 @@ use crate::{
         functor::{AFunctorCW, FunctorError, FunctorResult},
         get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, UCursor,
     },
+    connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
     network::{
         Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     },
+    prometheus_exporter::PrometheusServer,
 };
-
-use crate::connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler};
 
 use super::fails;
 #[cfg(not(target_os = "windows"))]
@@ -123,7 +123,7 @@ impl Connection {
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
-        own_networks: Arc<RwLock<Vec<u16>>>,
+        own_networks: Arc<RwLock<HashSet<u16>>>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -650,11 +650,11 @@ impl Connection {
 
     pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
 
-    pub fn networks(&self) -> Vec<u16> { self.dptr.borrow().networks.clone() }
+    pub fn networks(&self) -> HashSet<u16> { self.dptr.borrow().networks.clone() }
 
     pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
 
-    pub fn own_networks(&self) -> Arc<RwLock<Vec<u16>>> {
+    pub fn own_networks(&self) -> Arc<RwLock<HashSet<u16>>> {
         Arc::clone(&self.dptr.borrow().own_networks)
     }
 

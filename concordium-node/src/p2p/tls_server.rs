@@ -6,6 +6,7 @@ use mio::{
 };
 use rustls::{ClientConfig, ClientSession, ServerConfig, ServerSession};
 use std::{
+    collections::HashSet,
     net::{IpAddr, SocketAddr},
     rc::Rc,
     sync::{
@@ -59,7 +60,7 @@ impl TlsServer {
         self_peer: P2PPeer,
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-        networks: Vec<u16>,
+        networks: HashSet<u16>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -99,16 +100,17 @@ impl TlsServer {
 
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
-    pub fn networks(&self) -> Arc<RwLock<Vec<u16>>> {
+    #[inline]
+    pub fn networks(&self) -> Arc<RwLock<HashSet<u16>>> {
         Arc::clone(&self.dptr.read().unwrap().networks)
     }
 
     pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.dptr.write().unwrap().remove_network(network_id)
+        safe_write!(self.dptr)?.remove_network(network_id)
     }
 
     pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
-        self.dptr.write().unwrap().add_network(network_id)
+        safe_write!(self.dptr)?.add_network(network_id)
     }
 
     /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
@@ -222,7 +224,7 @@ impl TlsServer {
         }
 
         match TcpStream::connect(&SocketAddr::new(ip, port)) {
-            Ok(x) => {
+            Ok(socket) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
                     safe_write!(prom)?
                         .conn_received_inc()
@@ -240,7 +242,7 @@ impl TlsServer {
                 let networks = self.networks();
                 let mut conn = Connection::new(
                     connection_type,
-                    x,
+                    socket,
                     token,
                     None,
                     Some(tls_session),
@@ -333,6 +335,15 @@ impl TlsServer {
             .unwrap()
             .send_over_all_connections(data, filter_conn, send_status)
     }
+
+    #[inline]
+    pub fn mode(&self) -> P2PNodeMode { self.mode }
+
+    #[inline]
+    pub fn own_id(&self) -> P2PNodeId { self.own_id }
+
+    #[inline]
+    pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {}
