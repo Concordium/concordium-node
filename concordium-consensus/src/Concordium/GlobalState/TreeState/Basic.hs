@@ -103,6 +103,10 @@ newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
 
 instance (SkovLenses s, Monad m, MonadState s m) => TreeStateMonad (SkovTreeState s m) where
     getBlockStatus bh = use (blockTable . at bh)
+    makeLiveBlock block parent lastFin st arrTime = do
+            let blockP = makeBlockPointer block parent lastFin st arrTime
+            blockTable . at (getHash block) ?= BlockAlive blockP
+            return blockP
     markDead bh = blockTable . at bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at bh) >>= \case
             Just (BlockAlive bp) -> blockTable . at bh ?= BlockFinalized bp fr

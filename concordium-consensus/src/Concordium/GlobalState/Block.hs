@@ -2,7 +2,7 @@
 
 module Concordium.GlobalState.Block where
 
-import Data.ByteString
+import Control.Exception
 import Data.Serialize.Put
 import Data.Serialize
 import Data.Time.Clock
@@ -35,6 +35,7 @@ class BlockData b where
     blockNonce :: b -> BlockNonce
     blockLastFinalized :: b -> BlockHash
     blockTransactions :: b -> [HashedTransaction]
+    verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
 
 data Block
     = GenesisBlock Slot GenesisData
@@ -61,6 +62,12 @@ instance BlockData Block where
 
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock _ _ _ _ _ _ (BlockTransactions transactions) _) = transactions
+
+    verifyBlockSignature _ GenesisBlock{} = True
+    verifyBlockSignature key b@(NormalBlock _ _ _ _ _ _ _ sig) = Sig.verify key bs sig
+        where
+            bs = runPut $ blockBody b
+
 
 blockBody :: Block -> Put
 blockBody (GenesisBlock slot genData) = put slot >> put genData
@@ -90,12 +97,6 @@ instance Serialize Block where
             transactions <- BlockTransactions . fmap makeHashed <$> get
             sig <- get
             return $ NormalBlock sl parent baker proof bnonce lastFin transactions sig
-
-verifyBlockSignature :: Sig.VerifyKey -> Block -> Bool
-verifyBlockSignature _ GenesisBlock{} = True
-verifyBlockSignature key b@(NormalBlock _ _ _ _ _ _ _ sig) = Sig.verify key bs sig
-    where
-        bs = runPut $ blockBody b
 
 signBlock ::
     BakerSignPrivateKey
@@ -138,6 +139,7 @@ instance BlockData PendingBlock where
     blockNonce = blockNonce . pbBlock
     blockLastFinalized = blockLastFinalized . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    verifyBlockSignature key = verifyBlockSignature key . pbBlock
 
 data BlockPointer = BlockPointer {
     bpHash :: !BlockHash,
@@ -178,7 +180,27 @@ instance BlockData BlockPointer where
     blockNonce = blockNonce . bpBlock
     blockLastFinalized = blockLastFinalized . bpBlock
     blockTransactions = blockTransactions . bpBlock
+    verifyBlockSignature key = verifyBlockSignature key . bpBlock
 
+-- |Make a 'BlockPointer' from a 'PendingBlock'.
+-- The parent and last finalized block pointers must match the block data.
+makeBlockPointer ::
+    PendingBlock        -- ^Pending block
+    -> BlockPointer     -- ^Parent block pointer
+    -> BlockPointer     -- ^Last finalized block pointer
+    -> BlockState       -- ^Block state
+    -> UTCTime          -- ^Block arrival time
+    -> BlockPointer
+makeBlockPointer pb@PendingBlock{..} bpParent bpLastFinalized bpState bpArriveTime
+        = assert (getHash bpParent == blockPointer pb) $
+            assert (getHash bpLastFinalized == blockLastFinalized pb) $
+                BlockPointer {
+                    bpHash = getHash pb,
+                    bpBlock = pbBlock,
+                    bpHeight = bpHeight bpParent + 1,
+                    bpReceiveTime = pbReceiveTime,
+                    bpTransactionCount = length (blockTransactions pb),
+                    ..}
 
 makeGenesisBlock :: GenesisData -> Block
 makeGenesisBlock genData = GenesisBlock 0 genData

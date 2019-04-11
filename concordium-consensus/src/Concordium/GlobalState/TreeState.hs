@@ -11,6 +11,7 @@ import Data.Maybe
 
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
@@ -90,6 +91,15 @@ class Monad m => TreeStateMonad m where
     -- * Operations on the block table
     -- |Get the current status of a block.
     getBlockStatus :: BlockHash -> m (Maybe BlockStatus)
+    -- |Make a live 'BlockPointer' from a 'PendingBlock'.
+    -- The parent and last finalized pointers must be correct.
+    makeLiveBlock ::
+        PendingBlock        -- ^Block to make live
+        -> BlockPointer     -- ^Parent block pointer
+        -> BlockPointer     -- ^Last finalized block pointer
+        -> BlockState       -- ^Block state
+        -> UTCTime          -- ^Block arrival time
+        -> m BlockPointer
     -- |Mark a block as dead.
     markDead :: BlockHash -> m ()
     -- |Mark a block as finalized (by a particular 'FinalizationRecord').
@@ -106,7 +116,10 @@ class Monad m => TreeStateMonad m where
     getLastFinalized :: m BlockPointer
     -- |Get the slot number of the last finalized block
     getLastFinalizedSlot :: m Slot
-    getLastFinalizedSlot = blockSlot . bpBlock <$> getLastFinalized
+    getLastFinalizedSlot = blockSlot <$> getLastFinalized
+    -- |Get the height of the last finalized block
+    getLastFinalizedHeight :: m BlockHeight
+    getLastFinalizedHeight = bpHeight <$> getLastFinalized
     -- |Get the next finalization index.
     getNextFinalizationIndex :: m FinalizationIndex
     -- |Add a block and finalization record to the finalization list.
