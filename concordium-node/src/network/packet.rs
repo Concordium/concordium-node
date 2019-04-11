@@ -147,6 +147,6 @@ impl NetworkPacket {
             Ok(mut l) => l.fill_bytes(&mut secure_bytes),
             Err(_) => return String::new(),
         }
-        base64::encode(&utils::sha256_bytes(&secure_bytes))
+        utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
     }
 }
