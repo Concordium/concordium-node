@@ -91,8 +91,6 @@ pub struct Connection {
     currently_read:          u32,
     pkt_validated:           bool,
     pkt_valid:               bool,
-    peer_ip:                 IpAddr,
-    peer_port:               u16,
     expected_size:           u32,
     pkt_buffer:              Option<BytesMut>,
     messages_sent:           u64,
@@ -117,8 +115,6 @@ impl Connection {
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
-        peer_ip: IpAddr,
-        peer_port: u16,
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
@@ -150,8 +146,6 @@ impl Connection {
             pkt_buffer: None,
             messages_received: 0,
             messages_sent: 0,
-            peer_ip,
-            peer_port,
             pkt_validated: false,
             pkt_valid: false,
             last_ping_sent: curr_stamp,
@@ -315,9 +309,9 @@ impl Connection {
 
     pub fn id(&self) -> P2PNodeId { self.dptr.borrow().self_peer.id() }
 
-    pub fn ip(&self) -> IpAddr { self.peer_ip }
+    pub fn ip(&self) -> IpAddr { self.dptr.borrow().self_peer.ip() }
 
-    pub fn port(&self) -> u16 { self.peer_port }
+    pub fn port(&self) -> u16 { self.dptr.borrow().self_peer.port() }
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
