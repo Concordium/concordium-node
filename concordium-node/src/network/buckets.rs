@@ -62,7 +62,7 @@ impl Buckets {
                 } else {
                     true
                 }
-                && (networks.is_empty() || node.networks.is_disjoint(networks) == false)
+                && (networks.is_empty() || !node.networks.is_disjoint(networks))
         };
 
         for bucket in &self.buckets {
