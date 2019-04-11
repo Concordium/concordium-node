@@ -27,21 +27,21 @@ impl Buckets {
         }
     }
 
-    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
+    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: HashSet<u16>) {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
-            peer: peer.to_owned(),
-            networks,
+            peer:     peer.to_owned(),
+            networks: networks.into_iter().collect(),
         });
     }
 
-    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: Vec<u16>) {
+    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: HashSet<u16>) {
         let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
-            peer: peer.to_owned(),
-            networks,
+            peer:     peer.to_owned(),
+            networks: networks.into_iter().collect(),
         });
     }
 
@@ -97,7 +97,7 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use std::{net::IpAddr, str::FromStr};
+    use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
@@ -117,8 +117,8 @@ mod tests {
             IpAddr::from_str("127.0.0.1").unwrap(),
             8889,
         );
-        buckets.insert_into_bucket(&p2p_peer, vec![]);
-        buckets.insert_into_bucket(&p2p_duplicate_peer, vec![]);
+        buckets.insert_into_bucket(&p2p_peer, HashSet::new());
+        buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());
         assert_eq!(buckets.buckets.len(), 1);
     }
 }

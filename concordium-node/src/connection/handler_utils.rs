@@ -137,13 +137,12 @@ pub fn send_peer_list(
 pub fn update_buckets(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
-    nets: &HashSet<u16>,
+    nets: HashSet<u16>,
 ) -> FunctorResult {
     let priv_conn_borrow = priv_conn.borrow();
     let buckets = &priv_conn_borrow.buckets;
 
-    let nets_as_vec: Vec<_> = nets.iter().cloned().collect();
-    safe_write!(buckets)?.insert_into_bucket(sender, nets_as_vec);
+    safe_write!(buckets)?.insert_into_bucket(sender, nets);
 
     let prometheus_exporter = &priv_conn_borrow.prometheus_exporter;
     if let Some(ref prom) = prometheus_exporter {
