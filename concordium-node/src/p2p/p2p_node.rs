@@ -133,7 +133,7 @@ impl P2PNode {
                      characters long."
                 );
             } else {
-                P2PNodeId::from_str(s).unwrap_or_else(|_| P2PNodeId::default())
+                P2PNodeId::from_str(s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
             }
         } else {
             P2PNodeId::default()
@@ -152,7 +152,7 @@ impl P2PNode {
         };
 
         // Generate key pair and cert
-        let (cert, private_key) = match utils::generate_certificate(id) {
+        let (cert, private_key) = match utils::generate_certificate(&id.to_string()) {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {
