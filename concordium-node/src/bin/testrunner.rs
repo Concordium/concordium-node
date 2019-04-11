@@ -18,7 +18,7 @@ use p2p_client::{
     configuration,
     connection::{P2PEvent, P2PNodeMode},
     db::P2PDB,
-    network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
     utils,
 };
@@ -38,7 +38,7 @@ struct TestRunner {
     test_running:     Arc<AtomicBool>,
     registered_times: Arc<Mutex<Vec<Measurement>>>,
     node:             Arc<Mutex<P2PNode>>,
-    nid:              u16,
+    nid:              NetworkId,
     packet_size:      Arc<Mutex<Option<usize>>>,
 }
 
@@ -60,7 +60,7 @@ impl Measurement {
 const DEFAULT_TEST_PACKET_SIZE: usize = 51_200;
 
 impl TestRunner {
-    pub fn new(node: P2PNode, nid: u16) -> Self {
+    pub fn new(node: P2PNode, nid: NetworkId) -> Self {
         TestRunner {
             test_start: Arc::new(Mutex::new(None)),
             test_running: Arc::new(AtomicBool::new(false)),
@@ -581,7 +581,10 @@ fn main() -> Fallible<()> {
         };
     }
 
-    let mut testrunner = TestRunner::new(node.clone(), *conf.common.network_ids.first().unwrap());
+    let mut testrunner = TestRunner::new(
+        node.clone(),
+        NetworkId::from(*conf.common.network_ids.first().unwrap()),
+    );
 
     let _th = testrunner.start_server(
         &conf.testrunner.listen_http_address,

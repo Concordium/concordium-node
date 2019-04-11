@@ -272,8 +272,8 @@ pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().t
 mod tests {
     use super::*;
     use crate::network::{
-        NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkRequest,
-        NetworkResponse,
+        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     };
     use std::collections::HashSet;
 
@@ -350,7 +350,10 @@ mod tests {
         ($msg:ident, $msg_type:ident, $zk:expr, $nets:expr) => {{
             let self_peer = self_peer();
             let zk: Vec<u8> = $zk;
-            let nets: HashSet<u16> = $nets.into_iter().collect();
+            let nets: HashSet<NetworkId> = $nets
+                .into_iter()
+                .map(|net: u16| NetworkId::from(net))
+                .collect();
             let test_msg = create_message!($msg, $msg_type, self_peer, nets, zk);
             let serialized = UCursor::from(test_msg.serialize());
             let self_peer_ip = self_peer.ip();
@@ -392,7 +395,8 @@ mod tests {
 
     #[test]
     fn req_get_peers() {
-        let networks: HashSet<u16> = vec![100u16, 200].into_iter().collect();
+        let networks: HashSet<NetworkId> =
+            vec![100u16, 200].into_iter().map(NetworkId::from).collect();
         net_test!(NetworkRequest, GetPeers, networks)
     }
 
@@ -455,7 +459,7 @@ mod tests {
         let msg = NetworkPacketBuilder::default()
             .peer(self_peer.clone())
             .message_id(NetworkPacket::generate_message_id())
-            .network_id(100)
+            .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
@@ -465,7 +469,7 @@ mod tests {
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
-                assert_eq!(packet.network_id, 100);
+                assert_eq!(packet.network_id, NetworkId::from(100));
                 assert_eq!(packet.message.read_all_into_view()?, text_msg);
             } else {
                 bail!("It should be a direct message");
@@ -485,7 +489,7 @@ mod tests {
         let msg = NetworkPacketBuilder::default()
             .peer(self_peer.clone())
             .message_id(NetworkPacket::generate_message_id())
-            .network_id(100)
+            .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast()?;
 
@@ -496,7 +500,7 @@ mod tests {
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
             if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
-                assert_eq!(packet.network_id, 100);
+                assert_eq!(packet.network_id, NetworkId::from(100));
                 assert_eq!(packet.message.read_all_into_view()?, text_msg);
             } else {
                 bail!("Expected broadcast message");
@@ -526,10 +530,10 @@ mod tests {
     }
 
     #[test]
-    fn req_joinnetwork_test() { net_test!(NetworkRequest, JoinNetwork, 100u16) }
+    fn req_joinnetwork_test() { net_test!(NetworkRequest, JoinNetwork, NetworkId::from(100)) }
 
     #[test]
-    fn req_leavenetwork_test() { net_test!(NetworkRequest, LeaveNetwork, 100u16) }
+    fn req_leavenetwork_test() { net_test!(NetworkRequest, LeaveNetwork, NetworkId::from(100)) }
 
     #[test]
     fn resp_invalid_version() {

@@ -164,7 +164,7 @@ mod integration_test {
         common::{functor::FunctorResult, ConnectionType, P2PNodeId, P2PPeerBuilder, UCursor},
         connection::{MessageHandler, PacketHandler},
         network::{
-            NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
+            NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
             NetworkRequest, NetworkResponse,
         },
     };
@@ -207,7 +207,7 @@ mod integration_test {
                 NetworkPacketBuilder::default()
                     .peer(p2p_peer.clone())
                     .message_id("MSG-ID-1".to_string())
-                    .network_id(100 as u16)
+                    .network_id(NetworkId::from(100))
                     .message(inner_msg.clone())
                     .build_broadcast()
                     .unwrap(),
@@ -218,7 +218,7 @@ mod integration_test {
                 NetworkPacketBuilder::default()
                     .peer(p2p_peer)
                     .message_id("MSG-ID-2".to_string())
-                    .network_id(100 as u16)
+                    .network_id(NetworkId::from(100))
                     .message(inner_msg)
                     .build_direct(node_id)
                     .unwrap(),
