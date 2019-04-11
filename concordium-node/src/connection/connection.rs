@@ -627,8 +627,8 @@ impl Connection {
     /// It tries to write into socket all pending to write.
     /// It returns how many bytes were writte into the socket.
     fn flush_tls(&mut self) -> Fallible<usize> {
-        let mut lptr = self.dptr.borrow_mut();
-        if lptr.tls_session.wants_write() {
+        let wants_write = self.dptr.borrow().tls_session.wants_write();
+        if wants_write {
             debug!(
                 "{}/{}:{} is attempting to write to socket {:?}",
                 self.id(),
@@ -638,6 +638,7 @@ impl Connection {
             );
 
             let mut wr = WriteVAdapter::new(&mut self.socket);
+            let mut lptr = self.dptr.borrow_mut();
             into_err!(lptr.tls_session.writev_tls(&mut wr))
         } else {
             Ok(0)
