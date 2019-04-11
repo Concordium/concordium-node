@@ -104,6 +104,9 @@ class Monad m => TreeStateMonad m where
     -- * Operations on the finalization list
     -- |Get the last finalized block.
     getLastFinalized :: m BlockPointer
+    -- |Get the slot number of the last finalized block
+    getLastFinalizedSlot :: m Slot
+    getLastFinalizedSlot = blockSlot . bpBlock <$> getLastFinalized
     -- |Get the next finalization index.
     getNextFinalizationIndex :: m FinalizationIndex
     -- |Add a block and finalization record to the finalization list.
@@ -154,19 +157,26 @@ class Monad m => TreeStateMonad m where
     -- block that is awaiting finalization is less than or equal to the given
     -- value.
     takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe PendingBlock)
+    -- * Operations on the finalization pool
+    -- |Get the finalization pool at the given finalization index.
+    getFinalizationPoolAtIndex :: FinalizationIndex -> m [FinalizationRecord]
+    -- |Set the finalization pool at the given finalization index.
+    putFinalizationPoolAtIndex :: FinalizationIndex -> [FinalizationRecord] -> m ()
+    -- |Add a finalization record to the finalization pool.
+    addFinalizationRecordToPool :: FinalizationRecord -> m ()
     -- * Operations on the pending transaction table
     --
     -- $pendingTransactions
     -- We maintain a 'PendingTransactionTable' for a particular block that is
-    -- designated the best block.  (Ideally, this should be the actual best
-    -- block, however, it shouldn't be a problem if it's not.)
-    -- |Return the designated best block.
-    getBestBlock :: m BlockPointer
-    -- |Update the designated best block.
-    putBestBlock :: BlockPointer -> m ()
-    -- |Get the pending transactions after execution of the designated best block.
+    -- the focus block.  (Ideally, this should be the best block, however, it 
+    -- shouldn't be a problem if it's not.)
+    -- |Return the focus block.
+    getFocusBlock :: m BlockPointer
+    -- |Update the focus block.
+    putFocusBlock :: BlockPointer -> m ()
+    -- |Get the pending transactions after execution of the focus block.
     getPendingTransactions :: m PendingTransactionTable
-    -- |Set the pending transactions after execution of the designated best block.
+    -- |Set the pending transactions after execution of the focus block.
     putPendingTransactions :: PendingTransactionTable -> m ()
     -- * Operations on the transaction table
     -- |Add a transaction to the transaction table.

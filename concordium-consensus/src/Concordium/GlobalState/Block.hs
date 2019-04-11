@@ -24,41 +24,43 @@ type BlockProof = VRF.Proof
 type BlockSignature = Sig.Signature
 -- TODO: The hash is redundant; should be removed
 type BlockNonce = (VRF.Hash, VRF.Proof)
-type BlockData = ByteString
 
 newtype BlockTransactions = BlockTransactions {transactionList :: [HashedTransaction]}
+
+class BlockData b where
+    blockSlot :: b -> Slot
+    blockPointer :: b -> BlockHash
+    blockBaker :: b -> BakerId
+    blockProof :: b -> BlockProof
+    blockNonce :: b -> BlockNonce
+    blockLastFinalized :: b -> BlockHash
+    blockTransactions :: b -> [HashedTransaction]
 
 data Block
     = GenesisBlock Slot GenesisData
     | NormalBlock Slot BlockHash BakerId BlockProof BlockNonce BlockHash BlockTransactions BlockSignature
 
-blockSlot :: Block -> Slot
-blockSlot (GenesisBlock slot _) = slot
-blockSlot (NormalBlock slot _ _ _ _ _ _ _) = slot
+instance BlockData Block where
+    blockSlot (GenesisBlock slot _) = slot
+    blockSlot (NormalBlock slot _ _ _ _ _ _ _) = slot
 
-blockPointer :: Block -> BlockHash
-blockPointer (NormalBlock _ parent _ _ _ _ _ _) = parent
-blockPointer GenesisBlock{} = error "Genesis block has no block pointer"
+    blockPointer (NormalBlock _ parent _ _ _ _ _ _) = parent
+    blockPointer GenesisBlock{} = error "Genesis block has no block pointer"
 
-blockBaker :: Block -> BakerId
-blockBaker (NormalBlock _ _ baker _ _ _ _ _) = baker
-blockBaker GenesisBlock{} = error "Genesis block has no baker"
+    blockBaker (NormalBlock _ _ baker _ _ _ _ _) = baker
+    blockBaker GenesisBlock{} = error "Genesis block has no baker"
 
-blockProof :: Block -> BlockProof
-blockProof (NormalBlock _ _ _ proof _ _ _ _) = proof
-blockProof GenesisBlock{} = error "Genesis block has no block proof"
+    blockProof (NormalBlock _ _ _ proof _ _ _ _) = proof
+    blockProof GenesisBlock{} = error "Genesis block has no block proof"
 
-blockNonce :: Block -> BlockNonce
-blockNonce (NormalBlock _ _ _ _ bnonce _ _ _) = bnonce
-blockNonce GenesisBlock{} = error "Genesis block has no block nonce"
+    blockNonce (NormalBlock _ _ _ _ bnonce _ _ _) = bnonce
+    blockNonce GenesisBlock{} = error "Genesis block has no block nonce"
 
-blockLastFinalized :: Block -> BlockHash
-blockLastFinalized (NormalBlock _ _ _ _ _ lastFin _ _) = lastFin
-blockLastFinalized GenesisBlock{} = error "Genesis block has no last finalized pointer"
+    blockLastFinalized (NormalBlock _ _ _ _ _ lastFin _ _) = lastFin
+    blockLastFinalized GenesisBlock{} = error "Genesis block has no last finalized pointer"
 
-blockTransactions :: Block -> [HashedTransaction]
-blockTransactions GenesisBlock{} = []
-blockTransactions (NormalBlock _ _ _ _ _ _ (BlockTransactions transactions) _) = transactions
+    blockTransactions GenesisBlock{} = []
+    blockTransactions (NormalBlock _ _ _ _ _ _ (BlockTransactions transactions) _) = transactions
 
 blockBody :: Block -> Put
 blockBody (GenesisBlock slot genData) = put slot >> put genData
@@ -128,6 +130,15 @@ instance Eq PendingBlock where
 instance HashableTo Hash.Hash PendingBlock where
     getHash = pbHash
 
+instance BlockData PendingBlock where
+    blockSlot = blockSlot . pbBlock
+    blockPointer = blockPointer . pbBlock
+    blockBaker = blockBaker . pbBlock
+    blockProof = blockProof . pbBlock
+    blockNonce = blockNonce . pbBlock
+    blockLastFinalized = blockLastFinalized . pbBlock
+    blockTransactions = blockTransactions . pbBlock
+
 data BlockPointer = BlockPointer {
     bpHash :: !BlockHash,
     bpBlock :: !Block,
@@ -158,6 +169,15 @@ instance Show BlockPointer where
 
 instance HashableTo Hash.Hash BlockPointer where
     getHash = bpHash
+
+instance BlockData BlockPointer where
+    blockSlot = blockSlot . bpBlock
+    blockPointer = blockPointer . bpBlock
+    blockBaker = blockBaker . bpBlock
+    blockProof = blockProof . bpBlock
+    blockNonce = blockNonce . bpBlock
+    blockLastFinalized = blockLastFinalized . bpBlock
+    blockTransactions = blockTransactions . bpBlock
 
 
 makeGenesisBlock :: GenesisData -> Block

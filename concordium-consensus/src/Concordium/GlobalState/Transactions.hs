@@ -1,9 +1,10 @@
 {-# LANGUAGE DeriveGeneric, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Concordium.GlobalState.Transactions where
 
+import Control.Exception
 import GHC.Generics
 import qualified Data.Serialize as S
 import qualified Data.HashMap.Strict as HM
@@ -18,22 +19,36 @@ import Concordium.ID.AccountHolder
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.HashableTo
 
+newtype TransactionSignature = TransactionSignature Sig.Signature
+    deriving (S.Serialize)
+
+class TransactionData t where
+    transactionSender :: t -> AccountAddress
+    transactionNonce :: t -> Nonce
+    transactionGasAmount :: t -> Amount
+    transactionPayload :: t -> SerializedPayload
+    transactionSignature :: t -> TransactionSignature
+
 data TransactionHeader = TransactionHeader {
-    transactionSender :: AccountAddress,
-    transactionNonce :: Nonce,
-    transactionGasAmount :: Amount
+    thSender :: AccountAddress,
+    thNonce :: Nonce,
+    thGasAmount :: Amount
 } deriving (Generic)
 
 instance S.Serialize TransactionHeader
 
-newtype TransactionSignature = TransactionSignature Sig.Signature
-    deriving (S.Serialize)
-
 data Transaction = Transaction {
-    transactionHeader :: TransactionHeader,
-    transactionPayload :: SerializedPayload,
-    transactionSignature :: TransactionSignature
+    trHeader :: TransactionHeader,
+    trPayload :: SerializedPayload,
+    trSignature :: TransactionSignature
 } deriving (Generic)
+
+instance TransactionData Transaction where
+    transactionSender = thSender . trHeader
+    transactionNonce = thNonce . trHeader
+    transactionGasAmount = thGasAmount . trHeader
+    transactionPayload = trPayload
+    transactionSignature = trSignature
 
 instance S.Serialize Transaction
 
@@ -43,6 +58,13 @@ instance HashableTo H.Hash Transaction where
 type TransactionHash = H.Hash
 
 type HashedTransaction = Hashed Transaction
+
+instance TransactionData (Hashed Transaction) where
+    transactionSender = transactionSender . unhashed
+    transactionNonce = transactionNonce . unhashed
+    transactionGasAmount = transactionGasAmount . unhashed
+    transactionPayload = transactionPayload . unhashed
+    transactionSignature = transactionSignature . unhashed
 
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
     -- |Non-finalized transactions (for an account) indexed by nonce.
@@ -80,3 +102,23 @@ type PendingTransactionTable = HM.HashMap AccountAddress (Nonce, Nonce)
 
 emptyPendingTransactionTable :: PendingTransactionTable
 emptyPendingTransactionTable = HM.empty
+
+forwardPTT :: [HashedTransaction] -> PendingTransactionTable -> PendingTransactionTable
+forwardPTT trs ptt0 = foldl forward1 ptt0 trs
+    where
+        forward1 :: PendingTransactionTable -> HashedTransaction -> PendingTransactionTable
+        forward1 ptt tr = ptt & at (transactionSender tr) %~ upd
+            where
+                upd Nothing = error "forwardPTT : forwarding transaction that is not pending"
+                upd (Just (low, high)) = assert (low == transactionNonce tr && low <= high) $
+                        if low == high then Nothing else Just (low+1,high)
+
+reversePTT :: [HashedTransaction] -> PendingTransactionTable -> PendingTransactionTable
+reversePTT trs ptt0 = foldr reverse1 ptt0 trs
+    where
+        reverse1 :: HashedTransaction -> PendingTransactionTable -> PendingTransactionTable
+        reverse1 tr = at (transactionSender tr) %~ upd
+            where
+                upd Nothing = Just (transactionNonce tr, transactionNonce tr)
+                upd (Just (low, high)) = assert (low == transactionNonce tr + 1) $
+                        Just (low-1,high)

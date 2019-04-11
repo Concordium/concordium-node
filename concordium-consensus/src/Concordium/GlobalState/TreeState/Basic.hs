@@ -34,7 +34,7 @@ data SkovData = SkovData {
     _skovBranches :: Seq.Seq [BlockPointer],
     _skovGenesisData :: GenesisData,
     _skovGenesisBlockPointer :: BlockPointer,
-    _skovBestBlock :: BlockPointer,
+    _skovFocusBlock :: BlockPointer,
     _skovPendingTransactions :: PendingTransactionTable,
     _skovTransactionTable :: TransactionTable,
     _skovStatistics :: ConsensusStatistics
@@ -65,8 +65,8 @@ class SkovLenses s where
     genesisData = skov . skovGenesisData
     genesisBlockPointer :: Lens' s BlockPointer
     genesisBlockPointer = skov . skovGenesisBlockPointer
-    bestBlock :: Lens' s BlockPointer
-    bestBlock = skov . skovBestBlock
+    focusBlock :: Lens' s BlockPointer
+    focusBlock = skov . skovFocusBlock
     pendingTransactions :: Lens' s PendingTransactionTable
     pendingTransactions = skov . skovPendingTransactions
     transactionTable :: Lens' s TransactionTable
@@ -88,7 +88,7 @@ initialSkovData gd genState = SkovData {
             _skovBranches = Seq.empty,
             _skovGenesisData = gd,
             _skovGenesisBlockPointer = gb,
-            _skovBestBlock = gb,
+            _skovFocusBlock = gb,
             _skovPendingTransactions = emptyPendingTransactionTable,
             _skovTransactionTable = emptyTransactionTable,
             _skovStatistics = initialConsensusStatistics
@@ -147,8 +147,11 @@ instance (SkovLenses s, Monad m, MonadState s m) => TreeStateMonad (SkovTreeStat
                                             blocksAwaitingLastFinalized .= balf'
                                             return (Just pb)
                                         else return Nothing
-    getBestBlock = use bestBlock
-    putBestBlock bb = bestBlock .= bb
+    getFinalizationPoolAtIndex fi = use (finalizationPool . at fi . non [])
+    putFinalizationPoolAtIndex fi frs = finalizationPool . at fi . non [] .= frs
+    addFinalizationRecordToPool fr = finalizationPool . at (finalizationIndex fr) . non [] %= (fr :)
+    getFocusBlock = use focusBlock
+    putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
     putPendingTransactions pts = pendingTransactions .= pts
     addTransaction tr = do 
@@ -160,15 +163,13 @@ instance (SkovLenses s, Monad m, MonadState s m) => TreeStateMonad (SkovTreeStat
                             else return ()
                 _ -> return ()
         where
-            header = transactionHeader (unhashed tr)
-            sender = transactionSender header
-            nonce = transactionNonce header
+            sender = transactionSender tr
+            nonce = transactionNonce tr
     finalizeTransactions = mapM_ finTrans
         where
             finTrans tr = do
-                let header = transactionHeader (unhashed tr)
-                    nonce = transactionNonce header
-                    sender = transactionSender header
+                let nonce = transactionNonce tr
+                    sender = transactionSender tr
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
@@ -185,9 +186,8 @@ instance (SkovLenses s, Monad m, MonadState s m) => TreeStateMonad (SkovTreeStat
             Just (_, slot) -> do
                 lastFinSlot <- blockSlot . bpBlock <$> getLastFinalized
                 if (lastFinSlot >= slot) then do
-                    let header = transactionHeader (unhashed tr)
-                        nonce = transactionNonce header
-                        sender = transactionSender header
+                    let nonce = transactionNonce tr
+                        sender = transactionSender tr
                     transactionTable . ttHashMap . at (getHash tr) .= Nothing
                     transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
                     return True
