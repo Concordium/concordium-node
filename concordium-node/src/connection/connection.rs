@@ -116,7 +116,6 @@ impl Connection {
         token: Token,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
-        own_id: P2PNodeId,
         self_peer: P2PPeer,
         peer_ip: IpAddr,
         peer_port: u16,
@@ -131,7 +130,6 @@ impl Connection {
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             connection_type,
             mode,
-            own_id,
             self_peer,
             own_networks,
             buckets,
@@ -315,7 +313,7 @@ impl Connection {
 
     pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
 
-    pub fn id(&self) -> P2PNodeId { self.dptr.borrow().own_id }
+    pub fn id(&self) -> P2PNodeId { self.dptr.borrow().self_peer.id() }
 
     pub fn ip(&self) -> IpAddr { self.peer_ip }
 
@@ -643,8 +641,6 @@ impl Connection {
     pub fn mode(&self) -> P2PNodeMode { self.dptr.borrow().mode }
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
-
-    pub fn own_id(&self) -> P2PNodeId { self.dptr.borrow().own_id }
 
     pub fn peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
 

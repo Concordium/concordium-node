@@ -239,7 +239,6 @@ impl P2PNode {
             server,
             Arc::new(server_conf),
             Arc::new(client_conf),
-            id,
             event_log.clone(),
             self_peer,
             mode,
