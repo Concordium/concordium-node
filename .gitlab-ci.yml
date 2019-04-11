@@ -16,7 +16,7 @@ stages:
     LD_LIBRARY_PATH: "/usr/local/lib"
     GIT_SUBMODULE_STRATEGY: recursive
 
-"Rust Tests":
+"cargo:test":
   <<: *compile-cache-settings
   extends: .generic
   stage: test
@@ -32,15 +32,15 @@ stages:
     - ./init.build.env.sh
     - rustc --version && cargo --version
     - stack exec -- ghc --print-libdir
-    - ( cd dns && cargo test --all --verbose )
-    - ( cd consensus-sys && cargo test --all --verbose )
-    - cargo test --all --verbose
+    - ( cd dns && cargo test --all --verbose --color=always)
+    - ( cd consensus-sys && cargo test --all --verbose --color=always)
+    - cargo test --all --verbose --color=always
     - cp -rf /root/.stack/* stack/
 
 .generic-lint:
   extends: .generic
 
-Rustfmt:
+"lint:fmt":
   extends: .generic-lint
   stage: lint
   image: rustlang/rust:nightly
@@ -48,18 +48,21 @@ Rustfmt:
     - rustup default nightly-2019-03-22
     - rustup component add rustfmt
   script:
+    - rustc --version && cargo --version
     - touch src/proto/concordium_p2p_rpc.rs
     - touch src/proto/concordium_p2p_rpc_grpc.rs
-    - cargo fmt
-    - ( cd consensus-sys && cargo fmt )
-    - ( cd dns && cargo fmt)
+    - cargo fmt -- --color=always
+    - ( cd consensus-sys && cargo fmt -- --color=always)
+    - ( cd dns && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll" | wc -l) -eq 0 || (echo 'You have introduced some unformated code:'; git ls-files --modified | grep -v ".dll" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
-Clippy:
+"lint:clippy":
   extends: .generic-lint
   stage: lint
   <<: *compile-cache-settings
+  allow_failure: true
   script:
+    - rustc --version && cargo --version
     - mkdir -p stack
     - mkdir -p /root/.stack
     - touch stack/do-not-touch
@@ -71,5 +74,5 @@ Clippy:
     - ./init.build.env.sh
     - stack exec -- ghc --print-libdir
     - rustup component add clippy
-    - cargo clippy
+    - cargo clippy --color=always --all
     - cp -rf /root/.stack/* stack/
