@@ -260,8 +260,7 @@ impl TlsServer {
                 );
                 let self_peer = self.get_self_peer();
 
-                if let Some(ref rc_conn) =
-                    self.dptr.read().unwrap().find_connection_by_token(token)
+                if let Some(ref rc_conn) = self.dptr.read().unwrap().find_connection_by_token(token)
                 {
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(

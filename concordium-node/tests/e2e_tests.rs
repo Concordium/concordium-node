@@ -759,33 +759,15 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
 
         // 2. Send message from n1 to n2.
-        node_1.send_message_from_cursor(
-            Some(node_2.id()),
-            100,
-            None,
-            msg.clone(),
-            false,
-        )?;
+        node_1.send_message_from_cursor(Some(node_2.id()), 100, None, msg.clone(), false)?;
         let msg_1 = utils::wait_direct_message(&msg_waiter_2)?;
         assert_eq!(msg_1, msg);
 
-        node_2.send_message_from_cursor(
-            Some(node_1.id()),
-            100,
-            None,
-            msg.clone(),
-            false,
-        )?;
+        node_2.send_message_from_cursor(Some(node_1.id()), 100, None, msg.clone(), false)?;
         let msg_2 = utils::wait_direct_message(&msg_waiter_1)?;
         assert_eq!(msg_2, msg);
 
-        node_1.send_message_from_cursor(
-            Some(node_2.id()),
-            102,
-            None,
-            msg.clone(),
-            false,
-        )?;
+        node_1.send_message_from_cursor(Some(node_2.id()), 102, None, msg.clone(), false)?;
         let msg_3 = utils::wait_direct_message(&msg_waiter_2)?;
         assert_eq!(msg_3, msg);
 
@@ -810,13 +792,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
 
         // 2. Send message from n1 to n2.
-        node_1.send_message_from_cursor(
-            Some(node_2.id()),
-            100,
-            None,
-            msg.clone(),
-            false,
-        )?;
+        node_1.send_message_from_cursor(Some(node_2.id()), 100, None, msg.clone(), false)?;
         let msg_1 = utils::wait_direct_message(&msg_waiter_2)?;
         assert_eq!(msg_1, msg);
 

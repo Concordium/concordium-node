@@ -157,11 +157,7 @@ fn main() -> Fallible<()> {
                         info!("Initiating connection to {}:{}", ip, port)
                     }
                     P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id(),
-                            network_id
-                        );
+                        info!("Peer {} joined network {}", peer.id(), network_id);
                     }
                     P2PEvent::LeftNetwork(peer, network_id) => {
                         info!("Peer {} left network {}", peer.id(), network_id);
@@ -297,8 +293,9 @@ fn main() -> Fallible<()> {
                                         }
                                     }
                                     if let Some(ref mut rpc) = _rpc_clone {
-                                        rpc.queue_message(&full_msg)
-                                            .unwrap_or_else(|e| error!("Couldn't queue message {}", e));
+                                        rpc.queue_message(&full_msg).unwrap_or_else(|e| {
+                                            error!("Couldn't queue message {}", e)
+                                        });
                                     }
                                     info!(
                                         "DirectMessage/{}/{} with size {} received",
@@ -309,8 +306,9 @@ fn main() -> Fallible<()> {
                                 }
                                 NetworkPacketType::BroadcastedMessage => {
                                     if let Some(ref mut rpc) = _rpc_clone {
-                                        rpc.queue_message(&full_msg)
-                                            .unwrap_or_else(|e| error!("Couldn't queue message {}", e));
+                                        rpc.queue_message(&full_msg).unwrap_or_else(|e| {
+                                            error!("Couldn't queue message {}", e)
+                                        });
                                     }
                                     if let Some(ref testrunner_url) = _test_runner_url {
                                         info!("Sending information to test runner");

@@ -137,8 +137,13 @@ impl TlsServerPrivate {
     }
 
     pub fn add_connection(&mut self, conn: Connection) {
-        // if this connection already exists, we assume the old one is stale and replace it
-        if let Some(con) = self.connections.iter_mut().find(|c| c.borrow().token() == conn.token()) {
+        // if this connection already exists, we assume the old one is stale and replace
+        // it
+        if let Some(con) = self
+            .connections
+            .iter_mut()
+            .find(|c| c.borrow().token() == conn.token())
+        {
             mem::replace(con, Rc::new(RefCell::new(conn)));
         } else {
             self.connections.push(Rc::new(RefCell::new(conn)));
