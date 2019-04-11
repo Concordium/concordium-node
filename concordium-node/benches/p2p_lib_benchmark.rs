@@ -32,7 +32,7 @@ pub fn make_direct_message_header(content_size: usize) -> Fallible<Vec<u8>> {
         .message_id(NetworkPacket::generate_message_id())
         .network_id(111)
         .message(UCursor::from(vec![]))
-        .build_direct(P2PNodeId::str("100000002dd2b6ed")?)?;
+        .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
     let mut h = pkt.serialize();
 
