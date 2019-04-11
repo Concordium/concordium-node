@@ -322,7 +322,7 @@ fn main() -> Fallible<()> {
                                         match reqwest::get(&format!(
                                             "{}/register/{}/{}",
                                             testrunner_url,
-                                            _node_self_clone.get_own_id(),
+                                            _node_self_clone.id(),
                                             pac.message_id
                                         )) {
                                             Ok(ref mut res) if res.status().is_success() => {
@@ -444,10 +444,7 @@ fn main() -> Fallible<()> {
     }
 
     // Start push gateway to prometheus
-    {
-        let id = node.get_own_id();
-        start_push_gateway(&conf.prometheus, &prometheus, &id)?;
-    }
+    start_push_gateway(&conf.prometheus, &prometheus, node.id())?;
 
     // Start the P2PNode
     //
@@ -671,7 +668,7 @@ fn create_connections_from_config(
 fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
     prometheus: &Option<Arc<RwLock<PrometheusServer>>>,
-    id: &P2PNodeId,
+    id: P2PNodeId,
 ) -> Fallible<()> {
     if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {

@@ -481,7 +481,7 @@ impl P2PNode {
         )
     }
 
-    pub fn get_own_id(&self) -> P2PNodeId { self.id }
+    pub fn id(&self) -> P2PNodeId { self.id }
 
     pub fn get_listening_ip(&self) -> IpAddr { self.ip }
 
@@ -860,7 +860,7 @@ impl P2PNode {
     fn get_self_peer(&self) -> P2PPeer {
         P2PPeer::from(
             ConnectionType::Node,
-            self.get_own_id().clone(),
+            self.id(),
             self.get_listening_ip(),
             self.get_listening_port(),
         )
@@ -933,7 +933,7 @@ impl P2PNode {
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
         if let Some(ref q) = self.quit_tx {
-            info!("Closing P2P node with id: {:?}", self.get_own_id());
+            info!("Closing P2P node with id: {}", self.id());
             let _ = q.send(true);
             let p_th = self.process_th.take();
             if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {

@@ -263,7 +263,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
         utils::consume_pending_messages(&msg_waiter_1);
 
-        node_2.send_message(Some(node_1.get_own_id()), 100, None, msg.clone(), false)?;
+        node_2.send_message(Some(node_1.id()), 100, None, msg.clone(), false)?;
         let mut msg_recv = utils::wait_direct_message(&msg_waiter_1)?;
         assert_eq!(msg.as_slice(), msg_recv.read_all_into_view()?.as_slice());
 
@@ -285,7 +285,7 @@ mod tests {
         utils::consume_pending_messages(&msg_waiter_1);
 
         // Send msg
-        node_2.send_message(Some(node_1.get_own_id()), 100, None, msg.clone(), false)?;
+        node_2.send_message(Some(node_1.id()), 100, None, msg.clone(), false)?;
         let received_msg =
             utils::wait_direct_message_timeout(&msg_waiter_1, utils::max_recv_timeout());
         assert_eq!(received_msg, Some(UCursor::from(msg)));
@@ -715,7 +715,7 @@ mod tests {
             let broadcast_msg = b"Hello broadcasted!".to_vec();
             {
                 let src_node = &mut nodes[0];
-                let src_node_id = Some(src_node.borrow().get_own_id());
+                let src_node_id = Some(src_node.borrow().id());
 
                 debug!(
                     "Send message from {} in broadcast",
@@ -760,7 +760,7 @@ mod tests {
 
         // 2. Send message from n1 to n2.
         node_1.send_message_from_cursor(
-            Some(node_2.get_own_id()),
+            Some(node_2.id()),
             100,
             None,
             msg.clone(),
@@ -770,7 +770,7 @@ mod tests {
         assert_eq!(msg_1, msg);
 
         node_2.send_message_from_cursor(
-            Some(node_1.get_own_id()),
+            Some(node_1.id()),
             100,
             None,
             msg.clone(),
@@ -780,7 +780,7 @@ mod tests {
         assert_eq!(msg_2, msg);
 
         node_1.send_message_from_cursor(
-            Some(node_2.get_own_id()),
+            Some(node_2.id()),
             102,
             None,
             msg.clone(),
@@ -811,7 +811,7 @@ mod tests {
 
         // 2. Send message from n1 to n2.
         node_1.send_message_from_cursor(
-            Some(node_2.get_own_id()),
+            Some(node_2.id()),
             100,
             None,
             msg.clone(),
@@ -942,7 +942,7 @@ mod tests {
             {
                 let src_idx = rng.gen_range(0, nodes_per_level[levels - 1].len());
                 let src_node = &mut nodes_per_level[levels - 1][src_idx];
-                let src_node_id = Some(src_node.borrow().get_own_id());
+                let src_node_id = Some(src_node.borrow().id());
 
                 debug!(
                     "Send message from {} in broadcast",

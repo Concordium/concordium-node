@@ -220,7 +220,7 @@ fn main() -> Result<(), Error> {
                 if let Some(ref instance_id) = conf.prometheus.prometheus_instance_name {
                     instance_id.to_owned()
                 } else {
-                    safe_write!(node)?.get_own_id().to_string()
+                    safe_write!(node)?.id().to_string()
                 };
             safe_read!(prom)?
                 .start_push_to_gateway(

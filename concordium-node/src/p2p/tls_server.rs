@@ -334,9 +334,6 @@ impl TlsServer {
     pub fn mode(&self) -> P2PNodeMode { self.mode }
 
     #[inline]
-    pub fn own_id(&self) -> P2PNodeId { self.own_id }
-
-    #[inline]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It setups default message handler at TLSServer level.

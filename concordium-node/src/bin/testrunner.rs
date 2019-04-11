@@ -448,7 +448,7 @@ fn main() -> Fallible<()> {
 
     if !app_prefs.set_config(
         configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
-        Some(node.get_own_id().to_string()),
+        Some(node.id().to_string()),
     ) {
         error!("Failed to persist own node id");
     }
