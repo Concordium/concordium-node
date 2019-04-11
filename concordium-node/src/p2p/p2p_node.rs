@@ -482,7 +482,7 @@ impl P2PNode {
         )
     }
 
-    pub fn get_own_id(&self) -> P2PNodeId { self.id.clone() }
+    pub fn get_own_id(&self) -> P2PNodeId { self.id }
 
     pub fn get_listening_ip(&self) -> IpAddr { self.ip }
 
