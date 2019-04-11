@@ -1,14 +1,22 @@
 use rand::{rngs::OsRng, seq::IteratorRandom};
-use std::{collections::HashSet, sync::RwLock};
+use std::{
+    collections::HashSet,
+    hash::{Hash, Hasher},
+    sync::RwLock,
+};
 
 use crate::common::{ConnectionType, P2PPeer};
 
 const BUCKET_COUNT: usize = 1;
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Node {
     pub peer:     P2PPeer,
-    pub networks: Vec<u16>,
+    pub networks: HashSet<u16>,
+}
+
+impl Hash for Node {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.peer.hash(state) }
 }
 
 pub type Bucket = HashSet<Node>;
@@ -31,8 +39,8 @@ impl Buckets {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
-            peer:     peer.to_owned(),
-            networks: networks.into_iter().collect(),
+            peer: peer.to_owned(),
+            networks,
         });
     }
 
@@ -40,8 +48,8 @@ impl Buckets {
         let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
-            peer:     peer.to_owned(),
-            networks: networks.into_iter().collect(),
+            peer: peer.to_owned(),
+            networks,
         });
     }
 
@@ -54,7 +62,7 @@ impl Buckets {
                 } else {
                     true
                 }
-                && (networks.is_empty() || node.networks.iter().any(|net| networks.contains(net)))
+                && (networks.is_empty() || node.networks.is_disjoint(networks) == false)
         };
 
         for bucket in &self.buckets {
