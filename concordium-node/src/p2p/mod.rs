@@ -11,9 +11,3 @@ pub mod unreachable_nodes;
 pub use self::p2p_service_forwarder::*;
 
 pub use self::p2p_node::P2PNode;
-
-    use std::{collections::HashSet, net::IpAddr, str::FromStr};
-        bucket.insert_into_bucket(&p2p_new_peer, &p2p_self, HashSet::new());
-        bucket.insert_into_bucket(&p2p_new_replacement_peer, &p2p_self, HashSet::new());
-
-pub use self::{tls_server::TlsServer, tls_server_private::TlsServerPrivate};

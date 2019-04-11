@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    sync::atomic::Ordering,
-    collections::HashSet
-};
+use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
     common::{counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FunctorResult, get_current_stamp},
@@ -140,7 +136,7 @@ pub fn default_network_response_find_node(
         // Process the received node list
         let mut ref_buckets = safe_write!(priv_conn_borrow.buckets)?;
         for peer in peers.iter() {
-            ref_buckets.insert_into_bucket(peer, &priv_conn_borrow.own_id, HashSet::new());
+            ref_buckets.insert_into_bucket(peer, vec![]);
         }
 
         Ok(())
@@ -175,7 +171,7 @@ pub fn default_network_response_peer_list(
         let priv_conn_borrow = priv_conn.borrow();
         let mut locked_buckets = safe_write!(priv_conn_borrow.buckets)?;
         for peer in peers.iter() {
-            locked_buckets.insert_into_bucket(peer, &priv_conn_borrow.own_id, HashSet::new());
+            locked_buckets.insert_into_bucket(peer, vec![]);
         }
     };
     Ok(())
@@ -195,7 +191,7 @@ pub fn default_network_request_join_network(
     priv_conn: &RefCell<ConnectionPrivate>,
     res: &NetworkRequest,
 ) -> FunctorResult {
-    if let NetworkRequest::JoinNetwork( _, network) = res {
+    if let NetworkRequest::JoinNetwork(_, network) = res {
         priv_conn.borrow_mut().add_network(*network);
 
         let priv_conn_borrow = priv_conn.borrow();
@@ -204,9 +200,10 @@ pub fn default_network_request_join_network(
             .to_owned()
             .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
 
-        safe_write!(priv_conn_borrow.buckets)?.update_network_ids(&peer, &priv_conn_borrow.networks);
+        let networks: Vec<_> = priv_conn_borrow.networks.iter().cloned().collect();
+        safe_write!(priv_conn_borrow.buckets)?.update_network_ids(&peer, networks);
 
-        let networks :HashSet<u16> = vec!(*network).into_iter().collect();
+        let networks: HashSet<u16> = vec![*network].into_iter().collect();
         log_as_joined_network(&priv_conn_borrow.event_log, &peer, networks)?;
     }
 
@@ -226,8 +223,8 @@ pub fn default_network_request_leave_network(
             .to_owned()
             .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
 
-        safe_write!(priv_conn_borrow.buckets)?
-            .update_network_ids(&peer, &priv_conn_borrow.networks);
+        let networks: Vec<_> = priv_conn_borrow.networks.iter().cloned().collect();
+        safe_write!(priv_conn_borrow.buckets)?.update_network_ids(&peer, networks);
 
         log_as_leave_network(&priv_conn_borrow.event_log, &sender, *network)?;
     }

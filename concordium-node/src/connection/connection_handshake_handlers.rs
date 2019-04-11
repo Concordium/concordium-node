@@ -23,7 +23,8 @@ pub fn handshake_response_handle(
         let priv_conn_borrow = priv_conn.borrow();
         let conn_type = priv_conn_borrow.connection_type;
         let bucket_sender = P2PPeer::from(conn_type, rpeer.id(), rpeer.ip(), rpeer.port());
-        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(&bucket_sender, nets.to_owned());
+        let nets_as_vec: Vec<_> = nets.iter().cloned().collect();
+        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(&bucket_sender, nets_as_vec);
 
         if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
             safe_write!(prom)?.peers_inc()?;

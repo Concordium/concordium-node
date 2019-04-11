@@ -378,13 +378,13 @@ mod tests {
     fn req_handshake_no_nets() { net_test!(NetworkRequest, Handshake, ZK.to_vec(), vec![]) }
 
     #[test]
-    fn req_get_peers() {
-        let networks: HashSet<u16> = vec![100u16, 200].into_iter().collect();
-        net_test!(NetworkRequest, GetPeers, self_peer(), networks)
-    }
+    fn resp_handshake_no_nets() { net_test!(NetworkResponse, Handshake, ZK.to_vec(), vec![]) }
 
     #[test]
-    fn req_get_peers() { net_test!(NetworkRequest, GetPeers, vec![100u16, 200]) }
+    fn req_get_peers() {
+        let networks: HashSet<u16> = vec![100u16, 200].into_iter().collect();
+        net_test!(NetworkRequest, GetPeers, networks)
+    }
 
     #[test]
     fn resp_findnode_empty_test() { net_test!(NetworkResponse, FindNode, vec![] as Vec<P2PPeer>) }

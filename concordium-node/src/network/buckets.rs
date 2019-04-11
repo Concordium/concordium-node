@@ -1,9 +1,5 @@
 use rand::{rngs::OsRng, seq::IteratorRandom};
 use std::{collections::HashSet, sync::RwLock};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::RwLock,
-};
 
 use crate::common::{ConnectionType, P2PPeer};
 
@@ -49,7 +45,7 @@ impl Buckets {
         });
     }
 
-    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &[u16]) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &HashSet<u16>) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.connection_type() == ConnectionType::Node
@@ -85,7 +81,7 @@ impl Buckets {
         &self,
         sender: &P2PPeer,
         amount: usize,
-        networks: &[u16],
+        networks: &HashSet<u16>,
     ) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
             Ok(ref mut rng) => self
