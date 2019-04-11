@@ -24,7 +24,7 @@ services:
         environment:
             - RUST_BACKTRACE=1
             - RUST_LOG=debug
-            - DESIRED_PEERS=10
+            - DESIRED_PEERS=${NUM_BAKERS}
             - BOOTSTRAP_NODE=bootstrapper:8888
             - EXTERNAL_PORT=8888
             - NUM_BAKERS=${NUM_BAKERS}
