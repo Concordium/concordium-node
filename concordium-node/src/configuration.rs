@@ -195,7 +195,8 @@ pub struct CommonConfig {
     #[structopt(
         long = "id",
         short = "i",
-        help = "Set forced node id (64 bit unsigned integer in zero padded HEX. Must be 16 characters long)"
+        help = "Set forced node id (64 bit unsigned integer in zero padded HEX. Must be 16 \
+                characters long)"
     )]
     pub id: Option<String>,
     #[structopt(
