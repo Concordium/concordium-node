@@ -193,7 +193,7 @@ mod integration_test {
             .build()
             .unwrap();
         let inner_msg = UCursor::from(b"Message XXX".to_vec());
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port(ip, 8080);
+        let node_id = P2PNodeId::default();
 
         let data = vec![
             NetworkMessage::NetworkRequest(

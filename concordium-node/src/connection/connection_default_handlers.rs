@@ -60,7 +60,7 @@ pub fn default_network_request_find_node_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest,
 ) -> FunctorResult {
-    if let NetworkRequest::FindNode(_, node_id) = req {
+    if let NetworkRequest::FindNode(..) = req {
         priv_conn.borrow_mut().update_last_seen();
 
         // Return list of nodes
@@ -70,7 +70,14 @@ pub fn default_network_request_find_node_handle(
                 .peer()
                 .to_owned()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
-            let nodes = safe_read!(priv_conn_borrow.buckets)?.closest_nodes(node_id);
+            let nodes = safe_read!(priv_conn_borrow.buckets)?
+                .buckets
+                .get(0)
+                .unwrap() // the Buckets object is never empty
+                .clone()
+                .into_iter()
+                .map(|node| node.peer)
+                .collect::<Vec<_>>();
             NetworkResponse::FindNode(peer, nodes).serialize()
         };
 

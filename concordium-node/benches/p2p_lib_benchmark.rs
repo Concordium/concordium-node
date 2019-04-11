@@ -21,7 +21,7 @@ pub fn localhost_peer() -> P2PPeer {
 }
 
 pub fn make_direct_message_header(content_size: usize) -> Fallible<Vec<u8>> {
-    let p2p_node_id = P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mDDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=")?;
+    let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
     let pkt = NetworkPacketBuilder::default()
         .peer(P2PPeer::from(
             ConnectionType::Node,
@@ -32,9 +32,7 @@ pub fn make_direct_message_header(content_size: usize) -> Fallible<Vec<u8>> {
         .message_id(NetworkPacket::generate_message_id())
         .network_id(111)
         .message(UCursor::from(vec![]))
-        .build_direct(P2PNodeId::from_b64_repr(
-            &"Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=",
-        )?)?;
+        .build_direct(P2PNodeId::str("100000002dd2b6ed")?)?;
 
     let mut h = pkt.serialize();
 

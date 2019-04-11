@@ -148,12 +148,12 @@ mod request_handler_test {
             .port(8080)
             .build()
             .unwrap();
-        let node_id: P2PNodeId = P2PNodeId::from_ip_port(ip, 8080);
+        let node_id = P2PNodeId::default();
 
         let data = vec![
             NRequest::Ping(p2p_peer.clone()),
-            NRequest::FindNode(p2p_peer.clone(), node_id.clone()),
-            NRequest::BanNode(p2p_peer.clone(), p2p_peer.clone()),
+            NRequest::FindNode(p2p_peer.clone(), node_id),
+            NRequest::BanNode(p2p_peer.clone(), p2p_peer),
         ];
         data
     }

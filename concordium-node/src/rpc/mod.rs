@@ -126,7 +126,7 @@ impl RpcServerImpl {
             let msg = req.get_message().get_value().to_vec();
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
-                let id = P2PNodeId::from_b64_repr(&req.get_node_id().get_value().to_string())?;
+                let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
 
                 info!("Sending direct message to: {}", id);
                 r.set_value(
@@ -665,7 +665,7 @@ impl P2P for RpcServerImpl {
 
                         r.set_network_id(packet.network_id as u32);
                         r.set_message_id(packet.message_id.to_owned());
-                        r.set_sender(format!("{:064x}", packet.peer.id().get_id()));
+                        r.set_sender(format!("{}", packet.peer.id()));
                     } else {
                         r.set_message_none(MessageNone::new());
                     }
@@ -690,7 +690,7 @@ impl P2P for RpcServerImpl {
             let mut r: SuccessResponse = SuccessResponse::new();
             let f = if req.has_node_id() && req.has_ip() && req.has_port() {
                 let req_id = req.get_node_id().get_value().to_string();
-                let node_id = P2PNodeId::from_b64_repr(&req_id);
+                let node_id = P2PNodeId::from_str(&req_id);
                 let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {
@@ -740,7 +740,7 @@ impl P2P for RpcServerImpl {
             let mut r: SuccessResponse = SuccessResponse::new();
             let f = if req.has_node_id() && req.has_ip() && req.has_port() {
                 let req_id = req.get_node_id().get_value().to_string();
-                let node_id = P2PNodeId::from_b64_repr(&req_id);
+                let node_id = P2PNodeId::from_str(&req_id);
                 let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {

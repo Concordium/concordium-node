@@ -4,44 +4,72 @@ stages:
   - lint
   - test
 
-"Rust Tests":
-  stage: test
+.compile-cache-def: &compile-cache-settings
   cache:
     paths:
       - target
       - deps/internal/consensus/.stack-work
       - stack
+
+.generic:
   variables:
     LD_LIBRARY_PATH: "/usr/local/lib"
     GIT_SUBMODULE_STRATEGY: recursive
+
+"Rust Tests":
+  <<: *compile-cache-settings
+  extends: .generic
+  stage: test
   script:
-  - mkdir -p stack
-  - mkdir -p /root/.stack
-  - touch stack/do-not-touch
-  - cp -rf stack/* /root/.stack/
-  - cp scripts/init.build.env.sh .
-  - pacman -Sy && pacman -Syyu --noconfirm
-  - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm
-  - pacman -Scc --noconfirm
-  - ./init.build.env.sh
-  - rustc --version && cargo --version
-  - stack exec -- ghc --print-libdir
-  - ( cd dns && cargo test --all --verbose )
-  - ( cd consensus-sys && cargo test --all --verbose )
-  - cargo test --all --verbose
-  - cp -rf /root/.stack/* stack/
+    - mkdir -p stack
+    - mkdir -p /root/.stack
+    - touch stack/do-not-touch
+    - cp -rf stack/* /root/.stack/
+    - cp scripts/init.build.env.sh .
+    - pacman -Sy && pacman -Syyu --noconfirm
+    - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm
+    - pacman -Scc --noconfirm
+    - ./init.build.env.sh
+    - rustc --version && cargo --version
+    - stack exec -- ghc --print-libdir
+    - ( cd dns && cargo test --all --verbose )
+    - ( cd consensus-sys && cargo test --all --verbose )
+    - cargo test --all --verbose
+    - cp -rf /root/.stack/* stack/
+
+.generic-lint:
+  extends: .generic
 
 Rustfmt:
+  extends: .generic-lint
   stage: lint
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
   image: rustlang/rust:nightly
   before_script:
-  - rustup component add rustfmt
+    - rustup default nightly-2019-03-22
+    - rustup component add rustfmt
   script:
-  - touch src/proto/concordium_p2p_rpc.rs
-  - touch src/proto/concordium_p2p_rpc_grpc.rs
-  - cargo +nightly fmt
-  - ( cd consensus-sys && cargo +nightly fmt )
-  - ( cd dns && cargo +nightly fmt)
-  - test $(git ls-files --modified | grep -v ".dll" | wc -l) -eq 0 || (echo 'You have introduced some unformated code:'; git ls-files --modified | grep -v ".dll" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+    - touch src/proto/concordium_p2p_rpc.rs
+    - touch src/proto/concordium_p2p_rpc_grpc.rs
+    - cargo fmt
+    - ( cd consensus-sys && cargo fmt )
+    - ( cd dns && cargo fmt)
+    - test $(git ls-files --modified | grep -v ".dll" | wc -l) -eq 0 || (echo 'You have introduced some unformated code:'; git ls-files --modified | grep -v ".dll" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+
+Clippy:
+  extends: .generic-lint
+  stage: lint
+  <<: *compile-cache-settings
+  script:
+    - mkdir -p stack
+    - mkdir -p /root/.stack
+    - touch stack/do-not-touch
+    - cp -rf stack/* /root/.stack/
+    - cp scripts/init.build.env.sh .
+    - pacman -Sy && pacman -Syyu --noconfirm
+    - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm
+    - pacman -Scc --noconfirm
+    - ./init.build.env.sh
+    - stack exec -- ghc --print-libdir
+    - rustup component add clippy
+    - cargo clippy
+    - cp -rf /root/.stack/* stack/

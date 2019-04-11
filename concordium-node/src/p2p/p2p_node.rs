@@ -119,30 +119,25 @@ impl P2PNode {
         } else {
             P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
-        let ip_port = format!("{}:{}", ip.to_string(), conf.common.listen_port);
-        debug!("Listening on {:?}", ip_port);
 
-        let id = match supplied_id {
-            Some(x) => {
-                if x.chars().count() != 44 {
-                    panic!(
-                        "Incorrect ID specified. Should be a base64-encoded sha256 value (44 \
-                         characters length)"
-                    );
-                }
-                x
+        debug!(
+            "Listening on {}:{}",
+            ip.to_string(),
+            conf.common.listen_port
+        );
+
+        let id = if let Some(s) = supplied_id {
+            if s.chars().count() != 16 {
+                panic!(
+                    "Incorrect ID specified; expected a zero-padded, hex-encoded u64 that's 16 \
+                     characters long."
+                );
+            } else {
+                P2PNodeId::from_str(s).unwrap_or_else(|_| P2PNodeId::default())
             }
-            _ => {
-                let current_time = Utc::now();
-                base64::encode(&utils::sha256(&format!(
-                    "{}.{}",
-                    current_time.timestamp(),
-                    current_time.timestamp_subsec_nanos()
-                )))
-            }
+        } else {
+            P2PNodeId::default()
         };
-
-        let _id = P2PNodeId::from_b64_repr(&id).expect("Couldn't parse the id");
 
         let poll = Poll::new().unwrap_or_else(|_| panic!("Couldn't create poll"));
 
@@ -233,12 +228,7 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(
-            ConnectionType::Node,
-            _id.clone(),
-            own_peer_ip,
-            own_peer_port,
-        );
+        let self_peer = P2PPeer::from(ConnectionType::Node, id, own_peer_ip, own_peer_port);
 
         let seen_messages = SeenMessagesList::new();
 
@@ -249,7 +239,7 @@ impl P2PNode {
             server,
             Arc::new(server_conf),
             Arc::new(client_conf),
-            _id.clone(),
+            id,
             event_log.clone(),
             self_peer,
             mode,
@@ -274,7 +264,7 @@ impl P2PNode {
         let mut mself = P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
             poll: Arc::new(RwLock::new(poll)),
-            id: _id,
+            id,
             buckets,
             send_queue: Arc::new(RwLock::new(VecDeque::new())),
             ip,
@@ -927,10 +917,6 @@ impl P2PNode {
             let tls_ref = safe_read!(self.tls_server)?;
             let mut poll_ref = safe_write!(self.poll)?;
             tls_ref.cleanup_connections(&mut poll_ref)?;
-            if self.mode == P2PNodeMode::BootstrapperMode {
-                let mut buckets_ref = safe_write!(self.buckets)?;
-                buckets_ref.clean_peers(self.config.minimum_per_bucket);
-            }
         }
 
         self.process_messages()?;

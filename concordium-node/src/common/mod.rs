@@ -9,10 +9,12 @@ pub mod functor;
 
 pub mod fails;
 
-use crate::utils;
 use chrono::prelude::*;
 use failure::{bail, Fallible};
-use num_bigint::BigUint;
+use rand::{
+    self,
+    distributions::{Distribution, Uniform},
+};
 use std::{
     cmp::Ordering,
     fmt,
@@ -38,9 +40,9 @@ pub enum ConnectionType {
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
+    id: P2PNodeId,
     ip: IpAddr,
     port: u16,
-    id: P2PNodeId,
     #[builder(setter(skip))]
     last_seen: u64,
     connection_type: ConnectionType,
@@ -48,31 +50,9 @@ pub struct P2PPeer {
 
 impl P2PPeerBuilder {
     pub fn build(&mut self) -> Fallible<P2PPeer> {
-        let id_bc = match &self.id {
-            None => {
-                if self.ip.is_some() && self.port.is_some() {
-                    Ok(Some(P2PNodeId::from_ip_port(
-                        self.ip.unwrap(),
-                        self.port.unwrap(),
-                    )))
-                } else {
-                    Err(fails::EmptyIpPortError)
-                }
-            }
-            Some(id) => {
-                if id.id == BigUint::default() {
-                    Ok(Some(P2PNodeId::from_ip_port(
-                        self.ip.unwrap(),
-                        self.port.unwrap(),
-                    )))
-                } else {
-                    Ok(None)
-                }
-            }
-        }?;
-        if let Some(id) = id_bc {
-            self.id(id);
-        }
+        let id = self.id.unwrap_or_else(|| P2PNodeId::default());
+        self.id(id);
+
         if self.connection_type.is_some()
             && self.id.is_some()
             && self.ip.is_some()
@@ -80,15 +60,15 @@ impl P2PPeerBuilder {
         {
             Ok(P2PPeer {
                 connection_type: self.connection_type.unwrap(),
-                ip:              self.ip.unwrap(),
-                port:            self.port.unwrap(),
-                id:              self.id.clone().unwrap(),
-                last_seen:       get_current_stamp(),
+                ip: self.ip.unwrap(),
+                port: self.port.unwrap(),
+                id,
+                last_seen: get_current_stamp(),
             })
         } else {
             bail!(fails::MissingFieldsError::new(
                 self.connection_type,
-                self.id.clone(),
+                self.id,
                 self.ip,
                 self.port
             ))
@@ -164,7 +144,7 @@ impl P2PPeer {
         match &self.ip {
             IpAddr::V4(ip4) => format!(
                 "{}IP4{:03}{:03}{:03}{:03}{:05}",
-                self.id.to_b64_repr(),
+                self.id,
                 ip4.octets()[0],
                 ip4.octets()[1],
                 ip4.octets()[2],
@@ -174,7 +154,7 @@ impl P2PPeer {
             IpAddr::V6(ip6) => format!(
                 "{}IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:\
                  02x}{:02x}{:02x}{:02x}{:05}",
-                self.id.to_b64_repr(),
+                self.id,
                 ip6.octets()[0],
                 ip6.octets()[1],
                 ip6.octets()[2],
@@ -208,7 +188,7 @@ impl P2PPeer {
         let view = pkt.read_into_view(min_packet_size)?;
         let buf = view.as_slice();
 
-        let node_id = P2PNodeId::from_b64_repr(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
+        let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
         let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..][..PROTOCOL_IP_TYPE_LENGTH];
 
         let (ip_addr, port) = match ip_type {
@@ -217,15 +197,10 @@ impl P2PPeer {
             _ => bail!("Unsupported Ip type"),
         };
 
-        P2PPeerBuilder::default()
-            .id(node_id)
-            .ip(ip_addr)
-            .port(port)
-            .connection_type(ConnectionType::Node)
-            .build()
+        Ok(P2PPeer::from(ConnectionType::Node, node_id, ip_addr, port))
     }
 
-    pub fn id(&self) -> P2PNodeId { self.id.clone() }
+    pub fn id(&self) -> P2PNodeId { self.id }
 
     pub fn ip(&self) -> IpAddr { self.ip }
 
@@ -254,144 +229,29 @@ impl PartialOrd for P2PPeer {
     fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.id.cmp(&other.id())) }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-// #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
-pub struct P2PNodeId {
-    // #[serde(skip)]
-    // #[serde(with = "s11n_big_uint")]
-    pub id: BigUint,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+pub struct P2PNodeId(pub u64);
 
-#[cfg(feature = "s11n_serde")]
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-
-#[cfg(feature = "s11n_serde")]
-impl Serialize for P2PNodeId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer, {
-        let id_bytes_le = self.id.to_bytes_le();
-
-        let mut state = serializer.serialize_struct("P2PNodeId", 1)?;
-        state.serialize_field("id", &id_bytes_le)?;
-        state.end()
+impl Default for P2PNodeId {
+    fn default() -> Self {
+        let mut rng = rand::thread_rng();
+        let n = Uniform::from(0..u64::max_value()).sample(&mut rng);
+        P2PNodeId(n)
     }
-}
-
-#[cfg(feature = "s11n_serde")]
-use serde::de::{Deserialize, Deserializer, Error, MapAccess, Visitor};
-
-#[cfg(feature = "s11n_serde")]
-impl<'de> Deserialize<'de> for P2PNodeId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>, {
-        enum Field {
-            Id,
-        }
-
-        impl<'de> Deserialize<'de> for Field {
-            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
-            where
-                D: Deserializer<'de>, {
-                struct FieldVisistor;
-
-                impl<'de> Visitor<'de> for FieldVisistor {
-                    type Value = Field;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                        formatter.write_str("`id`")
-                    }
-
-                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
-                    where
-                        E: serde::de::Error, {
-                        match value {
-                            "id" => Ok(Field::Id),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-
-                deserializer.deserialize_identifier(FieldVisistor)
-            }
-        }
-
-        struct P2PNodeIdVisitor;
-
-        impl<'de> Visitor<'de> for P2PNodeIdVisitor {
-            type Value = P2PNodeId;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("struct P2PNodeId")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<P2PNodeId, V::Error>
-            where
-                V: MapAccess<'de>, {
-                let mut id_bytes_le: Option<Vec<u8>> = None;
-
-                while let Some(field) = map.next_key()? {
-                    match field {
-                        Field::Id => {
-                            if id_bytes_le.is_some() {
-                                return Err(V::Error::duplicate_field("id"));
-                            }
-                            id_bytes_le = Some(map.next_value()?);
-                        }
-                    }
-                }
-
-                let id = BigUint::from_bytes_le(
-                    id_bytes_le
-                        .ok_or_else(|| V::Error::missing_field("id"))?
-                        .as_slice(),
-                );
-
-                Ok(P2PNodeId { id })
-            }
-        }
-
-        const FIELDS: &[&str] = &["id"];
-        deserializer.deserialize_struct("P2PNodeId", FIELDS, P2PNodeIdVisitor)
-    }
-}
-
-impl P2PNodeId {
-    /// Convert a slice of bytes in `le` into a `P2PNodeId`
-    pub fn from_bytes_slice(sid: &[u8]) -> P2PNodeId {
-        P2PNodeId {
-            id: BigUint::from_bytes_le(sid),
-        }
-    }
-
-    /// Convert a `String` or `str` in `base64` representation into a
-    /// `P2PNodeId`
-    pub fn from_b64_repr<T: ?Sized + AsRef<[u8]>>(sid: &T) -> Fallible<P2PNodeId> {
-        Ok(P2PNodeId::from_bytes_slice(&base64::decode(&sid)?[..]))
-    }
-
-    /// Get the underlying `BigUint`
-    pub fn get_id(&self) -> &BigUint { &self.id }
-
-    /// Convert an `ip` and `port` into a `P2PNocdeId`
-    pub fn from_ip_port(ip: IpAddr, port: u16) -> P2PNodeId {
-        let ip_port = format!("{}:{}", ip, port);
-        P2PNodeId::from_ipstring(&ip_port)
-    }
-
-    /// Convert the concatenation of `ip` and `port` into a `P2PNodeId`
-    pub fn from_ipstring(ip_port: &str) -> P2PNodeId {
-        let buf_slice = utils::sha256(&ip_port);
-        P2PNodeId::from_bytes_slice(&buf_slice[..])
-    }
-
-    /// Get the `base64` encoding of the underlying `BigUint`
-    pub fn to_b64_repr(&self) -> String { base64::encode(&self.id.to_bytes_le()) }
 }
 
 impl fmt::Display for P2PNodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", self.to_b64_repr()) }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:016x}", self.0) }
+}
+
+impl P2PNodeId {
+    pub fn from_str<T: AsRef<str>>(s: T) -> Fallible<Self> {
+        match u64::from_str_radix(s.as_ref(), 16) {
+            Ok(n) => Ok(P2PNodeId(n)),
+            Err(e) => bail!("Invalid Node Id ({})", e),
+        }
+    }
 }
 
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
@@ -418,16 +278,6 @@ mod tests {
 
     fn self_peer() -> P2PPeer { dummy_peer(IpAddr::from([10, 10, 10, 10]), 9999) }
 
-    fn peer_000() -> P2PPeer {
-        P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
-            .id(P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=").unwrap())
-            .ip(IpAddr::from([10, 10, 10, 10]))
-            .port(8888)
-            .build()
-            .unwrap()
-    }
-
     const ZK: &[u8] = b"Random zk data";
 
     macro_rules! create_message {
@@ -435,7 +285,7 @@ mod tests {
             $msg::$msg_type($peer.clone())
         };
         ($msg:ident, $msg_type:ident, $peer:expr, $nets:expr) => {
-            $msg::$msg_type($peer.clone(), $nets.clone())
+            $msg::$msg_type($peer, $nets.clone())
         };
         ($msg:ident, $msg_type:ident, $peer:expr, $zk:expr, $nets:expr) => {
             $msg::$msg_type($peer.clone(), $zk.clone(), $nets.clone())
@@ -450,10 +300,12 @@ mod tests {
             })
         };
         ($msg:ident, $msg_type:ident, $deserialized:expr, $nets:expr) => {{
-            assert!(match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2), ..) => $nets == nets2,
-                _ => false,
-            })
+            match $deserialized {
+                NetworkMessage::$msg($msg::$msg_type(_, nets2), ..) => {
+                    assert_eq!($nets, nets2);
+                }
+                _ => panic!("invalid network message"),
+            }
         }};
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
             assert!(match $deserialized {
@@ -466,8 +318,8 @@ mod tests {
     }
 
     macro_rules! net_test {
-        ($msg:ident, $msg_type:ident, $self_peer:expr) => {{
-            let self_peer = $self_peer;
+        ($msg:ident, $msg_type:ident) => {{
+            let self_peer = self_peer();
             let test_msg = create_message!($msg, $msg_type, self_peer);
             let serialized = UCursor::from(test_msg.serialize());
             let self_peer_ip = self_peer.ip();
@@ -475,17 +327,18 @@ mod tests {
                 NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
             net_assertion!($msg, $msg_type, deserialized)
         }};
-        ($msg:ident, $msg_type:ident, $self_peer:expr, $nets:expr) => {{
-            let self_peer = $self_peer;
-            let test_msg = create_message!($msg, $msg_type, self_peer, $nets);
+        ($msg:ident, $msg_type:ident, $nets:expr) => {{
+            let self_peer = self_peer();
+            let nets = $nets;
+            let test_msg = create_message!($msg, $msg_type, self_peer.clone(), nets);
             let serialized = UCursor::from(test_msg.serialize());
             let self_peer_ip = self_peer.ip();
             let deserialized =
                 NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
-            net_assertion!($msg, $msg_type, deserialized, $nets)
+            net_assertion!($msg, $msg_type, deserialized, nets)
         }};
-        ($msg:ident, $msg_type:ident, $self_peer:expr, $zk:expr, $nets:expr) => {{
-            let self_peer = $self_peer;
+        ($msg:ident, $msg_type:ident, $zk:expr, $nets:expr) => {{
+            let self_peer = self_peer();
             let zk: Vec<u8> = $zk;
             let nets: HashSet<u16> = $nets.into_iter().collect();
             let test_msg = create_message!($msg, $msg_type, self_peer, nets.clone(), zk);
@@ -498,63 +351,31 @@ mod tests {
     }
 
     #[test]
-    fn req_ping_test() { net_test!(NetworkRequest, Ping, self_peer()) }
+    fn req_ping_test() { net_test!(NetworkRequest, Ping) }
 
     #[test]
-    fn resp_pong_test() { net_test!(NetworkResponse, Pong, self_peer()) }
+    fn resp_pong_test() { net_test!(NetworkResponse, Pong) }
 
     #[test]
-    fn resp_handshake() {
-        net_test!(NetworkResponse, Handshake, self_peer(), ZK.to_vec(), vec![
-            0, 100
-        ])
-    }
+    fn resp_handshake() { net_test!(NetworkResponse, Handshake, ZK.to_vec(), vec![0, 100]) }
 
     #[test]
-    fn req_handshake() {
-        net_test!(NetworkRequest, Handshake, self_peer(), ZK.to_vec(), vec![
-            0, 100
-        ])
-    }
+    fn req_handshake() { net_test!(NetworkRequest, Handshake, ZK.to_vec(), vec![0, 100]) }
 
     #[test]
-    fn req_handshake_000() {
-        net_test!(NetworkRequest, Handshake, peer_000(), ZK.to_vec(), vec![
-            0, 100
-        ])
-    }
+    fn resp_handshake_nozk() { net_test!(NetworkResponse, Handshake, vec![], vec![0, 100]) }
 
     #[test]
-    fn resp_handshake_nozk() {
-        net_test!(NetworkResponse, Handshake, self_peer(), vec![], vec![
-            0, 100
-        ])
-    }
+    fn req_handshake_nozk() { net_test!(NetworkRequest, Handshake, vec![], vec![0, 100]) }
 
     #[test]
-    fn req_handshake_nozk() {
-        net_test!(NetworkRequest, Handshake, self_peer(), vec![], vec![0, 100])
-    }
+    fn resp_handshake_nozk_nonets() { net_test!(NetworkResponse, Handshake, vec![], vec![]) }
 
     #[test]
-    fn resp_handshake_nozk_nonets() {
-        net_test!(NetworkResponse, Handshake, self_peer(), vec![], vec![])
-    }
+    fn req_handshake_nozk_nonets() { net_test!(NetworkRequest, Handshake, vec![], vec![]) }
 
     #[test]
-    fn req_handshake_nozk_nonets() {
-        net_test!(NetworkRequest, Handshake, self_peer(), vec![], vec![])
-    }
-
-    #[test]
-    fn req_handshake_no_nets() {
-        net_test!(NetworkRequest, Handshake, self_peer(), ZK.to_vec(), vec![])
-    }
-
-    #[test]
-    fn resp_handshake_no_nets() {
-        net_test!(NetworkResponse, Handshake, self_peer(), ZK.to_vec(), vec![])
-    }
+    fn req_handshake_no_nets() { net_test!(NetworkRequest, Handshake, ZK.to_vec(), vec![]) }
 
     #[test]
     fn req_get_peers() {
@@ -563,24 +384,14 @@ mod tests {
     }
 
     #[test]
-    fn resp_findnode_empty_test() {
-        net_test!(NetworkResponse, FindNode, self_peer(), vec![]
-            as Vec<P2PPeer>)
-    }
+    fn req_get_peers() { net_test!(NetworkRequest, GetPeers, vec![100u16, 200]) }
 
     #[test]
-    fn req_findnode_test() {
-        net_test!(
-            NetworkRequest,
-            FindNode,
-            self_peer(),
-            P2PNodeId::from_ipstring("8.8.8.8:9999")
-        )
-    }
+    fn resp_findnode_empty_test() { net_test!(NetworkResponse, FindNode, vec![] as Vec<P2PPeer>) }
 
     #[test]
     fn resp_findnode_v4_test() {
-        net_test!(NetworkResponse, FindNode, self_peer(), vec![dummy_peer(
+        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
         )])
@@ -588,7 +399,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_v6_test() {
-        net_test!(NetworkResponse, FindNode, self_peer(), vec![dummy_peer(
+        net_test!(NetworkResponse, FindNode, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
         )])
@@ -596,7 +407,7 @@ mod tests {
 
     #[test]
     fn resp_findnode_mixed_test() {
-        net_test!(NetworkResponse, FindNode, self_peer(), vec![
+        net_test!(NetworkResponse, FindNode, vec![
             dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999),
             dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999),
         ])
@@ -604,7 +415,7 @@ mod tests {
 
     #[test]
     fn resp_peerslist_v4_test() {
-        net_test!(NetworkResponse, PeerList, self_peer(), vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
         )])
@@ -612,7 +423,7 @@ mod tests {
 
     #[test]
     fn resp_peerlist_v6_test() {
-        net_test!(NetworkResponse, PeerList, self_peer(), vec![dummy_peer(
+        net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
         )])
@@ -620,7 +431,7 @@ mod tests {
 
     #[test]
     fn resp_peerslist_mixed_test() {
-        net_test!(NetworkResponse, PeerList, self_peer(), vec![
+        net_test!(NetworkResponse, PeerList, vec![
             dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999),
             dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999),
         ])
@@ -629,7 +440,6 @@ mod tests {
     #[test]
     pub fn direct_message_test() -> Fallible<()> {
         let ipaddr = IpAddr::from_str("10.10.10.10")?;
-        let port = 9999;
         let self_peer = self_peer();
         let text_msg = ContainerView::from(b"Hello world!".to_vec());
         let msg = NetworkPacketBuilder::default()
@@ -637,7 +447,7 @@ mod tests {
             .message_id(NetworkPacket::generate_message_id())
             .network_id(100)
             .message(UCursor::build_from_view(text_msg.clone()))
-            .build_direct(P2PNodeId::from_ip_port(ipaddr, port))?;
+            .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
         let mut deserialized =
@@ -692,7 +502,6 @@ mod tests {
         net_test!(
             NetworkRequest,
             BanNode,
-            self_peer(),
             dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999)
         )
     }
@@ -702,16 +511,15 @@ mod tests {
         net_test!(
             NetworkRequest,
             UnbanNode,
-            self_peer(),
             dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999)
         )
     }
 
     #[test]
-    fn req_joinnetwork_test() { net_test!(NetworkRequest, JoinNetwork, self_peer(), 100u16) }
+    fn req_joinnetwork_test() { net_test!(NetworkRequest, JoinNetwork, 100u16) }
 
     #[test]
-    fn req_leavenetwork_test() { net_test!(NetworkRequest, LeaveNetwork, self_peer(), 100u16) }
+    fn req_leavenetwork_test() { net_test!(NetworkRequest, LeaveNetwork, 100u16) }
 
     #[test]
     fn resp_invalid_version() {

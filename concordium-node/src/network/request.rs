@@ -46,7 +46,7 @@ impl NetworkRequest {
                 "{}{}{}",
                 make_header(),
                 PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,
-                id.to_b64_repr()
+                id
             )
             .into_bytes(),
             NetworkRequest::BanNode(_, node_data) => format!(
@@ -64,7 +64,7 @@ impl NetworkRequest {
             )
             .into_bytes(),
             NetworkRequest::Handshake(me, nids, zk) => {
-                let id = me.id().to_b64_repr();
+                let id = me.id();
                 let mut pkt = format!(
                     "{}{}{}{:05}{:05}{}{:010}",
                     make_header(),

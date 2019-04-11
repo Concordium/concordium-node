@@ -50,7 +50,7 @@ impl NetworkResponse {
                     "{}{}{}{:05}{:05}{}{:010}",
                     make_header(),
                     PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
-                    me.id().to_string(),
+                    me.id(),
                     me.port(),
                     nids.len(),
                     nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),

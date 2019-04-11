@@ -141,10 +141,9 @@ pub fn update_buckets(
     nets: &HashSet<u16>,
 ) -> FunctorResult {
     let priv_conn_borrow = priv_conn.borrow();
-    let own_id = &priv_conn_borrow.own_id;
     let buckets = &priv_conn_borrow.buckets;
 
-    safe_write!(buckets)?.insert_into_bucket(sender, &own_id, nets.to_owned());
+    safe_write!(buckets)?.insert_into_bucket(sender, nets.to_owned());
 
     let prometheus_exporter = &priv_conn_borrow.prometheus_exporter;
     if let Some(ref prom) = prometheus_exporter {

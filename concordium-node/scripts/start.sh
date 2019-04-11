@@ -106,7 +106,7 @@ elif [ "$MODE" == "local_basic" ]; then
         --rpc-server-addr 0.0.0.0
 
 elif [ "$MODE" == "local_bootstrapper" ]; then
-    export NODE_ID=`awk 'END{ print $1}' /etc/hosts | openssl dgst -binary -sha256 | base64`
+    export NODE_ID=`awk 'END{ print $1}' /etc/hosts | sha256sum | awk '{ print $1 }' | cut -c1-16`
     /build-project/p2p-client/target/debug/p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \

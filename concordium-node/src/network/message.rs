@@ -64,7 +64,7 @@ fn deserialize_direct_message(
     let buf = view.as_slice();
 
     // 1. Load receiver_id
-    let receiver_id = P2PNodeId::from_b64_repr(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
+    let receiver_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
     let buf = &buf[PROTOCOL_NODE_ID_LENGTH..];
 
     // 2. Load msg_id
@@ -162,7 +162,7 @@ fn deserialize_request_find_node(
 
     let view = pkt.read_into_view(PROTOCOL_NODE_ID_LENGTH)?;
     let node_id_str = str::from_utf8(view.as_slice())?;
-    let node_id = P2PNodeId::from_b64_repr(node_id_str)?;
+    let node_id = P2PNodeId::from_str(node_id_str)?;
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::FindNode(peer, node_id),
@@ -324,7 +324,7 @@ fn deserialize_common_handshake(
     let view = pkt.read_into_view(min_packet_size)?;
     let buf = view.as_slice();
 
-    let node_id = P2PNodeId::from_b64_repr(&buf[..PROTOCOL_NODE_ID_LENGTH])?;
+    let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
     let buf = &buf[PROTOCOL_NODE_ID_LENGTH..];
 
     let port = str::from_utf8(&buf[..PROTOCOL_PORT_LENGTH])?.parse::<u16>()?;
@@ -503,7 +503,7 @@ impl NetworkMessage {
             )),
             PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
-                    peer.ok_or_else(|| err_msg("BanNode Request requires a valid peer"))?,
+                    peer.ok_or_else(|| err_msg("UnbanNode Request requires a valid peer"))?,
                     P2PPeer::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
@@ -616,8 +616,7 @@ mod unit_test {
     fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
         // Create header
         let header = {
-            let p2p_node_id =
-                P2PNodeId::from_b64_repr(&"Cc0Td01Pk/mDDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=")?;
+            let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
             let pkt = NetworkPacketBuilder::default()
                 .peer(P2PPeer::from(
                     ConnectionType::Node,
@@ -628,9 +627,7 @@ mod unit_test {
                 .message_id(NetworkPacket::generate_message_id())
                 .network_id(111)
                 .message(UCursor::from(vec![]))
-                .build_direct(P2PNodeId::from_b64_repr(
-                    &"Cc0Td01Pk/mKDVjJfsQ3rP7P2J0/i3qRAk+2sQz0MtY=",
-                )?)?;
+                .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
             let mut h = pkt.serialize();
 
