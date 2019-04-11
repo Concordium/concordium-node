@@ -113,7 +113,7 @@ impl TlsServerPrivate {
             .find(|&conn| conn.borrow().id() == id)
     }
 
-    pub fn find_connection_by_token(&self, token: &Token) -> Option<&Rc<RefCell<Connection>>> {
+    pub fn find_connection_by_token(&self, token: Token) -> Option<&Rc<RefCell<Connection>>> {
         self.connections
             .iter()
             .find(|&conn| conn.borrow().token() == token)
@@ -148,7 +148,7 @@ impl TlsServerPrivate {
         let token = event.token();
         let mut rc_conn_to_be_removed: Option<_> = None;
 
-        if let Some(rc_conn) = self.find_connection_by_token(&token) {
+        if let Some(rc_conn) = self.find_connection_by_token(token) {
             let mut conn = rc_conn.borrow_mut();
             conn.ready(poll, event, packet_queue)?;
 

@@ -658,5 +658,5 @@ impl Connection {
         Arc::clone(&self.dptr.borrow().own_networks)
     }
 
-    pub fn token(&self) -> &Token { &self.token }
+    pub fn token(&self) -> Token { self.token }
 }
