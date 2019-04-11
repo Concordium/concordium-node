@@ -80,6 +80,7 @@ pub fn log_as_leave_network(
 pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     let (my_nets, self_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
+        // TODO Use general networks
         let my_nets = priv_conn_borrow.networks.clone();
         let self_peer = priv_conn_borrow.self_peer.to_owned();
         (my_nets, self_peer)
@@ -113,7 +114,7 @@ pub fn send_peer_list(
         let random_nodes = safe_read!(priv_conn_borrow.buckets)?.get_random_nodes(
             &sender,
             BOOTSTRAP_PEER_COUNT,
-            &nets,
+            nets,
         );
 
         let self_peer = &priv_conn_borrow.self_peer;

@@ -39,11 +39,11 @@ pub struct TlsServer {
     server_tls_config:        Arc<ServerConfig>,
     client_tls_config:        Arc<ClientConfig>,
     own_id:                   P2PNodeId,
-    event_log:                Option<Sender<P2PEvent>>,
+    pub event_log:            Option<Sender<P2PEvent>>,
     self_peer:                P2PPeer,
     mode:                     P2PNodeMode,
-    buckets:                  Arc<RwLock<Buckets>>,
-    prometheus_exporter:      Option<Arc<RwLock<PrometheusServer>>>,
+    pub buckets:              Arc<RwLock<Buckets>>,
+    pub prometheus_exporter:  Option<Arc<RwLock<PrometheusServer>>>,
     message_handler:          Arc<RwLock<MessageHandler>>,
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
     blind_trusted_broadcast:  bool,
@@ -101,14 +101,16 @@ impl TlsServer {
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
     #[inline]
-    pub fn networks(&self) -> HashSet<u16> { safe_read!(self.dptr).unwrap().networks().clone() }
-
-    pub fn remove_network(&mut self, network_id: u16) -> Fallible<bool> {
-        Ok(safe_write!(self.dptr)?.remove_network(network_id))
+    pub fn networks(&self) -> Arc<RwLock<HashSet<u16>>> {
+        Arc::clone(&self.dptr.read().unwrap().networks)
     }
 
-    pub fn add_network(&mut self, network_id: u16) -> Fallible<bool> {
-        Ok(safe_write!(self.dptr)?.add_network(network_id))
+    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
+        safe_write!(self.dptr)?.remove_network(network_id)
+    }
+
+    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
+        safe_write!(self.dptr)?.add_network(network_id)
     }
 
     /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
@@ -157,8 +159,8 @@ impl TlsServer {
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
+        let networks = self.networks();
         let mut conn = Connection::new(
-            Arc::clone(&self.dptr),
             ConnectionType::Node,
             socket,
             token,
@@ -171,6 +173,7 @@ impl TlsServer {
             self.mode,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
+            networks,
             Arc::clone(&self.buckets),
             self.blind_trusted_broadcast,
         );
@@ -227,8 +230,8 @@ impl TlsServer {
 
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
+                let networks = self.networks();
                 let mut conn = Connection::new(
-                    Arc::clone(&self.dptr),
                     connection_type,
                     socket,
                     token,
@@ -241,6 +244,7 @@ impl TlsServer {
                     self.mode,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
+                    Arc::clone(&networks),
                     Arc::clone(&self.buckets),
                     self.blind_trusted_broadcast,
                 );
@@ -257,12 +261,17 @@ impl TlsServer {
                 );
                 let self_peer = self.get_self_peer();
 
-                let lptr = safe_read!(self.dptr).unwrap();
-                if let Some(ref rc_conn) = lptr.find_connection_by_token(&token) {
-                    let networks = lptr.networks().clone();
+                if let Some(ref rc_conn) =
+                    self.dptr.read().unwrap().find_connection_by_token(&token)
+                {
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
-                        &NetworkRequest::Handshake(self_peer, networks, vec![]).serialize(),
+                        &NetworkRequest::Handshake(
+                            self_peer,
+                            safe_read!(networks)?.clone(),
+                            vec![],
+                        )
+                        .serialize(),
                     )?;
                     conn.set_measured_handshake_sent();
                 }
@@ -317,6 +326,15 @@ impl TlsServer {
             .unwrap()
             .send_over_all_connections(data, filter_conn, send_status)
     }
+
+    #[inline]
+    pub fn mode(&self) -> P2PNodeMode { self.mode }
+
+    #[inline]
+    pub fn own_id(&self) -> &P2PNodeId { &self.own_id }
+
+    #[inline]
+    pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It setups default message handler at TLSServer level.
     fn setup_default_message_handler(&mut self) {}

@@ -319,20 +319,22 @@ impl P2PNode {
 
     /// Default packet handler just forward valid messages.
     fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
-        let tls_server = Arc::clone(&self.tls_server);
         let seen_messages = self.seen_messages.clone();
+        let own_networks = Arc::clone(
+            &safe_read!(self.tls_server)
+                .expect("Couldn't lock the tls server")
+                .networks(),
+        );
         let prometheus_exporter = self.prometheus_exporter.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = Arc::clone(&self.send_queue);
         let trusted_broadcast = self.config.blind_trusted_broadcast;
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
-            let own_networks = safe_read!(tls_server)?.networks();
-
             forward_network_packet_message(
                 &seen_messages,
                 &prometheus_exporter,
-                own_networks,
+                &own_networks,
                 &send_queue,
                 &packet_queue,
                 pac,
@@ -425,9 +427,8 @@ impl P2PNode {
                 }
             } else {
                 info!("Not enough nodes, sending GetPeers requests");
-
                 if let Ok(nids) = safe_read!(self.tls_server)
-                    .and_then(|locked_tls_server| Ok(locked_tls_server.networks()))
+                    .and_then(|x| safe_read!(x.networks()).map(|nets| nets.clone()))
                 {
                     self.send_get_peers(nids)
                         .unwrap_or_else(|e| error!("{}", e));
@@ -784,12 +785,11 @@ impl P2PNode {
     }
 
     pub fn send_get_peers(&mut self, nids: HashSet<u16>) -> Fallible<()> {
-        let msg = NetworkMessage::NetworkRequest(
-            NetworkRequest::GetPeers(self.get_self_peer(), nids),
+        safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
+            NetworkRequest::GetPeers(self.get_self_peer(), nids.clone()),
             None,
             None,
-        );
-        safe_write!(self.send_queue)?.push_back(Arc::new(msg));
+        )));
         self.queue_size_inc()?;
         Ok(())
     }
@@ -993,7 +993,10 @@ pub fn is_valid_connection_in_broadcast(
 ) -> bool {
     if let Some(ref peer) = conn.peer() {
         if peer.id() != sender.id() && peer.connection_type() != ConnectionType::Bootstrapper {
-            return conn.own_networks().contains(&network_id);
+            let own_networks = conn.own_networks();
+            return safe_read!(own_networks)
+                .expect("Couldn't lock own networks")
+                .contains(&network_id);
         }
     }
     false

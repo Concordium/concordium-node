@@ -25,7 +25,6 @@ use crate::{
         Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
     },
-    p2p::TlsServerPrivate,
     prometheus_exporter::PrometheusServer,
 };
 
@@ -85,7 +84,6 @@ pub enum ConnectionStatus {
 }
 
 pub struct Connection {
-    tls:                     Arc<RwLock<TlsServerPrivate>>,
     socket:                  TcpStream,
     token:                   Token,
     pub closing:             bool,
@@ -113,7 +111,6 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(
-        tls: Arc<RwLock<TlsServerPrivate>>,
         connection_type: ConnectionType,
         socket: TcpStream,
         token: Token,
@@ -126,12 +123,11 @@ impl Connection {
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
+        own_networks: Arc<RwLock<HashSet<u16>>>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
         let curr_stamp = get_current_stamp();
-        let own_networks = safe_read!(tls).unwrap().networks().clone();
-
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             connection_type,
             mode,
@@ -147,7 +143,6 @@ impl Connection {
         )));
 
         let mut lself = Connection {
-            tls,
             socket,
             token,
             closing: false,
@@ -653,9 +648,13 @@ impl Connection {
 
     pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
 
+    pub fn networks(&self) -> HashSet<u16> { self.dptr.borrow().networks.clone() }
+
     pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
 
-    pub fn own_networks(&self) -> HashSet<u16> { self.dptr.borrow().networks.clone() }
+    pub fn own_networks(&self) -> Arc<RwLock<HashSet<u16>>> {
+        Arc::clone(&self.dptr.borrow().own_networks)
+    }
 
     pub fn token(&self) -> &Token { &self.token }
 }

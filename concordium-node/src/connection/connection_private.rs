@@ -27,6 +27,7 @@ pub struct ConnectionPrivate {
     pub self_peer:       P2PPeer,
     peer:                Option<P2PPeer>,
     pub networks:        HashSet<u16>,
+    pub own_networks:    Arc<RwLock<HashSet<u16>>>,
     pub buckets:         Arc<RwLock<Buckets>>,
 
     // Session
@@ -52,7 +53,7 @@ impl ConnectionPrivate {
         mode: P2PNodeMode,
         own_id: P2PNodeId,
         self_peer: P2PPeer,
-        networks: HashSet<u16>,
+        own_networks: Arc<RwLock<HashSet<u16>>>,
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
@@ -71,11 +72,12 @@ impl ConnectionPrivate {
 
         ConnectionPrivate {
             connection_type,
-            mode,
             own_id,
+            mode,
             self_peer,
             peer: None,
-            networks,
+            networks: HashSet::new(),
+            own_networks,
             buckets,
             tls_session,
             last_seen: AtomicU64::new(get_current_stamp()),

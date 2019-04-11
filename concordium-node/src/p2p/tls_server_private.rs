@@ -36,7 +36,7 @@ pub struct TlsServerPrivate {
     connections_by_id:       HashMap<P2PNodeId, Rc<RefCell<Connection>>>,
     pub unreachable_nodes:   UnreachableNodes,
     pub banned_peers:        HashSet<P2PPeer>,
-    networks:                HashSet<u16>,
+    pub networks:            Arc<RwLock<HashSet<u16>>>,
     pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
 }
 
@@ -50,7 +50,7 @@ impl TlsServerPrivate {
             connections_by_id: HashMap::new(),
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: HashSet::new(),
-            networks,
+            networks: Arc::new(RwLock::new(networks)),
             prometheus_exporter,
         }
     }
@@ -75,10 +75,16 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other
     /// instances.
-    pub fn remove_network(&mut self, network_id: u16) -> bool { self.networks.remove(&network_id) }
+    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
+        safe_write!(self.networks)?.retain(|x| *x == network_id);
+        Ok(())
+    }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: u16) -> bool { self.networks.insert(network_id) }
+    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
+        safe_write!(self.networks)?.insert(network_id);
+        Ok(())
+    }
 
     /// It generates a peer statistic list for each connected peer which belongs
     /// to any of networks in `nids`.
@@ -87,8 +93,7 @@ impl TlsServerPrivate {
         for (_, ref rc_conn) in &self.connections_by_token {
             let conn = rc_conn.borrow();
             if let Some(ref x) = conn.peer() {
-                // TODO Review this!!!!
-                if nids.is_empty() || nids.iter().any(|nid| self.networks.contains(nid)) {
+                if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
                     ret.push(PeerStatistic::new(
                         x.id().to_string(),
                         x.ip(),
@@ -268,7 +273,4 @@ impl TlsServerPrivate {
             }
         }
     }
-
-    #[inline]
-    pub fn networks(&self) -> &HashSet<u16> { &self.networks }
 }
