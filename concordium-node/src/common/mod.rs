@@ -341,7 +341,7 @@ mod tests {
             let self_peer = self_peer();
             let zk: Vec<u8> = $zk;
             let nets: HashSet<u16> = $nets.into_iter().collect();
-            let test_msg = create_message!($msg, $msg_type, self_peer, nets.clone(), zk);
+            let test_msg = create_message!($msg, $msg_type, self_peer, nets, zk);
             let serialized = UCursor::from(test_msg.serialize());
             let self_peer_ip = self_peer.ip();
             let deserialized =
