@@ -482,16 +482,13 @@ impl NetworkMessage {
                 timestamp,
                 &mut pkt,
             ),
-            ProtocolMessageType::RequestHandshake => {
-                deserialize_request_handshake(ip, timestamp, &mut pkt)
-            }
-
+            ProtocolMessageType::RequestHandshake => deserialize_request_handshake(ip, timestamp, &mut pkt),
             ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
                 peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            ProtocolMessageType::RequestBannode => Ok(NetworkMessage::NetworkRequest(
+            ProtocolMessageType::RequestBanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::BanNode(
                     peer.ok_or_else(|| err_msg("BanNode Request requires a valid peer"))?,
                     P2PPeer::deserialize(&mut pkt)?,
@@ -499,7 +496,7 @@ impl NetworkMessage {
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
-            ProtocolMessageType::RequestUnbannode => Ok(NetworkMessage::NetworkRequest(
+            ProtocolMessageType::RequestUnBanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
                     peer.ok_or_else(|| err_msg("UnbanNode Request requires a valid peer"))?,
                     P2PPeer::deserialize(&mut pkt)?,

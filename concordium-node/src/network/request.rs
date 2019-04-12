@@ -47,14 +47,14 @@ impl NetworkRequest {
             NetworkRequest::BanNode(_, node_data) => format!(
                 "{}{}{}",
                 make_header(),
-                ProtocolMessageType::RequestBannode,
+                ProtocolMessageType::RequestBanNode,
                 node_data.serialize()
             )
             .into_bytes(),
             NetworkRequest::UnbanNode(_, node_data) => format!(
                 "{}{}{}",
                 make_header(),
-                ProtocolMessageType::RequestUnbannode,
+                ProtocolMessageType::RequestUnBanNode,
                 node_data.serialize()
             )
             .into_bytes(),

@@ -12,8 +12,8 @@ pub enum ProtocolMessageType {
     RequestFindNode,
     RequestHandshake,
     RequestGetPeers,
-    RequestBannode,
-    RequestUnbannode,
+    RequestBanNode,
+    RequestUnBanNode,
     RequestJoinNetwork,
     RequestLeaveNetwork,
     ResponsePong,
@@ -29,8 +29,8 @@ static PROTOCOL_MESSAGE_FROM_INT: &[ProtocolMessageType] = &[
     ProtocolMessageType::RequestFindNode,
     ProtocolMessageType::RequestHandshake,
     ProtocolMessageType::RequestGetPeers,
-    ProtocolMessageType::RequestBannode,
-    ProtocolMessageType::RequestUnbannode,
+    ProtocolMessageType::RequestBanNode,
+    ProtocolMessageType::RequestUnBanNode,
     ProtocolMessageType::RequestJoinNetwork,
     ProtocolMessageType::RequestLeaveNetwork,
     ProtocolMessageType::ResponsePong,
@@ -60,15 +60,15 @@ impl TryFrom<&str> for ProtocolMessageType {
     type Error = Error;
 
     fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
-        let input = &value[..PROTOCOL_MESSAGE_TYPE_LENGTH];
-        let output = u8::from_str_radix( input, 16)?;
+        debug_assert_eq!( value.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
+        let output = u8::from_str_radix( value, 16)?;
         ProtocolMessageType::try_from( output)
     }
 }
 
 impl Display for ProtocolMessageType {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!( f, "{:02X}", *self as u8)
+        write!( f, "{:02x}", *self as u8)
     }
 }
 
@@ -85,7 +85,7 @@ mod test {
         );
         assert_eq!(
             ProtocolMessageType::try_from(4).unwrap(),
-            ProtocolMessageType::RequestBannode
+            ProtocolMessageType::RequestBanNode
         );
         assert_eq!(
             ProtocolMessageType::try_from(13).unwrap(),
@@ -102,8 +102,8 @@ mod test {
             ProtocolMessageType::RequestFindNode,
             ProtocolMessageType::RequestHandshake,
             ProtocolMessageType::RequestGetPeers,
-            ProtocolMessageType::RequestBannode,
-            ProtocolMessageType::RequestUnbannode,
+            ProtocolMessageType::RequestBanNode,
+            ProtocolMessageType::RequestUnBanNode,
             ProtocolMessageType::RequestJoinNetwork,
             ProtocolMessageType::RequestLeaveNetwork,
             ProtocolMessageType::ResponsePong,
@@ -115,7 +115,7 @@ mod test {
         ];
 
         for value in &values {
-            let value_str = format!( "{}", value);
+            let value_str = value.to_string();
             assert_eq!( value_str.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
             let value_from_str = ProtocolMessageType::try_from( value_str.as_str()).unwrap();
             assert_eq!( value_from_str, *value);
