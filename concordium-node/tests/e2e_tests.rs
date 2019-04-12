@@ -1,4 +1,3 @@
-#![feature(box_syntax, box_patterns)]
 #[macro_use]
 extern crate p2p_client;
 #[macro_use]
