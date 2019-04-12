@@ -1,6 +1,6 @@
 use crate::{
     common::P2PPeer,
-    network::{make_header, NetworkId, ProtocolMessageType},
+    network::{NetworkId, ProtocolMessageType},
 };
 use std::collections::HashSet;
 
@@ -16,46 +16,44 @@ pub enum NetworkResponse {
 impl NetworkResponse {
     pub fn serialize(&self) -> Vec<u8> {
         match self {
-            NetworkResponse::Pong(_) => {
-                format!("{}{}", make_header(), ProtocolMessageType::ResponsePong).into_bytes()
-            }
-            NetworkResponse::FindNode(_, peers) => format!(
-                "{}{}{:03}{}",
-                make_header(),
+            NetworkResponse::Pong(_) => serialize_message!(ProtocolMessageType::ResponsePong, ""),
+            NetworkResponse::FindNode(_, peers) => serialize_message!(
                 ProtocolMessageType::ResponseFindNode,
-                peers.len(),
-                peers
-                    .iter()
-                    .map(|peer| peer.serialize())
-                    .collect::<String>()
-            )
-            .into_bytes(),
-            NetworkResponse::PeerList(_, peers) => format!(
-                "{}{}{:03}{}",
-                make_header(),
-                ProtocolMessageType::ResponsePeersList,
-                peers.len(),
-                peers
-                    .iter()
-                    .map(|peer| peer.serialize())
-                    .collect::<String>()
-            )
-            .into_bytes(),
-            NetworkResponse::Handshake(me, networks, zk) => {
-                let mut pkt = format!(
-                    "{}{}{}{:05}{:05}{}{:010}",
-                    make_header(),
-                    ProtocolMessageType::ResponseHandshake,
-                    me.id(),
-                    me.port(),
-                    networks.len(),
-                    networks
+                format!(
+                    "{:03}{}",
+                    peers.len(),
+                    peers
                         .iter()
-                        .map(|net| net.to_string())
-                        .collect::<String>(),
-                    zk.len()
+                        .map(|peer| peer.serialize())
+                        .collect::<String>()
                 )
-                .into_bytes();
+            ),
+            NetworkResponse::PeerList(_, peers) => serialize_message!(
+                ProtocolMessageType::ResponsePeersList,
+                format!(
+                    "{:03}{}",
+                    peers.len(),
+                    peers
+                        .iter()
+                        .map(|peer| peer.serialize())
+                        .collect::<String>()
+                )
+            ),
+            NetworkResponse::Handshake(me, networks, zk) => {
+                let mut pkt = serialize_message!(
+                    ProtocolMessageType::ResponseHandshake,
+                    format!(
+                        "{}{:05}{:05}{}{:010}",
+                        me.id(),
+                        me.port(),
+                        networks.len(),
+                        networks
+                            .iter()
+                            .map(|net| net.to_string())
+                            .collect::<String>(),
+                        zk.len()
+                    )
+                );
                 pkt.extend_from_slice(zk.as_slice());
                 pkt
             }

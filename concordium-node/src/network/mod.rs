@@ -1,5 +1,18 @@
-use crate::common::get_current_stamp_b64;
 use std::fmt;
+
+macro_rules! serialize_message {
+    ($msg_type:expr, $content:expr) => {
+        format!(
+            "{}{}{}{}{}",
+            crate::network::PROTOCOL_NAME,
+            crate::network::PROTOCOL_VERSION,
+            crate::common::get_current_stamp_b64(),
+            $msg_type,
+            $content
+        )
+        .into_bytes()
+    };
+}
 
 pub mod buckets;
 pub mod message;
@@ -51,12 +64,3 @@ pub const PROTOCOL_MESSAGE_LENGTH: usize = PROTOCOL_HEADER_LENGTH
 #[cfg(test)]
 // panics with "attempt to subtract with overflow" when the assertion is broken
 const_assert!(protocol_message_length; PROTOCOL_MESSAGE_LENGTH == 130);
-
-pub fn make_header() -> String {
-    format!(
-        "{}{}{}",
-        PROTOCOL_NAME,
-        PROTOCOL_VERSION,
-        get_current_stamp_b64()
-    )
-}
