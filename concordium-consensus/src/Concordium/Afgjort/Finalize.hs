@@ -18,7 +18,10 @@ import Control.Monad
 
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Types
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
 import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))

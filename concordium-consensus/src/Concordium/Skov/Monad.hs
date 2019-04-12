@@ -6,7 +6,11 @@ import Control.Monad.Trans.Maybe
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
-import Concordium.Types
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Transactions
 import Concordium.Logger
 import Concordium.TimeMonad
 
@@ -16,6 +20,8 @@ class (Monad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: Block -> m BlockHash
+    -- |Add a transaction to the transaction table.
+    receiveTransaction :: Transaction -> m ()
     -- |Add a finalization record.  This should (eventually) result
     -- in a block being finalized.
     finalizeBlock :: FinalizationRecord -> m ()
@@ -40,6 +46,7 @@ class (Monad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
 instance SkovMonad m => SkovMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock
     storeBlock = lift . storeBlock
+    receiveTransaction = lift . receiveTransaction
     finalizeBlock = lift . finalizeBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock

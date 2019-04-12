@@ -7,15 +7,20 @@ import Lens.Micro.Platform hiding ((.=))
 import Control.Monad.Trans.State
 
 import Concordium.Payload.Transaction
-import Concordium.Types as T
+--import Concordium.Types as T
 import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
 import Concordium.Logger
 
 import qualified Concordium.Scheduler.Types as AT
+import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.TreeState.Basic
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Information
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.HashableTo
+import Concordium.GlobalState.BlockState
 
 import Data.IORef
 import Text.Read hiding (get)
@@ -27,14 +32,14 @@ import Data.Aeson
 import Data.Word
 
 hsh :: BlockPointer -> String
-hsh = show . bpHash
+hsh = show . getHash
 
-getBestBlockState :: IORef SkovFinalizationState -> IO GlobalState
+getBestBlockState :: IORef SkovFinalizationState -> IO BlockState
 getBestBlockState sfsRef = do
     sfs <- readIORef sfsRef
     runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> bestBlock)
 
-getLastFinalState :: IORef SkovFinalizationState -> IO GlobalState
+getLastFinalState :: IORef SkovFinalizationState -> IO BlockState
 getLastFinalState sfsRef = do
     sfs <- readIORef sfsRef
     runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
@@ -112,7 +117,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockArriveTime" .= bpArriveTime bp,
                             "blockSlot" .= (fromIntegral slot :: Word64),
                             "blockSlotTime" .= slotTime,
-                            "blockBaker" .= if slot == 0 then Null else toJSON (T.blockBaker (bpBlock bp)),
+                            "blockBaker" .= if slot == 0 then Null else toJSON (blockBaker (bpBlock bp)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp
                             ]

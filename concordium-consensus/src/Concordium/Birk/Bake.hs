@@ -12,7 +12,10 @@ import Data.Serialize
 
 import Concordium.GlobalState.Types
 
-import Concordium.Types
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockState
+
 import Concordium.Skov.Monad
 import Concordium.Kontrol.Monad
 import Concordium.Payload.Monad
