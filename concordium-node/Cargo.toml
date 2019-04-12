@@ -94,6 +94,7 @@ capnpc          = { version = "^0.9", optional = true }
 
 [dev-dependencies]
 criterion = "0.2"
+static_assertions = "^0.3"
 
 [lib]
 path = "src/lib.rs"
