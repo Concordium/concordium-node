@@ -496,7 +496,7 @@ impl NetworkMessage {
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
-            ProtocolMessageType::RequestUnBanNode => Ok(NetworkMessage::NetworkRequest(
+            ProtocolMessageType::RequestUnbanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
                     peer.ok_or_else(|| err_msg("UnbanNode Request requires a valid peer"))?,
                     P2PPeer::deserialize(&mut pkt)?,

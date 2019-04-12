@@ -54,7 +54,7 @@ impl NetworkRequest {
             NetworkRequest::UnbanNode(_, node_data) => format!(
                 "{}{}{}",
                 make_header(),
-                ProtocolMessageType::RequestUnBanNode,
+                ProtocolMessageType::RequestUnbanNode,
                 node_data.serialize()
             )
             .into_bytes(),
