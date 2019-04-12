@@ -8,6 +8,9 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import Data.List
 import Data.Maybe
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.RWS
 
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
@@ -198,7 +201,11 @@ class Monad m => TreeStateMonad m where
     -- hash is already in the table.
     -- Otherwise, adds the transaction to the table and the non-finalized transactions
     -- for its account.
-    addTransaction :: HashedTransaction -> m ()
+    -- A return value of @True@ indicates that the transaction was added (and not already
+    -- present).  A return value of @False@ indicates that the transaction was not added,
+    -- either because it was already present or the nonce has already been finalized.
+    addTransaction :: HashedTransaction -> m Bool
+    addTransaction tr = addCommitTransaction tr 0
     -- |Finalize a list of transactions.  Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
@@ -207,6 +214,8 @@ class Monad m => TreeStateMonad m where
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
     commitTransaction :: Slot -> HashedTransaction -> m ()
+    -- |Add a transaction and mark it committed for the given slot number.
+    addCommitTransaction :: HashedTransaction -> Slot -> m Bool
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
@@ -217,3 +226,71 @@ class Monad m => TreeStateMonad m where
     getConsensusStatistics :: m ConsensusStatistics
     -- |Set the consensus statistics.
     putConsensusStatistics :: ConsensusStatistics -> m ()
+
+instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
+    getBlockStatus  = lift . getBlockStatus
+    makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
+    markDead = lift . markDead
+    markFinalized bh fr = lift $ markFinalized bh fr
+    getGenesisBlockPointer = lift getGenesisBlockPointer
+    getGenesisData = lift getGenesisData
+    getLastFinalized = lift getLastFinalized
+    getLastFinalizedSlot = lift getLastFinalizedSlot
+    getLastFinalizedHeight = lift getLastFinalizedHeight
+    getNextFinalizationIndex = lift getNextFinalizationIndex
+    addFinalization bp fr = lift $ addFinalization bp fr
+    getBranches = lift getBranches
+    putBranches = lift . putBranches
+    takePendingChildren = lift . takePendingChildren
+    addPendingBlock = lift . addPendingBlock
+    takeNextPendingUntil = lift . takeNextPendingUntil
+    addAwaitingLastFinalized bh pb = lift $ addAwaitingLastFinalized bh pb
+    takeAwaitingLastFinalizedUntil = lift . takeAwaitingLastFinalizedUntil
+    getFinalizationPoolAtIndex = lift . getFinalizationPoolAtIndex
+    putFinalizationPoolAtIndex fi frs = lift $ putFinalizationPoolAtIndex fi frs
+    addFinalizationRecordToPool = lift . addFinalizationRecordToPool
+    getFocusBlock = lift getFocusBlock
+    putFocusBlock = lift . putFocusBlock
+    getPendingTransactions = lift getPendingTransactions
+    putPendingTransactions = lift . putPendingTransactions
+    addTransaction  = lift . addTransaction
+    finalizeTransactions = lift . finalizeTransactions
+    commitTransaction slot tr = lift $ commitTransaction slot tr
+    addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
+    purgeTransaction = lift . purgeTransaction
+    getConsensusStatistics = lift getConsensusStatistics
+    putConsensusStatistics = lift . putConsensusStatistics
+
+instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
+    getBlockStatus  = lift . getBlockStatus
+    makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
+    markDead = lift . markDead
+    markFinalized bh fr = lift $ markFinalized bh fr
+    getGenesisBlockPointer = lift getGenesisBlockPointer
+    getGenesisData = lift getGenesisData
+    getLastFinalized = lift getLastFinalized
+    getLastFinalizedSlot = lift getLastFinalizedSlot
+    getLastFinalizedHeight = lift getLastFinalizedHeight
+    getNextFinalizationIndex = lift getNextFinalizationIndex
+    addFinalization bp fr = lift $ addFinalization bp fr
+    getBranches = lift getBranches
+    putBranches = lift . putBranches
+    takePendingChildren = lift . takePendingChildren
+    addPendingBlock = lift . addPendingBlock
+    takeNextPendingUntil = lift . takeNextPendingUntil
+    addAwaitingLastFinalized bh pb = lift $ addAwaitingLastFinalized bh pb
+    takeAwaitingLastFinalizedUntil = lift . takeAwaitingLastFinalizedUntil
+    getFinalizationPoolAtIndex = lift . getFinalizationPoolAtIndex
+    putFinalizationPoolAtIndex fi frs = lift $ putFinalizationPoolAtIndex fi frs
+    addFinalizationRecordToPool = lift . addFinalizationRecordToPool
+    getFocusBlock = lift getFocusBlock
+    putFocusBlock = lift . putFocusBlock
+    getPendingTransactions = lift getPendingTransactions
+    putPendingTransactions = lift . putPendingTransactions
+    addTransaction  = lift . addTransaction
+    finalizeTransactions = lift . finalizeTransactions
+    commitTransaction slot tr = lift $ commitTransaction slot tr
+    addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
+    purgeTransaction = lift . purgeTransaction
+    getConsensusStatistics = lift getConsensusStatistics
+    putConsensusStatistics = lift . putConsensusStatistics
