@@ -3,6 +3,7 @@ use bytes::{BufMut, BytesMut};
 use std::{
     cell::RefCell,
     collections::HashSet,
+    convert::TryFrom,
     io::Cursor,
     net::{IpAddr, Shutdown},
     rc::Rc,
@@ -21,10 +22,7 @@ use crate::{
         get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, UCursor,
     },
     connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
-    network::{
-        Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
-        PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-    },
+    network::{Buckets, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType},
     prometheus_exporter::PrometheusServer,
 };
 
@@ -509,25 +507,25 @@ impl Connection {
 
     fn validate_packet(&mut self, poll: &mut Poll) {
         if !self.pkt_validated() {
-            let buff = if let Some(ref bytebuf) = self.pkt_buffer {
-                if bytebuf.len() >= 132 {
-                    Some(bytebuf[24..28].to_vec())
-                } else {
-                    None
+            let mut message_type_id_data: u8 = 0u8;
+            if let Some(ref bytebuf) = self.pkt_buffer {
+                if bytebuf.len() >= 25 {
+                    message_type_id_data = bytebuf[24];
                 }
-            } else {
-                None
-            };
-            if let Some(ref bufdata) = buff {
+            }
+            if message_type_id_data != 0u8 {
                 if self.mode() == P2PNodeMode::BootstrapperMode {
-                    let msg_num = String::from_utf8(bufdata.to_vec())
-                        .expect("Unable to get string from utf8");
-                    if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
-                        || msg_num == PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
+                    if let Ok(message_type_id) = ProtocolMessageType::try_from(message_type_id_data)
                     {
-                        info!("Received network packet message, not wanted - disconnecting peer");
-                        &self.clear_buffer();
-                        &self.close(poll);
+                        if message_type_id == ProtocolMessageType::DirectMessage
+                            || message_type_id == ProtocolMessageType::BroadcastedMessage
+                        {
+                            info!(
+                                "Received network packet message, not wanted - disconnecting peer"
+                            );
+                            &self.clear_buffer();
+                            &self.close(poll);
+                        }
                     }
                 } else {
                     self.set_valid();

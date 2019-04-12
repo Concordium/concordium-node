@@ -1,23 +1,16 @@
 use super::{NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse};
-use base64;
-
 use crate::{
     common::{get_current_stamp, ConnectionType, ContainerView, P2PNodeId, P2PPeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
-        PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
-        PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE, PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE,
-        PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS, PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE,
-        PROTOCOL_MESSAGE_TYPE_REQUEST_JOINNETWORK, PROTOCOL_MESSAGE_TYPE_REQUEST_LEAVENETWORK,
-        PROTOCOL_MESSAGE_TYPE_REQUEST_PING, PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE,
-        PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE, PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
-        PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST, PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,
+        ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
     },
 };
+use base64;
+use std::convert::TryFrom;
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
@@ -460,40 +453,41 @@ impl NetworkMessage {
         // It is not an `str`, just a byte slice. Do not use as `str` because it did not
         // be checked as valid utf8.
         // This is unsafe code is a performance optimization.
-        let message_type_id =
-            unsafe { str::from_utf8_unchecked(&header[..PROTOCOL_MESSAGE_TYPE_LENGTH]) };
+        let message_type_id_str = str::from_utf8( &header[..PROTOCOL_MESSAGE_TYPE_LENGTH])?;
+        let message_type_id = ProtocolMessageType::try_from(message_type_id_str)?;
         match message_type_id {
-            PROTOCOL_MESSAGE_TYPE_REQUEST_PING => Ok(NetworkMessage::NetworkRequest(
+            ProtocolMessageType::RequestPing => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::Ping(
                     peer.ok_or_else(|| err_msg("Ping message requires a valid peer"))?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
-            PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG => Ok(NetworkMessage::NetworkResponse(
+            ProtocolMessageType::ResponsePong => Ok(NetworkMessage::NetworkResponse(
                 NetworkResponse::Pong(
                     peer.ok_or_else(|| err_msg("Pong message requires a valid peer"))?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
-            PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE => {
+            ProtocolMessageType::ResponseHandshake => {
                 deserialize_response_handshake(ip, timestamp, &mut pkt)
             }
-            PROTOCOL_MESSAGE_TYPE_REQUEST_GET_PEERS => deserialize_request_get_peers(
+            ProtocolMessageType::RequestGetPeers => deserialize_request_get_peers(
                 peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_REQUEST_HANDSHAKE => {
+            ProtocolMessageType::RequestHandshake => {
                 deserialize_request_handshake(ip, timestamp, &mut pkt)
             }
-            PROTOCOL_MESSAGE_TYPE_REQUEST_FINDNODE => deserialize_request_find_node(
+
+            ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
                 peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_REQUEST_BANNODE => Ok(NetworkMessage::NetworkRequest(
+            ProtocolMessageType::RequestBannode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::BanNode(
                     peer.ok_or_else(|| err_msg("BanNode Request requires a valid peer"))?,
                     P2PPeer::deserialize(&mut pkt)?,
@@ -501,7 +495,7 @@ impl NetworkMessage {
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
-            PROTOCOL_MESSAGE_TYPE_REQUEST_UNBANNODE => Ok(NetworkMessage::NetworkRequest(
+            ProtocolMessageType::RequestUnbannode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
                     peer.ok_or_else(|| err_msg("UnbanNode Request requires a valid peer"))?,
                     P2PPeer::deserialize(&mut pkt)?,
@@ -509,37 +503,36 @@ impl NetworkMessage {
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
-            PROTOCOL_MESSAGE_TYPE_REQUEST_JOINNETWORK => deserialize_request_join_network(
+            ProtocolMessageType::RequestJoinNetwork => deserialize_request_join_network(
                 peer.ok_or_else(|| err_msg("Join Network Request requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_REQUEST_LEAVENETWORK => deserialize_request_leave_network(
+            ProtocolMessageType::RequestLeaveNetwork => deserialize_request_leave_network(
                 peer.ok_or_else(|| err_msg("Leave Network Request requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE => deserialize_response_find_node(
+            ProtocolMessageType::ResponseFindNode => deserialize_response_find_node(
                 peer.ok_or_else(|| err_msg("Find Node Response requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST => deserialize_response_peer_list(
+            ProtocolMessageType::ResponsePeersList => deserialize_response_peer_list(
                 peer.ok_or_else(|| err_msg("Peer List Response requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE => deserialize_direct_message(
+            ProtocolMessageType::DirectMessage => deserialize_direct_message(
                 peer.ok_or_else(|| err_msg("Direct Message requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE => deserialize_broadcast_message(
+            ProtocolMessageType::BroadcastedMessage => deserialize_broadcast_message(
                 peer.ok_or_else(|| err_msg("Broadcast Message requires a valid peer"))?,
                 timestamp,
                 &mut pkt,
             ),
-            _ => bail!("Unsupported protocol message"),
         }
     }
 

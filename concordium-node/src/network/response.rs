@@ -1,9 +1,7 @@
 use crate::{
     common::P2PPeer,
     network::{
-        make_header, PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE,
-        PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE, PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST,
-        PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,
+        make_header, ProtocolMessageType,
     },
 };
 use std::collections::HashSet;
@@ -21,12 +19,12 @@ impl NetworkResponse {
     pub fn serialize(&self) -> Vec<u8> {
         match self {
             NetworkResponse::Pong(_) => {
-                format!("{}{}", make_header(), PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG).into_bytes()
+                format!("{}{}", make_header(), ProtocolMessageType::ResponsePong ).into_bytes()
             }
             NetworkResponse::FindNode(_, peers) => format!(
                 "{}{}{:03}{}",
                 make_header(),
-                PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE,
+                ProtocolMessageType::ResponseFindNode,
                 peers.len(),
                 peers
                     .iter()
@@ -37,7 +35,7 @@ impl NetworkResponse {
             NetworkResponse::PeerList(_, peers) => format!(
                 "{}{}{:03}{}",
                 make_header(),
-                PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST,
+                ProtocolMessageType::ResponsePeersList,
                 peers.len(),
                 peers
                     .iter()
@@ -49,7 +47,7 @@ impl NetworkResponse {
                 let mut pkt = format!(
                     "{}{}{}{:05}{:05}{}{:010}",
                     make_header(),
-                    PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
+                    ProtocolMessageType::ResponseHandshake,
                     me.id(),
                     me.port(),
                     nids.len(),
