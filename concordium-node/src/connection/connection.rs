@@ -22,9 +22,9 @@ use crate::{
     },
     connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
     network::{
-        Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
-        PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
-        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        Buckets, NetworkMessage, NetworkRequest, NetworkResponse, PROTOCOL_HEADER_LENGTH,
+        PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
+        PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
 };
@@ -628,7 +628,8 @@ impl Connection {
     /// It tries to write into socket all pending to write.
     /// It returns how many bytes were writte into the socket.
     fn flush_tls(&mut self) -> Fallible<usize> {
-        let wants_write = self.dptr.borrow().tls_session.wants_write() && !self.closed && !self.closing;
+        let wants_write =
+            self.dptr.borrow().tls_session.wants_write() && !self.closed && !self.closing;
         if wants_write {
             debug!(
                 "{}/{}:{} is attempting to write to socket {:?}",
@@ -641,18 +642,22 @@ impl Connection {
             let mut wr = WriteVAdapter::new(&mut self.socket);
             let mut lptr = self.dptr.borrow_mut();
             match lptr.tls_session.writev_tls(&mut wr) {
-                Err(e) => {
-                    match e.kind() {
-                        std::io::ErrorKind::WouldBlock => Err(failure::Error::from_boxed_compat(Box::new(e))),
-                        std::io::ErrorKind::WriteZero => Err(failure::Error::from_boxed_compat(Box::new(e))),
-                        std::io::ErrorKind::Interrupted => Err(failure::Error::from_boxed_compat(Box::new(e))),
-                        _ => {
-                            self.closed = true;
-                            Err(failure::Error::from_boxed_compat(Box::new(e)))
-                        }
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock => {
+                        Err(failure::Error::from_boxed_compat(Box::new(e)))
                     }
-                }
-                Ok(size) => Ok(size) 
+                    std::io::ErrorKind::WriteZero => {
+                        Err(failure::Error::from_boxed_compat(Box::new(e)))
+                    }
+                    std::io::ErrorKind::Interrupted => {
+                        Err(failure::Error::from_boxed_compat(Box::new(e)))
+                    }
+                    _ => {
+                        self.closed = true;
+                        Err(failure::Error::from_boxed_compat(Box::new(e)))
+                    }
+                },
+                Ok(size) => Ok(size),
             }
         } else {
             Ok(0)

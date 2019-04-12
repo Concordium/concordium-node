@@ -189,7 +189,11 @@ impl P2PPeer {
         let buf = view.as_slice();
 
         let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-        debug!("deserialized {:?} to {:?}", &buf[..PROTOCOL_NODE_ID_LENGTH], node_id);
+        debug!(
+            "deserialized {:?} to {:?}",
+            &buf[..PROTOCOL_NODE_ID_LENGTH],
+            node_id
+        );
         let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..][..PROTOCOL_IP_TYPE_LENGTH];
 
         let (ip_addr, port) = match ip_type {

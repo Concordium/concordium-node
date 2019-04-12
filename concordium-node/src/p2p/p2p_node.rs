@@ -389,7 +389,10 @@ impl P2PNode {
     }
 
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
-        if !self.config.no_net && self.config.desired_nodes_count > peer_stat_list.len() as u8 && self.mode != P2PNodeMode::BootstrapperMode {
+        if !self.config.no_net
+            && self.config.desired_nodes_count > peer_stat_list.len() as u8
+            && self.mode != P2PNodeMode::BootstrapperMode
+        {
             if peer_stat_list.is_empty() {
                 if !self.config.no_bootstrap_dns {
                     info!("No nodes at all - retrying bootstrapping");
