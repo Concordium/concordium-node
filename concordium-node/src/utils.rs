@@ -1,4 +1,4 @@
-use crate::{common::P2PNodeId, crypto};
+use crate::crypto;
 use ::dns::dns;
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
