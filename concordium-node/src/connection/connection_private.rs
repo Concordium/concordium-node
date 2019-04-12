@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, ConnectionType, P2PNodeId, P2PPeer},
+    common::{get_current_stamp, ConnectionType, P2PPeer},
     connection::{CommonSession, P2PEvent, P2PNodeMode},
     network::Buckets,
     prometheus_exporter::PrometheusServer,
@@ -22,7 +22,6 @@ use crate::{
 ///     - The input message.
 pub struct ConnectionPrivate {
     pub connection_type: ConnectionType,
-    pub own_id:          P2PNodeId,
     pub mode:            P2PNodeMode,
     pub self_peer:       P2PPeer,
     peer:                Option<P2PPeer>,
@@ -51,7 +50,6 @@ impl ConnectionPrivate {
     pub fn new(
         connection_type: ConnectionType,
         mode: P2PNodeMode,
-        own_id: P2PNodeId,
         self_peer: P2PPeer,
         own_networks: Arc<RwLock<HashSet<u16>>>,
         buckets: Arc<RwLock<Buckets>>,
@@ -72,7 +70,6 @@ impl ConnectionPrivate {
 
         ConnectionPrivate {
             connection_type,
-            own_id,
             mode,
             self_peer,
             peer: None,

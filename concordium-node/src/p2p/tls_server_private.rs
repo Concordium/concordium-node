@@ -3,6 +3,7 @@ use mio::{Event, Poll, Token};
 use std::{
     cell::RefCell,
     collections::HashSet,
+    mem,
     net::{IpAddr, SocketAddr},
     rc::Rc,
     sync::{mpsc::Sender, Arc, RwLock},
@@ -113,7 +114,7 @@ impl TlsServerPrivate {
             .find(|&conn| conn.borrow().id() == id)
     }
 
-    pub fn find_connection_by_token(&self, token: &Token) -> Option<&Rc<RefCell<Connection>>> {
+    pub fn find_connection_by_token(&self, token: Token) -> Option<&Rc<RefCell<Connection>>> {
         self.connections
             .iter()
             .find(|&conn| conn.borrow().token() == token)
@@ -136,7 +137,17 @@ impl TlsServerPrivate {
     }
 
     pub fn add_connection(&mut self, conn: Connection) {
-        self.connections.push(Rc::new(RefCell::new(conn)));
+        // if this connection already exists, we assume the old one is stale and replace
+        // it
+        if let Some(con) = self
+            .connections
+            .iter_mut()
+            .find(|c| c.borrow().token() == conn.token())
+        {
+            mem::replace(con, Rc::new(RefCell::new(conn)));
+        } else {
+            self.connections.push(Rc::new(RefCell::new(conn)));
+        }
     }
 
     pub fn conn_event(
@@ -148,7 +159,7 @@ impl TlsServerPrivate {
         let token = event.token();
         let mut rc_conn_to_be_removed: Option<_> = None;
 
-        if let Some(rc_conn) = self.find_connection_by_token(&token) {
+        if let Some(rc_conn) = self.find_connection_by_token(token) {
             let mut conn = rc_conn.borrow_mut();
             conn.ready(poll, event, packet_queue)?;
 
