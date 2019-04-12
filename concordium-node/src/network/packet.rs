@@ -1,7 +1,7 @@
 use crate::{
     common::{P2PNodeId, P2PPeer, UCursor},
     network::{
-        make_header, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        make_header, ProtocolMessageType, NetworkId, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
     },
@@ -38,7 +38,7 @@ pub struct NetworkPacket {
     pub packet_type: NetworkPacketType,
     pub peer: P2PPeer,
     pub message_id: String,
-    pub network_id: u16,
+    pub network_id: NetworkId,
 
     pub message: UCursor,
 }
@@ -79,7 +79,7 @@ impl NetworkPacketBuilder {
 impl NetworkPacket {
     fn direct_header_as_vec(&self, receiver: &P2PNodeId) -> Vec<u8> {
         format!(
-            "{}{}{}{}{:05}{:010}",
+            "{}{}{}{}{}{:010}",
             make_header(),
             ProtocolMessageType::DirectMessage,
             receiver,
@@ -92,7 +92,7 @@ impl NetworkPacket {
 
     fn broadcast_header_as_vec(&self) -> Vec<u8> {
         format!(
-            "{}{}{}{:05}{:010}",
+            "{}{}{}{}{:010}",
             make_header(),
             ProtocolMessageType::BroadcastedMessage,
             self.message_id,

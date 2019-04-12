@@ -12,7 +12,7 @@ use std::{
 use crate::{
     common::{get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder},
     connection::{Connection, P2PNodeMode},
-    network::{NetworkMessage, NetworkRequest},
+    network::{NetworkId, NetworkMessage, NetworkRequest},
     prometheus_exporter::PrometheusServer,
 };
 
@@ -36,13 +36,13 @@ pub struct TlsServerPrivate {
     connections:             Vec<Rc<RefCell<Connection>>>,
     pub unreachable_nodes:   UnreachableNodes,
     pub banned_peers:        HashSet<P2PPeer>,
-    pub networks:            Arc<RwLock<HashSet<u16>>>,
+    pub networks:            Arc<RwLock<HashSet<NetworkId>>>,
     pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
 }
 
 impl TlsServerPrivate {
     pub fn new(
-        networks: HashSet<u16>,
+        networks: HashSet<NetworkId>,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     ) -> Self {
         TlsServerPrivate {
@@ -74,20 +74,20 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other
     /// instances.
-    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
+    pub fn remove_network(&mut self, network_id: NetworkId) -> Fallible<()> {
         safe_write!(self.networks)?.retain(|x| *x == network_id);
         Ok(())
     }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
+    pub fn add_network(&mut self, network_id: NetworkId) -> Fallible<()> {
         safe_write!(self.networks)?.insert(network_id);
         Ok(())
     }
 
     /// It generates a peer statistic list for each connected peer which belongs
     /// to any of networks in `nids`.
-    pub fn get_peer_stats(&self, nids: &[u16]) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
         let mut ret = vec![];
         for ref rc_conn in &self.connections {
             let conn = rc_conn.borrow();

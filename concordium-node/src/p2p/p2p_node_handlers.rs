@@ -6,7 +6,10 @@ use std::{
 use crate::{
     common::functor::{FunctorError, FunctorResult},
     connection::SeenMessagesList,
-    network::{NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest, NetworkResponse},
+    network::{
+        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+        NetworkResponse,
+    },
     prometheus_exporter::PrometheusServer,
 };
 use failure::err_msg;
@@ -47,7 +50,7 @@ pub fn forward_network_request(
 pub fn forward_network_packet_message(
     seen_messages: &SeenMessagesList,
     prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &Arc<RwLock<HashSet<u16>>>,
+    own_networks: &Arc<RwLock<HashSet<NetworkId>>>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
@@ -87,7 +90,7 @@ fn make_fn_error_prometheus() -> FunctorError { make_fn_err("Prometheus has fail
 fn forward_network_packet_message_common(
     seen_messages: &SeenMessagesList,
     prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &Arc<RwLock<HashSet<u16>>>,
+    own_networks: &Arc<RwLock<HashSet<NetworkId>>>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,

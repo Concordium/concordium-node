@@ -23,7 +23,7 @@ use crate::{
     },
     connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
     network::{
-        ProtocolMessageType, Buckets, NetworkMessage, NetworkRequest, NetworkResponse, PROTOCOL_HEADER_LENGTH,
+        ProtocolMessageType, Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, PROTOCOL_HEADER_LENGTH,
         PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
@@ -119,7 +119,7 @@ impl Connection {
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
-        own_networks: Arc<RwLock<HashSet<u16>>>,
+        own_networks: Arc<RwLock<HashSet<NetworkId>>>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -670,11 +670,11 @@ impl Connection {
 
     pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
 
-    pub fn networks(&self) -> HashSet<u16> { self.dptr.borrow().networks.clone() }
+    pub fn networks(&self) -> HashSet<NetworkId> { self.dptr.borrow().networks.clone() }
 
     pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
 
-    pub fn own_networks(&self) -> Arc<RwLock<HashSet<u16>>> {
+    pub fn own_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
         Arc::clone(&self.dptr.borrow().own_networks)
     }
 

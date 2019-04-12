@@ -25,7 +25,7 @@ use crate::{
 use crate::{
     common::{ConnectionType, P2PNodeId, P2PPeer},
     connection::{Connection, MessageHandler, MessageManager, P2PEvent, P2PNodeMode},
-    network::{Buckets, NetworkMessage, NetworkRequest},
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
 };
 
 use crate::p2p::{peer_statistics::PeerStatistic, tls_server_private::TlsServerPrivate};
@@ -58,7 +58,7 @@ impl TlsServer {
         self_peer: P2PPeer,
         mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-        networks: HashSet<u16>,
+        networks: HashSet<NetworkId>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -98,15 +98,15 @@ impl TlsServer {
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
 
     #[inline]
-    pub fn networks(&self) -> Arc<RwLock<HashSet<u16>>> {
+    pub fn networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
         Arc::clone(&self.dptr.read().unwrap().networks)
     }
 
-    pub fn remove_network(&mut self, network_id: u16) -> Fallible<()> {
+    pub fn remove_network(&mut self, network_id: NetworkId) -> Fallible<()> {
         safe_write!(self.dptr)?.remove_network(network_id)
     }
 
-    pub fn add_network(&mut self, network_id: u16) -> Fallible<()> {
+    pub fn add_network(&mut self, network_id: NetworkId) -> Fallible<()> {
         safe_write!(self.dptr)?.add_network(network_id)
     }
 
@@ -128,7 +128,7 @@ impl TlsServer {
             .insert(ip, port)
     }
 
-    pub fn get_peer_stats(&self, nids: &[u16]) -> Vec<PeerStatistic> {
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
         self.dptr.write().unwrap().get_peer_stats(nids)
     }
 

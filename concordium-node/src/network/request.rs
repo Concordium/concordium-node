@@ -1,6 +1,6 @@
 use crate::{
     common::{P2PNodeId, P2PPeer},
-    network::{ make_header, ProtocolMessageType },
+    network::{ make_header, ProtocolMessageType, NetworkId },
 };
 use std::collections::HashSet;
 
@@ -10,11 +10,11 @@ pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer, P2PNodeId),
     BanNode(P2PPeer, P2PPeer),
-    Handshake(P2PPeer, HashSet<u16>, Vec<u8>),
-    GetPeers(P2PPeer, HashSet<u16>),
+    Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
+    GetPeers(P2PPeer, HashSet<NetworkId>),
     UnbanNode(P2PPeer, P2PPeer),
-    JoinNetwork(P2PPeer, u16),
-    LeaveNetwork(P2PPeer, u16),
+    JoinNetwork(P2PPeer, NetworkId),
+    LeaveNetwork(P2PPeer, NetworkId),
 }
 
 impl NetworkRequest {
@@ -23,18 +23,18 @@ impl NetworkRequest {
             NetworkRequest::Ping(_) => {
                 format!("{}{}", make_header(), ProtocolMessageType::RequestPing).into_bytes()
             }
-            NetworkRequest::JoinNetwork(_, nid) => format!(
-                "{}{}{:05}",
+            NetworkRequest::JoinNetwork(_, network) => format!(
+                "{}{}{}",
                 make_header(),
                 ProtocolMessageType::RequestJoinNetwork,
-                nid
+                network
             )
             .into_bytes(),
-            NetworkRequest::LeaveNetwork(_, nid) => format!(
-                "{}{}{:05}",
+            NetworkRequest::LeaveNetwork(_, network) => format!(
+                "{}{}{}",
                 make_header(),
                 ProtocolMessageType::RequestLeaveNetwork,
-                nid
+                network
             )
             .into_bytes(),
             NetworkRequest::FindNode(_, id) => format!(
@@ -58,7 +58,7 @@ impl NetworkRequest {
                 node_data.serialize()
             )
             .into_bytes(),
-            NetworkRequest::Handshake(me, nids, zk) => {
+            NetworkRequest::Handshake(me, networks, zk) => {
                 let id = me.id();
                 let mut pkt = format!(
                     "{}{}{}{:05}{:05}{}{:010}",
@@ -66,8 +66,11 @@ impl NetworkRequest {
                     ProtocolMessageType::RequestHandshake,
                     id,
                     me.port(),
-                    nids.len(),
-                    nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
+                    networks.len(),
+                    networks
+                        .iter()
+                        .map(|net| net.to_string())
+                        .collect::<String>(),
                     zk.len()
                 )
                 .into_bytes();
@@ -81,7 +84,7 @@ impl NetworkRequest {
                 networks.len(),
                 networks
                     .iter()
-                    .map(|x| format!("{:05}", x))
+                    .map(|net| net.to_string())
                     .collect::<String>()
             )
             .into_bytes(),

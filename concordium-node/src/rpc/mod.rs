@@ -5,7 +5,7 @@ use crate::{
     configuration,
     db::P2PDB,
     failure::{Error, Fallible},
-    network::{NetworkMessage, NetworkPacketType},
+    network::{NetworkId, NetworkMessage, NetworkPacketType},
 };
 
 use crate::{
@@ -124,6 +124,7 @@ impl RpcServerImpl {
         if req.has_message() && req.has_broadcast() {
             // TODO avoid double-copy
             let msg = req.get_message().get_value().to_vec();
+            let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
 
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
@@ -132,13 +133,7 @@ impl RpcServerImpl {
                 r.set_value(
                     self.node
                         .borrow_mut()
-                        .send_message(
-                            Some(id),
-                            req.get_network_id().get_value() as u16,
-                            None,
-                            msg,
-                            false,
-                        )
+                        .send_message(Some(id), network_id, None, msg, false)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -147,13 +142,7 @@ impl RpcServerImpl {
                 r.set_value(
                     self.node
                         .borrow_mut()
-                        .send_message(
-                            None,
-                            req.get_network_id().get_value() as u16,
-                            None,
-                            msg,
-                            true,
-                        )
+                        .send_message(None, network_id, None, msg, true)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -441,10 +430,12 @@ impl P2P for RpcServerImpl {
                     "Attempting to join network {}",
                     req.get_network_id().get_value()
                 );
+                let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
+
                 r.set_value(
                     self.node
                         .borrow_mut()
-                        .send_joinnetwork(req.get_network_id().get_value() as u16)
+                        .send_joinnetwork(network_id)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -474,10 +465,12 @@ impl P2P for RpcServerImpl {
                     "Attempting to leave network {}",
                     req.get_network_id().get_value()
                 );
+                let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
+
                 r.set_value(
                     self.node
                         .borrow_mut()
-                        .send_leavenetwork(req.get_network_id().get_value() as u16)
+                        .send_leavenetwork(network_id)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -663,7 +656,7 @@ impl P2P for RpcServerImpl {
                             }
                         };
 
-                        r.set_network_id(packet.network_id as u32);
+                        r.set_network_id(packet.network_id.id as u32);
                         r.set_message_id(packet.message_id.to_owned());
                         r.set_sender(format!("{}", packet.peer.id()));
                     } else {

@@ -31,7 +31,7 @@ use crate::{
         SeenMessagesList,
     },
     network::{
-        Buckets, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
 };
@@ -234,7 +234,13 @@ impl P2PNode {
 
         let buckets = Arc::new(RwLock::new(Buckets::new()));
 
-        let networks: HashSet<u16> = conf.common.network_ids.iter().cloned().collect();
+        let networks: HashSet<NetworkId> = conf
+            .common
+            .network_ids
+            .iter()
+            .cloned()
+            .map(NetworkId::from)
+            .collect();
         let tlsserv = TlsServer::new(
             server,
             Arc::new(server_conf),
@@ -690,7 +696,7 @@ impl P2PNode {
     pub fn send_message(
         &mut self,
         id: Option<P2PNodeId>,
-        network_id: u16,
+        network_id: NetworkId,
         msg_id: Option<String>,
         msg: Vec<u8>,
         broadcast: bool,
@@ -702,7 +708,7 @@ impl P2PNode {
     pub fn send_message_from_cursor(
         &mut self,
         id: Option<P2PNodeId>,
-        network_id: u16,
+        network_id: NetworkId,
         msg_id: Option<String>,
         msg: UCursor,
         broadcast: bool,
@@ -756,7 +762,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_joinnetwork(&mut self, network_id: u16) -> Fallible<()> {
+    pub fn send_joinnetwork(&mut self, network_id: NetworkId) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::JoinNetwork(self.get_self_peer(), network_id),
             None,
@@ -766,7 +772,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_leavenetwork(&mut self, network_id: u16) -> Fallible<()> {
+    pub fn send_leavenetwork(&mut self, network_id: NetworkId) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::LeaveNetwork(self.get_self_peer(), network_id),
             None,
@@ -776,7 +782,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_get_peers(&mut self, nids: HashSet<u16>) -> Fallible<()> {
+    pub fn send_get_peers(&mut self, nids: HashSet<NetworkId>) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::GetPeers(self.get_self_peer(), nids.clone()),
             None,
@@ -796,7 +802,7 @@ impl P2PNode {
         vec![]
     }
 
-    pub fn get_peer_stats(&self, nids: &[u16]) -> Fallible<Vec<PeerStatistic>> {
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
         Ok(safe_read!(self.tls_server)?.get_peer_stats(nids))
     }
 
@@ -977,7 +983,7 @@ fn is_conn_peer_id(conn: &Connection, id: &P2PNodeId) -> bool {
 pub fn is_valid_connection_in_broadcast(
     conn: &Connection,
     sender: &P2PPeer,
-    network_id: u16,
+    network_id: NetworkId,
 ) -> bool {
     if let Some(ref peer) = conn.peer() {
         if peer.id() != sender.id() && peer.connection_type() != ConnectionType::Bootstrapper {

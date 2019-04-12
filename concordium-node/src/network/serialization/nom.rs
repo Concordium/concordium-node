@@ -181,49 +181,60 @@ mod unit_test {
         let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
 
         vec![
-            ( format!( "{}{}{}{}",
+            (
+                format!(
+                    "{}{}{}{}",
                     PROTOCOL_NAME,
                     PROTOCOL_VERSION,
                     "0000000000000000",
-                    PROTOCOL_MESSAGE_TYPE_REQUEST_PING),
-                Ok((&b""[..],
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_PING
+                ),
+                Ok((
+                    &b""[..],
                     NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping( localhost_peer()),
+                        NetworkRequest::Ping(localhost_peer()),
                         Some(0 as u64),
-                        None
-                    )))
+                        None,
+                    ),
+                )),
             ),
             (
-                format!( "{}{}{}{}",
+                format!(
+                    "{}{}{}{}",
                     PROTOCOL_NAME,
                     PROTOCOL_VERSION,
                     "A000000000000000",
-                    PROTOCOL_MESSAGE_TYPE_REQUEST_PING),
-                Ok((&b""[..],
+                    PROTOCOL_MESSAGE_TYPE_REQUEST_PING
+                ),
+                Ok((
+                    &b""[..],
                     NetworkMessage::NetworkRequest(
-                        NetworkRequest::Ping( localhost_peer()),
+                        NetworkRequest::Ping(localhost_peer()),
                         Some(11529215046068469760),
-                        None
-                    )))
+                        None,
+                    ),
+                )),
             ),
             (
                 // Fail: Empty message
                 format!(""),
-                Err( nom::Err::Incomplete( nom::Needed::Size(PROTOCOL_NAME.len())))
+                Err(nom::Err::Incomplete(nom::Needed::Size(PROTOCOL_NAME.len()))),
             ),
             (
                 // Fail: Wrong protocol name
                 format!("CONCORDIUMP3P"),
-                Err( nom::Err::Error( Context::Code(
+                Err(nom::Err::Error(Context::Code(
                     &b"CONCORDIUMP3P"[..],
-                    nom::ErrorKind::Tag)))
+                    nom::ErrorKind::Tag,
+                ))),
             ),
             (
                 // Fail: Wrong protocol version: Invalid digit
                 format!("{}{}", PROTOCOL_NAME, "0X1"),
-                Err( nom::Err::Error( Context::Code(
+                Err(nom::Err::Error(Context::Code(
                     &b"0X1"[..],
-                    nom::ErrorKind::Tag)))
+                    nom::ErrorKind::Tag,
+                ))),
             ),
             /*(
                 // Fail: Wrong timestamp: Invalid digit
@@ -234,40 +245,50 @@ mod unit_test {
             ),*/
             (
                 // Limit: Max timestamp
-                format!("{}{}{}{}",
+                format!(
+                    "{}{}{}{}",
                     PROTOCOL_NAME,
                     PROTOCOL_VERSION,
                     "FFFFFFFFFFFFFFFF",
-                    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG),
-                Ok((&b""[..],
+                    PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG
+                ),
+                Ok((
+                    &b""[..],
                     NetworkMessage::NetworkResponse(
-                        NetworkResponse::Pong( localhost_peer()),
-                        Some( u64::max_value()),
-                        None
-                    )))
+                        NetworkResponse::Pong(localhost_peer()),
+                        Some(u64::max_value()),
+                        None,
+                    ),
+                )),
             ),
             (
-                format!("{}{:03}{:016X}{:03}{:064X}{:064}{:05}{:010}{}",
+                format!(
+                    "{}{:03}{:016X}{:03}{:064X}{:064}{:05}{:010}{}",
                     PROTOCOL_NAME,
                     PROTOCOL_VERSION,
                     10,
                     PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
                     42,
                     100,
-                    111,    // Network Id
+                    111, // Network Id
                     direct_message_content.len(),
-                    std::str::from_utf8( direct_message_content.as_slice()).unwrap()),
-                Ok((&b""[..],
+                    std::str::from_utf8(direct_message_content.as_slice()).unwrap()
+                ),
+                Ok((
+                    &b""[..],
                     NetworkMessage::NetworkPacket(
-                    NetworkPacketBuilder::default()
-                        .peer( localhost_peer())
-                        .message_id( format!("{:064}",100))
-                        .network_id( 111)
-                        .message( UCursor::from( direct_message_content))
-                        .build_direct( P2PNodeId::from_string("2A").unwrap()).unwrap(),
-                    Some(10), None
-                    )))
-            )
+                        NetworkPacketBuilder::default()
+                            .peer(localhost_peer())
+                            .message_id(format!("{:064}", 100))
+                            .network_id(111)
+                            .message(UCursor::from(direct_message_content))
+                            .build_direct(P2PNodeId::from_string("2A").unwrap())
+                            .unwrap(),
+                        Some(10),
+                        None,
+                    ),
+                )),
+            ),
         ]
     }
 

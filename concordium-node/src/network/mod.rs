@@ -1,4 +1,5 @@
 use crate::common::get_current_stamp_b64;
+use std::fmt;
 
 pub mod protocol_message_type;
 pub mod buckets;
@@ -7,6 +8,19 @@ pub mod packet;
 pub mod request;
 pub mod response;
 pub mod serialization;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NetworkId {
+    pub id: u16,
+}
+
+impl From<u16> for NetworkId {
+    fn from(id: u16) -> Self { NetworkId { id } }
+}
+
+impl fmt::Display for NetworkId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:05}", self.id) }
+}
 
 pub use self::{
     buckets::Buckets,

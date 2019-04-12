@@ -5,14 +5,17 @@ use std::{
     sync::RwLock,
 };
 
-use crate::common::{ConnectionType, P2PPeer};
+use crate::{
+    common::{ConnectionType, P2PPeer},
+    network::NetworkId,
+};
 
 const BUCKET_COUNT: usize = 1;
 
 #[derive(PartialEq, Eq, Clone)]
 pub struct Node {
     pub peer:     P2PPeer,
-    pub networks: HashSet<u16>,
+    pub networks: HashSet<NetworkId>,
 }
 
 impl Hash for Node {
@@ -35,7 +38,7 @@ impl Buckets {
         }
     }
 
-    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: HashSet<u16>) {
+    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: HashSet<NetworkId>) {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
@@ -44,7 +47,7 @@ impl Buckets {
         });
     }
 
-    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: HashSet<u16>) {
+    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: HashSet<NetworkId>) {
         let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
@@ -53,7 +56,11 @@ impl Buckets {
         });
     }
 
-    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &HashSet<u16>) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(
+        &self,
+        sender: Option<&P2PPeer>,
+        networks: &HashSet<NetworkId>,
+    ) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.connection_type() == ConnectionType::Node
@@ -89,7 +96,7 @@ impl Buckets {
         &self,
         sender: &P2PPeer,
         amount: usize,
-        networks: &HashSet<u16>,
+        networks: &HashSet<NetworkId>,
     ) -> Vec<P2PPeer> {
         match safe_write!(RNG) {
             Ok(ref mut rng) => self

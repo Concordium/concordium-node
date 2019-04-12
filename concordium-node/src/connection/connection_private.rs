@@ -11,7 +11,7 @@ use std::{
 use crate::{
     common::{get_current_stamp, ConnectionType, P2PPeer},
     connection::{CommonSession, P2PEvent, P2PNodeMode},
-    network::Buckets,
+    network::{Buckets, NetworkId},
     prometheus_exporter::PrometheusServer,
 };
 
@@ -25,8 +25,8 @@ pub struct ConnectionPrivate {
     pub mode:            P2PNodeMode,
     pub self_peer:       P2PPeer,
     peer:                Option<P2PPeer>,
-    pub networks:        HashSet<u16>,
-    pub own_networks:    Arc<RwLock<HashSet<u16>>>,
+    pub networks:        HashSet<NetworkId>,
+    pub own_networks:    Arc<RwLock<HashSet<NetworkId>>>,
     pub buckets:         Arc<RwLock<Buckets>>,
 
     // Session
@@ -51,7 +51,7 @@ impl ConnectionPrivate {
         connection_type: ConnectionType,
         mode: P2PNodeMode,
         self_peer: P2PPeer,
-        own_networks: Arc<RwLock<HashSet<u16>>>,
+        own_networks: Arc<RwLock<HashSet<NetworkId>>>,
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
@@ -97,14 +97,14 @@ impl ConnectionPrivate {
     pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::Relaxed) }
 
     #[inline]
-    pub fn add_network(&mut self, network: u16) { self.networks.insert(network); }
+    pub fn add_network(&mut self, network: NetworkId) { self.networks.insert(network); }
 
     #[inline]
-    pub fn add_networks(&mut self, networks: &HashSet<u16>) {
+    pub fn add_networks(&mut self, networks: &HashSet<NetworkId>) {
         self.networks.extend(networks.iter())
     }
 
-    pub fn remove_network(&mut self, network: &u16) { self.networks.remove(network); }
+    pub fn remove_network(&mut self, network: &NetworkId) { self.networks.remove(network); }
 
     pub fn set_measured_ping_sent(&mut self) { self.sent_ping = get_current_stamp() }
 

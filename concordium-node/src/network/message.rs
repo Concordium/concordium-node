@@ -3,7 +3,7 @@ use crate::{
     common::{get_current_stamp, ConnectionType, ContainerView, P2PNodeId, P2PPeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
-        ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        ProtocolMessageType, NetworkId, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
@@ -64,9 +64,11 @@ fn deserialize_direct_message(
     let buf = &buf[PROTOCOL_MESSAGE_ID_LENGTH..];
 
     // 3. Load network_id
-    let network_id = str::from_utf8(&buf[..PROTOCOL_NETWORK_ID_LENGTH])?
-        .parse::<u16>()
-        .unwrap_or(0 as u16);
+    let network_id = NetworkId::from(
+        str::from_utf8(&buf[..PROTOCOL_NETWORK_ID_LENGTH])?
+            .parse::<u16>()
+            .unwrap_or(0 as u16),
+    );
     let buf = &buf[PROTOCOL_NETWORK_ID_LENGTH..];
 
     // 4. Load content size and content
@@ -116,7 +118,8 @@ fn deserialize_broadcast_message(
     let message_id = String::from_utf8(buf[..PROTOCOL_MESSAGE_ID_LENGTH].to_vec())?;
     let buf = &buf[PROTOCOL_MESSAGE_ID_LENGTH..];
 
-    let network_id = str::from_utf8(&buf[..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?;
+    let network_id =
+        NetworkId::from(str::from_utf8(&buf[..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?);
     let buf = &buf[PROTOCOL_NETWORK_ID_LENGTH..];
 
     let content_size =
@@ -177,7 +180,7 @@ fn deserialize_request_join_network(
     );
 
     let view = pkt.read_into_view(PROTOCOL_NETWORK_ID_LENGTH)?;
-    let network_id = str::from_utf8(view.as_slice())?.parse::<u16>()?;
+    let network_id = NetworkId::from(str::from_utf8(view.as_slice())?.parse::<u16>()?);
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::JoinNetwork(peer, network_id),
@@ -200,7 +203,7 @@ fn deserialize_request_leave_network(
     );
 
     let view = pkt.read_into_view(PROTOCOL_NETWORK_ID_LENGTH)?;
-    let network_id = str::from_utf8(view.as_slice())?.parse::<u16>()?;
+    let network_id = NetworkId::from(str::from_utf8(view.as_slice())?.parse::<u16>()?);
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::LeaveNetwork(peer, network_id),
@@ -286,8 +289,9 @@ fn deserialize_request_get_peers(
     let mut networks = HashSet::with_capacity(network_ids_count);
     let mut offset = 0;
     for _ in 0..network_ids_count {
-        let network_id =
-            str::from_utf8(&buf[offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?;
+        let network_id = NetworkId::from(
+            str::from_utf8(&buf[offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?,
+        );
         networks.insert(network_id);
         offset += PROTOCOL_NETWORK_ID_LENGTH;
     }
@@ -304,7 +308,7 @@ fn deserialize_request_get_peers(
 /// packet directly
 fn deserialize_common_handshake(
     pkt: &mut UCursor,
-) -> Fallible<(P2PNodeId, u16, HashSet<u16>, ContainerView)> {
+) -> Fallible<(P2PNodeId, u16, HashSet<NetworkId>, ContainerView)> {
     let min_packet_size =
         PROTOCOL_NODE_ID_LENGTH + PROTOCOL_PORT_LENGTH + PROTOCOL_NETWORK_IDS_COUNT_LENGTH;
 
@@ -339,8 +343,9 @@ fn deserialize_common_handshake(
     let mut network_ids = HashSet::with_capacity(network_ids_count);
     let mut buf_offset = 0;
     for _ in 0..network_ids_count {
-        let nid =
-            str::from_utf8(&buf[buf_offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?;
+        let nid = NetworkId::from(
+            str::from_utf8(&buf[buf_offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?,
+        );
         network_ids.insert(nid);
         buf_offset += PROTOCOL_NETWORK_ID_LENGTH;
     }
@@ -583,7 +588,7 @@ mod unit_test {
         str::FromStr,
     };
 
-    use super::NetworkMessage;
+    use super::*;
     use crate::{
         common::{ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder, UCursor},
         network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
@@ -617,7 +622,7 @@ mod unit_test {
                     8888,
                 ))
                 .message_id(NetworkPacket::generate_message_id())
-                .network_id(111)
+                .network_id(NetworkId::from(111))
                 .message(UCursor::from(vec![]))
                 .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
@@ -667,7 +672,7 @@ mod unit_test {
         if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
                 assert_eq!(packet.peer, local_peer);
-                assert_eq!(packet.network_id, 111);
+                assert_eq!(packet.network_id, NetworkId::from(111));
                 assert_eq!(packet.message.len(), content_size as u64);
             } else {
                 bail!("Unexpected Packet type");
