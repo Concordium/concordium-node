@@ -3,6 +3,7 @@ use bytes::{BufMut, BytesMut};
 use std::{
     cell::RefCell,
     collections::HashSet,
+    convert::TryFrom,
     io::Cursor,
     net::{IpAddr, Shutdown},
     rc::Rc,
@@ -22,9 +23,8 @@ use crate::{
     },
     connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
-        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
-        PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
+        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
 };
@@ -513,14 +513,19 @@ impl Connection {
             };
             if let Some(ref bufdata) = buff {
                 if self.mode() == P2PNodeMode::BootstrapperMode {
-                    let msg_num = String::from_utf8(bufdata.to_vec())
-                        .expect("Unable to get string from utf8");
-                    if msg_num == PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE
-                        || msg_num == PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE
-                    {
-                        info!("Received network packet message, not wanted - disconnecting peer");
-                        &self.clear_buffer();
-                        &self.close(poll);
+                    if let Ok(msg_id_str) = std::str::from_utf8(bufdata) {
+                        match ProtocolMessageType::try_from(msg_id_str) {
+                            Ok(ProtocolMessageType::DirectMessage)
+                            | Ok(ProtocolMessageType::BroadcastedMessage) => {
+                                info!(
+                                    "Received network packet message, not wanted - disconnecting \
+                                     peer"
+                                );
+                                &self.clear_buffer();
+                                &self.close(poll);
+                            }
+                            _ => {}
+                        }
                     }
                 } else {
                     self.set_valid();

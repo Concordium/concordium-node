@@ -1,8 +1,7 @@
 use crate::{
     common::{P2PNodeId, P2PPeer, UCursor},
     network::{
-        make_header, NetworkId, PROTOCOL_MESSAGE_ID_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
+        make_header, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
         PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
         PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
@@ -83,7 +82,7 @@ impl NetworkPacket {
         format!(
             "{}{}{}{}{}{:010}",
             make_header(),
-            PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
+            ProtocolMessageType::DirectMessage,
             receiver,
             self.message_id,
             self.network_id,
@@ -96,7 +95,7 @@ impl NetworkPacket {
         format!(
             "{}{}{}{}{:010}",
             make_header(),
-            PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE,
+            ProtocolMessageType::BroadcastedMessage,
             self.message_id,
             self.network_id,
             self.message.len()
