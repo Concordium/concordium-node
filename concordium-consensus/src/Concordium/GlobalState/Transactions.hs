@@ -33,7 +33,7 @@ data TransactionHeader = TransactionHeader {
     thSender :: AccountAddress,
     thNonce :: Nonce,
     thGasAmount :: Amount
-} deriving (Generic)
+} deriving (Generic, Show)
 
 instance S.Serialize TransactionHeader
 
