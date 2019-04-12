@@ -19,7 +19,7 @@ import Control.Monad.State.Strict
 import Data.Maybe(fromJust)
 
 import qualified Acorn.Core as Core
-import Acorn.Types
+import Concordium.Scheduler.Types
 
 -- * Scheduler monad
 
@@ -36,24 +36,17 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- accumulated through the execution.
   commitStateAndAccountChanges :: ChangeSet -> m ()
 
-  -- |Commit a module interface and module value to global state. Returns True
-  -- if this was successful, and False if a module with the given Hash already
+  -- |Commit a module interface and module value to global state. Returns @True@
+  -- if this was successful, and @False@ if a module with the given Hash already
   -- existed.
   commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> m Bool
 
-  -- |Create new instance in the global state and return its address.
-  putNewInstance :: 
-    Expr -- ^The receive function of this instance.
-    -> Interface       -- ^Interface of the module the parent contract belongs to.
-    -> ValueInterface  -- ^Value interface of the module the parent contract belongs to.
-    -> (Core.Type Core.ModuleRef) -- ^The type of messages its receive function supports.
-    -> Value -- ^The initial local state of the instance.
-    -> Amount -- ^And the initial amount of GTUs
-    -> Map.HashMap (Core.ModuleRef, Core.TyName) ImplementsValue   -- ^And the set of constraints it supports.
-    -> m ContractAddress
+  -- |Create new instance in the global state.
+  -- If an instance with the given address already exists do nothing and return @False@.
+  putNewInstance :: Instance -> m Bool
 
-  -- |Create new account in the global state. Return @False@ if the account was
-  -- successfully created and @True@ if the account address already existed.
+  -- |Create new account in the global state. Return @True@ if the account was
+  -- successfully created and @False@ if the account address already existed.
   putNewAccount :: Account -> m Bool
 
   -- |Pay for execution. Return the amount remaining on the account.
@@ -63,6 +56,8 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- |Refund the remaining execution cost.
   refundEnergy :: AccountAddress -> Energy -> m ()
 
+  -- |Return a free address that can be assigned a new contract instance
+  firstFreeAddress :: m ContractAddress
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -154,7 +149,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT m) where
                 Nothing -> return Nothing
                 Just i -> case Map.lookup addr newContractStates of
                             Nothing -> return $ Just i
-                            Just (amnt, newmodel) -> return $ Just (i { iamount = amnt, lState = newmodel })
+                            Just (amnt, newmodel) -> return $ Just (i { iamount = amnt, imodel = newmodel })
 
   {-# INLINE getCurrentAccount #-}
   getCurrentAccount acc = do
@@ -173,6 +168,6 @@ instance SchedulerMonad m => InterpreterMonad (LocalT m) where
               case mistance of
                 Nothing -> return Nothing
                 Just i -> case Map.lookup caddr newContractStates of
-                            Nothing -> return $ Just (instanceImplements i, lState i)
+                            Nothing -> return $ Just (instanceImplements i, imodel i)
                             Just (_, newmodel) -> return $ Just (instanceImplements i, newmodel)
 

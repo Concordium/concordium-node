@@ -14,6 +14,10 @@ import qualified Concordium.ID.Types as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 
+import qualified Concordium.GlobalState.BlockState as BlockState
+import qualified Concordium.GlobalState.Account as Acc
+import qualified Concordium.GlobalState.Modules as Mod
+
 import Data.Maybe(fromJust)
 
 import qualified Data.Text as Text
@@ -84,13 +88,14 @@ update b n = (Types.Header { sender = mateuszAccount
               Types.encodePayload (Types.Update 0 (ContractAddress (fromIntegral n) 0) (Core.App (if b `rem` 9 == 0 then (inCtxTm "Dec") else (inCtxTm "Inc")) (Core.Literal (Core.Int64 10)))))
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: Int -> Types.GlobalState
+initialState :: Int -> BlockState.BlockState
 initialState n = 
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        gs = Types.GlobalState Map.empty (Map.fromList [(mateuszAccount, Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI)]) mods
+        gs = BlockState.emptyBlockState { BlockState.blockAccounts = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts
+                                        , BlockState.blockModules = Mod.Modules mods }
         gs' = Types.execSI (execBlock (initialTrans n)) Types.dummyChainMeta gs
     in gs'

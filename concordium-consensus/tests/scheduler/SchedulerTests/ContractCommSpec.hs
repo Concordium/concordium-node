@@ -18,7 +18,9 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import qualified Data.HashMap.Strict as Map
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Account as Acc
+import Concordium.GlobalState.Modules as Mod
 
 import qualified Data.Text.IO as TIO
 
@@ -33,9 +35,12 @@ alesACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 1))))
 alesAccount :: Types.AccountAddress
 alesAccount = AH.accountAddress alesACI
 
-initialGlobalState :: Types.GlobalState
-initialGlobalState = (Types.GlobalState Map.empty (Map.fromList [(alesAccount, Types.Account alesAccount 1 1000000 alesACI)])
-                      (let (_, _, gs) = Init.baseState in gs))
+
+initialBlockState :: BlockState
+initialBlockState = 
+  emptyBlockState
+    { blockAccounts = Acc.putAccount (Types.Account alesAccount 1 1000000 alesACI) Acc.emptyAccounts
+    , blockModules = (let (_, _, gs) = Init.baseState in Mod.Modules gs) }
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -118,7 +123,7 @@ testCommCounter = do
     transactions <- processTransactions transactionsInput
     let (suc, fails) = Types.evalSI (Sch.makeValidBlock transactions)
                                     Types.dummyChainMeta
-                                    initialGlobalState
+                                    initialBlockState
     return (suc, fails)
 
 checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool

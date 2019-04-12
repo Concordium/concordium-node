@@ -1,5 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
@@ -17,12 +17,13 @@ import Concordium.Scheduler.Environment
 
 import qualified Concordium.ID.AccountHolder as AH
 
+import qualified Concordium.GlobalState.Instances as Ins
+
 import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
-
 
 import Prelude hiding (exp, mod)
 
@@ -80,8 +81,19 @@ dispatch msg = do
               (Right (Left reason), _) -> return $ TxValid (TxReject reason)
               (Right (Right (rmethod, iface, viface, msgty, model, initamount, impls)), energy') -> do
                   refundEnergy (sender meta) energy'
-                  addr <- putNewInstance rmethod iface viface msgty model initamount impls
-                  return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
+                  addr <- firstFreeAddress -- NB: It is important that there is no other thread adding contracts
+                  let ins = let iaddress = addr
+                                ireceiveFun = rmethod
+                                iModuleIface = (iface, viface)
+                                imsgTy = msgty
+                                imodel = model
+                                iamount = initamount
+                                instanceImplements = impls
+                            in Ins.Instance{..}
+                  r <- putNewInstance ins
+                  if r then
+                    return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
+                  else error "dispatch: internal error: firstFreeAddress invariant broken."
     
           -- FIXME: This is only temporary for now.
           -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
@@ -97,7 +109,7 @@ dispatch msg = do
               (Right (Left reason), energy') -> do
                 refundEnergy (sender meta) energy'
                 return $ TxValid (TxReject reason)
-    
+
           Update amount cref maybeMsg -> do
             accountamount <- payForExecution (sender meta) energy
             result <- evalLocalT (handleUpdate (getHeader msg) accountamount amount cref maybeMsg energy)
@@ -115,12 +127,15 @@ dispatch msg = do
             if AH.verifyAccount aci
             then do -- if account information is correct then we create the account with initial nonce 1
               let aaddr = AH.accountAddress aci
-              let account = Account { accountAddress = aaddr, accountNonce = 1, accountAmount = 0, accountCreationInformation = aci }
+              let account = Account { accountAddress = aaddr
+                                    , accountNonce = 1
+                                    , accountAmount = 0
+                                    , accountCreationInformation = aci }
               r <- putNewAccount account
               if r then
-                return $ TxValid (TxReject (AccountAlreadyExists aaddr))
-              else
                 return $ TxValid (TxSuccess [AccountCreated aaddr])
+              else
+                return $ TxValid (TxReject (AccountAlreadyExists aaddr))
             else 
               return $ TxValid (TxReject AccountCredentialsFailure)
   else return $ TxInvalid InvalidHeader
@@ -200,11 +215,11 @@ handleUpdate meta accountamount amount cref msg energy = do
   cinstance <- getCurrentContractInstance cref
   case cinstance of
     Nothing -> rejectWith (InvalidContractAddress cref) energy
-    Just i -> let rf = ireceiveFun i
-                  msgType = imsgTy i
-                  (iface, viface) = iModuleIface i
-                  model = lState i
-                  contractamount = iamount i
+    Just i -> let rf = Ins.ireceiveFun i
+                  msgType = Ins.imsgTy i
+                  (iface, viface) = Ins.iModuleIface i
+                  model = Ins.imodel i
+                  contractamount = Ins.iamount i
                   -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
               in do qmsgExpE <- runExceptT (TC.checkTyInCtx iface msg msgType)
                     case qmsgExpE of
@@ -274,13 +289,13 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                 foldM (\res tx -> combineTx res $ do
                           -- we need to get the fresh amount each time since it might have changed for each execution
                           -- NB: fromJust is justified since at this point we know the sender contract exists
-                          senderamount'' <- (iamount . fromJust) <$> getCurrentContractInstance cref
+                          senderamount'' <- (Ins.iamount . fromJust) <$> getCurrentContractInstance cref
                           case tx of
                             TSend cref' transferamount' message' -> do
                               -- the only way to send is to first check existence, so this must succeed
                               cinstance <- fromJust <$> getCurrentContractInstance cref' 
-                              let receivefun' = ireceiveFun cinstance
-                              let model' = lState cinstance
+                              let receivefun' = Ins.ireceiveFun cinstance
+                              let model' = Ins.imodel cinstance
                               return $ handleTransaction origin
                                                          cref'
                                                          receivefun'
@@ -293,8 +308,8 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                             -- simple transfer to a contract is the same as a call to update with nothing
                             TSimpleTransfer (AddressContract cref') transferamount' -> do
                               cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
-                              let receivefun' = ireceiveFun cinstance
-                              let model' = lState cinstance
+                              let receivefun' = Ins.ireceiveFun cinstance
+                              let model' = Ins.imodel cinstance
                               return $ handleTransaction origin
                                                          cref'
                                                          receivefun'
@@ -336,9 +351,9 @@ handleTransfer meta accountamount amount addr energy =
       cinstance <- getCurrentContractInstance cref
       case cinstance of
         Nothing -> rejectWith (InvalidContractAddress cref) energy
-        Just i -> let rf = ireceiveFun i
-                      model = lState i
-                      contractamount = iamount i
+        Just i -> let rf = Ins.ireceiveFun i
+                      model = Ins.imodel i
+                      contractamount = Ins.iamount i
                   -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
                   in do 
                         let qmsgExpLinked = I.mkNothingE -- give Nothing as argument to the receive method
@@ -400,7 +415,8 @@ makeValidBlock = go [] []
             TxInvalid reason -> go valid ((t, reason):invalid) ts
         go valid invalid [] = return (reverse valid, invalid)
 
--- |Execute transactions in sequence. 
+-- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
+-- fails, and otherwise return a list of transactions with their outcome.
 runBlock :: (Message msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
 runBlock = go []
   where go valid (t:ts) = do
@@ -409,6 +425,10 @@ runBlock = go []
             TxInvalid _ -> return Nothing
         go valid [] = return (Just (reverse valid))
 
+-- |Execute transactions in sequence only for sideffects on global state.
+-- Returns 'Nothing' if block executed successfully, and 'Just' 'FailureKind' at
+-- first failed transaction. This is more efficient than 'runBlock' since it
+-- does not have to build a list of results.
 execBlock :: (Message msg, SchedulerMonad m) => [msg] -> m (Maybe FailureKind)
 execBlock = go
   where go (t:ts) = do

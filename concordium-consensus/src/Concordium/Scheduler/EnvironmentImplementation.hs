@@ -12,17 +12,21 @@ import Control.Monad.Reader
 import Control.Monad.RWS.Strict
 
 import Concordium.Scheduler.Types
+import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.Account as Acc
+import qualified Concordium.GlobalState.Modules as Mod
+import qualified Concordium.GlobalState.Instances as Ins
 
-newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWS ChainMetadata () GlobalState a }
-    deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState GlobalState)
+newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWS ChainMetadata () BlockState a }
+    deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState BlockState)
 
-runSI :: SchedulerImplementation a -> ChainMetadata -> GlobalState -> (a, GlobalState)
+runSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> (a, BlockState)
 runSI sc cd gs = let (a, s, _) = runRWS (_runScheduler sc) cd gs in (a, s)
 
-execSI :: SchedulerImplementation a -> ChainMetadata -> GlobalState -> GlobalState
+execSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> BlockState
 execSI sc cd gs = fst (execRWS (_runScheduler sc) cd gs)
 
-evalSI :: SchedulerImplementation a -> ChainMetadata -> GlobalState -> a
+evalSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> a
 evalSI sc cd gs = fst (evalRWS (_runScheduler sc) cd gs)
 
 instance StaticEnvironmentMonad SchedulerImplementation where
@@ -30,60 +34,70 @@ instance StaticEnvironmentMonad SchedulerImplementation where
   getChainMetadata = ask
 
   {-# INLINE getModuleInterfaces #-}
-  getModuleInterfaces addr = (Map.lookup addr . modules) <$> get
+  getModuleInterfaces addr = (Mod.getInterfaces addr . blockModules) <$> get
 
 instance SchedulerMonad SchedulerImplementation where
 
   {-# INLINE getContractInstance #-}
-  getContractInstance addr = (Map.lookup addr . instances) <$> get
+  getContractInstance addr = (Ins.getInstance addr . blockInstances) <$> get
 
   {-# INLINE getAccount #-}
-  getAccount addr = (Map.lookup addr . accounts) <$> get
+  getAccount addr = (Acc.getAccount addr . blockAccounts) <$> get
 
   commitStateAndAccountChanges (ChangeSet{..}) = do
     s <- get
     -- INVARIANT: the invariant which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    let instances' = Map.foldlWithKey' (\acc addr (amnt, val) -> Map.adjust (\i -> i { iamount = amnt, lState = val }) addr acc)
-                                       (instances s)
-                                       newContractStates
-    let accounts' = Map.union newAccounts (accounts s) -- union is left-biased
-    put (s { instances = instances', accounts = accounts'})
+    let Ins.Instances is = blockInstances s
+    let instances' = Ins.Instances $ Map.foldlWithKey' (\acc addr (amnt, val) -> Map.adjust (\i -> i { iamount = amnt, imodel = val }) addr acc)
+                                                       is
+                                                       newContractStates
+    let accounts' = Map.foldl' (\r acc -> Acc.putAccount acc r) (blockAccounts s) newAccounts
+    put (s { blockInstances = instances', blockAccounts = accounts'})
 
   {-# INLINE commitModule #-}
   commitModule mhash iface viface = do
     s <- get
-    if mhash `Map.member` (modules s)
-    then return False
-    else True <$ put (s { modules = Map.insert mhash (iface, viface) (modules s) })
+    let mod' = Mod.putInterfaces mhash iface viface (blockModules s)
+    case mod' of
+      Nothing -> return False
+      Just modules -> True <$ put (s { blockModules = modules })
 
   {-# INLINE putNewInstance #-}
-  putNewInstance rfun iface viface msgType model amnt impls = do
+  putNewInstance istance = do
     s <- get
-    let addr = firstFreeContract s
-    put (s { instances = Map.insert addr (Instance addr rfun (iface, viface) msgType model amnt impls) (instances s)})
-    return addr
+    case Ins.newInstance istance (blockInstances s) of
+      Nothing -> return False
+      Just is -> True <$ put (s { blockInstances = is}) 
 
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do
     s <- get
     let addr = accountAddress acc
-    if addr `Map.member` accounts s then return True
-    else False <$ put (s { accounts = Map.insert addr acc (accounts s) })
+    if addr `Acc.exists` blockAccounts s then return False
+    else True <$ put (s { blockAccounts = Acc.putAccount acc (blockAccounts s) })
 
   {-# INLINE payForExecution #-}
   -- INVARIANT: should only be called when there are enough funds available, and thus it does not check the amounts.
   payForExecution addr amnt = do
     s <- get
-    let camnt = accountAmount $ (accounts s) Map.! addr -- should be safe since accounts must exist before this is called (invariant)
+    let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
+    let camnt = accountAmount acc
     let newamount = camnt - (energyToGtu amnt)
-    put (s { accounts = Map.adjust (\acc -> acc { accountAmount = newamount }) addr (accounts s) })
+    let accs = Acc.putAccount (acc { accountAmount = newamount}) (blockAccounts s)
+    put (s { blockAccounts = accs })
     return newamount
 
   {-# INLINE refundEnergy #-}
   refundEnergy addr amnt = do
     s <- get
-    let camnt = accountAmount $ (accounts s) Map.! addr -- should be safe since accounts must exist before this is called (invariant)
+    let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
+    let camnt = accountAmount acc
     let newamount = camnt + (energyToGtu amnt)
-    put (s { accounts = Map.adjust (\acc -> acc { accountAmount = newamount }) addr (accounts s) })
+    let accs = Acc.putAccount (acc { accountAmount = newamount}) (blockAccounts s)
+    put (s { blockAccounts = accs })
+
+  {-# INLINE firstFreeAddress #-}
+  firstFreeAddress =
+    Ins.firstFreeContract . blockInstances <$> get

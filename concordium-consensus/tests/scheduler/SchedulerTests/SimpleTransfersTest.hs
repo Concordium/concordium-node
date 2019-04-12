@@ -18,7 +18,9 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import qualified Data.HashMap.Strict as Map
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Account as Acc
+import Concordium.GlobalState.Modules as Mod
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -36,9 +38,12 @@ thomasAccount :: Types.AccountAddress
 thomasAccount = AH.accountAddress thomasACI
 
 
-initialGlobalState :: Types.GlobalState
-initialGlobalState = Types.GlobalState Map.empty (Map.fromList [(alesAccount, Types.Account alesAccount 1 100000 alesACI),
-                                                                 (thomasAccount, Types.Account thomasAccount 1 100000 thomasACI)]) (let (_,_, gs) = Init.baseState in gs)
+initialBlockState :: BlockState
+initialBlockState = 
+  emptyBlockState
+    { blockAccounts = Acc.putAccount (Types.Account alesAccount 1 100000 alesACI)
+                       (Acc.putAccount (Types.Account thomasAccount 1 100000 thomasACI) Acc.emptyAccounts)
+    , blockModules = (let (_, _, gs) = Init.baseState in Mod.Modules gs) }
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -84,9 +89,12 @@ testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
     let ((suc, fails), gstate) = Types.runSI (Sch.makeValidBlock transactions)
                                              Types.dummyChainMeta
-                                             initialGlobalState
+                                             initialBlockState
     
-    return (suc, fails, Types.accountAmount $ (Types.accounts gstate) Map.! alesAccount, Types.accountAmount $ (Types.accounts gstate) Map.! thomasAccount)
+    return (suc,
+            fails,
+            Types.accountAmount $ alesAccount `Acc.unsafeGetAccount` (blockAccounts gstate),
+            Types.accountAmount $ thomasAccount `Acc.unsafeGetAccount` (blockAccounts gstate))
 
 checkSimpleTransferResult :: ([(a, Types.ValidResult)], [b], Types.Amount, Types.Amount) -> Bool
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
