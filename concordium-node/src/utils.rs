@@ -36,7 +36,7 @@ pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
 }
 
 pub fn to_hex_string(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02X}", b)).collect()
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 pub struct Cert {
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     pub fn test_generate_public_key() {
-        const EXPECTED: &str = "FC5D9F06051570D9DA9DFD1B3D9B7353E22D764244DCF6B9C665CC21F63DF8F2";
+        const EXPECTED: &str = "fc5d9f06051570d9da9dfd1b3d9b7353e22d764244dcf6b9c665cc21f63df8f2";
         let secret_key = SecretKey {
             0: PRIVATE_TEST_KEY,
         };
