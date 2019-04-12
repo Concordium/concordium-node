@@ -1,8 +1,6 @@
 use crate::{
     common::P2PPeer,
-    network::{
-        make_header, NetworkId, ProtocolMessageType,
-    },
+    network::{make_header, NetworkId, ProtocolMessageType},
 };
 use std::collections::HashSet;
 
@@ -19,7 +17,7 @@ impl NetworkResponse {
     pub fn serialize(&self) -> Vec<u8> {
         match self {
             NetworkResponse::Pong(_) => {
-                format!("{}{}", make_header(), ProtocolMessageType::ResponsePong ).into_bytes()
+                format!("{}{}", make_header(), ProtocolMessageType::ResponsePong).into_bytes()
             }
             NetworkResponse::FindNode(_, peers) => format!(
                 "{}{}{:03}{}",

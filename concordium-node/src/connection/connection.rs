@@ -23,8 +23,8 @@ use crate::{
     },
     connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
     network::{
-        ProtocolMessageType, Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, PROTOCOL_HEADER_LENGTH,
-        PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
+        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
 };
@@ -513,14 +513,17 @@ impl Connection {
             };
             if let Some(ref bufdata) = buff {
                 if self.mode() == P2PNodeMode::BootstrapperMode {
-                    if let Ok(msg_id_str) = std::str::from_utf8(bufdata){
+                    if let Ok(msg_id_str) = std::str::from_utf8(bufdata) {
                         match ProtocolMessageType::try_from(msg_id_str) {
                             Ok(ProtocolMessageType::DirectMessage)
                             | Ok(ProtocolMessageType::BroadcastedMessage) => {
-                                info!("Received network packet message, not wanted - disconnecting peer");
+                                info!(
+                                    "Received network packet message, not wanted - disconnecting \
+                                     peer"
+                                );
                                 &self.clear_buffer();
                                 &self.close(poll);
-                            },
+                            }
                             _ => {}
                         }
                     }

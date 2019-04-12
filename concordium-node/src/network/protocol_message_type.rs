@@ -1,7 +1,7 @@
 use failure::{Error, Fallible};
 use std::{
     convert::TryFrom,
-    fmt::{ Display, Formatter, Result }
+    fmt::{Display, Formatter, Result},
 };
 
 pub const PROTOCOL_MESSAGE_TYPE_LENGTH: usize = 2;
@@ -60,21 +60,19 @@ impl TryFrom<&str> for ProtocolMessageType {
     type Error = Error;
 
     fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
-        debug_assert_eq!( value.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
-        let output = u8::from_str_radix( value, 16)?;
-        ProtocolMessageType::try_from( output)
+        debug_assert_eq!(value.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
+        let output = u8::from_str_radix(value, 16)?;
+        ProtocolMessageType::try_from(output)
     }
 }
 
 impl Display for ProtocolMessageType {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        write!( f, "{:02x}", *self as u8)
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{ ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH};
+    use super::{ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH};
     use std::convert::TryFrom;
 
     #[test]
@@ -116,12 +114,12 @@ mod test {
 
         for value in &values {
             let value_str = value.to_string();
-            assert_eq!( value_str.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
-            let value_from_str = ProtocolMessageType::try_from( value_str.as_str()).unwrap();
-            assert_eq!( value_from_str, *value);
+            assert_eq!(value_str.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
+            let value_from_str = ProtocolMessageType::try_from(value_str.as_str()).unwrap();
+            assert_eq!(value_from_str, *value);
         }
 
-        assert_eq!( ProtocolMessageType::try_from( "0F").is_err(), true);
-        assert_eq!( ProtocolMessageType::try_from( "10").is_err(), true);
+        assert_eq!(ProtocolMessageType::try_from("0F").is_err(), true);
+        assert_eq!(ProtocolMessageType::try_from("10").is_err(), true);
     }
 }

@@ -1,10 +1,10 @@
 use crate::common::get_current_stamp_b64;
 use std::fmt;
 
-pub mod protocol_message_type;
 pub mod buckets;
 pub mod message;
 pub mod packet;
+pub mod protocol_message_type;
 pub mod request;
 pub mod response;
 pub mod serialization;
@@ -26,9 +26,9 @@ pub use self::{
     buckets::Buckets,
     message::NetworkMessage,
     packet::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
+    protocol_message_type::{ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH},
     request::NetworkRequest,
     response::NetworkResponse,
-    protocol_message_type::{ ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH }
 };
 
 pub const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
@@ -56,4 +56,3 @@ pub fn make_header() -> String {
         get_current_stamp_b64()
     )
 }
-

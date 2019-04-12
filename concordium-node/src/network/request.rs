@@ -1,6 +1,6 @@
 use crate::{
     common::{P2PNodeId, P2PPeer},
-    network::{ make_header, ProtocolMessageType, NetworkId },
+    network::{make_header, NetworkId, ProtocolMessageType},
 };
 use std::collections::HashSet;
 

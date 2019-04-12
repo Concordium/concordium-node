@@ -3,7 +3,7 @@ use crate::{
     common::{get_current_stamp, ConnectionType, ContainerView, P2PNodeId, P2PPeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
-        ProtocolMessageType, NetworkId, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
@@ -457,7 +457,7 @@ impl NetworkMessage {
         // It is not an `str`, just a byte slice. Do not use as `str` because it did not
         // be checked as valid utf8.
         // This is unsafe code is a performance optimization.
-        let message_type_id_str = str::from_utf8( &header[..PROTOCOL_MESSAGE_TYPE_LENGTH])?;
+        let message_type_id_str = str::from_utf8(&header[..PROTOCOL_MESSAGE_TYPE_LENGTH])?;
         let message_type_id = ProtocolMessageType::try_from(message_type_id_str)?;
         match message_type_id {
             ProtocolMessageType::RequestPing => Ok(NetworkMessage::NetworkRequest(
@@ -482,7 +482,9 @@ impl NetworkMessage {
                 timestamp,
                 &mut pkt,
             ),
-            ProtocolMessageType::RequestHandshake => deserialize_request_handshake(ip, timestamp, &mut pkt),
+            ProtocolMessageType::RequestHandshake => {
+                deserialize_request_handshake(ip, timestamp, &mut pkt)
+            }
             ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
                 peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
                 timestamp,
