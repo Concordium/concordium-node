@@ -9,7 +9,6 @@ use crate::{
         PROTOCOL_VERSION,
     },
 };
-use base64;
 use std::convert::TryFrom;
 
 #[cfg(feature = "s11n_nom")]

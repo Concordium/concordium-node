@@ -514,13 +514,14 @@ impl Connection {
             if let Some(ref bufdata) = buff {
                 if self.mode() == P2PNodeMode::BootstrapperMode {
                     if let Ok(msg_id_str) = std::str::from_utf8(bufdata){
-                        if let Ok(msg_id) = ProtocolMessageType::try_from(msg_id_str) {
-                            if msg_id == ProtocolMessageType::DirectMessage || msg_id == ProtocolMessageType::BroadcastedMessage
-                            {
+                        match ProtocolMessageType::try_from(msg_id_str) {
+                            Ok(ProtocolMessageType::DirectMessage)
+                            | Ok(ProtocolMessageType::BroadcastedMessage) => {
                                 info!("Received network packet message, not wanted - disconnecting peer");
                                 &self.clear_buffer();
                                 &self.close(poll);
-                            }
+                            },
+                            _ => {}
                         }
                     }
                 } else {
