@@ -24,6 +24,7 @@ use crate::{
     network::{
         Buckets, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_MESSAGE_TYPE_BROADCASTED_MESSAGE, PROTOCOL_MESSAGE_TYPE_DIRECT_MESSAGE,
+        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
 };
@@ -510,8 +511,8 @@ impl Connection {
     fn validate_packet(&mut self, poll: &mut Poll) {
         if !self.pkt_validated() {
             let buff = if let Some(ref bytebuf) = self.pkt_buffer {
-                if bytebuf.len() >= 132 {
-                    Some(bytebuf[24..28].to_vec())
+                if bytebuf.len() >= PROTOCOL_MESSAGE_LENGTH {
+                    Some(bytebuf[PROTOCOL_HEADER_LENGTH..][..PROTOCOL_MESSAGE_TYPE_LENGTH].to_vec())
                 } else {
                     None
                 }
