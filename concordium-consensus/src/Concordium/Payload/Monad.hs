@@ -1,5 +1,6 @@
 module Concordium.Payload.Monad where
-
+-- TODO : Probably remove this module
+{-
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
@@ -14,3 +15,4 @@ class SkovMonad m => PayloadMonad m where
     getTransactionsAtBlock :: BlockPointer -> m (Maybe (Map.Map TransactionNonce Transaction))
     getPendingTransactionsAtBlock :: BlockPointer -> m (Maybe (Map.Map TransactionNonce Transaction))
     addPendingTransaction :: Transaction -> m ()
+-}

@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns, ScopedTypeVariables, GeneralizedNewtypeDeriving, DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns, ScopedTypeVariables, GeneralizedNewtypeDeriving, DerivingStrategies, DerivingVia, StandaloneDeriving, MultiParamTypeClasses #-}
 
 module Concordium.MonadImplementation where
 
@@ -514,12 +514,13 @@ noopSkovListeners = SkovListeners {
     onFinalize = \_ _ -> return ()
 }
 
-newtype SimpleSkovMonad m a = SimpleSkovMonad {runSimpleSkovMonad :: m a}
-    deriving (Functor, Applicative, Monad, TreeStateMonad, TimeMonad, LoggerMonad)
+newtype SimpleSkovMonad s m a = SimpleSkovMonad {runSimpleSkovMonad :: StateT s m a}
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState s)
+    deriving (TreeStateMonad) via (SkovTreeState s (StateT s m))
 
 -- TODO: Possibly for SimpleSkovMonad, storeBlock and finalizeBlock should be unsupported.
 -- This instance is largely to support queries on the state (for Getters).
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m) => SkovMonad (SimpleSkovMonad m) where
+instance (TimeMonad m, LoggerMonad m, SkovLenses s) => SkovMonad (SimpleSkovMonad s m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
@@ -533,10 +534,10 @@ instance (TimeMonad m, LoggerMonad m, TreeStateMonad m) => SkovMonad (SimpleSkov
     branchesFromTop = doBranchesFromTop
     getBlocksAtHeight = doGetBlocksAtHeight
 
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m) => KontrolMonad (SimpleSkovMonad m)
+instance (TimeMonad m, LoggerMonad m, SkovLenses s) => KontrolMonad (SimpleSkovMonad s m)
 
 newtype FinalizationSkovMonad r w s m a = FinalizationSkovMonad {runFinalizationSkovMonad :: RWST r w s m a}
-    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadReader r, MonadWriter w, MonadState s)
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState s, MonadReader r, MonadWriter w, MonadIO)
     deriving (TreeStateMonad) via (SkovTreeState s (RWST r w s m))
 
 
@@ -545,12 +546,12 @@ sfsSkovListeners = SkovListeners {
     onBlock = notifyBlockArrival,
     onFinalize = notifyBlockFinalized
 }
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadState s m, SkovLenses s, FinalizationStateLenses s, MonadReader FinalizationInstance m, MonadWriter (Endo [FinalizationOutputEvent]) m) => FinalizationMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
+instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) => FinalizationMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
     broadcastFinalizationMessage = tell . Endo . (:) . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . Endo . (:) . BroadcastFinalizationRecord
 
 
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadState s m, SkovLenses s, FinalizationStateLenses s, MonadReader FinalizationInstance m, MonadWriter (Endo [FinalizationOutputEvent]) m) => SkovMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
+instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) => SkovMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
@@ -564,7 +565,7 @@ instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadState s m, SkovLens
     branchesFromTop = doBranchesFromTop
     getBlocksAtHeight = doGetBlocksAtHeight
 
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadState s m, SkovLenses s, FinalizationStateLenses s, MonadReader FinalizationInstance m, MonadWriter (Endo [FinalizationOutputEvent]) m) => KontrolMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m)
+instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) => KontrolMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m)
 
 data SkovFinalizationState = SkovFinalizationState {
     _sfsSkov :: SkovData,
@@ -587,6 +588,9 @@ initialSkovFinalizationState finInst gen initBS = SkovFinalizationState{..}
 
 execFSM :: (Monad m) => FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m a -> FinalizationInstance -> GenesisData -> BlockState -> m a
 execFSM (FinalizationSkovMonad a) fi gd bs0 = fst <$> evalRWST a fi (initialSkovFinalizationState fi gd bs0)
+
+evalSSM :: (Monad m) => SimpleSkovMonad s m a -> s -> m a
+evalSSM (SimpleSkovMonad a) st = evalStateT a st
 
 {-
 execSSM :: (Monad m) => SimpleSkovMonad (StateT SkovData m) -> SkovData -> 

@@ -5,7 +5,9 @@ import qualified Data.ByteString.Lazy          as L
 import           Data.ByteString
 
 import qualified Concordium.Crypto.VRF    as VRF
-import           Concordium.Types
+import           Concordium.GlobalState.Parameters
+import           Concordium.GlobalState.Types hiding (nonce)
+import           Concordium.GlobalState.Block
 
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double
 electionProbability alpha diff = 1 - (1 - diff) ** alpha

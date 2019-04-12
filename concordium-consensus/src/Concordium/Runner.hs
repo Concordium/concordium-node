@@ -4,14 +4,20 @@ module Concordium.Runner where
 import Control.Concurrent.Chan
 import Control.Concurrent
 import Control.Monad.State.Class
+import Control.Monad.Writer.Class
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
-import Control.Monad.Trans.RWS hiding (get)
+-- import Control.Monad.Trans.RWS hiding (get)
 import qualified Data.ByteString as BS
 import Data.Monoid
 
-import Concordium.Types
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Transactions
+import Concordium.GlobalState.Finalization
 import Concordium.MonadImplementation
 import Concordium.Payload.Transaction
 import Concordium.Birk.Bake
@@ -34,21 +40,21 @@ data OutMessage =
     | MsgFinalization BS.ByteString
     | MsgFinalizationRecord FinalizationRecord
 
-makeRunner :: LogMethod IO -> BakerIdentity -> GenesisData -> IO (Chan InMessage, Chan OutMessage, IORef SkovFinalizationState)
-makeRunner logm bkr gen = do
+makeRunner :: LogMethod IO -> BakerIdentity -> GenesisData -> BlockState -> IO (Chan InMessage, Chan OutMessage, IORef SkovFinalizationState)
+makeRunner logm bkr gen initBS = do
         logm Runner LLInfo "Starting baker"
         inChan <- newChan
         outChan <- newChan
         let
             finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
-            sfs = initialSkovFinalizationState finInst gen
+            sfs = initialSkovFinalizationState finInst gen initBS
         out <- newIORef sfs
-        _ <- forkIO $ fst <$> runLoggerT (evalRWST (msgLoop inChan outChan out 0 MsgTimer) finInst sfs) logm
+        _ <- forkIO $ runLoggerT (execFSM (msgLoop inChan outChan out 0 MsgTimer) finInst gen initBS) logm
         return (inChan, outChan, out)
     where
-        updateFinState :: IORef SkovFinalizationState -> RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO ()
+        updateFinState :: IORef SkovFinalizationState -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO ()
         updateFinState out = get >>= liftIO . writeIORef out
-        msgLoop :: Chan InMessage -> Chan OutMessage -> IORef SkovFinalizationState -> Slot -> InMessage -> RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO ()
+        msgLoop :: Chan InMessage -> Chan OutMessage -> IORef SkovFinalizationState -> Slot -> InMessage -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO ()
         msgLoop _ _ _ _ MsgShutdown = return ()
         msgLoop inChan outChan out lastBake MsgTimer = do
             cs <- getCurrentSlot
@@ -68,7 +74,7 @@ makeRunner logm bkr gen = do
             updateFinState out
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgTransactionReceived trans) = do
-            handleMessages outChan $ addPendingTransaction trans
+            handleMessages outChan $ receiveTransaction trans
             updateFinState out
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgFinalizationReceived bs) = do
@@ -79,7 +85,7 @@ makeRunner logm bkr gen = do
             handleMessages outChan $ finalizeBlock fr
             updateFinState out
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake    
-        handleMessages :: Chan OutMessage -> RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r -> RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r
+        handleMessages :: Chan OutMessage -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r
         handleMessages outChan a = censor (const (Endo id)) $ do
             (r, Endo evs) <- listen a
             let

@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards, DeriveGeneric, GeneralizedNewtypeDeriving #-}
 module Concordium.Types (module Concordium.Types, Slot(..), BlockHeight(..)) where
 
+-- TODO : Remove this module
+
 import GHC.Generics
 import qualified Data.Map as Map
 import Data.Word
@@ -18,7 +20,8 @@ import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState.Types(Slot(..), BlockHeight(..), ChainMetadata(..))
 
-import Concordium.Payload.Transaction(GlobalState, initState)
+-- import Concordium.Payload.Transaction(GlobalState, initState)
+{-
 
 type BlockHash = Hash.Hash
 type BakerId = Word64
@@ -265,3 +268,4 @@ makeChainMeta slotNumber parentP finalizedP =
   let blockHeight = bpHeight parentP + 1 -- NB: The +1 is needed to get the current height of the block since bestBlockBefore is the parent pointer.
       finalizedHeight = bpHeight finalizedP
   in ChainMetadata{..}
+-}

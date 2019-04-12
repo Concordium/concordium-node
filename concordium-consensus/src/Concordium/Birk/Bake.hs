@@ -21,7 +21,7 @@ import Concordium.Kontrol.Monad
 import Concordium.Payload.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
-import Concordium.Payload.Transaction
+-- import Concordium.Payload.Transaction
 import Concordium.Logger
 
 data BakerIdentity = BakerIdentity {
@@ -33,7 +33,7 @@ data BakerIdentity = BakerIdentity {
 } deriving (Eq, Generic)
 
 instance Serialize BakerIdentity where
-
+{-
 processInputs :: (PayloadMonad m) => Slot -> BlockPointer -> BlockPointer -> m (Maybe BlockData)
 processInputs slot bh finalizedP = do
   -- find transactions to add to block
@@ -46,8 +46,11 @@ processInputs slot bh finalizedP = do
                       in return . Just . fromTransactions . fmap fst $ ts
       
     -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
+-}
 
-bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
+bakeForSlot :: (KontrolMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
+bakeForSlot _ _ = return Nothing -- FIXME: reinstate real baking
+{-
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
@@ -63,4 +66,4 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Baked block"
     _ <- storeBlock block
     return block
-    
+  -}  

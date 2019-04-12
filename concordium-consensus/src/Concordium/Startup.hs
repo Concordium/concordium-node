@@ -7,7 +7,7 @@ import qualified Data.Map as Map
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 
-import Concordium.Types
+import Concordium.GlobalState.Parameters
 import Concordium.Birk.Bake
 
 

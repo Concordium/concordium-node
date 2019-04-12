@@ -3,7 +3,7 @@
 {-# Language OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Concordium.Payload.Transaction where
-
+{- 
 import GHC.Generics
 import Data.ByteString.Char8(ByteString)
 import Concordium.Crypto.SHA256
@@ -64,3 +64,4 @@ makeBlock msg cm gs = let ((suc, failure), gs') = Types.runSI (Sch.makeValidBloc
 
 initState :: Int -> Types.GlobalState
 initState n = Init.initialState n
+-}
