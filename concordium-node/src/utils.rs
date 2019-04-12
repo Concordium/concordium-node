@@ -84,7 +84,7 @@ pub fn crypto_key_to_pem(input: &crypto::KeyPair) -> Vec<u8> {
     [pemheader, pemcontent.as_bytes(), pemfooter].concat()
 }
 
-pub fn generate_certificate(id: P2PNodeId) -> Fallible<Cert> {
+pub fn generate_certificate(id: &str) -> Fallible<Cert> {
     // let ec_kp = crypto_sys::KeyPair::new();
     //
     // We can generate a KeyPair using our crypto_sys crate and we have functions to
@@ -109,7 +109,7 @@ pub fn generate_certificate(id: P2PNodeId) -> Fallible<Cert> {
 
     name_builder.append_entry_by_text("C", "EU")?;
     name_builder.append_entry_by_text("O", "Concordium")?;
-    name_builder.append_entry_by_text("CN", &id.to_string())?;
+    name_builder.append_entry_by_text("CN", id)?;
 
     let name = name_builder.build();
     builder.set_subject_name(&name)?;
