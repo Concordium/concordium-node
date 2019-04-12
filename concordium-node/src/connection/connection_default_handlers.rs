@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 use crate::{
     common::{counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FunctorResult, get_current_stamp},
     connection::connection_private::ConnectionPrivate,
-    network::{NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkRequest, NetworkResponse},
 };
 
 use super::{fails, handler_utils::*};
@@ -203,7 +203,7 @@ pub fn default_network_request_join_network(
         safe_write!(priv_conn_borrow.buckets)?
             .update_network_ids(&peer, priv_conn_borrow.networks.clone());
 
-        let networks: HashSet<u16> = vec![*network].into_iter().collect();
+        let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
         log_as_joined_network(&priv_conn_borrow.event_log, &peer, &networks)?;
     }
 

@@ -22,7 +22,7 @@ use p2p_client::{
     configuration,
     connection::{P2PEvent, P2PNodeMode},
     db::P2PDB,
-    network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
     prometheus_exporter::{PrometheusMode, PrometheusServer},
     rpc::RpcServerImpl,
@@ -462,7 +462,7 @@ fn main() -> Fallible<()> {
     if let Some(ref mut baker) = baker {
         let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = conf.common.network_ids.first().unwrap().to_owned(); // defaulted so there's always first()
+        let _network_id = NetworkId::from(conf.common.network_ids.first().unwrap().to_owned()); // defaulted so there's always first()
         thread::spawn(move || loop {
             match _baker_clone.out_queue().recv_block() {
                 Ok(x) => match x.serialize() {
@@ -552,12 +552,12 @@ fn main() -> Fallible<()> {
         let mut _id_clone = tps_test_recv_id.to_owned();
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = conf.common.network_ids.first().unwrap().to_owned();
+        let _network_id = NetworkId::from(conf.common.network_ids.first().unwrap().to_owned());
         thread::spawn(move || {
             let mut done = false;
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
-                if let Ok(node_list) = _node_ref.get_peer_stats(&vec![_network_id]) {
+                if let Ok(node_list) = _node_ref.get_peer_stats(&[_network_id]) {
                     if node_list.len() > 0 {
                         let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                         for message in test_messages {

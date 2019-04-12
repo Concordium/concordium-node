@@ -1,7 +1,7 @@
 use crate::{
     common::P2PPeer,
     network::{
-        make_header, PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE,
+        make_header, NetworkId, PROTOCOL_MESSAGE_TYPE_RESPONSE_FINDNODE,
         PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE, PROTOCOL_MESSAGE_TYPE_RESPONSE_PEERSLIST,
         PROTOCOL_MESSAGE_TYPE_RESPONSE_PONG,
     },
@@ -14,7 +14,7 @@ pub enum NetworkResponse {
     Pong(P2PPeer),
     FindNode(P2PPeer, Vec<P2PPeer>),
     PeerList(P2PPeer, Vec<P2PPeer>),
-    Handshake(P2PPeer, HashSet<u16>, Vec<u8>),
+    Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
 }
 
 impl NetworkResponse {
@@ -45,15 +45,18 @@ impl NetworkResponse {
                     .collect::<String>()
             )
             .into_bytes(),
-            NetworkResponse::Handshake(me, nids, zk) => {
+            NetworkResponse::Handshake(me, networks, zk) => {
                 let mut pkt = format!(
                     "{}{}{}{:05}{:05}{}{:010}",
                     make_header(),
                     PROTOCOL_MESSAGE_TYPE_RESPONSE_HANDSHAKE,
                     me.id(),
                     me.port(),
-                    nids.len(),
-                    nids.iter().map(|x| format!("{:05}", x)).collect::<String>(),
+                    networks.len(),
+                    networks
+                        .iter()
+                        .map(|net| net.to_string())
+                        .collect::<String>(),
                     zk.len()
                 )
                 .into_bytes();

@@ -8,7 +8,7 @@ use crate::{
         P2PPeer,
     },
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
-    network::{NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkRequest, NetworkResponse},
 };
 use std::sync::atomic::Ordering;
 
@@ -52,7 +52,7 @@ pub fn serialize_bytes(session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> Func
 pub fn log_as_joined_network(
     event_log: &Option<Sender<P2PEvent>>,
     peer: &P2PPeer,
-    networks: &HashSet<u16>,
+    networks: &HashSet<NetworkId>,
 ) -> FunctorResult {
     if let Some(ref log) = event_log {
         for net_id in networks.iter() {
@@ -67,7 +67,7 @@ pub fn log_as_joined_network(
 pub fn log_as_leave_network(
     event_log: &Option<Sender<P2PEvent>>,
     sender: &P2PPeer,
-    network: u16,
+    network: NetworkId,
 ) -> FunctorResult {
     if let Some(ref log) = event_log {
         log.send(P2PEvent::LeftNetwork(sender.to_owned(), network))
@@ -101,7 +101,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
 pub fn send_peer_list(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
-    nets: &HashSet<u16>,
+    nets: &HashSet<NetworkId>,
 ) -> FunctorResult {
     debug!(
         "Running in bootstrapper mode, so instantly sending peers {} random peers",
@@ -137,7 +137,7 @@ pub fn send_peer_list(
 pub fn update_buckets(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
-    nets: HashSet<u16>,
+    nets: HashSet<NetworkId>,
 ) -> FunctorResult {
     let priv_conn_borrow = priv_conn.borrow();
     let buckets = &priv_conn_borrow.buckets;
