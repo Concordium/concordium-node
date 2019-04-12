@@ -106,21 +106,18 @@ fn main() -> Fallible<()> {
             &conf.prometheus.prometheus_listen_addr,
             conf.prometheus.prometheus_listen_port,
         )
-        .map_err(|e| error!("{}", e))
-        .ok();
+        .unwrap_or_else(|e| error!("{}", e));
+
         Some(Arc::new(RwLock::new(srv)))
-    } else if conf.prometheus.prometheus_push_gateway.is_some() {
-        info!(
-            "Enabling prometheus push gateway at {}",
-            &conf.prometheus.prometheus_push_gateway.to_owned().unwrap()
-        );
+    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
+        info!("Enabling prometheus push gateway at {}", push_gateway);
         let srv = PrometheusServer::new(PrometheusMode::NodeMode);
         Some(Arc::new(RwLock::new(srv)))
     } else {
         None
     };
 
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     // Instantiate the p2p node
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
@@ -160,14 +157,10 @@ fn main() -> Fallible<()> {
                         info!("Initiating connection to {}:{}", ip, port)
                     }
                     P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id().to_string(),
-                            network_id
-                        );
+                        info!("Peer {} joined network {}", peer.id(), network_id);
                     }
                     P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                        info!("Peer {} left network {}", peer.id(), network_id);
                     }
                 }
             }
@@ -300,9 +293,9 @@ fn main() -> Fallible<()> {
                                         }
                                     }
                                     if let Some(ref mut rpc) = _rpc_clone {
-                                        rpc.queue_message(&full_msg)
-                                            .map_err(|e| error!("Couldn't queue message {}", e))
-                                            .ok();
+                                        rpc.queue_message(&full_msg).unwrap_or_else(|e| {
+                                            error!("Couldn't queue message {}", e)
+                                        });
                                     }
                                     info!(
                                         "DirectMessage/{}/{} with size {} received",
@@ -313,16 +306,16 @@ fn main() -> Fallible<()> {
                                 }
                                 NetworkPacketType::BroadcastedMessage => {
                                     if let Some(ref mut rpc) = _rpc_clone {
-                                        rpc.queue_message(&full_msg)
-                                            .map_err(|e| error!("Couldn't queue message {}", e))
-                                            .ok();
+                                        rpc.queue_message(&full_msg).unwrap_or_else(|e| {
+                                            error!("Couldn't queue message {}", e)
+                                        });
                                     }
                                     if let Some(ref testrunner_url) = _test_runner_url {
                                         info!("Sending information to test runner");
                                         match reqwest::get(&format!(
                                             "{}/register/{}/{}",
                                             testrunner_url,
-                                            _node_self_clone.get_own_id(),
+                                            _node_self_clone.id(),
                                             pac.message_id
                                         )) {
                                             Ok(ref mut res) if res.status().is_success() => {
@@ -360,8 +353,7 @@ fn main() -> Fallible<()> {
                                 if !_no_trust_bans {
                                     _node_self_clone
                                         .send_ban(x.clone())
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
+                                        .unwrap_or_else(|e| error!("{}", e));
                                 }
                             }
                         }
@@ -382,8 +374,7 @@ fn main() -> Fallible<()> {
                                 if !_no_trust_bans {
                                     _node_self_clone
                                         .send_unban(x.to_owned())
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
+                                        .unwrap_or_else(|e| error!("{}", e));
                                 }
                             }
                         }
@@ -400,10 +391,10 @@ fn main() -> Fallible<()> {
                                     for peer_node in peers {
                                         debug!(
                                             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                                            peer.id().to_string(),
+                                            peer.id(),
                                             peer.ip(),
                                             peer.port(),
-                                            peer_node.id().to_string(),
+                                            peer_node.id(),
                                             peer_node.ip(),
                                             peer_node.port()
                                         );
@@ -444,10 +435,7 @@ fn main() -> Fallible<()> {
     }
 
     // Start push gateway to prometheus
-    {
-        let id = node.get_own_id();
-        start_push_gateway(&conf.prometheus, &prometheus, &id)?;
-    }
+    start_push_gateway(&conf.prometheus, &prometheus, node.id())?;
 
     // Start the P2PNode
     //
@@ -642,8 +630,7 @@ fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &
             for (ip, port) in nodes {
                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
                 node.connect(ConnectionType::Bootstrapper, *ip, *port, None)
-                    .map_err(|e| error!("{}", e))
-                    .ok();
+                    .unwrap_or_else(|e| error!("{}", e));
             }
         }
         Err(e) => error!("Couldn't retrieve bootstrap node list! {:?}", e),
@@ -660,8 +647,7 @@ fn create_connections_from_config(
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
                 node.connect(ConnectionType::Node, ip, port, None)
-                    .map_err(|e| error!("{}", e))
-                    .ok();
+                    .unwrap_or_else(|e| error!("{}", e));
             }
             None => error!("Can't parse IP to connect to '{}'", &connect_to),
         }
@@ -671,7 +657,7 @@ fn create_connections_from_config(
 fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
     prometheus: &Option<Arc<RwLock<PrometheusServer>>>,
-    id: &P2PNodeId,
+    id: P2PNodeId,
 ) -> Fallible<()> {
     if let Some(ref prom) = prometheus {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {

@@ -8,7 +8,7 @@ pub const PROTOCOL_MESSAGE_TYPE_LENGTH: usize = 2;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolMessageType {
-    RequestPing = 1,
+    RequestPing = 0,
     RequestFindNode,
     RequestHandshake,
     RequestGetPeers,
@@ -62,8 +62,6 @@ impl TryFrom<&str> for ProtocolMessageType {
     fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
         let input = &value[..PROTOCOL_MESSAGE_TYPE_LENGTH];
         let output = u8::from_str_radix( input, 16)?;
-        // let mut output = [0u8;1];
-        // base64::decode_config_slice( input, base64::STANDARD_NO_PAD, &mut output)?;
         ProtocolMessageType::try_from( output)
     }
 }
@@ -71,8 +69,6 @@ impl TryFrom<&str> for ProtocolMessageType {
 impl Display for ProtocolMessageType {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!( f, "{:02X}", *self as u8)
-        // let input :[u8;1] = [*self as u8];
-        // f.write_str( & base64::encode_config( &input, base64::STANDARD_NO_PAD))
     }
 }
 
@@ -84,20 +80,19 @@ mod test {
     #[test]
     fn message_type_from_int() {
         assert_eq!(
-            ProtocolMessageType::try_from(1).unwrap(),
+            ProtocolMessageType::try_from(0).unwrap(),
             ProtocolMessageType::RequestPing
         );
         assert_eq!(
-            ProtocolMessageType::try_from(5).unwrap(),
+            ProtocolMessageType::try_from(4).unwrap(),
             ProtocolMessageType::RequestBannode
         );
         assert_eq!(
-            ProtocolMessageType::try_from(14).unwrap(),
+            ProtocolMessageType::try_from(13).unwrap(),
             ProtocolMessageType::BroadcastedMessage
         );
-        assert_eq!(ProtocolMessageType::try_from(0).is_err(), true);
+        assert_eq!(ProtocolMessageType::try_from(14).is_err(), true);
         assert_eq!(ProtocolMessageType::try_from(15).is_err(), true);
-        // assert_eq!(ProtocolMessageType::try_from(-1).is_err(), true);
     }
 
     #[test]
@@ -128,6 +123,5 @@ mod test {
 
         assert_eq!( ProtocolMessageType::try_from( "0F").is_err(), true);
         assert_eq!( ProtocolMessageType::try_from( "10").is_err(), true);
-        assert_eq!( ProtocolMessageType::try_from( "00").is_err(), true);
     }
 }

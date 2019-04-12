@@ -81,7 +81,7 @@ impl NetworkPacket {
         format!(
             "{}{}{}{}{:05}{:010}",
             make_header(),
-            ProtocolMessageType::DirectMessage as u8,
+            ProtocolMessageType::DirectMessage,
             receiver,
             self.message_id,
             self.network_id,
@@ -94,7 +94,7 @@ impl NetworkPacket {
         format!(
             "{}{}{}{:05}{:010}",
             make_header(),
-            ProtocolMessageType::BroadcastedMessage as u8,
+            ProtocolMessageType::BroadcastedMessage,
             self.message_id,
             self.network_id,
             self.message.len()
@@ -146,6 +146,6 @@ impl NetworkPacket {
             Ok(mut l) => l.fill_bytes(&mut secure_bytes),
             Err(_) => return String::new(),
         }
-        base64::encode(&utils::sha256_bytes(&secure_bytes))
+        utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
     }
 }

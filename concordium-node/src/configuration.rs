@@ -195,7 +195,8 @@ pub struct CommonConfig {
     #[structopt(
         long = "id",
         short = "i",
-        help = "Set forced node id (SHA256 value in Base64, 44 characters)"
+        help = "Set forced node id (64 bit unsigned integer in zero padded HEX. Must be 16 \
+                characters long)"
     )]
     pub id: Option<String>,
     #[structopt(

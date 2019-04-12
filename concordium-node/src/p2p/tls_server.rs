@@ -38,7 +38,6 @@ pub struct TlsServer {
     next_id:                  AtomicUsize,
     server_tls_config:        Arc<ServerConfig>,
     client_tls_config:        Arc<ClientConfig>,
-    own_id:                   P2PNodeId,
     event_log:                Option<Sender<P2PEvent>>,
     self_peer:                P2PPeer,
     mode:                     P2PNodeMode,
@@ -55,7 +54,6 @@ impl TlsServer {
         server: TcpListener,
         server_cfg: Arc<ServerConfig>,
         client_cfg: Arc<ClientConfig>,
-        own_id: P2PNodeId,
         event_log: Option<Sender<P2PEvent>>,
         self_peer: P2PPeer,
         mode: P2PNodeMode,
@@ -74,7 +72,6 @@ impl TlsServer {
             next_id: AtomicUsize::new(2),
             server_tls_config: server_cfg,
             client_tls_config: client_cfg,
-            own_id,
             event_log,
             self_peer,
             mode,
@@ -141,13 +138,13 @@ impl TlsServer {
         self.dptr.write().unwrap().unban_node(peer)
     }
 
-    pub fn accept(&mut self, poll: &mut Poll, self_id: P2PPeer) -> Fallible<()> {
+    pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
             addr,
-            self_id.ip(),
-            self_id.port()
+            self_peer.ip(),
+            self_peer.port()
         );
 
         if let Err(e) = self.prehandshake_validations.run_callbacks(&addr) {
@@ -166,10 +163,7 @@ impl TlsServer {
             token,
             Some(tls_session),
             None,
-            self.own_id.clone(),
-            self_id,
-            addr.ip(),
-            addr.port(),
+            self_peer,
             self.mode,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
@@ -192,7 +186,7 @@ impl TlsServer {
         ip: IpAddr,
         port: u16,
         peer_id_opt: Option<P2PNodeId>,
-        self_id: &P2PPeer,
+        self_peer: &P2PPeer,
     ) -> Fallible<()> {
         if connection_type == ConnectionType::Node && self.is_unreachable(ip, port) {
             error!("Node marked as unreachable, so not allowing the connection");
@@ -200,7 +194,6 @@ impl TlsServer {
         }
 
         // Avoid duplicate ip+port peers
-        let self_peer = self.get_self_peer();
         if self_peer.ip() == ip && self_peer.port() == port {
             bail!(fails::DuplicatePeerError);
         }
@@ -246,10 +239,7 @@ impl TlsServer {
                     token,
                     None,
                     Some(tls_session),
-                    self.own_id.clone(),
-                    self_id.clone(),
-                    ip,
-                    port,
+                    self_peer.clone(),
                     self.mode,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
@@ -270,8 +260,7 @@ impl TlsServer {
                 );
                 let self_peer = self.get_self_peer();
 
-                if let Some(ref rc_conn) =
-                    self.dptr.read().unwrap().find_connection_by_token(&token)
+                if let Some(ref rc_conn) = self.dptr.read().unwrap().find_connection_by_token(token)
                 {
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(
@@ -338,9 +327,6 @@ impl TlsServer {
 
     #[inline]
     pub fn mode(&self) -> P2PNodeMode { self.mode }
-
-    #[inline]
-    pub fn own_id(&self) -> P2PNodeId { self.own_id }
 
     #[inline]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }

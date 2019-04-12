@@ -133,7 +133,7 @@ impl P2PNode {
                      characters long."
                 );
             } else {
-                P2PNodeId::from_str(s).unwrap_or_else(|_| P2PNodeId::default())
+                P2PNodeId::from_str(s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
             }
         } else {
             P2PNodeId::default()
@@ -152,7 +152,7 @@ impl P2PNode {
         };
 
         // Generate key pair and cert
-        let (cert, private_key) = match utils::generate_certificate(id) {
+        let (cert, private_key) = match utils::generate_certificate(&id.to_string()) {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {
@@ -239,7 +239,6 @@ impl P2PNode {
             server,
             Arc::new(server_conf),
             Arc::new(client_conf),
-            id,
             event_log.clone(),
             self_peer,
             mode,
@@ -389,7 +388,10 @@ impl P2PNode {
     }
 
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
-        if !self.config.no_net && self.config.desired_nodes_count > peer_stat_list.len() as u8 {
+        if !self.config.no_net
+            && self.config.desired_nodes_count > peer_stat_list.len() as u8
+            && self.mode != P2PNodeMode::BootstrapperMode
+        {
             if peer_stat_list.is_empty() {
                 if !self.config.no_bootstrap_dns {
                     info!("No nodes at all - retrying bootstrapping");
@@ -482,7 +484,7 @@ impl P2PNode {
         )
     }
 
-    pub fn get_own_id(&self) -> P2PNodeId { self.id.clone() }
+    pub fn id(&self) -> P2PNodeId { self.id }
 
     pub fn get_listening_ip(&self) -> IpAddr { self.ip }
 
@@ -861,7 +863,7 @@ impl P2PNode {
     fn get_self_peer(&self) -> P2PPeer {
         P2PPeer::from(
             ConnectionType::Node,
-            self.get_own_id().clone(),
+            self.id(),
             self.get_listening_ip(),
             self.get_listening_port(),
         )
@@ -934,7 +936,7 @@ impl P2PNode {
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
         if let Some(ref q) = self.quit_tx {
-            info!("Closing P2P node with id: {:?}", self.get_own_id());
+            info!("Closing P2P node with id: {}", self.id());
             let _ = q.send(true);
             let p_th = self.process_th.take();
             if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {

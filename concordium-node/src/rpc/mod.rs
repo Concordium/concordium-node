@@ -581,7 +581,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut resp = NodeInfoResponse::new();
             let mut node_id = ::protobuf::well_known_types::StringValue::new();
-            node_id.set_value(format!("{}", self.node.borrow().get_own_id().to_string()));
+            node_id.set_value(self.node.borrow().id().to_string());
             resp.set_node_id(node_id);
             let curtime = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
