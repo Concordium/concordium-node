@@ -2,7 +2,8 @@
 
 # 20190123 - Moved from 2018-10-26 to latest nightly after allocator fixes in nightly
 # 20190328 - Locking to agreed upon 2019-03-22
-rustup default nightly-2019-03-22
+# 20190412 - Moving to Rust stable
+rustup default stable
 
 git clone https://github.com/mitls/hacl-c
 ( cd hacl-c && make -j$(nproc) && cp libhacl.so /usr/lib );
