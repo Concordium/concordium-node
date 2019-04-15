@@ -31,8 +31,11 @@ import Control.Monad.IO.Class
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
+alesKP :: S.KeyPair
+alesKP = fst (S.randomKeyPair (mkStdGen 1))
+
 alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 1))))
+alesACI = AH.createAccount (S.verifyKey alesKP)
 
 alesAccount :: Types.AccountAddress
 alesAccount = AH.accountAddress alesACI
@@ -53,20 +56,16 @@ chainMeta = Types.ChainMetadata{..}
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
-           , metadata = Types.Header {sender = alesAccount
-                                     ,nonce = 1
-                                     ,gasAmount = 10000
-                                     }
+           , metadata = Types.TransactionHeader alesAccount 1 1000
+           , keypair = alesKP
            }
     ,TJSON { payload = InitContract {amount = 100
                                     ,contractName = "Simple"
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = Types.Header {sender = alesAccount
-                                     ,nonce = 2
-                                     ,gasAmount = 10000
-                                     }
+           , metadata = Types.TransactionHeader alesAccount 2 1000
+           , keypair = alesKP
            }
     ]
 
@@ -74,9 +73,9 @@ transactionsInput =
 testChainMeta ::
   PR.Context
     IO
-    ([(Types.MessageTy, Types.ValidResult)],
-     [(Types.MessageTy, Types.FailureKind)],
-     [(Types.ContractAddress, Types.Instance)])
+    ([(Types.Transaction, Types.ValidResult)],
+     [(Types.Transaction, Types.FailureKind)],
+     [(Types.ContractAddress, Instance)])
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache

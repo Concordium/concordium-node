@@ -25,18 +25,23 @@ import Concordium.GlobalState.Modules as Mod
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
+alesKP :: S.KeyPair
+alesKP = fst (S.randomKeyPair (mkStdGen 1))
+
 alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 1))))
+alesACI = AH.createAccount (S.verifyKey alesKP)
 
 alesAccount :: Types.AccountAddress
 alesAccount = AH.accountAddress alesACI
 
+thomasKP :: S.KeyPair
+thomasKP = fst (S.randomKeyPair (mkStdGen 2))
+
 thomasACI :: AH.AccountCreationInformation
-thomasACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 2))))
+thomasACI = AH.createAccount (S.verifyKey thomasKP)
 
 thomasAccount :: Types.AccountAddress
 thomasAccount = AH.accountAddress thomasACI
-
 
 initialBlockState :: BlockState
 initialBlockState = 
@@ -48,34 +53,24 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 1
-                                   ,gasAmount = 123
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 1 123
+         , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 2
-                                   ,gasAmount = 123
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 2 123
+         , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 99812 }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 3
-                                   ,gasAmount = 100
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 3 100
+         , keypair = alesKP
          }    
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = Types.Header {sender = thomasAccount
-                                   ,nonce = 1
-                                   ,gasAmount = 100
-                                   }
+         , metadata = Types.TransactionHeader thomasAccount 1 100
+         , keypair = thomasKP
          }    
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 101 }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 4
-                                   ,gasAmount = 100
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 4 100
+         , keypair = alesKP
          }    
   ]
 
@@ -83,8 +78,8 @@ transactionsInput =
 testSimpleTransfer
   :: PR.Context
        IO
-       ([(Types.MessageTy, Types.ValidResult)],
-        [(Types.MessageTy, Types.FailureKind)], Types.Amount, Types.Amount)
+       ([(Types.Transaction, Types.ValidResult)],
+        [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
     let ((suc, fails), gstate) = Types.runSI (Sch.makeValidBlock transactions)
