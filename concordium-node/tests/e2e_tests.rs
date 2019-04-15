@@ -40,7 +40,7 @@ mod tests {
             common::{ConnectionType, UCursor},
             configuration::Config,
             connection::{MessageManager, P2PNodeMode},
-            network::{NetworkMessage, NetworkPacketType, NetworkResponse},
+            network::{NetworkMessage, NetworkPacketType, NetworkResponse, NetworkRequest},
             prometheus_exporter::{PrometheusMode, PrometheusServer},
             p2p::p2p_node::P2PNode,
         };
@@ -240,6 +240,53 @@ mod tests {
                     break;
                 }
             }
+        }
+
+        /// Helper handler to log as `info` the secuence of packets received by node.
+        ///
+        /// # Example
+        /// ```
+        /// let (mut node, waiter) = make_node_and_sync( 5555, vec![100], true).unwrap();
+        /// let port = node.get_listening_port();
+        ///
+        /// node.message_handler().write().unwrap()
+        ///     .add_callback( make_atomic_callback!( move |m: &NetworkMessage|{
+        ///         log_any_message_handler( port, m);
+        ///         Ok(())
+        ///     }));
+        /// ```
+        pub fn log_any_message_handler<T>( id :T, message: &NetworkMessage) where T: std::fmt::Display {
+            let msg_type :&str = match message {
+                NetworkMessage::NetworkRequest(ref request, ..) => {
+                    match request {
+                        NetworkRequest::Ping(..) => "Request::Ping",
+                        NetworkRequest::FindNode(..) => "Request::FindNode",
+                        NetworkRequest::BanNode(..)=> "Request::BanNode",
+                        NetworkRequest::Handshake(..)=> "Request::Handshake",
+                        NetworkRequest::GetPeers(..)=> "Request::GetPeers",
+                        NetworkRequest::UnbanNode(..)=> "Request::UnbanNode",
+                        NetworkRequest::JoinNetwork(..)=> "Request::JoinNetwork",
+                        NetworkRequest::LeaveNetwork(..)=> "Request::LeaveNetwork",
+                   }
+                }
+                NetworkMessage::NetworkResponse(ref response, ..) => {
+                    match response {
+                        NetworkResponse::Pong(..) => "Response::Pong",
+                        NetworkResponse::FindNode(..) => "Response::FindNode",
+                        NetworkResponse::PeerList(..) => "Response::PeerList",
+                        NetworkResponse::Handshake(..) => "Response::Handshake",
+                    }
+                },
+                NetworkMessage::NetworkPacket(ref packet, ..) => {
+                    match packet.packet_type {
+                        NetworkPacketType::BroadcastedMessage => "Packet::Broadcast",
+                        NetworkPacketType::DirectMessage(..) => "Packet::Direct",
+                    }
+                },
+                NetworkMessage::UnknownMessage => "Unknown",
+                NetworkMessage::InvalidMessage => "Invalid"
+            };
+            info!( "Message at {} type {}", id, msg_type);
         }
     }
 
@@ -531,21 +578,30 @@ mod tests {
                 let instance_port :u16 = (island_init_port + island_idx) as u16;
 
                 let (mut node, waiter) = utils::make_node_and_sync(instance_port, networks.clone(), true)?;
-                safe_write!(node.message_handler())?.add_packet_callback(make_atomic_callback!(
+                let port = node.get_listening_port();
+
+                safe_write!(node.message_handler())?
+                    .add_packet_callback(make_atomic_callback!(
                     move |pac: &NetworkPacket| {
                         if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                             inner_counter.tick(1);
                             info!(
-                                "BroadcastedMessage/{}/{} with size {} received, ticks {}",
+                                "BroadcastedMessage/{}/{} at {} with size {} received, ticks {}",
                                 pac.network_id,
                                 pac.message_id,
+                                port,
                                 pac.message.len(),
                                 inner_counter.get()
                             );
                         }
                         Ok(())
                     }
-                ));
+                ))
+                    .add_callback( make_atomic_callback!(
+                        move |m: &NetworkMessage| {
+                            utils::log_any_message_handler( port, m);
+                            Ok(())
+                        }));
 
                 // Connect to previous nodes and clean any pending message in waiters
                 for (tgt_node, tgt_waiter) in &peers_islands_and_ports {
