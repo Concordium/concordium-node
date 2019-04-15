@@ -51,7 +51,7 @@ constructBlock slotNumber blockParent lfPointer =
   in do
     pt <- getPendingTransactions
     -- now the set is ordered by accounts
-    txSet <- mapM (\(acc, (l, _)) -> getAccountNonFinalized acc l) (HM.toList pt)
+    txSet <- mapM (\(acc, (l, _)) -> fmap snd <$> getAccountNonFinalized acc l) (HM.toList pt)
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     let txs = concatMap (concatMap Set.toList) txSet
     let ((valid, invalid), bs) = runSI (Sch.makeValidBlock txs) cm (bpState blockParent)
