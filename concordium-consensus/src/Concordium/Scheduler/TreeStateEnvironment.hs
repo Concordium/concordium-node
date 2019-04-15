@@ -32,7 +32,7 @@ executeFrom slotNumber blockParent lfPointer txs =
        (Nothing, bs) -> Right bs
        (Just fk, _) -> Left fk
 
--- |Precondition: Focus block is the parent block of the block we wish to make,
+-- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block. After
 -- execution all transactions that were not added to the block are purged from
 -- the transaction table. If the purging is successful then the transaction is
@@ -43,7 +43,7 @@ constructBlock ::
   => Slot -- ^Slot number of the block to bake
   -> BlockPointer -- ^Parent pointer from which to start executing
   -> BlockPointer -- ^Last finalized block pointer.
-  -> m (BlockTransactions, BlockState)
+  -> m ([HashedTransaction], BlockState)
 constructBlock slotNumber blockParent lfPointer =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -59,7 +59,7 @@ constructBlock slotNumber blockParent lfPointer =
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
-    ret <- BlockTransactions <$> mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) valid
+    ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) valid
     
 
     -- Now we need to try to purge each invalid transaction from the pending table.

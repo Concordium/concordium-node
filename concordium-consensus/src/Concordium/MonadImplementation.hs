@@ -36,6 +36,7 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Execution
 
+import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
 -- import Concordium.Payload.Transaction
 import Concordium.Payload.Monad
@@ -314,9 +315,6 @@ addBlock sl@SkovListeners{..} pb = do
                 childStatus <- getBlockStatus (pbHash childpb)
                 when (isNothing childStatus) $ addBlock sl childpb
 
-executeBlockForState :: [HashedTransaction] -> ChainMetadata -> BlockState -> Either FailureKind BlockState
-executeBlockForState = undefined
-
 -- |Try to add a block to the tree.  There are three possible outcomes:
 --
 -- 1. The operation fails, in which case the block was determined to be invalid in the current tree, and subsequently
@@ -395,7 +393,7 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
                     let height = bpHeight parentP + 1
                     let ts = blockTransactions block
                     let chainMeta = ChainMetadata (blockSlot block) height (bpHeight lfBlockP)
-                    case executeBlockForState ts chainMeta (bpState parentP) of
+                    case executeFrom (blockSlot block) parentP lfBlockP ts of
                         Left err -> do
                             logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                             mzero
