@@ -102,22 +102,6 @@ executables:
     - Concordium
     - network-simple
 
-  Concordium-genesis:
-    main:                Main.hs
-    source-dirs:         startup
-    ghc-options:
-    - -rtsopts
-    - -Wall
-    - -Wcompat
-    when: 
-      - condition: os(windows)
-        then:
-          ghc-options: -static
-        else:
-          ghc-options: -dynamic
-    dependencies:
-    - Concordium
-
 tests:
   Concordium-test:
     main:                Spec.hs
