@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, update, makeTransaction, mateuszAccount, mateuszACI) where
+module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount, mateuszACI) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
@@ -60,7 +60,7 @@ inCtxTm :: Text.Text -> Core.Expr origin
 inCtxTm = Core.Atom . Core.LocalDef . inCtx
 
 initialTrans :: Int -> [Types.Transaction]
-initialTrans n = map initSimpleCounter $ enumFromTo 0 (n-1)
+initialTrans n = map initSimpleCounter $ enumFromTo 1 n
  
 mateuszAccount :: AccountAddress
 mateuszAccount = AH.accountAddress mateuszACI
@@ -78,19 +78,6 @@ initSimpleCounter n = Types.signTransaction mateuszKP
                                                                      , thGasAmount = 10000
                                                                      , thNonce = fromIntegral n})
                        (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0))))
-
--- | Generate a given number of transactions, all of which are updates to a contract instance given as second argument.
-update ::
-  (Integral a, Integral b) =>
-  a -- ^Whether to increment or decrement. If n == 0 (mod 9) then decrement, else increment.
-  -> b -- ^The update is going to affect the contract on address Tid-x where x is this argument.
-  -> Types.Transaction
-update b n = Types.signTransaction mateuszKP
-                                  (Types.TransactionHeader { thSender = mateuszAccount
-                                                           , thGasAmount = 100000
-                                                           , thNonce = fromIntegral n + 1000
-                                                           })
-              (Types.encodePayload (Types.Update 0 (ContractAddress (fromIntegral n) 0) (Core.App (if b `rem` 9 == 0 then (inCtxTm "Dec") else (inCtxTm "Inc")) (Core.Literal (Core.Int64 10)))))
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
 makeTransaction inc ca n = Types.signTransaction mateuszKP hdr payload
