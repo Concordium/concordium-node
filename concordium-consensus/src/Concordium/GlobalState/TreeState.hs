@@ -197,7 +197,9 @@ class Monad m => TreeStateMonad m where
     putPendingTransactions :: PendingTransactionTable -> m ()
 
     -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
-    getAccountNonFinalized :: AccountAddress -> Nonce -> m [Set.Set HashedTransaction]
+    -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
+    -- with that nonce.
+    getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set HashedTransaction)]
 
     -- * Operations on the transaction table
     -- |Add a transaction to the transaction table.
