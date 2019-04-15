@@ -19,9 +19,9 @@ use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         functor::{AFunctorCW, FunctorError, FunctorResult},
-        get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeer, PeerType, UCursor,
     },
-    connection::{MessageHandler, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler},
+    connection::{MessageHandler, P2PEvent, RequestHandler, ResponseHandler},
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
         PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
@@ -70,8 +70,8 @@ macro_rules! drop_conn_if_unwanted {
             $self.setup_message_handler();
             debug!(
                 "Succesfully executed handshake between {:?} and {:?}",
-                $self.get_self_peer(),
-                $self.get_remote_peer()
+                $self.local_peer(),
+                $self.remote_peer()
             );
             $self.status = ConnectionStatus::Established;
         }
@@ -110,13 +110,11 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(
-        connection_type: ConnectionType,
         socket: TcpStream,
         token: Token,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
-        mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
         own_networks: Arc<RwLock<HashSet<NetworkId>>>,
@@ -125,8 +123,6 @@ impl Connection {
     ) -> Self {
         let curr_stamp = get_current_stamp();
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
-            connection_type,
-            mode,
             self_peer,
             own_networks,
             buckets,
@@ -308,11 +304,15 @@ impl Connection {
 
     pub fn set_last_ping_sent(&mut self) { self.last_ping_sent = get_current_stamp(); }
 
-    pub fn id(&self) -> P2PNodeId { self.dptr.borrow().self_peer.id() }
+    pub fn local_id(&self) -> P2PNodeId { self.dptr.borrow().local_peer.id() }
 
-    pub fn ip(&self) -> IpAddr { self.dptr.borrow().self_peer.ip() }
+    pub fn remote_id(&self) -> Option<P2PNodeId> {
+        self.dptr.borrow().remote_peer().map(|p| p.id())
+    }
 
-    pub fn port(&self) -> u16 { self.dptr.borrow().self_peer.port() }
+    pub fn ip(&self) -> IpAddr { self.dptr.borrow().local_peer.ip() }
+
+    pub fn port(&self) -> u16 { self.dptr.borrow().local_peer.port() }
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
@@ -326,9 +326,9 @@ impl Connection {
 
     fn update_buffer_read_stats(&mut self, buf_len: u32) { self.currently_read += buf_len; }
 
-    pub fn get_self_peer(&self) -> P2PPeer { self.dptr.borrow().self_peer.clone() }
+    pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer.clone() }
 
-    fn get_remote_peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
+    pub fn remote_peer(&self) -> Option<P2PPeer> { self.dptr.borrow().remote_peer().to_owned() }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received }
 
@@ -341,6 +341,8 @@ impl Connection {
         self.currently_read = 0;
         self.expected_size = 0;
         self.pkt_buffer = None;
+        self.pkt_valid = false;
+        self.pkt_validated = false;
     }
 
     fn pkt_validated(&self) -> bool { self.pkt_validated }
@@ -484,7 +486,7 @@ impl Connection {
     fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult {
         let buf_cursor = UCursor::from(buf);
         let outer = Arc::new(NetworkMessage::deserialize(
-            self.get_remote_peer(),
+            self.remote_peer(),
             self.ip(),
             buf_cursor,
         ));
@@ -500,6 +502,25 @@ impl Connection {
         self.message_handler.process_message(&outer)
     }
 
+    fn validate_packet_type(&self, buf: &[u8]) -> Fallible<()> {
+        // TODO TODO TODO - proper way that Miguel now decodes enum msg types
+        // if self.mode() == P2PNodeMode::BootstrapperMode {
+        // if let Ok(msg_id_str) = std::str::from_utf8(buf) {
+        // match ProtocolMessageType::try_from(msg_id_str) {
+        // Ok(ProtocolMessageType::DirectMessage)
+        // | Ok(ProtocolMessageType::BroadcastedMessage) => {
+        // bail!(fails::PeerError{message : &"Wrong data type message received for
+        // node"}) }
+        // _ => return Ok(()),
+        // }
+        // }
+        // Ok(())
+        // } else {
+        // Ok(())
+        // }
+        Ok(())
+    }
+
     fn validate_packet(&mut self, poll: &mut Poll) {
         if !self.pkt_validated() {
             let buff = if let Some(ref bytebuf) = self.pkt_buffer {
@@ -512,21 +533,10 @@ impl Connection {
                 None
             };
             if let Some(ref bufdata) = buff {
-                if self.mode() == P2PNodeMode::BootstrapperMode {
-                    if let Ok(msg_id_str) = std::str::from_utf8(bufdata) {
-                        match ProtocolMessageType::try_from(msg_id_str) {
-                            Ok(ProtocolMessageType::DirectMessage)
-                            | Ok(ProtocolMessageType::BroadcastedMessage) => {
-                                info!(
-                                    "Received network packet message, not wanted - disconnecting \
-                                     peer"
-                                );
-                                &self.clear_buffer();
-                                &self.close(poll);
-                            }
-                            _ => {}
-                        }
-                    }
+                if let Err(_) = self.validate_packet_type(bufdata) {
+                    info!("Received network packet message, not wanted - disconnecting peer");
+                    &self.clear_buffer();
+                    &self.close(poll);
                 } else {
                     self.set_valid();
                     self.set_validated();
@@ -550,6 +560,7 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
+                self.validate_packet_type(&buffered)?;
                 drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
             }
 
@@ -570,6 +581,7 @@ impl Connection {
                     if let Some(ref mut buf) = self.pkt_buffer {
                         buffered = buf[..].to_vec();
                     }
+                    self.validate_packet_type(&buffered)?;
                     drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
                 }
                 self.clear_buffer();
@@ -585,6 +597,7 @@ impl Connection {
                 if let Some(ref mut buf) = self.pkt_buffer {
                     buffered = buf[..].to_vec();
                 }
+                self.validate_packet_type(&buffered)?;
                 drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
             }
             self.clear_buffer();
@@ -630,7 +643,7 @@ impl Connection {
         if wants_write {
             debug!(
                 "{}/{}:{} is attempting to write to socket {:?}",
-                self.id(),
+                self.local_id(),
                 self.ip(),
                 self.port(),
                 self.socket
@@ -665,20 +678,20 @@ impl Connection {
         self.dptr.borrow().prometheus_exporter.clone()
     }
 
-    pub fn mode(&self) -> P2PNodeMode { self.dptr.borrow().mode }
+    pub fn local_peer_type(&self) -> PeerType { self.dptr.borrow().local_peer.peer_type() }
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn peer(&self) -> Option<P2PPeer> { self.dptr.borrow().peer().to_owned() }
+    pub fn set_remote_peer(&mut self, peer: P2PPeer) {
+        self.dptr.borrow_mut().set_remote_peer(peer);
+    }
 
-    pub fn set_peer(&mut self, peer: P2PPeer) { self.dptr.borrow_mut().set_peer(peer); }
+    pub fn remote_end_networks(&self) -> HashSet<NetworkId> {
+        self.dptr.borrow().remote_end_networks.clone()
+    }
 
-    pub fn networks(&self) -> HashSet<NetworkId> { self.dptr.borrow().networks.clone() }
-
-    pub fn connection_type(&self) -> ConnectionType { self.dptr.borrow().connection_type }
-
-    pub fn own_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
-        Arc::clone(&self.dptr.borrow().own_networks)
+    pub fn local_end_networks(&self) -> Arc<RwLock<HashSet<NetworkId>>> {
+        Arc::clone(&self.dptr.borrow().local_end_networks)
     }
 
     pub fn token(&self) -> Token { self.token }

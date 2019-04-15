@@ -9,13 +9,8 @@ extern crate grpciowin as grpcio;
 mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
-        configuration::Config,
-        connection::{P2PEvent, P2PNodeMode},
-        db::P2PDB,
-        network::NetworkMessage,
-        p2p::p2p_node::P2PNode,
-        proto::*,
-        rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, connection::P2PEvent, db::P2PDB,
+        network::NetworkMessage, p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
         sync::{
@@ -75,9 +70,9 @@ mod tests {
                     }
                 }
             });
-            let node_type = match &$nt[..] {
-                "NormalMode" => P2PNodeMode::NormalMode,
-                "BootstrapperMode" => P2PNodeMode::BootstrapperMode,
+            let peer_type = match &$nt[..] {
+                "Node" => PeerType::Node,
+                "Bootstrapper" => PeerType::Bootstrapper,
                 _ => panic!(),
             };
 
@@ -88,7 +83,7 @@ mod tests {
                 100,
             );
 
-            let node = P2PNode::new($id, &config, pkt_in, Some(sender), node_type, None);
+            let node = P2PNode::new($id, &config, pkt_in, Some(sender), peer_type, None);
 
             let rpc_port = next_port_offset_rpc(1);
             config.cli.rpc.rpc_server_port = rpc_port;
@@ -114,8 +109,8 @@ mod tests {
 
     #[test]
     pub fn test_grpc_version() {
-        let node_type = "NormalMode".to_string();
-        create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
+        let peer_type = "Node".to_string();
+        create_node_rpc_call_option_mode!(client, rpc_serv, call_options, peer_type, None);
         let reply = client
             .peer_version_opt(&Empty::new(), call_options)
             .expect("rpc");
@@ -127,8 +122,8 @@ mod tests {
 
     #[test]
     pub fn test_grpc_noauth() {
-        let node_type = "NormalMode".to_string();
-        create_node_rpc_call_option_mode!(client, rpc_serv, _call_options, node_type, None);
+        let peer_type = "Node".to_string();
+        create_node_rpc_call_option_mode!(client, rpc_serv, _call_options, peer_type, None);
         match client.peer_version(&Empty::new()) {
             Err(::grpcio::Error::RpcFailure(ref x)) => {
                 assert_eq!(x.status, RpcStatusCode::Unauthenticated)
@@ -139,41 +134,41 @@ mod tests {
         rpc_serv.stop_server().expect("rpc");
     }
 
-    // Tests that PeerList call effectively returns the correct P2PNodeMode
+    // Tests that PeerList call effectively returns the correct PeerType
     #[test]
     pub fn test_grpc_peer_list_node_type() {
-        let modes = [P2PNodeMode::NormalMode, P2PNodeMode::BootstrapperMode];
+        let types = [PeerType::Node, PeerType::Bootstrapper];
 
-        for m in modes.into_iter().map(|x| format!("{:?}", x)) {
+        for m in types.into_iter().map(|x| format!("{:?}", x)) {
             info!("testing mode: {}", m);
             grpc_peer_list_node_type_str(m);
         }
     }
 
-    fn grpc_peer_list_node_type_str(node_type: String) {
-        create_node_rpc_call_option_mode!(client, rpc_serv, call_options, node_type, None);
+    fn grpc_peer_list_node_type_str(peer_type: String) {
+        create_node_rpc_call_option_mode!(client, rpc_serv, call_options, peer_type, None);
         let reply = client
             .peer_list_opt(&Empty::new(), call_options)
             .expect("rpc");
-        let node_type = match node_type.as_str() {
-            "NormalMode" => "Normal",
-            "BootstrapperMode" => "Bootstrapper",
+        let peer_type = match peer_type.as_str() {
+            "Node" => "Node",
+            "Bootstrapper" => "Bootstrapper",
             _ => panic!(),
         };
-        assert_eq!(reply.node_type, node_type);
+        assert_eq!(reply.peer_type, peer_type);
 
         rpc_serv.stop_server().expect("rpc");
     }
 
     #[test]
     pub fn test_grpc_node_info() {
-        let node_type = "NormalMode";
+        let peer_type = "Node";
         let id = "000000002dd2b6ed";
         create_node_rpc_call_option_mode!(
             client,
             rpc_serv,
             call_options,
-            node_type,
+            peer_type,
             Some(id.to_owned())
         );
         let instant1 = SystemTime::now()
@@ -188,7 +183,7 @@ mod tests {
             .expect("time")
             .as_secs();
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
-        assert_eq!(reply.node_type, "Normal");
+        assert_eq!(reply.peer_type, "Node");
         assert_eq!(reply.node_id.unwrap().get_value(), id);
     }
 }

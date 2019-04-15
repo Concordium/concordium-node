@@ -78,20 +78,20 @@ pub fn log_as_leave_network(
 
 /// It sends handshake message and a ping message.
 pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
-    let (my_nets, self_peer) = {
+    let (my_nets, local_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
-        let my_nets = priv_conn_borrow.networks.clone();
-        let self_peer = priv_conn_borrow.self_peer.to_owned();
-        (my_nets, self_peer)
+        let remote_end_networks = priv_conn_borrow.remote_end_networks.clone();
+        let local_peer = priv_conn_borrow.local_peer.to_owned();
+        (remote_end_networks, local_peer)
     };
 
     let session = &mut priv_conn.borrow_mut().tls_session;
     serialize_bytes(
         session,
-        &NetworkResponse::Handshake(self_peer.clone(), my_nets, vec![]).serialize(),
+        &NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize(),
     )?;
 
-    serialize_bytes(session, &NetworkRequest::Ping(self_peer).serialize())?;
+    serialize_bytes(session, &NetworkRequest::Ping(local_peer).serialize())?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
@@ -116,8 +116,8 @@ pub fn send_peer_list(
             nets,
         );
 
-        let self_peer = &priv_conn_borrow.self_peer;
-        NetworkResponse::PeerList(self_peer.to_owned(), random_nodes).serialize()
+        let local_peer = &priv_conn_borrow.local_peer;
+        NetworkResponse::PeerList(local_peer.to_owned(), random_nodes).serialize()
     };
 
     serialize_bytes(&mut priv_conn.borrow_mut().tls_session, &data)?;

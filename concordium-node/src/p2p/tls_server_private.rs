@@ -3,15 +3,14 @@ use mio::{Event, Poll, Token};
 use std::{
     cell::RefCell,
     collections::HashSet,
-    mem,
     net::{IpAddr, SocketAddr},
     rc::Rc,
     sync::{mpsc::Sender, Arc, RwLock},
 };
 
 use crate::{
-    common::{get_current_stamp, ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder},
-    connection::{Connection, P2PNodeMode},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
+    connection::Connection,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     prometheus_exporter::PrometheusServer,
 };
@@ -66,7 +65,7 @@ impl TlsServerPrivate {
         let p2p_peer = P2PPeerBuilder::default()
             .ip(sockaddr.ip())
             .port(sockaddr.port())
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .build()?;
         Ok(self.banned_peers.contains(&p2p_peer))
     }
@@ -91,12 +90,17 @@ impl TlsServerPrivate {
         let mut ret = vec![];
         for ref rc_conn in &self.connections {
             let conn = rc_conn.borrow();
-            if let Some(ref x) = conn.peer() {
-                if nids.len() == 0 || conn.networks().iter().any(|nid| nids.contains(nid)) {
+            if let Some(remote_peer) = conn.remote_peer() {
+                if nids.len() == 0
+                    || conn
+                        .remote_end_networks()
+                        .iter()
+                        .any(|nid| nids.contains(nid))
+                {
                     ret.push(PeerStatistic::new(
-                        x.id().to_string(),
-                        x.ip(),
-                        x.port(),
+                        remote_peer.id().to_string(),
+                        remote_peer.ip(),
+                        remote_peer.port(),
                         conn.get_messages_sent(),
                         conn.get_messages_received(),
                         conn.get_last_latency_measured(),
@@ -111,7 +115,7 @@ impl TlsServerPrivate {
     pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<&Rc<RefCell<Connection>>> {
         self.connections
             .iter()
-            .find(|&conn| conn.borrow().id() == id)
+            .find(|&conn| conn.borrow().remote_id() == Some(id))
     }
 
     pub fn find_connection_by_token(&self, token: Token) -> Option<&Rc<RefCell<Connection>>> {
@@ -137,17 +141,7 @@ impl TlsServerPrivate {
     }
 
     pub fn add_connection(&mut self, conn: Connection) {
-        // if this connection already exists, we assume the old one is stale and replace
-        // it
-        if let Some(con) = self
-            .connections
-            .iter_mut()
-            .find(|c| c.borrow().token() == conn.token())
-        {
-            mem::replace(con, Rc::new(RefCell::new(conn)));
-        } else {
-            self.connections.push(Rc::new(RefCell::new(conn)));
-        }
+        self.connections.push(Rc::new(RefCell::new(conn)));
     }
 
     pub fn conn_event(
@@ -178,10 +172,14 @@ impl TlsServerPrivate {
         Ok(())
     }
 
-    pub fn cleanup_connections(&mut self, mode: P2PNodeMode, mut poll: &mut Poll) -> Fallible<()> {
+    pub fn cleanup_connections(
+        &mut self,
+        peer_type: PeerType,
+        mut poll: &mut Poll,
+    ) -> Fallible<()> {
         let curr_stamp = get_current_stamp();
 
-        if mode == P2PNodeMode::BootstrapperMode {
+        if peer_type == PeerType::Bootstrapper {
             for rc_conn in self.connections.iter() {
                 let mut conn = rc_conn.borrow_mut();
                 if conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp {
@@ -192,7 +190,7 @@ impl TlsServerPrivate {
             for rc_conn in self.connections.iter() {
                 let mut conn = rc_conn.borrow_mut();
                 if (conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
-                    && conn.connection_type() == ConnectionType::Node)
+                    && conn.local_peer().peer_type() == PeerType::Node)
                     || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
                 {
                     conn.close(&mut poll)?;
@@ -221,7 +219,7 @@ impl TlsServerPrivate {
         if let Some(ref prom) = &self.prometheus_exporter {
             let closing_with_peer = closing_conns
                 .iter()
-                .filter(|ref rc_conn| rc_conn.borrow().peer().is_some())
+                .filter(|ref rc_conn| rc_conn.borrow().remote_peer().is_some())
                 .count();
             safe_write!(prom)?.peers_dec_by(closing_with_peer as i64)?;
         }
@@ -247,8 +245,8 @@ impl TlsServerPrivate {
             .for_each(|ref rc_conn| {
                 let mut conn = rc_conn.borrow_mut();
 
-                let self_peer = conn.get_self_peer().to_owned();
-                conn.serialize_bytes(&NetworkRequest::Ping(self_peer).serialize())
+                let local_peer = conn.local_peer();
+                conn.serialize_bytes(&NetworkRequest::Ping(local_peer).serialize())
                     .map_err(|e| error!("{}", e))
                     .ok();
                 conn.set_measured_ping_sent();

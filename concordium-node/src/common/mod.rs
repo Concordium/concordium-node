@@ -31,7 +31,7 @@ const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub enum ConnectionType {
+pub enum PeerType {
     Node,
     Bootstrapper,
 }
@@ -45,7 +45,7 @@ pub struct P2PPeer {
     port: u16,
     #[builder(setter(skip))]
     last_seen: u64,
-    connection_type: ConnectionType,
+    peer_type: PeerType,
 }
 
 impl P2PPeerBuilder {
@@ -53,13 +53,10 @@ impl P2PPeerBuilder {
         let id = self.id.unwrap_or_else(|| P2PNodeId::default());
         self.id(id);
 
-        if self.connection_type.is_some()
-            && self.id.is_some()
-            && self.ip.is_some()
-            && self.port.is_some()
+        if self.peer_type.is_some() && self.id.is_some() && self.ip.is_some() && self.port.is_some()
         {
             Ok(P2PPeer {
-                connection_type: self.connection_type.unwrap(),
+                peer_type: self.peer_type.unwrap(),
                 ip: self.ip.unwrap(),
                 port: self.port.unwrap(),
                 id,
@@ -67,7 +64,7 @@ impl P2PPeerBuilder {
             })
         } else {
             bail!(fails::MissingFieldsError::new(
-                self.connection_type,
+                self.peer_type,
                 self.id,
                 self.ip,
                 self.port
@@ -130,9 +127,9 @@ fn deserialize_ip6(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
 }
 
 impl P2PPeer {
-    pub fn from(connection_type: ConnectionType, id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
+    pub fn from(peer_type: PeerType, id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
         P2PPeer {
-            connection_type,
+            peer_type,
             id,
             ip,
             port,
@@ -206,7 +203,7 @@ impl P2PPeer {
             .id(node_id)
             .ip(ip_addr)
             .port(port)
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .build()
     }
 
@@ -218,7 +215,7 @@ impl P2PPeer {
 
     pub fn last_seen(&self) -> u64 { self.last_seen }
 
-    pub fn connection_type(&self) -> ConnectionType { self.connection_type }
+    pub fn peer_type(&self) -> PeerType { self.peer_type }
 }
 
 impl PartialEq for P2PPeer {
@@ -279,7 +276,7 @@ mod tests {
 
     fn dummy_peer(ip: IpAddr, port: u16) -> P2PPeer {
         P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .ip(ip)
             .port(port)
             .build()

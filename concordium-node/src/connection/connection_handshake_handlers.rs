@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use super::{fails, handler_utils::*};
 use crate::{
-    common::{functor::FunctorResult, get_current_stamp, ConnectionType, P2PPeer},
+    common::{functor::FunctorResult, get_current_stamp, P2PPeer, PeerType},
     connection::connection_private::ConnectionPrivate,
     network::{NetworkRequest, NetworkResponse},
 };
@@ -12,20 +12,25 @@ pub fn handshake_response_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkResponse,
 ) -> FunctorResult {
-    if let NetworkResponse::Handshake(ref rpeer, ref nets, _) = req {
+    if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = req {
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.sent_handshake = get_current_stamp();
-            priv_conn_mut.add_networks(nets);
-            priv_conn_mut.set_peer(rpeer.to_owned());
+            priv_conn_mut.add_remote_end_networks(nets);
+            priv_conn_mut.set_remote_peer(remote_peer.to_owned());
         }
 
-        let priv_conn_borrow = priv_conn.borrow();
-        let conn_type = priv_conn_borrow.connection_type;
-        let bucket_sender = P2PPeer::from(conn_type, rpeer.id(), rpeer.ip(), rpeer.port());
-        safe_write!(priv_conn_borrow.buckets)?.insert_into_bucket(&bucket_sender, nets.clone());
-
-        if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
+        let bucket_sender = P2PPeer::from(
+            remote_peer.peer_type(),
+            remote_peer.id(),
+            remote_peer.ip(),
+            remote_peer.port(),
+        );
+        if remote_peer.peer_type() != PeerType::Bootstrapper {
+            safe_write!(priv_conn.borrow().buckets)?
+                .insert_into_bucket(&bucket_sender, nets.clone());
+        }
+        if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
             safe_write!(prom)?.peers_inc()?;
         };
         Ok(())
@@ -46,8 +51,8 @@ pub fn handshake_request_handle(
         // Setup peer and networks before send Handshake.
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
-            priv_conn_mut.add_networks(nets);
-            priv_conn_mut.set_peer(sender.to_owned());
+            priv_conn_mut.add_remote_end_networks(nets);
+            priv_conn_mut.set_remote_peer(sender.to_owned());
         }
         send_handshake_and_ping(priv_conn)?;
         {
@@ -58,7 +63,7 @@ pub fn handshake_request_handle(
 
         update_buckets(priv_conn, sender, nets.clone())?;
 
-        if priv_conn.borrow().connection_type == ConnectionType::Bootstrapper {
+        if sender.peer_type() == PeerType::Bootstrapper {
             send_peer_list(priv_conn, sender, nets)?;
         }
         Ok(())

@@ -23,12 +23,11 @@ use std::{
 };
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, ConnectionType, P2PNodeId, P2PPeer, UCursor},
+    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, UCursor},
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
-        NetworkResponseCW, P2PEvent, P2PNodeMode, RequestHandler, ResponseHandler,
-        SeenMessagesList,
+        NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
@@ -65,7 +64,6 @@ pub struct P2PNode {
     tls_server:          Arc<RwLock<TlsServer>>,
     poll:                Arc<RwLock<Poll>>,
     id:                  P2PNodeId,
-    buckets:             Arc<RwLock<Buckets>>,
     send_queue:          Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
     ip:                  IpAddr,
     port:                u16,
@@ -73,7 +71,7 @@ pub struct P2PNode {
     event_log:           Option<Sender<P2PEvent>>,
     start_time:          DateTime<Utc>,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-    mode:                P2PNodeMode,
+    peer_type:           PeerType,
     external_ip:         IpAddr,
     external_port:       u16,
     seen_messages:       SeenMessagesList,
@@ -92,7 +90,7 @@ impl P2PNode {
         conf: &configuration::Config,
         pkt_queue: Sender<Arc<NetworkMessage>>,
         event_log: Option<Sender<P2PEvent>>,
-        mode: P2PNodeMode,
+        peer_type: PeerType,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
@@ -228,11 +226,9 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(ConnectionType::Node, id, own_peer_ip, own_peer_port);
+        let self_peer = P2PPeer::from(PeerType::Node, id, own_peer_ip, own_peer_port);
 
         let seen_messages = SeenMessagesList::new();
-
-        let buckets = Arc::new(RwLock::new(Buckets::new()));
 
         let networks: HashSet<NetworkId> = conf
             .common
@@ -247,10 +243,9 @@ impl P2PNode {
             Arc::new(client_conf),
             event_log.clone(),
             self_peer,
-            mode,
             prometheus_exporter.clone(),
             networks,
-            Arc::clone(&buckets),
+            Arc::new(RwLock::new(Buckets::new())),
             conf.connection.no_trust_broadcasts,
         );
 
@@ -270,7 +265,6 @@ impl P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
             poll: Arc::new(RwLock::new(poll)),
             id,
-            buckets,
             send_queue: Arc::new(RwLock::new(VecDeque::new())),
             ip,
             port: conf.common.listen_port,
@@ -280,7 +274,7 @@ impl P2PNode {
             prometheus_exporter,
             external_ip: own_peer_ip,
             external_port: own_peer_port,
-            mode,
+            peer_type,
             seen_messages,
             process_th: None,
             quit_tx: None,
@@ -396,7 +390,7 @@ impl P2PNode {
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
         if !self.config.no_net
             && self.config.desired_nodes_count > peer_stat_list.len() as u8
-            && self.mode != P2PNodeMode::BootstrapperMode
+            && self.peer_type != PeerType::Bootstrapper
         {
             if peer_stat_list.is_empty() {
                 if !self.config.no_bootstrap_dns {
@@ -410,7 +404,7 @@ impl P2PNode {
                         Ok(nodes) => {
                             for (ip, port) in nodes {
                                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                self.connect(ConnectionType::Bootstrapper, ip, port, None)
+                                self.connect(PeerType::Bootstrapper, ip, port, None)
                                     .map_err(|e| info!("{}", e))
                                     .ok();
                             }
@@ -472,7 +466,7 @@ impl P2PNode {
 
     pub fn connect(
         &mut self,
-        connection_type: ConnectionType,
+        peer_type: PeerType,
         ip: IpAddr,
         port: u16,
         peer_id: Option<P2PNodeId>,
@@ -481,7 +475,7 @@ impl P2PNode {
         let mut locked_server = safe_write!(self.tls_server)?;
         let mut locked_poll = safe_write!(self.poll)?;
         locked_server.connect(
-            connection_type,
+            peer_type,
             &mut locked_poll,
             ip,
             port,
@@ -496,7 +490,7 @@ impl P2PNode {
 
     pub fn get_listening_port(&self) -> u16 { self.port }
 
-    pub fn get_node_mode(&self) -> P2PNodeMode { self.mode }
+    pub fn peer_type(&self) -> PeerType { self.peer_type }
 
     fn log_event(&mut self, event: P2PEvent) {
         if let Some(ref mut x) = self.event_log {
@@ -511,7 +505,7 @@ impl P2PNode {
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
-        if let Some(ref peer) = conn.peer().to_owned() {
+        if let Some(remote_peer) = conn.remote_peer() {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc().unwrap(); // assuming non-failable
@@ -520,7 +514,7 @@ impl P2PNode {
                 Err(e) => {
                     error!(
                         "Could not send to peer {} due to {}",
-                        peer.id().to_string(),
+                        remote_peer.id().to_string(),
                         e
                     );
                 }
@@ -868,7 +862,7 @@ impl P2PNode {
 
     fn get_self_peer(&self) -> P2PPeer {
         P2PPeer::from(
-            ConnectionType::Node,
+            PeerType::Node,
             self.id(),
             self.get_listening_ip(),
             self.get_listening_port(),
@@ -888,7 +882,7 @@ impl P2PNode {
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
         safe_read!(self.poll)?.poll(events, Some(Duration::from_millis(1000)))?;
 
-        if self.mode != P2PNodeMode::BootstrapperMode {
+        if self.peer_type != PeerType::Bootstrapper {
             safe_read!(self.tls_server)?.liveness_check()?;
         }
 
@@ -970,8 +964,8 @@ impl MessageManager for P2PNode {
 }
 
 fn is_conn_peer_id(conn: &Connection, id: &P2PNodeId) -> bool {
-    if let Some(ref peer) = conn.peer() {
-        peer.id() == *id
+    if let Some(remote_peer) = conn.remote_peer() {
+        remote_peer.id() == *id
     } else {
         false
     }
@@ -985,11 +979,11 @@ pub fn is_valid_connection_in_broadcast(
     sender: &P2PPeer,
     network_id: NetworkId,
 ) -> bool {
-    if let Some(ref peer) = conn.peer() {
-        if peer.id() != sender.id() && peer.connection_type() != ConnectionType::Bootstrapper {
-            let own_networks = conn.own_networks();
-            return safe_read!(own_networks)
-                .expect("Couldn't lock own networks")
+    if let Some(remote_peer) = conn.remote_peer() {
+        if remote_peer.id() != sender.id() && remote_peer.peer_type() != PeerType::Bootstrapper {
+            let local_end_networks = conn.local_end_networks();
+            return safe_read!(local_end_networks)
+                .expect("Couldn't lock local-end networks")
                 .contains(&network_id);
         }
     }

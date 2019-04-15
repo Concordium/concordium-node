@@ -1,7 +1,7 @@
 mod fails;
 
 use crate::{
-    common::{ConnectionType, P2PNodeId, P2PPeer},
+    common::{P2PNodeId, P2PPeer, PeerType},
     configuration,
     db::P2PDB,
     failure::{Error, Fallible},
@@ -273,7 +273,7 @@ impl P2P for RpcServerImpl {
                 r.set_value(
                     self.node
                         .borrow_mut()
-                        .connect(ConnectionType::Node, ip, port, None)
+                        .connect(PeerType::Node, ip, port, None)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -546,12 +546,12 @@ impl P2P for RpcServerImpl {
                         })
                         .collect();
                     let mut resp = PeerListResponse::new();
-                    let node_type = match &format!("{:?}", borrowed_node.get_node_mode())[..] {
-                        "NormalMode" | "NormalPrivateMode" => "Normal",
-                        "BootstrapperMode" | "BootstrapperPrivateMode" => "Bootstrapper",
+                    let peer_type = match &format!("{:?}", borrowed_node.peer_type())[..] {
+                        "Node" => "Node",
+                        "Bootstrapper" => "Bootstrapper",
                         _ => panic!(),
                     };
-                    resp.set_node_type(node_type.to_string());
+                    resp.set_peer_type(peer_type.to_string());
                     resp.set_peer(::protobuf::RepeatedField::from_vec(data));
                     sink.success(resp)
                 }
@@ -582,12 +582,12 @@ impl P2P for RpcServerImpl {
                 .as_secs();
             resp.set_current_localtime(curtime);
             // TODO: use enums for matching
-            let node_type = match &format!("{:?}", self.node.borrow().get_node_mode())[..] {
-                "NormalMode" | "NormalPrivateMode" => "Normal",
-                "BootstrapperMode" | "BootstrapperPrivateMode" => "Bootstrapper",
+            let peer_type = match &format!("{:?}", self.node.borrow().peer_type())[..] {
+                "Node" => "Node",
+                "Bootstrapper" => "Bootstrapper",
                 _ => panic!(),
             };
-            resp.set_node_type(node_type.to_string());
+            resp.set_peer_type(peer_type.to_string());
             let f = sink
                 .success(resp)
                 .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
@@ -688,8 +688,7 @@ impl P2P for RpcServerImpl {
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {
                     let mut node = self.node.borrow_mut();
-                    let peer =
-                        P2PPeer::from(ConnectionType::Node, node_id.unwrap(), ip.unwrap(), port);
+                    let peer = P2PPeer::from(PeerType::Node, node_id.unwrap(), ip.unwrap(), port);
                     if node.ban_node(peer.clone()).is_ok() {
                         let db_done = self.db.insert_ban(
                             &peer.id().to_string(),
@@ -738,8 +737,7 @@ impl P2P for RpcServerImpl {
                 let port = req.get_port().get_value() as u16;
                 if node_id.is_ok() && ip.is_ok() {
                     let mut node = self.node.borrow_mut();
-                    let peer =
-                        P2PPeer::from(ConnectionType::Node, node_id.unwrap(), ip.unwrap(), port);
+                    let peer = P2PPeer::from(PeerType::Node, node_id.unwrap(), ip.unwrap(), port);
                     if node.unban_node(peer.clone()).is_ok() {
                         let db_done = self.db.delete_ban(
                             peer.id().to_string(),

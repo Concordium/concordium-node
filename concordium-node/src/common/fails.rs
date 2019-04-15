@@ -1,4 +1,4 @@
-use super::{ConnectionType, P2PNodeId};
+use super::{P2PNodeId, PeerType};
 use failure::Fail;
 use num_bigint::ParseBigIntError;
 use std::net::IpAddr;
@@ -9,25 +9,25 @@ pub struct EmptyIpPortError;
 
 #[derive(Debug, Fail)]
 #[fail(
-    display = "Missing fields on P2PPeer build: conn<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>",
-    connection_type, id, ip, port
+    display = "Missing fields on P2PPeer build: type<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>",
+    peer_type, id, ip, port
 )]
 pub struct MissingFieldsError {
-    connection_type: Option<ConnectionType>,
-    id:              Option<P2PNodeId>,
-    ip:              Option<IpAddr>,
-    port:            Option<u16>,
+    peer_type: Option<PeerType>,
+    id:        Option<P2PNodeId>,
+    ip:        Option<IpAddr>,
+    port:      Option<u16>,
 }
 
 impl MissingFieldsError {
     pub fn new(
-        connection_type: Option<ConnectionType>,
+        peer_type: Option<PeerType>,
         id: Option<P2PNodeId>,
         ip: Option<IpAddr>,
         port: Option<u16>,
     ) -> MissingFieldsError {
         MissingFieldsError {
-            connection_type,
+            peer_type,
             id,
             ip,
             port,

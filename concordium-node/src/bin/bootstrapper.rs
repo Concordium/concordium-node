@@ -17,8 +17,9 @@ use chrono::prelude::Utc;
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
+    common::PeerType,
     configuration,
-    connection::{MessageManager, P2PEvent, P2PNodeMode},
+    connection::{MessageManager, P2PEvent},
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
@@ -147,7 +148,7 @@ fn main() -> Result<(), Error> {
             &conf,
             pkt_in,
             Some(sender),
-            P2PNodeMode::BootstrapperMode,
+            PeerType::Bootstrapper,
             arc_prometheus,
         )))
     } else {
@@ -156,7 +157,7 @@ fn main() -> Result<(), Error> {
             &conf,
             pkt_in,
             None,
-            P2PNodeMode::BootstrapperMode,
+            PeerType::Bootstrapper,
             arc_prometheus,
         )))
     };

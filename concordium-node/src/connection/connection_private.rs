@@ -9,8 +9,8 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, ConnectionType, P2PPeer},
-    connection::{CommonSession, P2PEvent, P2PNodeMode},
+    common::{get_current_stamp, P2PPeer, PeerType},
+    connection::{CommonSession, P2PEvent},
     network::{Buckets, NetworkId},
     prometheus_exporter::PrometheusServer,
 };
@@ -21,13 +21,11 @@ use crate::{
 ///     - This structure as a shared object, like `Rc< RefCell<...>>`
 ///     - The input message.
 pub struct ConnectionPrivate {
-    pub connection_type: ConnectionType,
-    pub mode:            P2PNodeMode,
-    pub self_peer:       P2PPeer,
-    peer:                Option<P2PPeer>,
-    pub networks:        HashSet<NetworkId>,
-    pub own_networks:    Arc<RwLock<HashSet<NetworkId>>>,
-    pub buckets:         Arc<RwLock<Buckets>>,
+    pub local_peer:          P2PPeer,
+    pub remote_peer:         Option<P2PPeer>,
+    pub remote_end_networks: HashSet<NetworkId>,
+    pub local_end_networks:  Arc<RwLock<HashSet<NetworkId>>>,
+    pub buckets:             Arc<RwLock<Buckets>>,
 
     // Session
     pub tls_session: Box<dyn CommonSession>,
@@ -48,10 +46,8 @@ pub struct ConnectionPrivate {
 
 impl ConnectionPrivate {
     pub fn new(
-        connection_type: ConnectionType,
-        mode: P2PNodeMode,
-        self_peer: P2PPeer,
-        own_networks: Arc<RwLock<HashSet<NetworkId>>>,
+        local_peer: P2PPeer,
+        local_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
@@ -69,12 +65,10 @@ impl ConnectionPrivate {
         };
 
         ConnectionPrivate {
-            connection_type,
-            mode,
-            self_peer,
-            peer: None,
-            networks: HashSet::new(),
-            own_networks,
+            local_peer,
+            remote_peer: None,
+            remote_end_networks: HashSet::new(),
+            local_end_networks,
             buckets,
             tls_session,
             last_seen: AtomicU64::new(get_current_stamp()),
@@ -89,7 +83,7 @@ impl ConnectionPrivate {
     }
 
     pub fn update_last_seen(&mut self) {
-        if self.mode != P2PNodeMode::BootstrapperMode {
+        if self.local_peer.peer_type() != PeerType::Bootstrapper {
             self.last_seen.store(get_current_stamp(), Ordering::Relaxed);
         }
     }
@@ -97,20 +91,24 @@ impl ConnectionPrivate {
     pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::Relaxed) }
 
     #[inline]
-    pub fn add_network(&mut self, network: NetworkId) { self.networks.insert(network); }
-
-    #[inline]
-    pub fn add_networks(&mut self, networks: &HashSet<NetworkId>) {
-        self.networks.extend(networks.iter())
+    pub fn add_remote_end_network(&mut self, network: NetworkId) {
+        self.remote_end_networks.insert(network);
     }
 
-    pub fn remove_network(&mut self, network: &NetworkId) { self.networks.remove(network); }
+    #[inline]
+    pub fn add_remote_end_networks(&mut self, networks: &HashSet<NetworkId>) {
+        self.remote_end_networks.extend(networks.iter())
+    }
+
+    pub fn remove_remote_end_network(&mut self, network: &NetworkId) {
+        self.remote_end_networks.remove(network);
+    }
 
     pub fn set_measured_ping_sent(&mut self) { self.sent_ping = get_current_stamp() }
 
-    pub fn peer(&self) -> Option<P2PPeer> { self.peer.clone() }
+    pub fn remote_peer(&self) -> Option<P2PPeer> { self.remote_peer.clone() }
 
-    pub fn set_peer(&mut self, p: P2PPeer) { self.peer = Some(p); }
+    pub fn set_remote_peer(&mut self, p: P2PPeer) { self.remote_peer = Some(p); }
 
     #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
