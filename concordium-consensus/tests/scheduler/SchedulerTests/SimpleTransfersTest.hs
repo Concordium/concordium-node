@@ -6,6 +6,8 @@ module SchedulerTests.SimpleTransfersTest where
 
 import Test.Hspec
 
+import Lens.Micro.Platform
+
 import qualified Concordium.ID.AccountHolder as AH
 import qualified Concordium.ID.Types as AH
 import qualified Concordium.Crypto.Signature as S
@@ -88,8 +90,8 @@ testSimpleTransfer = do
     
     return (suc,
             fails,
-            Types.accountAmount $ alesAccount `Acc.unsafeGetAccount` (blockAccounts gstate),
-            Types.accountAmount $ thomasAccount `Acc.unsafeGetAccount` (blockAccounts gstate))
+            alesAccount `Acc.unsafeGetAccount` (blockAccounts gstate) ^. Types.accountAmount,
+            thomasAccount `Acc.unsafeGetAccount` (blockAccounts gstate) ^. Types.accountAmount)
 
 checkSimpleTransferResult :: ([(a, Types.ValidResult)], [b], Types.Amount, Types.Amount) -> Bool
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =

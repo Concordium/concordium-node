@@ -26,11 +26,12 @@ import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 
+import Lens.Micro.Platform
+
 import Prelude hiding (exp, mod)
 
 getCurrentAmount :: TransactionMonad m => AccountAddress -> m (Maybe Amount)
-getCurrentAmount addr = (accountAmount <$>) <$> getCurrentAccount addr
-
+getCurrentAmount addr = ((^. accountAmount) <$>) <$> getCurrentAccount addr
 
 -- |Check that the transaction has a valid sender, and that the amount they have
 -- deposited is on their account.
@@ -40,8 +41,8 @@ checkHeader meta = do
   case macc of
     Nothing -> return False
     Just acc ->
-      let amnt = accountAmount acc
-          nextNonce = accountNonce acc
+      let amnt = acc ^. accountAmount
+          nextNonce = acc ^. accountNonce
           txnonce = thNonce meta
       in return (thGasAmount meta <= amnt && txnonce == nextNonce)
 
@@ -99,9 +100,9 @@ dispatch msg = do
     
           -- FIXME: This is only temporary for now.
           -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
-          Transfer to amount -> do
+          Transfer toaddr amount -> do
             remainingAmount <- payForExecution (thSender meta) energy
-            res <- evalLocalT (handleTransfer meta remainingAmount amount to energy)
+            res <- evalLocalT (handleTransfer meta remainingAmount amount toaddr energy)
             case res of
               (Right (events, changeSet), energy') -> do
                 commitStateAndAccountChanges changeSet
@@ -127,10 +128,10 @@ dispatch msg = do
             if AH.verifyAccount aci
             then do -- if account information is correct then we create the account with initial nonce 1
               let aaddr = AH.accountAddress aci
-              let account = Account { accountAddress = aaddr
-                                    , accountNonce = 1
-                                    , accountAmount = 0
-                                    , accountCreationInformation = aci }
+              let account = Account { _accountAddress = aaddr
+                                    , _accountNonce = 1
+                                    , _accountAmount = 0
+                                    , _accountCreationInformation = aci }
               r <- putNewAccount account
               if r then
                 return $ TxValid (TxSuccess [AccountCreated aaddr])

@@ -8,6 +8,8 @@ import Concordium.Scheduler.Environment
 
 import Data.HashMap.Strict as Map
 
+import Lens.Micro.Platform
+
 import Control.Monad.Reader
 import Control.Monad.RWS.Strict
 
@@ -44,7 +46,7 @@ instance SchedulerMonad SchedulerImplementation where
   {-# INLINE getAccount #-}
   getAccount addr = (Acc.getAccount addr . blockAccounts) <$> get
 
-  commitStateAndAccountChanges (ChangeSet{..}) = do
+  commitStateAndAccountChanges cs = do
     s <- get
     -- INVARIANT: the invariant which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
@@ -52,8 +54,8 @@ instance SchedulerMonad SchedulerImplementation where
     let Ins.Instances is = blockInstances s
     let instances' = Ins.Instances $ Map.foldlWithKey' (\acc addr (amnt, val) -> Map.adjust (\i -> i { iamount = amnt, imodel = val }) addr acc)
                                                        is
-                                                       newContractStates
-    let accounts' = Map.foldl' (\r acc -> Acc.putAccount acc r) (blockAccounts s) newAccounts
+                                                       (cs ^. newContractStates)
+    let accounts' = Map.foldl' (flip Acc.putAccount) (blockAccounts s) (cs ^. newAccounts)
     put (s { blockInstances = instances', blockAccounts = accounts'})
 
   {-# INLINE commitModule #-}
@@ -75,12 +77,12 @@ instance SchedulerMonad SchedulerImplementation where
   increaseAccountNonce addr = do
     s <- get
     let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- NB: Relies on precondition.
-    put (s { blockAccounts = Acc.putAccount (acc { accountNonce = accountNonce acc + 1 }) (blockAccounts s) })
+    put (s { blockAccounts = Acc.putAccount (acc & accountNonce +~ 1) (blockAccounts s) })
 
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do
     s <- get
-    let addr = accountAddress acc
+    let addr = acc ^. accountAddress
     if addr `Acc.exists` blockAccounts s then return False
     else True <$ put (s { blockAccounts = Acc.putAccount acc (blockAccounts s) })
 
@@ -89,9 +91,9 @@ instance SchedulerMonad SchedulerImplementation where
   payForExecution addr amnt = do
     s <- get
     let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
-    let camnt = accountAmount acc
+    let camnt = acc ^. accountAmount
     let newamount = camnt - (energyToGtu amnt)
-    let accs = Acc.putAccount (acc { accountAmount = newamount}) (blockAccounts s)
+    let accs = Acc.putAccount (acc & accountAmount .~ newamount) (blockAccounts s)
     put (s { blockAccounts = accs })
     return newamount
 
@@ -99,9 +101,9 @@ instance SchedulerMonad SchedulerImplementation where
   refundEnergy addr amnt = do
     s <- get
     let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
-    let camnt = accountAmount acc
+    let camnt = acc ^. accountAmount
     let newamount = camnt + (energyToGtu amnt)
-    let accs = Acc.putAccount (acc { accountAmount = newamount}) (blockAccounts s)
+    let accs = Acc.putAccount (acc & accountAmount .~ newamount) (blockAccounts s)
     put (s { blockAccounts = accs })
 
   {-# INLINE firstFreeAddress #-}
