@@ -73,5 +73,5 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
                          lastFinal
                          newState
     -- update the current focus block to the newly created block to maintain invariants.
-    updateFocusBlockTo newbp
+    putFocusBlock newbp
     return newbp

@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, update, mateuszAccount, mateuszACI) where
+module Concordium.Scheduler.Utils.Init.Example (initialState, update, makeTransaction, mateuszAccount, mateuszACI) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
@@ -91,6 +91,13 @@ update b n = Types.signTransaction mateuszKP
                                                            , thNonce = fromIntegral n + 1000
                                                            })
               (Types.encodePayload (Types.Update 0 (ContractAddress (fromIntegral n) 0) (Core.App (if b `rem` 9 == 0 then (inCtxTm "Dec") else (inCtxTm "Inc")) (Core.Literal (Core.Int64 10)))))
+
+makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
+makeTransaction inc ca n = Types.signTransaction mateuszKP hdr payload
+    where
+        hdr = Types.TransactionHeader {thSender = mateuszAccount, thGasAmount = 100000, thNonce = n}
+        payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))))
+
 
 -- |State with the given number of contract instances of the counter contract specified.
 initialState :: Int -> BlockState.BlockState
