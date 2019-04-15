@@ -397,33 +397,45 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
                         Left err -> do
                             logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                             mzero
-                        Right gs -> do
-                            curTime <- currentTime
-                            blockP <- makeLiveBlock block parentP lfBlockP gs curTime
-                            logEvent Skov LLInfo $ "Block " ++ show cbp ++ " arrived"
-                            -- Update the statistics
-                            updateArriveStatistics blockP
-                            -- Add to the branches
-                            finHght <- getLastFinalizedHeight
-                            brs <- getBranches
-                            let branchLen = fromIntegral $ Seq.length brs
-                            let insertIndex = height - finHght - 1
-                            if insertIndex < branchLen then
-                                putBranches $ brs & ix (fromIntegral insertIndex) %~ (blockP:)
-                            else
-                                if (insertIndex == branchLen) then
-                                    putBranches $ brs Seq.|> [blockP]
-                                else do
-                                    -- This should not be possible, since the parent block should either be
-                                    -- the last finalized block (in which case insertIndex == 0)
-                                    -- or the child of a live block (in which case insertIndex <= branchLen)
-                                    logEvent Skov LLError $ "Attempted to add block at invalid height (" ++ show (theBlockHeight height) ++ ") while last finalized height is " ++ show (theBlockHeight finHght)
-                                    mzero
-                            return (Just blockP)
+                        Right gs -> Just <$> blockArrive block parentP lfBlockP gs
                 -- If the block's last finalized block is dead, then the block arrives dead.
                 -- If the block's last finalized block is pending then it can't be an ancestor,
                 -- so the block is invalid and it arrives dead.
                 _ -> mzero
+
+blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m) 
+        => PendingBlock     -- ^Block to add
+        -> BlockPointer     -- ^Parent pointer
+        -> BlockPointer     -- ^Last finalized pointer
+        -> BlockState       -- ^State
+        -> m BlockPointer
+blockArrive block parentP lfBlockP gs = do
+        let height = bpHeight parentP + 1
+        curTime <- currentTime
+        blockP <- makeLiveBlock block parentP lfBlockP gs curTime
+        logEvent Skov LLInfo $ "Block " ++ show (getHash block :: BlockHash) ++ " arrived"
+        -- Update the statistics
+        updateArriveStatistics blockP
+        -- Add to the branches
+        finHght <- getLastFinalizedHeight
+        brs <- getBranches
+        let branchLen = fromIntegral $ Seq.length brs
+        let insertIndex = height - finHght - 1
+        if insertIndex < branchLen then
+            putBranches $ brs & ix (fromIntegral insertIndex) %~ (blockP:)
+        else
+            if (insertIndex == branchLen) then
+                putBranches $ brs Seq.|> [blockP]
+            else do
+                -- This should not be possible, since the parent block should either be
+                -- the last finalized block (in which case insertIndex == 0)
+                -- or the child of a live block (in which case insertIndex <= branchLen)
+                let errMsg = "Attempted to add block at invalid height (" ++ show (theBlockHeight height) ++ ") while last finalized height is " ++ show (theBlockHeight finHght)
+                logEvent Skov LLError errMsg
+                error errMsg
+        return blockP
+
+
 
 -- TODO: Block execution
 -- TODO: Handling transactions wrt. tree state
