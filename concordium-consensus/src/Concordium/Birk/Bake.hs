@@ -74,4 +74,5 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
                          newState
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp
+    logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
     return newbp
