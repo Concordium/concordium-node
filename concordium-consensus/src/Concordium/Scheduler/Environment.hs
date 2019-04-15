@@ -6,6 +6,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Concordium.Scheduler.Environment where
@@ -17,6 +18,7 @@ import Control.Monad.RWS.Strict
 import Control.Monad.State.Strict
 
 import Data.Maybe(fromJust)
+import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
@@ -44,6 +46,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- |Create new instance in the global state.
   -- If an instance with the given address already exists do nothing and return @False@.
   putNewInstance :: Instance -> m Bool
+
+  -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
+  increaseAccountNonce :: AccountAddress -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
   -- successfully created and @False@ if the account address already existed.
@@ -86,26 +91,31 @@ class StaticEnvironmentMonad m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {newAccounts :: Map.HashMap AccountAddress Account
-    ,newContractStates :: Map.HashMap ContractAddress (Amount, Value)
+    {_newAccounts :: Map.HashMap AccountAddress Account
+    ,_newContractStates :: Map.HashMap ContractAddress (Amount, Value)
     }
+makeLenses ''ChangeSet
 
 emptyCS :: ChangeSet
 emptyCS = ChangeSet Map.empty Map.empty
 
-
+-- |Update the amount on the account in the changeset with the given amount.
+-- If the account is not yet in the changeset it is created.
 addAmountToCS :: ChangeSet -> Account -> Amount -> ChangeSet
-addAmountToCS cs acc amnt = cs { newAccounts = Map.insert (accountAddress acc) (acc { accountAmount = amnt }) (newAccounts cs) }
+addAmountToCS cs acc amnt =
+  cs & newAccounts . at (acc ^. accountAddress) ?~ (acc & accountAmount .~ amnt)
 
+-- |Add or update the contract state in the changeset with the given amount and value.
 addContractStatesToCS :: ChangeSet -> ContractAddress -> Amount -> Value -> ChangeSet
-addContractStatesToCS cs addr amnt val = cs { newContractStates = Map.insert addr (amnt, val) (newContractStates cs) }
+addContractStatesToCS cs addr amnt val =
+  cs & newContractStates . at addr ?~ (amnt, val)
 
 -- |NB: INVARIANT: This function expects that the contract already exists in the
 -- changeset map. This will be true during execution since the only way a contract can
 -- possibly send a message is if its local state exists in this map (
 addContractAmountToCS :: ChangeSet -> ContractAddress -> Amount -> ChangeSet
-addContractAmountToCS cs addr amnt = cs { newContractStates = Map.adjust (\(_, val) -> (amnt, val)) addr (newContractStates cs) }
-
+addContractAmountToCS cs addr amnt =
+  cs & newContractStates . at addr . mapped . _1 .~ amnt
 
 -- |A concrete implementation of TransactionMonad based on SchedulerMonad.
 newtype LocalT m a = LocalT { _runLocalT :: StateT ChangeSet m a }
@@ -145,18 +155,18 @@ instance SchedulerMonad m => TransactionMonad (LocalT m) where
     >> cont
 
   getCurrentContractInstance addr = do
-    ChangeSet{..} <- get
+    newStates <- use newContractStates
     lift $ do mistance <- getContractInstance addr
               case mistance of
                 Nothing -> return Nothing
-                Just i -> case Map.lookup addr newContractStates of
+                Just i -> case newStates ^. at addr of
                             Nothing -> return $ Just i
                             Just (amnt, newmodel) -> return $ Just (i { iamount = amnt, imodel = newmodel })
 
   {-# INLINE getCurrentAccount #-}
   getCurrentAccount acc = do
-    ChangeSet{..} <- get
-    case Map.lookup acc newAccounts of
+    macc <- (^. at acc) <$> use newAccounts
+    case macc of
       Nothing -> lift $! getAccount acc
       Just a -> return $ Just a
 
@@ -165,11 +175,11 @@ instance SchedulerMonad m => TransactionMonad (LocalT m) where
 
 instance SchedulerMonad m => InterpreterMonad (LocalT m) where
   getCurrentContractState caddr = do
-    ChangeSet{..} <- get
+    newStates <- use newContractStates
     lift $ do mistance <- getContractInstance caddr
               case mistance of
                 Nothing -> return Nothing
-                Just i -> case Map.lookup caddr newContractStates of
+                Just i -> case newStates ^. at caddr of
                             Nothing -> return $ Just (instanceImplements i, imodel i)
                             Just (_, newmodel) -> return $ Just (instanceImplements i, newmodel)
 
