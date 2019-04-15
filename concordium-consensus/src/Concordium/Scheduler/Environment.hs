@@ -115,7 +115,7 @@ addContractStatesToCS cs addr amnt val =
 -- possibly send a message is if its local state exists in this map (
 addContractAmountToCS :: ChangeSet -> ContractAddress -> Amount -> ChangeSet
 addContractAmountToCS cs addr amnt =
-  cs & newContractStates . at addr %~ (fmap (_1 .~ amnt))
+  cs & newContractStates . at addr . mapped . _1 .~ amnt
 
 -- |A concrete implementation of TransactionMonad based on SchedulerMonad.
 newtype LocalT m a = LocalT { _runLocalT :: StateT ChangeSet m a }
