@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
+import GHC.Stack
 import Control.Concurrent
 import Control.Concurrent.Chan
 import Control.Monad
@@ -10,34 +11,46 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 import System.IO
-
+import Data.IORef
 import Data.String
+import Lens.Micro.Platform
+import Data.Maybe
+
+import Concordium.GlobalState.HashableTo
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Transactions
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Instances
 
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
-import Concordium.Payload.Transaction
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Show
+import Concordium.Logger
+import Concordium.Skov.Monad
+import Concordium.MonadImplementation
 
 import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Concordium.Scheduler.Utils.Init.Example(update, initialState)
-import Concordium.Scheduler.Types(lState, instances)
+import Concordium.Scheduler.Utils.Init.Example(makeTransaction, initialState)
 import Concordium.GlobalState.Types
 
 import Concordium.Crypto.SHA256
 
+nAccounts :: Int
 nAccounts = 2
 
 transactions :: StdGen -> [Transaction]
-transactions gen = trs (0 :: Int) (randoms gen :: [Integer])
+transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
-        trs n (a : b : c : d : f : g : rs) = let (meta, payload) = update f (g `mod` fromIntegral nAccounts)
-                                             in (Transaction (TransactionNonce $ hash (BS.pack (show a))) meta payload) : trs (n+1) rs
+        contr i = ContractAddress (fromIntegral $ i `mod` nAccounts) 0
+        trs n (a : b : rs) = makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
@@ -52,17 +65,21 @@ makeBaker bid lot = do
         sk@(Sig.KeyPair _ spk) <- Sig.newKeyPair
         return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
-relay :: Chan OutMessage -> Chan (Either Block FinalizationRecord) -> [Chan InMessage] -> IO ()
-relay inp monitor outps = loop
+relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, Block, BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
+relay inp sfsRef monitor outps = loop
     where
         loop = do
             msg <- readChan inp
             case msg of
                 MsgNewBlock block -> do
-                    writeChan monitor (Left block)
+                    let bh = getHash block :: BlockHash
+                    sfs <- readIORef sfsRef
+                    bp <- runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (resolveBlock bh)
+                    when (isNothing bp) $ error "Block is missing!"
+                    writeChan monitor (Left (bh, block, bpState (fromJust bp)))
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1
+                        let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -70,7 +87,7 @@ relay inp monitor outps = loop
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1
+                        let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -79,7 +96,7 @@ relay inp monitor outps = loop
                     writeChan monitor (Right fr)
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1
+                        let factor = 1 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -92,8 +109,11 @@ removeEach = re []
         re l (x:xs) = (x,l++xs) : re (x:l) xs
         re l [] = []
 
-gsToString gs = let keys = map (\n -> (n, lState $ (instances gs) HashMap.! ContractAddress (fromIntegral n) 0)) $ enumFromTo 0 (nAccounts-1)
-                in intercalate "\\l" . map show $ keys
+gsToString :: BlockState -> String
+gsToString gs = intercalate "\\l" . map show $ keys
+    where
+        ca n = ContractAddress (fromIntegral n) 0
+        keys = map (\n -> (n, imodel <$> getInstance (ca n) (blockInstances gs))) $ enumFromTo 0 (nAccounts-1)
 
 main :: IO ()
 main = do
@@ -106,32 +126,29 @@ main = do
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
+    let iState = initialState nAccounts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bix, (_, bid)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeRunner logM bid gen
+        (cin, cout, out) <- makeRunner logM bid gen iState
         forkIO $ sendTransactions cin trans
         return (cin, cout, out)) bis
     monitorChan <- newChan
-    mapM_ (\((_,cout, _), cs) -> forkIO $ relay cout monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
-    let iState = initialState nAccounts
-    let loop gsMap = do
+    mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
+    let loop = do
             readChan monitorChan >>= \case
-                Left block -> do
-                    let bh = hashBlock block
-                    let (Just ts) = (toTransactions (blockData block))
-                    let gs = Map.findWithDefault iState (blockPointer block) gsMap
-                    let Right gs' = executeBlockForState ts (makeChainMeta (blockSlot block) undefined undefined) gs
+                Left (bh, block, gs') -> do
+                    let ts = blockTransactions block
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout
-                    loop (Map.insert bh gs' gsMap)
+                    loop
                 Right fr -> do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
-                    loop gsMap
-    loop Map.empty
+                    loop
+    loop
 

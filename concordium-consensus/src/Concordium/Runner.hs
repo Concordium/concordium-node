@@ -58,36 +58,32 @@ makeRunner logm bkr gen initBS = do
         msgLoop _ _ _ _ MsgShutdown = return ()
         msgLoop inChan outChan out lastBake MsgTimer = do
             cs <- getCurrentSlot
-            handleMessages outChan $ when (cs > lastBake) $
+            handleMessages outChan out $ when (cs > lastBake) $
                 bakeForSlot bkr cs >>= \case
                     Nothing -> return ()
                     Just block -> 
                         liftIO $ writeChan outChan (MsgNewBlock (bpBlock block))
-            updateFinState out
             ns <- timeUntilNextSlot
             _ <- liftIO $ forkIO $ do
                 threadDelay $ truncate (ns * 1e6)
                 writeChan inChan MsgTimer
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out cs
         msgLoop inChan outChan out lastBake (MsgBlockReceived block) = do
-            _ <- handleMessages outChan $ storeBlock block
-            updateFinState out
+            _ <- handleMessages outChan out $ storeBlock block
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgTransactionReceived trans) = do
-            handleMessages outChan $ receiveTransaction trans
-            updateFinState out
+            handleMessages outChan out $ receiveTransaction trans
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgFinalizationReceived bs) = do
-            handleMessages outChan $ receiveFinalizationMessage bs
-            updateFinState out
+            handleMessages outChan out $ receiveFinalizationMessage bs
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgFinalizationRecordReceived fr) = do
-            handleMessages outChan $ finalizeBlock fr
-            updateFinState out
+            handleMessages outChan out $ finalizeBlock fr
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake    
-        handleMessages :: Chan OutMessage -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r
-        handleMessages outChan a = censor (const (Endo id)) $ do
+        handleMessages :: Chan OutMessage -> IORef SkovFinalizationState -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r -> FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState LogIO r
+        handleMessages outChan out a = censor (const (Endo id)) $ do
             (r, Endo evs) <- listen a
+            updateFinState out
             let
                 handleMessage (BroadcastFinalizationMessage fmsg) = liftIO $ writeChan outChan (MsgFinalization fmsg)
                 handleMessage (BroadcastFinalizationRecord frec) = liftIO $ writeChan outChan (MsgFinalizationRecord frec)

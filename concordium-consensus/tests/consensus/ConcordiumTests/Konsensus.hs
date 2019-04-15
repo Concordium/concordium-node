@@ -18,6 +18,9 @@ import GHC.Stack
 import Data.Time.Clock.POSIX
 import qualified Data.PQueue.Prio.Min as MPQ
 
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.TreeState.Basic
+
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.SHA256 as H
@@ -31,7 +34,7 @@ import Concordium.Birk.Bake
 import Concordium.Skov.Monad
 import Concordium.Payload.Monad
 import Concordium.TimeMonad
-import Concordium.Payload.Transaction
+
 
 import Test.QuickCheck
 import Test.Hspec
