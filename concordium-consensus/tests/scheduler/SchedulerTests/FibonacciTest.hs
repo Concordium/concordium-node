@@ -36,8 +36,11 @@ import Control.Monad.IO.Class
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
+alesKP :: S.KeyPair
+alesKP = fst (S.randomKeyPair (mkStdGen 1))
+
 alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 1))))
+alesACI = AH.createAccount (S.verifyKey alesKP)
 
 alesAccount :: Types.AccountAddress
 alesAccount = AH.accountAddress alesACI
@@ -52,34 +55,34 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = Types.Header { sender = alesAccount
-                                   , nonce = 1
-                                   , gasAmount = 1000}}
-  
+         , metadata = Types.TransactionHeader alesAccount 1 1000
+         , keypair = alesKP
+         }
+
   ,TJSON { payload = InitContract { amount = 100
                                   , moduleName = "FibContract"
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = Types.Header { sender = alesAccount
-                                  , nonce = 2
-                                  , gasAmount = 1000}}
+        , metadata = Types.TransactionHeader alesAccount 2 1000
+        , keypair = alesKP
+        }
   ,TJSON { payload = Update { amount = 0
                             , moduleName = "FibContract"
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractVersion = 0}
                             }
-        , metadata = Types.Header { sender = alesAccount
-                                  , nonce = 3
-                                  , gasAmount = 100000}}
+        , metadata = Types.TransactionHeader alesAccount 3 100000
+        , keypair = alesKP
+        }
   ]
 
 
 testFibonacci ::
   PR.Context
     IO
-    ([(Types.MessageTy, Types.ValidResult)],
-     [(Types.MessageTy, Types.FailureKind)],
+    ([(Types.Transaction, Types.ValidResult)],
+     [(Types.Transaction, Types.FailureKind)],
      [(Types.ContractAddress, Types.Instance)])
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"

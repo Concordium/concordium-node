@@ -30,11 +30,13 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 1))))
+alesACI = AH.createAccount (S.verifyKey alesKP)
 
 alesAccount :: Types.AccountAddress
 alesAccount = AH.accountAddress alesACI
 
+alesKP :: S.KeyPair
+alesKP = fst (S.randomKeyPair (mkStdGen 1))
 
 initialBlockState :: BlockState
 initialBlockState = 
@@ -45,78 +47,64 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "CommCounter"
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 1
-                                   ,gasAmount = 100000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 1 100000
+         , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Recorder"
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 2
-                                   ,gasAmount = 100000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 2 100000
+         , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Counter"
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Prod.Pair [Int64] [<address>] 0 <0, 0>"
                                   }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 3
-                                   ,gasAmount = 100000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 3 100000
+         , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
                             }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 4
-                                   ,gasAmount = 100000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 4 100000
+         , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 5
-                                   ,gasAmount = 100000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 5 100000
+         , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 6
-                                   ,gasAmount = 120000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 6 120000
+         , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Dec 1"
                             }
-         , metadata = Types.Header {sender = alesAccount
-                                   ,nonce = 7
-                                   ,gasAmount = 120000
-                                   }
+         , metadata = Types.TransactionHeader alesAccount 7 120000
+         , keypair = alesKP
          }
   ]
 
 testCommCounter ::
   PR.Context
     IO
-    ([(Types.MessageTy, Types.ValidResult)],
-     [(Types.MessageTy, Types.FailureKind)])
+    ([(Types.Transaction, Types.ValidResult)],
+     [(Types.Transaction, Types.FailureKind)])
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
