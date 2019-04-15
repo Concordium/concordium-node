@@ -392,7 +392,6 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
                     let height = bpHeight parentP + 1
                     let ts = blockTransactions block
-                    let chainMeta = ChainMetadata (blockSlot block) height (bpHeight lfBlockP)
                     case executeFrom (blockSlot block) parentP lfBlockP ts of
                         Left err -> do
                             logEvent Skov LLWarning ("Block execution failure: " ++ show err)
