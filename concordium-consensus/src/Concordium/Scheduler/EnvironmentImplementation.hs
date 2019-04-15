@@ -71,6 +71,12 @@ instance SchedulerMonad SchedulerImplementation where
       Nothing -> return False
       Just is -> True <$ put (s { blockInstances = is}) 
 
+  {-# INLINE increaseAccountNonce #-}
+  increaseAccountNonce addr = do
+    s <- get
+    let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- NB: Relies on precondition.
+    put (s { blockAccounts = Acc.putAccount (acc { accountNonce = accountNonce acc + 1 }) (blockAccounts s) })
+
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do
     s <- get

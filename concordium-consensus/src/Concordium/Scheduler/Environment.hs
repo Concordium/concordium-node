@@ -45,6 +45,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- If an instance with the given address already exists do nothing and return @False@.
   putNewInstance :: Instance -> m Bool
 
+  -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
+  increaseAccountNonce :: AccountAddress -> m ()
+
   -- |Create new account in the global state. Return @True@ if the account was
   -- successfully created and @False@ if the account address already existed.
   putNewAccount :: Account -> m Bool

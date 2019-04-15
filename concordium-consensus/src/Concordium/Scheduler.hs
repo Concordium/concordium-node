@@ -28,29 +28,32 @@ import Data.Maybe(fromJust)
 
 import Prelude hiding (exp, mod)
 
-getAmount :: SchedulerMonad m => AccountAddress -> m (Maybe Amount)
-getAmount addr = (accountAmount <$>) <$> getAccount addr
-
 getCurrentAmount :: TransactionMonad m => AccountAddress -> m (Maybe Amount)
 getCurrentAmount addr = (accountAmount <$>) <$> getCurrentAccount addr
 
 
 -- |Check that the transaction has a valid sender, and that the amount they have
 -- deposited is on their account.
--- FIXME: Mostly unimplemented at the moment since we do not have a good notion of Accounts.
 checkHeader :: SchedulerMonad m => TransactionHeader -> m Bool
 checkHeader meta = do
-  m <- getAmount (thSender meta)
-  case m of
+  macc <- getAccount (thSender meta)
+  case macc of
     Nothing -> return False
-    Just amnt -> return (thGasAmount meta <= amnt)
+    Just acc ->
+      let amnt = accountAmount acc
+          nextNonce = accountNonce acc
+          txnonce = thNonce meta
+      in return (thGasAmount meta <= amnt && txnonce == nextNonce)
 
 dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m TxResult
 dispatch msg = do
-  validMeta <- checkHeader (transactionHeader msg)
   let meta = transactionHeader msg
   let energy = gtuToEnergy (thGasAmount meta)
-  if validMeta then
+  validMeta <- checkHeader meta
+  if validMeta then do
+    -- at this point the transaction is going to be commited to the block. Hence we can increase the
+    -- account nonce of the sender account.
+    increaseAccountNonce (thSender meta)
     case decodePayload (transactionPayload msg) of -- FIXME: Before doing this need to charge some amount.
       Left err -> return $ TxValid $ TxReject (SerializationFailure err)
       Right payload -> 
@@ -59,9 +62,8 @@ dispatch msg = do
             _ <- payForExecution (thSender meta) energy -- ignore remaining amount, we don't need it for this particular transaction type
             res <- evalLocalT (handleModule meta mod energy)
             case res of
-              (Left fk, _) -> return (TxInvalid fk) -- one does not pay for completely failed transactions
-              (Right (Left reason), energy') -> refundEnergy (thSender meta) energy' >> return (TxValid (TxReject reason))
-              (Right (Right (mhash, iface, viface)), energy') -> do
+              (Left reason, energy') -> refundEnergy (thSender meta) energy' >> return (TxValid (TxReject reason))
+              (Right (mhash, iface, viface), energy') -> do
                 b <- commitModule mhash iface viface
                 if b then do
                   refundEnergy (thSender meta) energy'
@@ -78,9 +80,8 @@ dispatch msg = do
             remainingAmount <- payForExecution (thSender meta) energy
             result <- evalLocalT (handleInit meta remainingAmount amount modref cname param energy)
             case result of
-              (Left err, _) -> refundEnergy (thSender meta) energy >> return (TxInvalid err) -- in case of error refund everything
-              (Right (Left reason), _) -> return $ TxValid (TxReject reason)
-              (Right (Right (rmethod, iface, viface, msgty, model, initamount, impls)), energy') -> do
+              (Left reason, _) -> return $ TxValid (TxReject reason)
+              (Right (rmethod, iface, viface, msgty, model, initamount, impls), energy') -> do
                   refundEnergy (thSender meta) energy'
                   addr <- firstFreeAddress -- NB: It is important that there is no other thread adding contracts
                   let ins = let iaddress = addr
@@ -102,12 +103,11 @@ dispatch msg = do
             remainingAmount <- payForExecution (thSender meta) energy
             res <- evalLocalT (handleTransfer meta remainingAmount amount to energy)
             case res of
-              (Left err, _) -> refundEnergy (thSender meta) energy >> return (TxInvalid err) -- in case of error refund everything
-              (Right (Right (events, changeSet)), energy') -> do
+              (Right (events, changeSet), energy') -> do
                 commitStateAndAccountChanges changeSet
                 refundEnergy (thSender meta) energy'
                 return $ TxValid $ TxSuccess events
-              (Right (Left reason), energy') -> do
+              (Left reason, energy') -> do
                 refundEnergy (thSender meta) energy'
                 return $ TxValid (TxReject reason)
 
@@ -115,12 +115,11 @@ dispatch msg = do
             accountamount <- payForExecution (thSender meta) energy
             result <- evalLocalT (handleUpdate meta accountamount amount cref maybeMsg energy)
             case result of
-              (Left err, _) -> refundEnergy (thSender meta) energy >> return (TxInvalid err) -- in case of error refund everything
-              (Right (Right (events, changeSet)), energy') -> do
+              (Right (events, changeSet), energy') -> do
                  commitStateAndAccountChanges changeSet
                  refundEnergy (thSender meta) energy'
                  return $ TxValid $ TxSuccess events
-              (Right (Left reason), energy') -> do
+              (Left reason, energy') -> do
                   refundEnergy (thSender meta) energy'
                   return $ TxValid (TxReject reason)
 
@@ -142,14 +141,14 @@ dispatch msg = do
   else return $ TxInvalid InvalidHeader
 
 {-# INLINE rejectWith #-}
-rejectWith :: Monad m => InvalidKind -> Energy -> m (Either a (Either InvalidKind b), Energy)
-rejectWith fk energy = return (Right (Left fk), energy)
+rejectWith :: Monad m => InvalidKind -> Energy -> m (Either InvalidKind b, Energy)
+rejectWith fk energy = return ((Left fk), energy)
 
 {-# INLINE succeedWith #-}
-succeedWith :: Monad m => c -> Energy -> m (Either a (Either b c), Energy)
-succeedWith b energy = return (Right (Right b), energy)
+succeedWith :: Monad m => c -> Energy -> m (Either b c, Energy)
+succeedWith b energy = return (Right b, energy)
 
-handleModule :: TransactionMonad m => TransactionHeader -> Core.Module -> Energy -> m (Either FailureKind (Either InvalidKind (Core.ModuleRef, Interface, ValueInterface)), Energy)
+handleModule :: TransactionMonad m => TransactionHeader -> Core.Module -> Energy -> m (Either InvalidKind (Core.ModuleRef, Interface, ValueInterface), Energy)
 handleModule meta mod energy = do
   case runExcept (Core.makeInternal mod) of
     Left err -> rejectWith (ModuleNotWF err) energy
@@ -173,10 +172,8 @@ handleInit
      -> Core.TyName
      -> Core.Expr Core.ModuleName
      -> Energy
-     -> m (Either
-             FailureKind
-             (Either InvalidKind
-                (UpdateType, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount, Map.HashMap (Core.ModuleRef, Core.TyName) ImplementsValue)),
+     -> m (Either InvalidKind
+            (UpdateType, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount, Map.HashMap (Core.ModuleRef, Core.TyName) ImplementsValue),
            Energy)
 handleInit meta senderAmount amount modref cname param energy = do
   if senderAmount >= amount then do
@@ -211,7 +208,7 @@ handleUpdate
      -> ContractAddress
      -> Core.Expr Core.ModuleName
      -> Energy
-     -> m (Either FailureKind (Either InvalidKind ([Event], ChangeSet)), Energy)
+     -> m (Either InvalidKind ([Event], ChangeSet), Energy)
 handleUpdate meta accountamount amount cref msg energy = do
   cinstance <- getCurrentContractInstance cref
   case cinstance of
@@ -345,7 +342,7 @@ handleTransfer
      -> Amount -- amount to send as part of the transaction
      -> Address -- either account or contract
      -> Energy
-     -> m (Either FailureKind (Either InvalidKind ([Event], ChangeSet)), Energy)
+     -> m (Either InvalidKind ([Event], ChangeSet), Energy)
 handleTransfer meta accountamount amount addr energy =
   case addr of
     AddressContract cref -> do
