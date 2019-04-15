@@ -44,6 +44,7 @@ checkHeader meta = do
       let amnt = acc ^. accountAmount
           nextNonce = acc ^. accountNonce
           txnonce = thNonce meta
+      -- NB: checking txnonce = nextNonce should also make sure that the nonce >= minNonce
       in return (thGasAmount meta <= amnt && txnonce == nextNonce)
 
 dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m TxResult
@@ -129,7 +130,7 @@ dispatch msg = do
             then do -- if account information is correct then we create the account with initial nonce 1
               let aaddr = AH.accountAddress aci
               let account = Account { _accountAddress = aaddr
-                                    , _accountNonce = 1
+                                    , _accountNonce = minNonce
                                     , _accountAmount = 0
                                     , _accountCreationInformation = aci }
               r <- putNewAccount account
