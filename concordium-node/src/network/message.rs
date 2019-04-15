@@ -1,6 +1,6 @@
 use super::{NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{get_current_stamp, ConnectionType, ContainerView, P2PNodeId, P2PPeer, UCursor},
+    common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, UCursor},
     failure::{err_msg, Fallible},
     network::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
@@ -369,7 +369,7 @@ fn deserialize_response_handshake(
     pkt: &mut UCursor,
 ) -> Fallible<NetworkMessage> {
     let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(ConnectionType::Node, node_id, ip, port);
+    let peer = P2PPeer::from(PeerType::Node, node_id, ip, port);
 
     Ok(NetworkMessage::NetworkResponse(
         NetworkResponse::Handshake(peer, network_ids, content.as_slice().to_vec()),
@@ -384,7 +384,7 @@ fn deserialize_request_handshake(
     pkt: &mut UCursor,
 ) -> Fallible<NetworkMessage> {
     let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(ConnectionType::Node, node_id, ip, port);
+    let peer = P2PPeer::from(PeerType::Node, node_id, ip, port);
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::Handshake(peer, network_ids, content.as_slice().to_vec()),
@@ -589,7 +589,7 @@ mod unit_test {
 
     use super::*;
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder, UCursor},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
         network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
     };
 
@@ -615,7 +615,7 @@ mod unit_test {
             let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
             let pkt = NetworkPacketBuilder::default()
                 .peer(P2PPeer::from(
-                    ConnectionType::Node,
+                    PeerType::Node,
                     p2p_node_id,
                     IpAddr::from_str("127.0.0.1")?,
                     8888,
@@ -660,7 +660,7 @@ mod unit_test {
         // Local stuff
         let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let local_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .ip(local_ip)
             .port(8888)
             .build()?;

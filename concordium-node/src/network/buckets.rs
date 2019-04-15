@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    common::{ConnectionType, P2PPeer},
+    common::{P2PPeer, PeerType},
     network::NetworkId,
 };
 
@@ -63,7 +63,7 @@ impl Buckets {
     ) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
-            node.peer.connection_type() == ConnectionType::Node
+            node.peer.peer_type() == PeerType::Node
                 && if let Some(sender) = sender {
                     node.peer != *sender
                 } else {
@@ -121,13 +121,13 @@ mod tests {
         let p2p_node_id = P2PNodeId::default();
 
         let p2p_peer = P2PPeer::from(
-            ConnectionType::Node,
+            PeerType::Node,
             p2p_node_id,
             IpAddr::from_str("127.0.0.1").unwrap(),
             8888,
         );
         let p2p_duplicate_peer = P2PPeer::from(
-            ConnectionType::Node,
+            PeerType::Node,
             p2p_node_id,
             IpAddr::from_str("127.0.0.1").unwrap(),
             8889,

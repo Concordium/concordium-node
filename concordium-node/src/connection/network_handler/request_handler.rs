@@ -103,7 +103,7 @@ impl RequestHandler {
 #[cfg(test)]
 mod request_handler_test {
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeerBuilder},
+        common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::RequestHandler,
         network::request::NetworkRequest as NRequest,
     };
@@ -143,7 +143,7 @@ mod request_handler_test {
     fn ut_1_data() -> Vec<NRequest> {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .ip(ip)
             .port(8080)
             .build()

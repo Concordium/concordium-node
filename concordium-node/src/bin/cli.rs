@@ -18,9 +18,9 @@ use consensus_sys::consensus;
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
-    common::{ConnectionType, P2PNodeId, UCursor},
+    common::{P2PNodeId, PeerType, UCursor},
     configuration,
-    connection::{P2PEvent, P2PNodeMode},
+    connection::P2PEvent,
     db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
@@ -170,18 +170,11 @@ fn main() -> Fallible<()> {
             &conf,
             pkt_in,
             Some(sender),
-            P2PNodeMode::NormalMode,
+            PeerType::Node,
             arc_prometheus,
         )
     } else {
-        P2PNode::new(
-            node_id,
-            &conf,
-            pkt_in,
-            None,
-            P2PNodeMode::NormalMode,
-            arc_prometheus,
-        )
+        P2PNode::new(node_id, &conf, pkt_in, None, PeerType::Node, arc_prometheus)
     };
 
     // Banning nodes in database
@@ -400,7 +393,7 @@ fn main() -> Fallible<()> {
                                         );
                                         if _node_self_clone
                                             .connect(
-                                                ConnectionType::Node,
+                                                PeerType::Node,
                                                 peer_node.ip(),
                                                 peer_node.port(),
                                                 Some(peer_node.id()),
@@ -629,7 +622,7 @@ fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &
         Ok(nodes) => {
             for (ip, port) in nodes {
                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                node.connect(ConnectionType::Bootstrapper, *ip, *port, None)
+                node.connect(PeerType::Bootstrapper, *ip, *port, None)
                     .unwrap_or_else(|e| error!("{}", e));
             }
         }
@@ -646,7 +639,7 @@ fn create_connections_from_config(
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(ConnectionType::Node, ip, port, None)
+                node.connect(PeerType::Node, ip, port, None)
                     .unwrap_or_else(|e| error!("{}", e));
             }
             None => error!("Can't parse IP to connect to '{}'", &connect_to),

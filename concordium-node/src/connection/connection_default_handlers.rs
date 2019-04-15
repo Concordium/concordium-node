@@ -37,12 +37,11 @@ pub fn default_network_request_ping_handle(
         };
 
         // Make `Pong` response and send
-        let peer = priv_conn_borrow
-            .peer()
-            .to_owned()
+        let remote_peer = priv_conn_borrow
+            .remote_peer()
             .ok_or_else(|| make_fn_error_peer("Couldn't get peer"))?;
 
-        NetworkResponse::Pong(peer.clone()).serialize()
+        NetworkResponse::Pong(remote_peer).serialize()
     };
 
     Ok(serialize_bytes(
@@ -62,9 +61,8 @@ pub fn default_network_request_find_node_handle(
         // Return list of nodes
         let response_data = {
             let priv_conn_borrow = priv_conn.borrow();
-            let peer = priv_conn_borrow
-                .peer()
-                .to_owned()
+            let remote_peer = priv_conn_borrow
+                .remote_peer()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
             let nodes = safe_read!(priv_conn_borrow.buckets)?
                 .buckets
@@ -74,7 +72,7 @@ pub fn default_network_request_find_node_handle(
                 .into_iter()
                 .map(|node| node.peer)
                 .collect::<Vec<_>>();
-            NetworkResponse::FindNode(peer, nodes).serialize()
+            NetworkResponse::FindNode(remote_peer, nodes).serialize()
         };
 
         Ok(serialize_bytes(
@@ -107,11 +105,10 @@ pub fn default_network_request_get_peers(
                 safe_write!(prom)?.pkt_sent_inc()?;
             };
 
-            let peer = priv_conn_borrow
-                .peer()
-                .to_owned()
+            let remote_peer = priv_conn_borrow
+                .remote_peer()
                 .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
-            NetworkResponse::PeerList(peer, nodes).serialize()
+            NetworkResponse::PeerList(remote_peer, nodes).serialize()
         };
 
         Ok(serialize_bytes(
@@ -192,19 +189,18 @@ pub fn default_network_request_join_network(
     res: &NetworkRequest,
 ) -> FunctorResult {
     if let NetworkRequest::JoinNetwork(_, network) = res {
-        priv_conn.borrow_mut().add_network(*network);
+        priv_conn.borrow_mut().add_remote_end_network(*network);
 
         let priv_conn_borrow = priv_conn.borrow();
-        let peer = priv_conn_borrow
-            .peer()
-            .to_owned()
+        let remote_peer = priv_conn_borrow
+            .remote_peer()
             .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
 
         safe_write!(priv_conn_borrow.buckets)?
-            .update_network_ids(&peer, priv_conn_borrow.networks.clone());
+            .update_network_ids(&remote_peer, priv_conn_borrow.remote_end_networks.clone());
 
         let networks: HashSet<NetworkId> = vec![*network].into_iter().collect();
-        log_as_joined_network(&priv_conn_borrow.event_log, &peer, &networks)?;
+        log_as_joined_network(&priv_conn_borrow.event_log, &remote_peer, &networks)?;
     }
 
     Ok(())
@@ -216,15 +212,14 @@ pub fn default_network_request_leave_network(
     req: &NetworkRequest,
 ) -> FunctorResult {
     if let NetworkRequest::LeaveNetwork(sender, network) = req {
-        priv_conn.borrow_mut().remove_network(network);
+        priv_conn.borrow_mut().remove_remote_end_network(network);
         let priv_conn_borrow = priv_conn.borrow();
-        let peer = priv_conn_borrow
-            .peer()
-            .to_owned()
+        let remote_peer = priv_conn_borrow
+            .remote_peer()
             .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
 
         safe_write!(priv_conn_borrow.buckets)?
-            .update_network_ids(&peer, priv_conn_borrow.networks.clone());
+            .update_network_ids(&remote_peer, priv_conn_borrow.remote_end_networks.clone());
 
         log_as_leave_network(&priv_conn_borrow.event_log, &sender, *network)?;
     }

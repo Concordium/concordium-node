@@ -121,7 +121,7 @@ mod message_handler_unit_test {
         network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
     };
 
-    use crate::common::{ConnectionType, P2PPeerBuilder};
+    use crate::common::{P2PPeerBuilder, PeerType};
     use std::{
         net::{IpAddr, Ipv4Addr},
         sync::{Arc, RwLock},
@@ -147,7 +147,7 @@ mod message_handler_unit_test {
 
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .ip(ip)
             .port(8080)
             .build()
@@ -161,7 +161,7 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use crate::{
-        common::{functor::FunctorResult, ConnectionType, P2PNodeId, P2PPeerBuilder, UCursor},
+        common::{functor::FunctorResult, P2PNodeId, P2PPeerBuilder, PeerType, UCursor},
         connection::{MessageHandler, PacketHandler},
         network::{
             NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
@@ -187,7 +187,7 @@ mod integration_test {
     pub fn network_request_handler_data() -> Vec<NetworkMessage> {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
+            .peer_type(PeerType::Node)
             .ip(ip)
             .port(8080)
             .build()

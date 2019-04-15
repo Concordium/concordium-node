@@ -23,8 +23,8 @@ use crate::{
 };
 
 use crate::{
-    common::{ConnectionType, P2PNodeId, P2PPeer},
-    connection::{Connection, MessageHandler, MessageManager, P2PEvent, P2PNodeMode},
+    common::{P2PNodeId, P2PPeer, PeerType},
+    connection::{Connection, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
 };
 
@@ -40,7 +40,6 @@ pub struct TlsServer {
     client_tls_config:        Arc<ClientConfig>,
     event_log:                Option<Sender<P2PEvent>>,
     self_peer:                P2PPeer,
-    mode:                     P2PNodeMode,
     buckets:                  Arc<RwLock<Buckets>>,
     prometheus_exporter:      Option<Arc<RwLock<PrometheusServer>>>,
     message_handler:          Arc<RwLock<MessageHandler>>,
@@ -56,7 +55,6 @@ impl TlsServer {
         client_cfg: Arc<ClientConfig>,
         event_log: Option<Sender<P2PEvent>>,
         self_peer: P2PPeer,
-        mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         networks: HashSet<NetworkId>,
         buckets: Arc<RwLock<Buckets>>,
@@ -74,7 +72,6 @@ impl TlsServer {
             client_tls_config: client_cfg,
             event_log,
             self_peer,
-            mode,
             prometheus_exporter,
             buckets,
             message_handler: Arc::new(RwLock::new(MessageHandler::new())),
@@ -158,13 +155,11 @@ impl TlsServer {
 
         let networks = self.networks();
         let mut conn = Connection::new(
-            ConnectionType::Node,
             socket,
             token,
             Some(tls_session),
             None,
             self_peer,
-            self.mode,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
             networks,
@@ -181,14 +176,14 @@ impl TlsServer {
 
     pub fn connect(
         &mut self,
-        connection_type: ConnectionType,
+        peer_type: PeerType,
         poll: &mut Poll,
         ip: IpAddr,
         port: u16,
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
     ) -> Fallible<()> {
-        if connection_type == ConnectionType::Node && self.is_unreachable(ip, port) {
+        if peer_type == PeerType::Node && self.is_unreachable(ip, port) {
             error!("Node marked as unreachable, so not allowing the connection");
             bail!(fails::UnreachablePeerError);
         }
@@ -234,13 +229,11 @@ impl TlsServer {
 
                 let networks = self.networks();
                 let mut conn = Connection::new(
-                    connection_type,
                     socket,
                     token,
                     None,
                     Some(tls_session),
                     self_peer.clone(),
-                    self.mode,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
                     Arc::clone(&networks),
@@ -276,7 +269,7 @@ impl TlsServer {
                 Ok(())
             }
             Err(e) => {
-                if connection_type == ConnectionType::Node && !self.add_unreachable(ip, port) {
+                if peer_type == PeerType::Node && !self.add_unreachable(ip, port) {
                     error!("Can't insert unreachable peer!");
                 }
                 into_err!(Err(e))
@@ -300,7 +293,7 @@ impl TlsServer {
         self.dptr
             .write()
             .unwrap()
-            .cleanup_connections(self.mode, poll)
+            .cleanup_connections(self.peer_type(), poll)
     }
 
     pub fn liveness_check(&self) -> Fallible<()> { self.dptr.write().unwrap().liveness_check() }
@@ -326,7 +319,7 @@ impl TlsServer {
     }
 
     #[inline]
-    pub fn mode(&self) -> P2PNodeMode { self.mode }
+    pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
 
     #[inline]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }

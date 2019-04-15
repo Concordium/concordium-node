@@ -7,9 +7,9 @@ extern crate log;
 mod tests {
     use failure::Fallible;
     use p2p_client::{
-        common::{ConnectionType, UCursor},
+        common::{PeerType, UCursor},
         configuration::Config,
-        connection::{MessageManager, P2PEvent, P2PNodeMode},
+        connection::{MessageManager, P2PEvent},
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::p2p_node::P2PNode,
         prometheus_exporter::{PrometheusMode, PrometheusServer},
@@ -37,9 +37,9 @@ mod tests {
         };
 
         use p2p_client::{
-            common::{ConnectionType, UCursor},
+            common::{PeerType, UCursor},
             configuration::Config,
-            connection::{MessageManager, P2PNodeMode},
+            connection::MessageManager,
             network::{NetworkMessage, NetworkPacketType, NetworkResponse},
             p2p::p2p_node::P2PNode,
         };
@@ -133,7 +133,7 @@ mod tests {
             let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
             config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
-            let mut node = P2PNode::new(None, &config, net_tx, None, P2PNodeMode::NormalMode, None);
+            let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
 
             let mh = node.message_handler();
             safe_write!(mh)?.add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
@@ -153,7 +153,7 @@ mod tests {
             receiver: &Receiver<NetworkMessage>,
         ) -> Fallible<()> {
             source.connect(
-                ConnectionType::Node,
+                PeerType::Node,
                 target.get_listening_ip(),
                 target.get_listening_port(),
                 None,
@@ -425,7 +425,7 @@ mod tests {
                 &config,
                 inner_sender,
                 Some(sender.clone()),
-                P2PNodeMode::NormalMode,
+                PeerType::Node,
                 Some(Arc::new(RwLock::new(prometheus.clone()))),
             );
 
@@ -461,7 +461,7 @@ mod tests {
                 let localhost = "127.0.0.1".parse().unwrap();
                 for i in 0..peer {
                     node.connect(
-                        ConnectionType::Node,
+                        PeerType::Node,
                         localhost,
                         (instance_port - 1 - i) as u16,
                         None,
@@ -561,7 +561,7 @@ mod tests {
                     &config,
                     inner_sender,
                     Some(sender.clone()),
-                    P2PNodeMode::NormalMode,
+                    PeerType::Node,
                     Some(Arc::new(RwLock::new(prometheus.clone()))),
                 );
                 let mut _node_self_clone = node.clone();
@@ -596,7 +596,7 @@ mod tests {
                 if peer > 0 {
                     for i in 0..peer {
                         node.connect(
-                            ConnectionType::Node,
+                            PeerType::Node,
                             localhost,
                             (instance_port - 1 - (i)) as u16,
                             None,
@@ -617,7 +617,7 @@ mod tests {
                 for i in 1..islands_count {
                     central_peer
                         .connect(
-                            ConnectionType::Node,
+                            PeerType::Node,
                             localhost,
                             (test_port_added + (island_size * i)) as u16,
                             None,

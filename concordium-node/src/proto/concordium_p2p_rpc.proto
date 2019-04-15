@@ -26,8 +26,8 @@ message PeerElement {
 }
 
 message PeerListResponse {
-          string node_type = 1;
-          repeated PeerElement peer = 2;
+ string peer_type = 1;
+ repeated PeerElement peer = 2;
 }
 
 message PeerStatsResponse {
@@ -81,7 +81,7 @@ message NetworkChangeRequest {
 message NodeInfoResponse {
    google.protobuf.StringValue node_id = 1;
    uint64 current_localtime = 2;
-  string node_type = 3;
+  string peer_type = 3;
 }
 
 message SuccessfulJsonPayloadResponse {

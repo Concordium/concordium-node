@@ -14,9 +14,9 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use iron::{headers::ContentType, prelude::*, status};
 use p2p_client::{
-    common::{self, ConnectionType},
+    common::{self, PeerType},
     configuration,
-    connection::{P2PEvent, P2PNodeMode},
+    connection::P2PEvent,
     db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
@@ -422,14 +422,7 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let mut node = P2PNode::new(
-        node_id,
-        &conf,
-        pkt_in,
-        node_sender,
-        P2PNodeMode::NormalMode,
-        None,
-    );
+    let mut node = P2PNode::new(node_id, &conf, pkt_in, node_sender, PeerType::Node, None);
 
     let _node_th = node.spawn();
 
@@ -529,7 +522,7 @@ fn main() -> Fallible<()> {
                             for peer_node in peers {
                                 if _node_self_clone
                                     .connect(
-                                        ConnectionType::Node,
+                                        PeerType::Node,
                                         peer_node.ip(),
                                         peer_node.port(),
                                         Some(peer_node.id()),
@@ -558,7 +551,7 @@ fn main() -> Fallible<()> {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(ConnectionType::Node, ip, port, None)
+                node.connect(PeerType::Node, ip, port, None)
                     .map_err(|e| error!("{}", e))
                     .ok();
             }
@@ -572,7 +565,7 @@ fn main() -> Fallible<()> {
             Ok(nodes) => {
                 for (ip, port) in nodes {
                     info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                    node.connect(ConnectionType::Bootstrapper, ip, port, None)
+                    node.connect(PeerType::Bootstrapper, ip, port, None)
                         .map_err(|e| error!("{}", e))
                         .ok();
                 }

@@ -10,13 +10,8 @@ mod tests {
     use consensus_sys::consensus::*;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
-        configuration::Config,
-        connection::{P2PEvent, P2PNodeMode},
-        db::P2PDB,
-        network::NetworkMessage,
-        p2p::p2p_node::P2PNode,
-        proto::*,
-        rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, connection::P2PEvent, db::P2PDB,
+        network::NetworkMessage, p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
         sync::{
@@ -96,14 +91,7 @@ mod tests {
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
 
-        let node = P2PNode::new(
-            None,
-            &config,
-            pkt_in,
-            Some(sender),
-            P2PNodeMode::NormalMode,
-            None,
-        );
+        let node = P2PNode::new(None, &config, pkt_in, Some(sender), PeerType::Node, None);
 
         let mut rpc_serv = RpcServerImpl::new(
             node,

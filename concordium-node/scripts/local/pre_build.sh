@@ -14,7 +14,7 @@ else
 fi
 
 # P2P Client
-rsync -a --exclude=target/ --delete \
+rsync -ac --exclude=target/ --delete \
     --exclude=scripts/local/assets \
     ../.. assets/repos/p2p-client
 
