@@ -6,7 +6,9 @@ import Concordium.GlobalState.Acorn.Interfaces
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as Map
 
-newtype Modules = Modules { _modules :: HashMap Core.ModuleRef (Interface, ValueInterface) }
+type Module = (Interface, ValueInterface)
+
+newtype Modules = Modules { _modules :: HashMap Core.ModuleRef Module }
 
 emptyModules :: Modules
 emptyModules = Modules Map.empty

@@ -8,6 +8,7 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import Data.List
 import Data.Maybe
+import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
@@ -194,6 +195,10 @@ class Monad m => TreeStateMonad m where
     getPendingTransactions :: m PendingTransactionTable
     -- |Set the pending transactions after execution of the focus block.
     putPendingTransactions :: PendingTransactionTable -> m ()
+
+    -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
+    getAccountNonFinalized :: AccountAddress -> Nonce -> m [Set.Set HashedTransaction]
+
     -- * Operations on the transaction table
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
@@ -253,6 +258,7 @@ instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
     putFocusBlock = lift . putFocusBlock
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
+    getAccountNonFinalized acc = lift . getAccountNonFinalized acc
     addTransaction  = lift . addTransaction
     finalizeTransactions = lift . finalizeTransactions
     commitTransaction slot tr = lift $ commitTransaction slot tr
@@ -287,6 +293,7 @@ instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
     putFocusBlock = lift . putFocusBlock
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
+    getAccountNonFinalized acc = lift . getAccountNonFinalized acc
     addTransaction  = lift . addTransaction
     finalizeTransactions = lift . finalizeTransactions
     commitTransaction slot tr = lift $ commitTransaction slot tr

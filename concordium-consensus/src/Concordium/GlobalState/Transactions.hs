@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 module Concordium.GlobalState.Transactions where
 
 import Control.Exception
@@ -23,6 +24,7 @@ newtype TransactionSignature = TransactionSignature Sig.Signature
     deriving (S.Serialize)
 
 class TransactionData t where
+    transactionHeader :: t -> TransactionHeader
     transactionSender :: t -> AccountAddress
     transactionNonce :: t -> Nonce
     transactionGasAmount :: t -> Amount
@@ -43,7 +45,17 @@ data Transaction = Transaction {
     trSignature :: TransactionSignature
 } deriving (Generic)
 
+-- |NB: We do not use the serialize instance of the body here, since that is
+-- already serialized and there is no need to add additional length information.
+-- FIXME: This method is inefficient (it creates temporary bytestrings which are
+-- probably not necessary if we had a more appropriate sign function.
+
+signTransaction :: Sig.KeyPair -> TransactionHeader -> SerializedPayload -> Transaction
+signTransaction keys header sb =
+    Transaction header sb (TransactionSignature (Sig.sign keys (S.encode header <> (_spayload sb))))
+
 instance TransactionData Transaction where
+    transactionHeader = trHeader
     transactionSender = thSender . trHeader
     transactionNonce = thNonce . trHeader
     transactionGasAmount = thGasAmount . trHeader
@@ -60,6 +72,7 @@ type TransactionHash = H.Hash
 type HashedTransaction = Hashed Transaction
 
 instance TransactionData (Hashed Transaction) where
+    transactionHeader = trHeader . unhashed
     transactionSender = transactionSender . unhashed
     transactionNonce = transactionNonce . unhashed
     transactionGasAmount = transactionGasAmount . unhashed
@@ -102,6 +115,15 @@ type PendingTransactionTable = HM.HashMap AccountAddress (Nonce, Nonce)
 
 emptyPendingTransactionTable :: PendingTransactionTable
 emptyPendingTransactionTable = HM.empty
+
+-- |Insert an additional element in the pending transaction table.
+-- If the account does not yet exist create it.
+-- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
+extendPendingTransactionTable :: TransactionData t => t -> PendingTransactionTable -> PendingTransactionTable
+extendPendingTransactionTable tx pt =
+  HM.alter (\case Nothing -> Just (nonce, nonce)
+                  Just (l, u) -> Just (min l nonce, max u nonce)) (transactionSender tx) pt
+  where nonce = transactionNonce tx
 
 forwardPTT :: [HashedTransaction] -> PendingTransactionTable -> PendingTransactionTable
 forwardPTT trs ptt0 = foldl forward1 ptt0 trs
