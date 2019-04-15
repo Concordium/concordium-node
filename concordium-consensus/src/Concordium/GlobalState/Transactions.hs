@@ -21,7 +21,7 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.HashableTo
 
 newtype TransactionSignature = TransactionSignature Sig.Signature
-    deriving (S.Serialize)
+    deriving (Show, S.Serialize)
 
 class TransactionData t where
     transactionHeader :: t -> TransactionHeader
@@ -43,7 +43,7 @@ data Transaction = Transaction {
     trHeader :: TransactionHeader,
     trPayload :: SerializedPayload,
     trSignature :: TransactionSignature
-} deriving (Generic)
+} deriving (Show, Generic)
 
 -- |NB: We do not use the serialize instance of the body here, since that is
 -- already serialized and there is no need to add additional length information.
