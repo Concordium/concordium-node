@@ -59,33 +59,38 @@ inCtx txt = fromJust (Map.lookup txt simpleCounterCtx)
 inCtxTm :: Text.Text -> Core.Expr origin
 inCtxTm = Core.Atom . Core.LocalDef . inCtx
 
-initialTrans :: Int -> [Types.MessageTy]
+initialTrans :: Int -> [Types.Transaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 0 (n-1)
  
 mateuszAccount :: AccountAddress
 mateuszAccount = AH.accountAddress mateuszACI
 
+mateuszKP :: S.KeyPair
+mateuszKP = fst (S.randomKeyPair (mkStdGen 0))
+
 mateuszACI :: AH.AccountCreationInformation
-mateuszACI = AH.createAccount (S.verifyKey (fst (S.randomKeyPair (mkStdGen 0))))
+mateuszACI = AH.createAccount (S.verifyKey mateuszKP)
 
 
-initSimpleCounter :: Int -> Types.MessageTy
-initSimpleCounter n = (Types.Header { sender = mateuszAccount
-                                    , gasAmount = 10000
-                                    , nonce = fromIntegral n},
-                       Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0))))
+initSimpleCounter :: Int -> Types.Transaction
+initSimpleCounter n = Types.signTransaction mateuszKP
+                                            (Types.TransactionHeader { thSender = mateuszAccount
+                                                                     , thGasAmount = 10000
+                                                                     , thNonce = fromIntegral n})
+                       (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0))))
 
 -- | Generate a given number of transactions, all of which are updates to a contract instance given as second argument.
 update ::
   (Integral a, Integral b) =>
   a -- ^Whether to increment or decrement. If n == 0 (mod 9) then decrement, else increment.
   -> b -- ^The update is going to affect the contract on address Tid-x where x is this argument.
-  -> Types.MessageTy
-update b n = (Types.Header { sender = mateuszAccount
-                           , gasAmount = 100000
-                           , nonce = fromIntegral n + 1000
-                           },
-              Types.encodePayload (Types.Update 0 (ContractAddress (fromIntegral n) 0) (Core.App (if b `rem` 9 == 0 then (inCtxTm "Dec") else (inCtxTm "Inc")) (Core.Literal (Core.Int64 10)))))
+  -> Types.Transaction
+update b n = Types.signTransaction mateuszKP
+                                  (Types.TransactionHeader { thSender = mateuszAccount
+                                                           , thGasAmount = 100000
+                                                           , thNonce = fromIntegral n + 1000
+                                                           })
+              (Types.encodePayload (Types.Update 0 (ContractAddress (fromIntegral n) 0) (Core.App (if b `rem` 9 == 0 then (inCtxTm "Dec") else (inCtxTm "Inc")) (Core.Literal (Core.Int64 10)))))
 
 -- |State with the given number of contract instances of the counter contract specified.
 initialState :: Int -> BlockState.BlockState
