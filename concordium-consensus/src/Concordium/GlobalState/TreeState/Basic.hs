@@ -158,6 +158,14 @@ instance (SkovLenses s, Monad m, MonadState s m) => TreeStateMonad (SkovTreeStat
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
     putPendingTransactions pts = pendingTransactions .= pts
+    getAccountNonFinalized addr nnce =
+            use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
+                Nothing -> return []
+                Just anfts ->
+                    let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
+                    in return $ case atnnce of
+                        Nothing -> Map.toAscList beyond
+                        Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do 
             tt <- use transactionTable
             case tt ^. ttHashMap . at (getHash tr) of
