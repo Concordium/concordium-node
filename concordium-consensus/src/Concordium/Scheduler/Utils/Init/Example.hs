@@ -97,4 +97,4 @@ initialState n =
         gs = BlockState.emptyBlockState { BlockState.blockAccounts = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts
                                         , BlockState.blockModules = Mod.Modules mods }
         gs' = Types.execSI (execBlock (initialTrans n)) Types.dummyChainMeta gs
-    in gs'
+    in gs' { BlockState.blockAccounts = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts }
