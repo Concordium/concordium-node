@@ -57,7 +57,7 @@ getLastFinalAccountInfo sfsRef addr = do
   maybeAccount <- (getAccount addr . blockAccounts) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just acc -> return $ Just (AccountInfo (AT.accountNonce acc) (AT.accountAmount acc))
+    Just acc -> return $ Just (AccountInfo (acc ^. accountNonce) (acc ^. accountAmount))
 
 getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
