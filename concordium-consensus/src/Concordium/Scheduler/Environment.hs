@@ -50,7 +50,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   putNewAccount :: Account -> m Bool
 
   -- |Pay for execution. Return the amount remaining on the account.
-  -- Payment needs to be performed 
+  -- Payment needs to be performed
+  -- PRECONDITION: There should be enough funds on the account before this function is called.
+  -- Otherwise the function should fail raising an exception.
   payForExecution :: AccountAddress -> Energy -> m Amount
 
   -- |Refund the remaining execution cost.
