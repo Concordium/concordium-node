@@ -598,6 +598,10 @@ initialSkovFinalizationState finInst gen initBS = SkovFinalizationState{..}
 execFSM :: (Monad m) => FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m a -> FinalizationInstance -> GenesisData -> BlockState -> m a
 execFSM (FinalizationSkovMonad a) fi gd bs0 = fst <$> evalRWST a fi (initialSkovFinalizationState fi gd bs0)
 
+runFSM :: FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [FinalizationOutputEvent])
+runFSM (FinalizationSkovMonad a) fi fs = runRWST a fi fs
+
+
 evalSSM :: (Monad m) => SimpleSkovMonad s m a -> s -> m a
 evalSSM (SimpleSkovMonad a) st = evalStateT a st
 

@@ -47,6 +47,11 @@ import Concordium.Getters as G
 
 import Debug.Trace
 
+main :: IO ()
+main = return ()
+
+{-
+
 nAccounts = 2
 
 sendTransaction :: Chan InMessage -> BS.ByteString -> IO ()
@@ -194,3 +199,4 @@ main = do
                     loop gsMap
     loop Map.empty
 
+-}

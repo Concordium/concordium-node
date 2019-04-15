@@ -65,7 +65,7 @@ makeBaker bid lot = do
         sk@(Sig.KeyPair _ spk) <- Sig.newKeyPair
         return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
-relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, Block, BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
+relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, Block, Maybe BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp sfsRef monitor outps = loop
     where
         loop = do
@@ -75,8 +75,8 @@ relay inp sfsRef monitor outps = loop
                     let bh = getHash block :: BlockHash
                     sfs <- readIORef sfsRef
                     bp <- runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (resolveBlock bh)
-                    when (isNothing bp) $ error "Block is missing!"
-                    writeChan monitor (Left (bh, block, bpState (fromJust bp)))
+                    -- when (isNothing bp) $ error "Block is missing!"
+                    writeChan monitor (Left (bh, block, bpState <$> bp))
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
                         let factor = 1 :: Double
@@ -142,7 +142,10 @@ main = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ gsToString gs' ++ "\\l\"];"
+                    let stateStr = case gs' of
+                                    Nothing -> ""
+                                    Just gs -> gsToString gs
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout
