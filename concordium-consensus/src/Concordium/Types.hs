@@ -18,7 +18,7 @@ import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 
-import Concordium.GlobalState.Types(Slot(..), BlockHeight(..), ChainMetadata(..))
+import Concordium.GlobalState.Types(Slot(..), BlockHeight(..))
 
 -- import Concordium.Payload.Transaction(GlobalState, initState)
 {-
