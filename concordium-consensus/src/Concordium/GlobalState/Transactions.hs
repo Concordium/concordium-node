@@ -11,10 +11,13 @@ import qualified Data.Serialize as S
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
+import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.Signature as Sig
+-- import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.ID.Types as IDTypes
 import Concordium.ID.AccountHolder
 
 import Concordium.GlobalState.Types
@@ -23,13 +26,14 @@ import Concordium.GlobalState.HashableTo
 newtype TransactionSignature = TransactionSignature Sig.Signature
     deriving (Show, S.Serialize)
 
-class TransactionData t where
+class S.Serialize t => TransactionData t where
     transactionHeader :: t -> TransactionHeader
     transactionSender :: t -> AccountAddress
     transactionNonce :: t -> Nonce
     transactionGasAmount :: t -> Amount
     transactionPayload :: t -> SerializedPayload
     transactionSignature :: t -> TransactionSignature
+    transactionSerialized :: t -> BS.ByteString
 
 data TransactionHeader = TransactionHeader {
     thSender :: AccountAddress,
@@ -54,6 +58,13 @@ signTransaction :: Sig.KeyPair -> TransactionHeader -> SerializedPayload -> Tran
 signTransaction keys header sb =
     Transaction header sb (TransactionSignature (Sig.sign keys (S.encode header <> (_spayload sb))))
 
+-- |Verify that the given transaction was signed by the sender's key.
+-- FIXME: Unimplemented until we have support from the crypto library.
+verifyTransactionSignature :: IDTypes.AccountVerificationKey -> BS.ByteString -> TransactionSignature -> Bool
+verifyTransactionSignature vfkey bs sig = True
+
+
+
 instance TransactionData Transaction where
     transactionHeader = trHeader
     transactionSender = thSender . trHeader
@@ -61,6 +72,7 @@ instance TransactionData Transaction where
     transactionGasAmount = thGasAmount . trHeader
     transactionPayload = trPayload
     transactionSignature = trSignature
+    transactionSerialized = S.encode
 
 instance S.Serialize Transaction
 
@@ -71,13 +83,18 @@ type TransactionHash = H.Hash
 
 type HashedTransaction = Hashed Transaction
 
-instance TransactionData (Hashed Transaction) where
+instance S.Serialize HashedTransaction where
+  put = S.put . unhashed
+  get = makeHashed <$> S.get
+
+instance TransactionData HashedTransaction where
     transactionHeader = trHeader . unhashed
     transactionSender = transactionSender . unhashed
     transactionNonce = transactionNonce . unhashed
     transactionGasAmount = transactionGasAmount . unhashed
     transactionPayload = transactionPayload . unhashed
     transactionSignature = transactionSignature . unhashed
+    transactionSerialized = transactionSerialized . unhashed
 
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
     -- |Non-finalized transactions (for an account) indexed by nonce.
