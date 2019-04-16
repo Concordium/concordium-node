@@ -1,6 +1,7 @@
 use rustls::{ClientSession, ServerSession};
 use std::{
     collections::HashSet,
+    net::IpAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::Sender,
@@ -8,8 +9,10 @@ use std::{
     },
 };
 
+use failure::Fallible;
+
 use crate::{
-    common::{get_current_stamp, P2PPeer, PeerType},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
     connection::{CommonSession, P2PEvent},
     network::{Buckets, NetworkId},
     prometheus_exporter::PrometheusServer,
@@ -22,7 +25,7 @@ use crate::{
 ///     - The input message.
 pub struct ConnectionPrivate {
     pub local_peer:          P2PPeer,
-    pub remote_peer:         Option<P2PPeer>,
+    pub remote_peer:         RemotePeer,
     pub remote_end_networks: HashSet<NetworkId>,
     pub local_end_networks:  Arc<RwLock<HashSet<NetworkId>>>,
     pub buckets:             Arc<RwLock<Buckets>>,
@@ -47,6 +50,7 @@ pub struct ConnectionPrivate {
 impl ConnectionPrivate {
     pub fn new(
         local_peer: P2PPeer,
+        remote_peer: RemotePeer,
         local_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
@@ -66,7 +70,7 @@ impl ConnectionPrivate {
 
         ConnectionPrivate {
             local_peer,
-            remote_peer: None,
+            remote_peer,
             remote_end_networks: HashSet::new(),
             local_end_networks,
             buckets,
@@ -106,9 +110,17 @@ impl ConnectionPrivate {
 
     pub fn set_measured_ping_sent(&mut self) { self.sent_ping = get_current_stamp() }
 
-    pub fn remote_peer(&self) -> Option<P2PPeer> { self.remote_peer.clone() }
+    pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
-    pub fn set_remote_peer(&mut self, p: P2PPeer) { self.remote_peer = Some(p); }
+    pub fn promote_to_post_handshake(
+        &mut self,
+        id: P2PNodeId,
+        ip: IpAddr,
+        port: u16,
+    ) -> Fallible<()> {
+        self.remote_peer = self.remote_peer.promote_to_post_handshake(id, ip, port)?;
+        Ok(())
+    }
 
     #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }

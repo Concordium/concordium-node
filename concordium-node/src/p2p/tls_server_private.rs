@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer},
     connection::Connection,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     prometheus_exporter::PrometheusServer,
@@ -90,7 +90,7 @@ impl TlsServerPrivate {
         let mut ret = vec![];
         for ref rc_conn in &self.connections {
             let conn = rc_conn.borrow();
-            if let Some(remote_peer) = conn.remote_peer() {
+            if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
                 if nids.len() == 0
                     || conn
                         .remote_end_networks()
@@ -219,7 +219,7 @@ impl TlsServerPrivate {
         if let Some(ref prom) = &self.prometheus_exporter {
             let closing_with_peer = closing_conns
                 .iter()
-                .filter(|ref rc_conn| rc_conn.borrow().remote_peer().is_some())
+                .filter(|rc_conn| rc_conn.borrow().is_post_handshake())
                 .count();
             safe_write!(prom)?.peers_dec_by(closing_with_peer as i64)?;
         }

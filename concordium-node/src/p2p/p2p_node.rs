@@ -23,7 +23,9 @@ use std::{
 };
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, UCursor},
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+    },
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
@@ -226,7 +228,7 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(PeerType::Node, id, own_peer_ip, own_peer_port);
+        let self_peer = P2PPeer::from(peer_type, id, own_peer_ip, own_peer_port);
 
         let seen_messages = SeenMessagesList::new();
 
@@ -505,7 +507,7 @@ impl P2PNode {
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
-        if let Some(remote_peer) = conn.remote_peer() {
+        if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc().unwrap(); // assuming non-failable
@@ -862,7 +864,7 @@ impl P2PNode {
 
     fn get_self_peer(&self) -> P2PPeer {
         P2PPeer::from(
-            PeerType::Node,
+            self.peer_type,
             self.id(),
             self.get_listening_ip(),
             self.get_listening_port(),
@@ -964,7 +966,7 @@ impl MessageManager for P2PNode {
 }
 
 fn is_conn_peer_id(conn: &Connection, id: &P2PNodeId) -> bool {
-    if let Some(remote_peer) = conn.remote_peer() {
+    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         remote_peer.id() == *id
     } else {
         false
@@ -979,7 +981,7 @@ pub fn is_valid_connection_in_broadcast(
     sender: &P2PPeer,
     network_id: NetworkId,
 ) -> bool {
-    if let Some(remote_peer) = conn.remote_peer() {
+    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         if remote_peer.id() != sender.id() && remote_peer.peer_type() != PeerType::Bootstrapper {
             let local_end_networks = conn.local_end_networks();
             return safe_read!(local_end_networks)

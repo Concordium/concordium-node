@@ -79,6 +79,7 @@ impl TlsServer {
             blind_trusted_broadcast,
             prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
         };
+
         mself.add_default_prehandshake_validations();
         mself.setup_default_message_handler();
         mself
@@ -160,6 +161,7 @@ impl TlsServer {
             Some(tls_session),
             None,
             self_peer,
+            PeerType::Node,
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
             networks,
@@ -234,6 +236,7 @@ impl TlsServer {
                     None,
                     Some(tls_session),
                     self_peer.clone(),
+                    peer_type,
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
                     Arc::clone(&networks),
