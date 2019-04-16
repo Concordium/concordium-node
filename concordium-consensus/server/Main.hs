@@ -30,7 +30,7 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Concordium.Scheduler.Utils.Init.Example(update, initialState)
+import Concordium.Scheduler.Utils.Init.Example(makeTransaction, initialState)
 -- import Concordium.Scheduler.Types(lState, instances, instances)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Parameters

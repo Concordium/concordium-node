@@ -14,7 +14,10 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.GlobalState.Acorn.Interfaces,
                                    module Concordium.GlobalState.Transactions,
                                    module Concordium.GlobalState.Instances,
-                                   module Concordium.GlobalState) where
+                                   module Concordium.GlobalState,
+                                   ReceiveContext(..),
+                                   InitContext(..),
+                                   link) where
 
 import Prelude hiding(fail)
 
@@ -24,6 +27,9 @@ import Concordium.GlobalState.Execution
 import Concordium.GlobalState
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Transactions
+
+import Acorn.Types(ReceiveContext(..), InitContext(..), link)
+
 
 dummyChainMeta :: ChainMetadata
 dummyChainMeta = ChainMetadata { slotNumber = 0

@@ -13,10 +13,10 @@ import qualified Acorn.TypeCheck as TC
 import qualified Acorn.Interpreter as I
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import Acorn.Types(ReceiveContext(..), InitContext(..), link)
 import Concordium.Scheduler.Environment
 
 import qualified Concordium.ID.AccountHolder as AH
+import qualified Concordium.ID.Types as ID
 
 import qualified Concordium.GlobalState.Instances as Ins
 
@@ -35,112 +35,125 @@ getCurrentAmount addr = ((^. accountAmount) <$>) <$> getCurrentAccount addr
 
 -- |Check that the transaction has a valid sender, and that the amount they have
 -- deposited is on their account.
-checkHeader :: SchedulerMonad m => TransactionHeader -> m Bool
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> m (Either FailureKind ())
 checkHeader meta = do
-  macc <- getAccount (thSender meta)
+  macc <- getAccount (transactionSender meta)
   case macc of
-    Nothing -> return False
+    Nothing -> return (Left (UnknownAccount (transactionSender meta)))
     Just acc ->
       let amnt = acc ^. accountAmount
           nextNonce = acc ^. accountNonce
-          txnonce = thNonce meta
+          txnonce = transactionNonce meta
       -- NB: checking txnonce = nextNonce should also make sure that the nonce >= minNonce
-      in return (thGasAmount meta <= amnt && txnonce == nextNonce)
+      in return (runExcept $! do
+                     -- check they have enough funds to cover the deposit
+                     unless (transactionGasAmount meta <= amnt) (throwError InsufficientFunds)
+                     unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
+                     let sigCheck = verifyTransactionSignature (acc ^. accountCreationInformation & ID.aci_verifKey) -- the signature is correct.
+                                                               (transactionSerialized meta)
+                                                               (transactionSignature meta)
+                     unless sigCheck (throwError IncorrectSignature))
+      -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
+      -- but only for transactions for which this was done.
+      -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions
+      -- which come as part of blocks.
+
 
 dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m TxResult
 dispatch msg = do
   let meta = transactionHeader msg
   let energy = gtuToEnergy (thGasAmount meta)
-  validMeta <- checkHeader meta
-  if validMeta then do
-    -- at this point the transaction is going to be commited to the block. Hence we can increase the
-    -- account nonce of the sender account.
-    increaseAccountNonce (thSender meta)
-    case decodePayload (transactionPayload msg) of -- FIXME: Before doing this need to charge some amount.
-      Left err -> return $ TxValid $ TxReject (SerializationFailure err)
-      Right payload -> 
-        case payload of
-          DeployModule mod -> do
-            _ <- payForExecution (thSender meta) energy -- ignore remaining amount, we don't need it for this particular transaction type
-            res <- evalLocalT (handleModule meta mod energy)
-            case res of
-              (Left reason, energy') -> refundEnergy (thSender meta) energy' >> return (TxValid (TxReject reason))
-              (Right (mhash, iface, viface), energy') -> do
-                b <- commitModule mhash iface viface
-                if b then do
+  validMeta <- checkHeader msg
+  case validMeta of
+    Left fk -> return $ TxInvalid fk
+    Right _ -> do
+      -- at this point the transaction is going to be commited to the block. Hence we can increase the
+      -- account nonce of the sender account.
+      increaseAccountNonce (thSender meta)
+      case decodePayload (transactionPayload msg) of -- FIXME: Before doing this need to charge some amount.
+        Left err -> return $ TxValid $ TxReject (SerializationFailure err)
+        Right payload -> 
+          case payload of
+            DeployModule mod -> do
+              _ <- payForExecution (thSender meta) energy -- ignore remaining amount, we don't need it for this particular transaction type
+              res <- evalLocalT (handleModule meta mod energy)
+              case res of
+                (Left reason, energy') -> refundEnergy (thSender meta) energy' >> return (TxValid (TxReject reason))
+                (Right (mhash, iface, viface), energy') -> do
+                  b <- commitModule mhash iface viface
+                  if b then do
+                    refundEnergy (thSender meta) energy'
+                    return $ (TxValid $ TxSuccess [ModuleDeployed mhash])
+                  else do
+                    -- FIXME:
+                    -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
+                    -- otherwise we can waste some effort in checking before reaching this point.
+                    -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
+                    refundEnergy (thSender meta) energy
+                    return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
+                    
+            InitContract amount modref cname param -> do
+              remainingAmount <- payForExecution (thSender meta) energy
+              result <- evalLocalT (handleInit meta remainingAmount amount modref cname param energy)
+              case result of
+                (Left reason, _) -> return $ TxValid (TxReject reason)
+                (Right (rmethod, iface, viface, msgty, model, initamount, impls), energy') -> do
+                    refundEnergy (thSender meta) energy'
+                    addr <- firstFreeAddress -- NB: It is important that there is no other thread adding contracts
+                    let ins = let iaddress = addr
+                                  ireceiveFun = rmethod
+                                  iModuleIface = (iface, viface)
+                                  imsgTy = msgty
+                                  imodel = model
+                                  iamount = initamount
+                                  instanceImplements = impls
+                              in Ins.Instance{..}
+                    r <- putNewInstance ins
+                    if r then
+                      return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
+                    else error "dispatch: internal error: firstFreeAddress invariant broken."
+      
+            -- FIXME: This is only temporary for now.
+            -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
+            Transfer toaddr amount -> do
+              remainingAmount <- payForExecution (thSender meta) energy
+              res <- evalLocalT (handleTransfer meta remainingAmount amount toaddr energy)
+              case res of
+                (Right (events, changeSet), energy') -> do
+                  commitStateAndAccountChanges changeSet
                   refundEnergy (thSender meta) energy'
-                  return $ (TxValid $ TxSuccess [ModuleDeployed mhash])
-                else do
-                  -- FIXME:
-                  -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
-                  -- otherwise we can waste some effort in checking before reaching this point.
-                  -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
-                  refundEnergy (thSender meta) energy
-                  return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
-                  
-          InitContract amount modref cname param -> do
-            remainingAmount <- payForExecution (thSender meta) energy
-            result <- evalLocalT (handleInit meta remainingAmount amount modref cname param energy)
-            case result of
-              (Left reason, _) -> return $ TxValid (TxReject reason)
-              (Right (rmethod, iface, viface, msgty, model, initamount, impls), energy') -> do
-                  refundEnergy (thSender meta) energy'
-                  addr <- firstFreeAddress -- NB: It is important that there is no other thread adding contracts
-                  let ins = let iaddress = addr
-                                ireceiveFun = rmethod
-                                iModuleIface = (iface, viface)
-                                imsgTy = msgty
-                                imodel = model
-                                iamount = initamount
-                                instanceImplements = impls
-                            in Ins.Instance{..}
-                  r <- putNewInstance ins
-                  if r then
-                    return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
-                  else error "dispatch: internal error: firstFreeAddress invariant broken."
-    
-          -- FIXME: This is only temporary for now.
-          -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
-          Transfer toaddr amount -> do
-            remainingAmount <- payForExecution (thSender meta) energy
-            res <- evalLocalT (handleTransfer meta remainingAmount amount toaddr energy)
-            case res of
-              (Right (events, changeSet), energy') -> do
-                commitStateAndAccountChanges changeSet
-                refundEnergy (thSender meta) energy'
-                return $ TxValid $ TxSuccess events
-              (Left reason, energy') -> do
-                refundEnergy (thSender meta) energy'
-                return $ TxValid (TxReject reason)
-
-          Update amount cref maybeMsg -> do
-            accountamount <- payForExecution (thSender meta) energy
-            result <- evalLocalT (handleUpdate meta accountamount amount cref maybeMsg energy)
-            case result of
-              (Right (events, changeSet), energy') -> do
-                 commitStateAndAccountChanges changeSet
-                 refundEnergy (thSender meta) energy'
-                 return $ TxValid $ TxSuccess events
-              (Left reason, energy') -> do
+                  return $ TxValid $ TxSuccess events
+                (Left reason, energy') -> do
                   refundEnergy (thSender meta) energy'
                   return $ TxValid (TxReject reason)
-
-          CreateAccount aci -> 
-            if AH.verifyAccount aci
-            then do -- if account information is correct then we create the account with initial nonce 1
-              let aaddr = AH.accountAddress aci
-              let account = Account { _accountAddress = aaddr
-                                    , _accountNonce = minNonce
-                                    , _accountAmount = 0
-                                    , _accountCreationInformation = aci }
-              r <- putNewAccount account
-              if r then
-                return $ TxValid (TxSuccess [AccountCreated aaddr])
-              else
-                return $ TxValid (TxReject (AccountAlreadyExists aaddr))
-            else 
-              return $ TxValid (TxReject AccountCredentialsFailure)
-  else return $ TxInvalid InvalidHeader
+  
+            Update amount cref maybeMsg -> do
+              accountamount <- payForExecution (thSender meta) energy
+              result <- evalLocalT (handleUpdate meta accountamount amount cref maybeMsg energy)
+              case result of
+                (Right (events, changeSet), energy') -> do
+                   commitStateAndAccountChanges changeSet
+                   refundEnergy (thSender meta) energy'
+                   return $ TxValid $ TxSuccess events
+                (Left reason, energy') -> do
+                    refundEnergy (thSender meta) energy'
+                    return $ TxValid (TxReject reason)
+  
+            CreateAccount aci -> 
+              if AH.verifyAccount aci
+              then do -- if account information is correct then we create the account with initial nonce 1
+                let aaddr = AH.accountAddress aci
+                let account = Account { _accountAddress = aaddr
+                                      , _accountNonce = minNonce
+                                      , _accountAmount = 0
+                                      , _accountCreationInformation = aci }
+                r <- putNewAccount account
+                if r then
+                  return $ TxValid (TxSuccess [AccountCreated aaddr])
+                else
+                  return $ TxValid (TxReject (AccountAlreadyExists aaddr))
+              else 
+                return $ TxValid (TxReject AccountCredentialsFailure)
 
 {-# INLINE rejectWith #-}
 rejectWith :: Monad m => InvalidKind -> Energy -> m (Either InvalidKind b, Energy)

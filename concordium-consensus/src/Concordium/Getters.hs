@@ -17,7 +17,7 @@ import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.TreeState.Basic
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.Information
+import qualified Concordium.GlobalState.Information as AI
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.HashableTo
 import Concordium.GlobalState.BlockState
@@ -52,19 +52,19 @@ getLastFinalAccountList sfsRef = (Map.keys . accountMap . blockAccounts) <$> get
 getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
 getLastFinalInstances sfsRef = (HashMap.keys . _instances . blockInstances) <$> getLastFinalState sfsRef
 
-getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
+getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AI.AccountInfo)
 getLastFinalAccountInfo sfsRef addr = do
   maybeAccount <- (getAccount addr . blockAccounts) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just acc -> return $ Just (AccountInfo (acc ^. accountNonce) (acc ^. accountAmount))
+    Just acc -> return $ Just (AI.AccountInfo (acc ^. accountNonce) (acc ^. accountAmount))
 
-getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
+getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe AI.InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
   maybeAccount <- (HashMap.lookup addr . _instances . blockInstances) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just is -> return $ Just (InstanceInfo (imsgTy is) (imodel is) (iamount is))
+    Just is -> return $ Just (AI.InstanceInfo (imsgTy is) (imodel is) (iamount is))
 
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
