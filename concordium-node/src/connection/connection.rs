@@ -13,7 +13,7 @@ use std::{
 use mio::{net::TcpStream, Event, Poll, PollOpt, Ready, Token};
 use rustls::{ClientSession, ServerSession};
 
-use failure::{bail, Error, Fallible};
+use failure::{bail, Error, Fallible, Backtrace};
 
 use crate::{
     common::{
@@ -60,7 +60,7 @@ macro_rules! drop_conn_if_unwanted {
                             if x.to_string().contains("SendError(..)") {
                                 trace!("Send Error in incoming plaintext");
                             } else {
-                                error!("{}", x);
+                                error!("Other drop_conn error: {}", x);
                             }
                         });
                     }
@@ -376,6 +376,7 @@ impl Connection {
     pub fn is_closed(&self) -> bool { self.closed }
 
     pub fn close(&mut self, poll: &mut Poll) -> Fallible<()> {
+        error!( "# Miguel: Set close in {}", Backtrace::new());
         self.closing = true;
         poll.deregister(&self.socket)?;
         self.socket.shutdown(Shutdown::Both)?;
@@ -412,7 +413,8 @@ impl Connection {
 
         // Manage clossing event.
         if self.closing {
-            self.close(poll).unwrap_or_else(|e| error!("{}", e));
+            self.close(poll).unwrap_or_else(|e| error!("Close conn is failing: {}", e));
+            error!("# Miguel: Close from closing {}", Backtrace::new());
         }
 
         let session_wants_read = self.dptr.borrow().tls_session.wants_read();
@@ -440,6 +442,7 @@ impl Connection {
                         Ok(0)
                     } else {
                         self.closing = true;
+                        error!( "# Miguel: Set close in {} due to {:?}", Backtrace::new(), read_err);
                         into_err!(Err(read_err))
                     }
                 }
@@ -469,6 +472,7 @@ impl Connection {
             }
             Err(read_err) => {
                 self.closing = true;
+                error!( "# Miguel: Set close in {}", Backtrace::new());
                 bail!(read_err);
             }
         }
@@ -492,7 +496,7 @@ impl Connection {
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref prom) = &self.prometheus_exporter() {
             if let Ok(mut plock) = safe_write!(prom) {
-                plock.pkt_received_inc().unwrap_or_else(|e| error!("{}", e));
+                plock.pkt_received_inc().unwrap_or_else(|e| error!("Prometheus cannot increment packet received counter: {}", e));
             }
         };
 
@@ -523,6 +527,7 @@ impl Connection {
                                 );
                                 &self.clear_buffer();
                                 &self.close(poll);
+                                panic!("# Miguel: Unexpected closed");
                             }
                             _ => {}
                         }

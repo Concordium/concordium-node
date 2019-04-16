@@ -185,6 +185,7 @@ impl TlsServerPrivate {
             for rc_conn in self.connections.iter() {
                 let mut conn = rc_conn.borrow_mut();
                 if conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp {
+                    panic!("# Miguel: Close connection by timeout 1");
                     conn.close(&mut poll)?;
                 }
             }
@@ -195,6 +196,7 @@ impl TlsServerPrivate {
                     && conn.connection_type() == ConnectionType::Node)
                     || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
                 {
+                    panic!("# Miguel: Close connection by timeout 2");
                     conn.close(&mut poll)?;
                 }
             }
@@ -206,6 +208,7 @@ impl TlsServerPrivate {
         // Kill banned connections
         for peer in self.banned_peers.iter() {
             if let Some(rc_conn) = self.find_connection_by_id(peer.id()) {
+                panic!("# Miguel: Close connection by ban");
                 rc_conn.borrow_mut().close(&mut poll)?;
             }
         }

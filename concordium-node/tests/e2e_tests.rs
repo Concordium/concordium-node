@@ -7,21 +7,20 @@ extern crate log;
 mod tests {
     use failure::Fallible;
     use p2p_client::{
-        common::{ConnectionType, UCursor},
-        configuration::Config,
-        connection::{MessageManager, P2PEvent, P2PNodeMode},
+        common::UCursor,
+        connection::{MessageManager, P2PNodeMode},
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::p2p_node::P2PNode,
-        prometheus_exporter::{PrometheusMode, PrometheusServer},
+        configuration::Config,
     };
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            mpsc, Arc, RwLock,
+            Arc, RwLock,
         },
-        thread, time,
+        time,
     };
 
     mod utils {
@@ -420,139 +419,71 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_002_small_mesh_net() {
+    pub fn e2e_002_small_mesh_net() -> Fallible<()> {
         utils::setup();
         let test_port_added = utils::next_port_offset(20);
 
-        let mesh_node_count = 15;
-
-        let (sender, receiver) = mpsc::channel();
-
-        let _guard = thread::spawn(move || loop {
-            if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id().to_string(),
-                            network_id
-                        );
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
-                    }
-                }
-            }
-        });
-
+        let mesh_node_count = 15u16;
         let message_count_estimated = mesh_node_count;
-        let mut peers: Vec<(usize, P2PNode, PrometheusServer)> =
-            Vec::with_capacity(mesh_node_count);
-        let mut peer_ports: Vec<usize> = Vec::with_capacity(mesh_node_count);
+        let mut peers: Vec<(P2PNode, _)> = Vec::with_capacity(mesh_node_count as usize);
 
-        let message_counter = Arc::new(AtomicUsize::new(0));
+        let message_counter = Counter::new(0);
 
-        let mut peer = 0;
 
-        for instance_port in test_port_added..(test_port_added + mesh_node_count as u16) {
-            let (inner_sender, inner_receiver) = mpsc::channel();
-            let prometheus = PrometheusServer::new(PrometheusMode::NodeMode);
+        for node_idx in 0..mesh_node_count {
+            let instance_port = node_idx + test_port_added;
+            let inner_counter = message_counter.clone();
 
-            let config = Config::new(
-                Some("127.0.0.1".to_owned()),
-                instance_port as u16,
-                vec![100],
-                100,
-            );
-
-            let mut node = P2PNode::new(
-                None,
-                &config,
-                inner_sender,
-                Some(sender.clone()),
-                P2PNodeMode::NormalMode,
-                Some(Arc::new(RwLock::new(prometheus.clone()))),
-            );
-
-            let mut _node_self_clone = node.clone();
-            let _msg_counter = message_counter.clone();
-            let _guard_pkt = thread::spawn(move || loop {
-                if let Ok(full_msg) = inner_receiver.recv() {
-                    if let NetworkMessage::NetworkPacket(ref pac, ..) = *full_msg {
+            let (mut node, waiter) = utils::make_node_and_sync( instance_port, vec![100], true)?;
+            safe_write!(node.message_handler())?
+                .add_packet_callback(make_atomic_callback!(
+                    move |pac :&NetworkPacket|{
                         if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                            inner_counter.tick(1);
                             info!(
-                                "BroadcastedMessage/{}/{} with size {} received",
+                                "BroadcastedMessage/{}/{} at {} with size {} received, ticks {}",
                                 pac.network_id,
                                 pac.message_id,
-                                pac.message.len()
+                                instance_port,
+                                pac.message.len(),
+                                inner_counter.get()
                             );
-                            _node_self_clone
-                                .send_message_from_cursor(
-                                    None,
-                                    pac.network_id,
-                                    Some(pac.message_id.clone()),
-                                    pac.message.clone(),
-                                    true,
-                                )
-                                .map_err(|e| error!("Error sending message {}", e))
-                                .ok();
-                            _msg_counter.fetch_add(1, Ordering::Relaxed);
                         }
+                        Ok(())
                     }
-                }
-            });
-            node.spawn();
-            if peer > 0 {
-                let localhost = "127.0.0.1".parse().unwrap();
-                for i in 0..peer {
-                    node.connect(
-                        ConnectionType::Node,
-                        localhost,
-                        (instance_port - 1 - i) as u16,
-                        None,
-                    )
-                    .ok();
-                }
+                ))
+                .add_callback( make_atomic_callback!(
+                        move |m: &NetworkMessage| {
+                            utils::log_any_message_handler( instance_port, m);
+                            Ok(())
+                        }));
+
+
+
+            for (tgt_node, tgt_waiter) in &peers {
+                utils::connect_and_wait_handshake( &mut node, tgt_node, &waiter)?;
+                utils::consume_pending_messages(&waiter);
+                utils::consume_pending_messages(&tgt_waiter);
             }
-            peer += 1;
-            peers.push((instance_port as usize, node, prometheus));
-            peer_ports.push(instance_port as usize);
+
+            peers.push((node, waiter));
         }
 
-        thread::sleep(time::Duration::from_secs(5));
-
+        // Send broadcast message from 0 node
         let msg = b"Hello other mother's brother".to_vec();
-        if let Some((.., ref mut node_sender_ref, _)) = peers.get_mut(0) {
-            node_sender_ref
-                .send_message(None, NetworkId::from(100), None, msg, true)
-                .map_err(|e| panic!(e))
-                .ok();
-        };
-
-        thread::sleep(time::Duration::from_secs(30));
-
-        for peer in &peers {
-            match peer.2.queue_size() {
-                Ok(size) => assert_eq!(0, size),
-                _ => panic!("Can't read queue size!"),
-            }
+        if let Some((ref mut node, _)) = peers.get_mut(0) {
+            node.send_message(None, NetworkId::from(100), None, msg.clone(), true)?;
         }
 
-        assert_eq!(
-            message_count_estimated as usize,
-            message_counter.load(Ordering::Relaxed)
-        );
+        for (node, waiter) in peers.iter_mut().nth(1) {
+            let msg_recv = utils::wait_broadcast_message( &waiter)?.read_all_into_view()?;
+            assert_eq!( msg_recv.as_slice(), msg.as_slice());
+            node.close_and_join()?;
+        }
+
+        let local_message_counter = message_counter.get() as u16;
+        assert_eq!( message_count_estimated, local_message_counter);
+        Ok(())
     }
 
     fn islands_mesh_test(
@@ -632,11 +563,12 @@ mod tests {
 
         // Wait reception of that broadcast message.
         for island in islands {
-            for (_, waiter) in island.into_iter().nth(1) {
+            for (_, waiter) in island.iter().nth(1) {
                 let msg_recv = utils::wait_broadcast_message(&waiter)?.read_all_into_view()?;
                 assert_eq!(msg_recv.as_slice(), msg.as_slice());
             }
         }
+        info!( "All broadcast messages were received!");
 
         let local_message_counter :usize = message_counter.get();
         assert_eq!(message_count_estimated, local_message_counter);
@@ -1005,5 +937,63 @@ mod tests {
     pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() -> Fallible<()> {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network(5, 4, 10)
+    }
+
+    #[test]
+    pub fn e2e_006_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(1);
+
+        let (net_tx, _) = std::sync::mpsc::channel();
+        let mut config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
+        let mut node = P2PNode::new( None, &config, net_tx, None, P2PNodeMode::NormalMode, None);
+
+        node.close_and_join()?;
+        node.close_and_join()?;
+        node.close_and_join()?;
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_02_close_and_join_on_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync( port, vec![100], true)?;
+        let (mut node_2, waiter_2) = utils::make_node_and_sync( port +1, vec![100], true)?;
+        utils::connect_and_wait_handshake( &mut node_1, &node_2, &waiter_1);
+
+        let msg = b"Hello";
+        node_1.send_message( Some(node_2.id()), NetworkId::from(100), None, msg.to_vec(), false)?;
+        node_1.close_and_join()?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!( node_2_msg.as_slice(), msg);
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_03_close_from_inside_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync( port, vec![100], true)?;
+        let (mut node_2, waiter_2) = utils::make_node_and_sync( port +1, vec![100], true)?;
+
+        let node_2_cloned = RefCell::new(node_2.clone());
+        safe_write!( node_2.message_handler())?. add_packet_callback( make_atomic_callback!(
+                move |pac: &NetworkPacket| {
+                    let join_status = node_2_cloned.borrow_mut().close_and_join();
+                    assert_eq!( join_status.is_err(), true);
+                    Ok(())
+                }));
+        utils::connect_and_wait_handshake( &mut node_1, &node_2, &waiter_1);
+
+        let msg = b"Hello";
+        node_1.send_message( Some(node_2.id()), NetworkId::from(100), None, msg.to_vec(), false)?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!( node_2_msg.as_slice(), msg);
+        Ok(())
     }
 }

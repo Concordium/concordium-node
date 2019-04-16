@@ -440,11 +440,7 @@ fn main() -> Fallible<()> {
     // Start the P2PNode
     //
     // Thread #3: P2P event loop
-    node.spawn();
-    let _node_th = Rc::try_unwrap(node.process_th_sc().unwrap())
-        .ok()
-        .unwrap()
-        .into_inner();
+    node.spawn()?;
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -587,7 +583,7 @@ fn main() -> Fallible<()> {
     }
 
     // Wait for node closing
-    _node_th.join().expect("Node thread panicked!");
+    node.join().expect("Node thread panicked!");
 
     // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {

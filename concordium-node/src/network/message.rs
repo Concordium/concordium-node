@@ -478,7 +478,9 @@ impl NetworkMessage {
                 deserialize_response_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestGetPeers => deserialize_request_get_peers(
-                peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
+                peer.ok_or_else(|| {
+                    err_msg("Get Peers Request requires a valid peer")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
@@ -486,7 +488,9 @@ impl NetworkMessage {
                 deserialize_request_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
-                peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
+                peer.ok_or_else(|| {
+                    err_msg("FindNode Request requires a valid peer")
+                })?,
                 timestamp,
                 &mut pkt,
             ),

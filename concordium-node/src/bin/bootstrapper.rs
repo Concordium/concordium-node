@@ -175,7 +175,7 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let cloned_node = node.clone();
+    let cloned_node = Arc::clone(&node);
     let _no_trust_bans = conf.common.no_trust_bans;
 
     // Register handles for ban & unban requests.
@@ -240,14 +240,10 @@ fn main() -> Result<(), Error> {
         let mut locked_node = safe_write!(node)?;
         locked_node.max_nodes = Some(conf.bootstrapper.max_nodes);
         locked_node.print_peers = true;
-        locked_node.spawn();
+        locked_node.spawn()?;
     }
 
-    let _node_th = Rc::try_unwrap(safe_write!(node)?.process_th_sc().unwrap())
-        .ok()
-        .unwrap()
-        .into_inner();
-    _node_th.join().expect("Node thread panicked!");
+    safe_write!(node)?.join().expect("Node thread panicked!");
 
     Ok(())
 }

@@ -7,6 +7,7 @@ use std::{
         Arc, RwLock,
     },
 };
+use failure::Backtrace;
 
 use crate::{
     common::{get_current_stamp, ConnectionType, P2PPeer},
@@ -68,6 +69,8 @@ impl ConnectionPrivate {
             panic!("Connection needs one session");
         };
 
+
+        // trace!( "New ConnectionPrivate on {:?} at {}", self_peer, Backtrace::new());
         ConnectionPrivate {
             connection_type,
             mode,
@@ -114,4 +117,10 @@ impl ConnectionPrivate {
 
     #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
+}
+
+impl Drop for ConnectionPrivate {
+    fn drop(&mut self) {
+        trace!( "Drop ConnectionPrivate on {:?} from {:?}", self.self_peer, self.peer);
+    }
 }
