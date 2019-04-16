@@ -84,9 +84,9 @@ impl TlsServer {
         mself
     }
 
-    pub fn log_event(&mut self, event: P2PEvent) {
-        if let Some(ref mut x) = self.event_log {
-            if let Err(e) = x.send(event) {
+    pub fn log_event(&self, event: P2PEvent) {
+        if let Some(ref log) = self.event_log {
+            if let Err(e) = log.send(event) {
                 error!("Couldn't send error {:?}", e)
             }
         }
