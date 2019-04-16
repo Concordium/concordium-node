@@ -30,6 +30,7 @@ class TransactionData t where
     transactionGasAmount :: t -> Amount
     transactionPayload :: t -> SerializedPayload
     transactionSignature :: t -> TransactionSignature
+    transactionHash :: t -> H.Hash
 
 data TransactionHeader = TransactionHeader {
     thSender :: AccountAddress,
@@ -61,6 +62,7 @@ instance TransactionData Transaction where
     transactionGasAmount = thGasAmount . trHeader
     transactionPayload = trPayload
     transactionSignature = trSignature
+    transactionHash = getHash
 
 instance S.Serialize Transaction
 
@@ -78,6 +80,7 @@ instance TransactionData (Hashed Transaction) where
     transactionGasAmount = transactionGasAmount . unhashed
     transactionPayload = transactionPayload . unhashed
     transactionSignature = transactionSignature . unhashed
+    transactionHash = getHash
 
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
     -- |Non-finalized transactions (for an account) indexed by nonce.
@@ -107,10 +110,10 @@ emptyTransactionTable = TransactionTable {
 -- |A pending transaction table records whether transactions are pending after
 -- execution of a particular block.  For each account address, if there are
 -- pending transactions, then it should be in the map with value @(nextNonce, highNonce)@,
--- where @nextNonce@ is the next nonce for the account address, and @highNonce@ is the
--- highest nonce known for a transaction associated with that account.  @highNonce@ should
--- always be at least @nextNonce@ (otherwise, what transaction is pending?).  If an account
--- has no pending transactions, then it should not be in the map.
+-- where @nextNonce@ is the next nonce for the account address (i.e. 1+nonce of last executed transaction),
+-- and @highNonce@ is the highest nonce known for a transaction associated with that account.
+-- @highNonce@ should always be at least @nextNonce@ (otherwise, what transaction is pending?).
+-- If an account has no pending transactions, then it should not be in the map.
 type PendingTransactionTable = HM.HashMap AccountAddress (Nonce, Nonce)
 
 emptyPendingTransactionTable :: PendingTransactionTable
@@ -119,10 +122,10 @@ emptyPendingTransactionTable = HM.empty
 -- |Insert an additional element in the pending transaction table.
 -- If the account does not yet exist create it.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
-extendPendingTransactionTable :: TransactionData t => t -> PendingTransactionTable -> PendingTransactionTable
-extendPendingTransactionTable tx pt =
-  HM.alter (\case Nothing -> Just (nonce, nonce)
-                  Just (l, u) -> Just (min l nonce, max u nonce)) (transactionSender tx) pt
+extendPendingTransactionTable :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
+extendPendingTransactionTable nextNonce tx pt = assert (nextNonce <= nonce) $
+  HM.alter (\case Nothing -> Just (nextNonce, nonce)
+                  Just (l, u) -> Just (l, max u nonce)) (transactionSender tx) pt
   where nonce = transactionNonce tx
 
 forwardPTT :: [HashedTransaction] -> PendingTransactionTable -> PendingTransactionTable
@@ -132,7 +135,8 @@ forwardPTT trs ptt0 = foldl forward1 ptt0 trs
         forward1 ptt tr = ptt & at (transactionSender tr) %~ upd
             where
                 upd Nothing = error "forwardPTT : forwarding transaction that is not pending"
-                upd (Just (low, high)) = assert (low == transactionNonce tr && low <= high) $
+                upd (Just (low, high)) =
+                    assert (low == transactionNonce tr) $ assert (low <= high) $
                         if low == high then Nothing else Just (low+1,high)
 
 reversePTT :: [HashedTransaction] -> PendingTransactionTable -> PendingTransactionTable
@@ -142,5 +146,6 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         reverse1 tr = at (transactionSender tr) %~ upd
             where
                 upd Nothing = Just (transactionNonce tr, transactionNonce tr)
-                upd (Just (low, high)) = assert (low == transactionNonce tr + 1) $
+                upd (Just (low, high)) =
+                        assert (low == transactionNonce tr + 1) $
                         Just (low-1,high)
