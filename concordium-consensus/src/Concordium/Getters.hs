@@ -4,7 +4,6 @@
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
-import Control.Monad.Trans.State
 
 -- import Concordium.Payload.Transaction
 --import Concordium.Types as T
@@ -52,19 +51,19 @@ getLastFinalAccountList sfsRef = (Map.keys . accountMap . blockAccounts) <$> get
 getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
 getLastFinalInstances sfsRef = (HashMap.keys . _instances . blockInstances) <$> getLastFinalState sfsRef
 
-getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AI.AccountInfo)
+getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
 getLastFinalAccountInfo sfsRef addr = do
   maybeAccount <- (getAccount addr . blockAccounts) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
     Just acc -> return $ Just (AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount))
 
-getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe AI.InstanceInfo)
+getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
   maybeAccount <- (HashMap.lookup addr . _instances . blockInstances) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just is -> return $ Just (AI.InstanceInfo (imsgTy is) (imodel is) (iamount is))
+    Just is -> return $ Just (InstanceInfo (imsgTy is) (imodel is) (iamount is))
 
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
