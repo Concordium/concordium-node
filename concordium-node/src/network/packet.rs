@@ -1,10 +1,9 @@
 use crate::{
     common::{P2PNodeId, P2PPeer, UCursor},
     network::{
-        make_header, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
-        PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
-        PROTOCOL_VERSION,
+        NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
+        PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
     },
 };
 
@@ -79,28 +78,28 @@ impl NetworkPacketBuilder {
 
 impl NetworkPacket {
     fn direct_header_as_vec(&self, receiver: &P2PNodeId) -> Vec<u8> {
-        format!(
-            "{}{}{}{}{}{:010}",
-            make_header(),
+        serialize_message!(
             ProtocolMessageType::DirectMessage,
-            receiver,
-            self.message_id,
-            self.network_id,
-            self.message.len()
+            format!(
+                "{}{}{}{:010}",
+                receiver,
+                self.message_id,
+                self.network_id,
+                self.message.len()
+            )
         )
-        .into_bytes()
     }
 
     fn broadcast_header_as_vec(&self) -> Vec<u8> {
-        format!(
-            "{}{}{}{}{:010}",
-            make_header(),
+        serialize_message!(
             ProtocolMessageType::BroadcastedMessage,
-            self.message_id,
-            self.network_id,
-            self.message.len()
+            format!(
+                "{}{}{:010}",
+                self.message_id,
+                self.network_id,
+                self.message.len()
+            )
         )
-        .into_bytes()
     }
 
     fn header_as_vec(&self) -> Vec<u8> {

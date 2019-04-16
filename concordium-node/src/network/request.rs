@@ -1,6 +1,6 @@
 use crate::{
     common::{P2PNodeId, P2PPeer},
-    network::{make_header, NetworkId, ProtocolMessageType},
+    network::{NetworkId, ProtocolMessageType},
 };
 use std::collections::HashSet;
 
@@ -20,74 +20,51 @@ pub enum NetworkRequest {
 impl NetworkRequest {
     pub fn serialize(&self) -> Vec<u8> {
         match self {
-            NetworkRequest::Ping(_) => {
-                format!("{}{}", make_header(), ProtocolMessageType::RequestPing).into_bytes()
+            NetworkRequest::Ping(_) => serialize_message!(ProtocolMessageType::RequestPing, ""),
+            NetworkRequest::JoinNetwork(_, network) => {
+                serialize_message!(ProtocolMessageType::RequestJoinNetwork, network)
             }
-            NetworkRequest::JoinNetwork(_, network) => format!(
-                "{}{}{}",
-                make_header(),
-                ProtocolMessageType::RequestJoinNetwork,
-                network
-            )
-            .into_bytes(),
-            NetworkRequest::LeaveNetwork(_, network) => format!(
-                "{}{}{}",
-                make_header(),
-                ProtocolMessageType::RequestLeaveNetwork,
-                network
-            )
-            .into_bytes(),
-            NetworkRequest::FindNode(_, id) => format!(
-                "{}{}{}",
-                make_header(),
-                ProtocolMessageType::RequestFindNode,
-                id
-            )
-            .into_bytes(),
-            NetworkRequest::BanNode(_, node_data) => format!(
-                "{}{}{}",
-                make_header(),
-                ProtocolMessageType::RequestBanNode,
-                node_data.serialize()
-            )
-            .into_bytes(),
-            NetworkRequest::UnbanNode(_, node_data) => format!(
-                "{}{}{}",
-                make_header(),
-                ProtocolMessageType::RequestUnbanNode,
-                node_data.serialize()
-            )
-            .into_bytes(),
-            NetworkRequest::Handshake(me, networks, zk) => {
-                let id = me.id();
-                let mut pkt = format!(
-                    "{}{}{}{:05}{:05}{}{:010}",
-                    make_header(),
-                    ProtocolMessageType::RequestHandshake,
-                    id,
-                    me.port(),
+            NetworkRequest::LeaveNetwork(_, network) => {
+                serialize_message!(ProtocolMessageType::RequestLeaveNetwork, network)
+            }
+            NetworkRequest::FindNode(_, id) => {
+                serialize_message!(ProtocolMessageType::RequestFindNode, id)
+            }
+            NetworkRequest::BanNode(_, node_data) => {
+                serialize_message!(ProtocolMessageType::RequestBanNode, node_data.serialize())
+            }
+            NetworkRequest::UnbanNode(_, node_data) => {
+                serialize_message!(ProtocolMessageType::RequestUnbanNode, node_data.serialize())
+            }
+            NetworkRequest::GetPeers(_, networks) => serialize_message!(
+                ProtocolMessageType::RequestGetPeers,
+                format!(
+                    "{:05}{}",
                     networks.len(),
                     networks
                         .iter()
                         .map(|net| net.to_string())
-                        .collect::<String>(),
-                    zk.len()
+                        .collect::<String>()
                 )
-                .into_bytes();
+            ),
+            NetworkRequest::Handshake(me, networks, zk) => {
+                let mut pkt = serialize_message!(
+                    ProtocolMessageType::RequestHandshake,
+                    format!(
+                        "{}{:05}{:05}{}{:010}",
+                        me.id(),
+                        me.port(),
+                        networks.len(),
+                        networks
+                            .iter()
+                            .map(|net| net.to_string())
+                            .collect::<String>(),
+                        zk.len()
+                    )
+                );
                 pkt.extend_from_slice(zk.as_slice());
                 pkt
             }
-            NetworkRequest::GetPeers(_, networks) => format!(
-                "{}{}{:05}{}",
-                make_header(),
-                ProtocolMessageType::RequestGetPeers,
-                networks.len(),
-                networks
-                    .iter()
-                    .map(|net| net.to_string())
-                    .collect::<String>()
-            )
-            .into_bytes(),
         }
     }
 }
