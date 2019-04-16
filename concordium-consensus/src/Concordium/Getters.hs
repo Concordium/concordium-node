@@ -16,7 +16,7 @@ import Concordium.Logger
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.TreeState.Basic
-import Concordium.GlobalState.Types
+import Concordium.GlobalState.Types as T
 import Concordium.GlobalState.Information
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.HashableTo
@@ -57,7 +57,7 @@ getLastFinalAccountInfo sfsRef addr = do
   maybeAccount <- (getAccount addr . blockAccounts) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just acc -> return $ Just (AccountInfo (acc ^. accountNonce) (acc ^. accountAmount))
+    Just acc -> return $ Just (AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount))
 
 getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
