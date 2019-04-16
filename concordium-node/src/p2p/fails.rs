@@ -23,3 +23,8 @@ impl EmptyIdInSendRequest {
 #[derive(Debug, Fail)]
 #[fail(display = "Connection requested by banned node")]
 pub struct BannedNodeRequestedConnectionError;
+
+#[derive(Debug, Fail)]
+#[fail(display = "Thread join error")]
+pub struct JoinError;
+

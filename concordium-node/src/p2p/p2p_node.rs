@@ -8,17 +8,15 @@ use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
 use std::{
-    cell::Cell,
     collections::{HashSet, VecDeque},
     net::IpAddr::{self, V4, V6},
-    rc::Rc,
     str::FromStr,
     sync::{
         atomic::Ordering,
         mpsc::{channel, Sender},
         Arc, RwLock,
     },
-    thread,
+    thread::{ JoinHandle, ThreadId},
     time::{Duration, SystemTime},
 };
 
@@ -36,6 +34,7 @@ use crate::{
 };
 
 use crate::p2p::{
+    fails,
     no_certificate_verification::NoCertificateVerification,
     p2p_node_handlers::{
         forward_network_packet_message, forward_network_request, forward_network_response,
@@ -59,6 +58,13 @@ pub struct P2PNodeConfig {
     blind_trusted_broadcast: bool,
 }
 
+#[derive(Default)]
+pub struct P2PNodeThread {
+    pub join_handle: Option<JoinHandle<Fallible<()>>>,
+    pub id: Option<ThreadId>
+}
+
+
 #[derive(Clone)]
 pub struct P2PNode {
     tls_server:          Arc<RwLock<TlsServer>>,
@@ -75,7 +81,7 @@ pub struct P2PNode {
     external_ip:         IpAddr,
     external_port:       u16,
     seen_messages:       SeenMessagesList,
-    process_th:          Option<Rc<Cell<thread::JoinHandle<()>>>>,
+    thread:              Arc< RwLock< P2PNodeThread >>,
     quit_tx:             Option<Sender<bool>>,
     pub max_nodes:       Option<u16>,
     pub print_peers:     bool,
@@ -276,7 +282,7 @@ impl P2PNode {
             external_port: own_peer_port,
             peer_type,
             seen_messages,
-            process_th: None,
+            thread: Arc::new( RwLock::new( P2PNodeThread::default())),
             quit_tx: None,
             max_nodes: None,
             print_peers: true,
@@ -429,13 +435,15 @@ impl P2PNode {
         }
     }
 
-    pub fn spawn(&mut self) {
+    pub fn spawn(&mut self) -> Fallible<()> {
         let mut self_clone = self.clone();
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
-        self.process_th = Some(Rc::new(Cell::new(thread::spawn(move || {
+
+        let join_handle = std::thread::spawn(move || -> Fallible<()> {
             let mut events = Events::with_capacity(1024);
             let mut log_time = SystemTime::now();
+
             loop {
                 let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
 
@@ -459,7 +467,37 @@ impl P2PNode {
                     }
                 }
             }
-        }))));
+
+            Ok(())
+        });
+
+        // Register info about thread into P2PNode.
+        {
+            let mut locked_thread = safe_write!(self.thread)?;
+            locked_thread.id = Some( join_handle.thread().id());
+            locked_thread.join_handle = Some(join_handle);
+        }
+
+        Ok(())
+    }
+
+    /// Waits for P2PNode termination. Use `P2PNode::close` to notify the termination.
+    ///
+    /// It is safe to call this function several times, even from internal P2PNode thread.
+    pub fn join(&mut self) -> Fallible<()> {
+        let id_opt =  safe_read!(self.thread)?.id.clone();
+        if let Some(id) = id_opt {
+            let current_thread_id = std::thread::current().id();
+            if id != current_thread_id {
+                if let Some(join_handle) = safe_write!(self.thread)?.join_handle.take() {
+                    return join_handle.join().map_err( |_| fails::JoinError)?;
+                }
+            } else {
+                bail!( fails::JoinError);
+            }
+        }
+
+        Ok(())
     }
 
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
@@ -925,29 +963,17 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn process_th_sc(&mut self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
-        if let Some(p) = self.process_th.take() {
-            let ret = Rc::try_unwrap(p).ok().unwrap();
-            Some(Rc::new(ret))
-        } else {
-            None
+    pub fn close(&mut self) -> Fallible<()> {
+        if let Some(ref q) = self.quit_tx {
+            q.send(true)?;
         }
+
+        Ok(())
     }
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
-        if let Some(ref q) = self.quit_tx {
-            info!("Closing P2P node with id: {}", self.id());
-            let _ = q.send(true);
-            let p_th = self.process_th.take();
-            if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {
-                let _ = r.into_inner().join();
-            } else {
-                bail!(err_msg(
-                    "Unable to get the thread back, the node isn't holding it"
-                ));
-            }
-        }
-        Ok(())
+        self.close()?;
+        self.join()
     }
 }
 

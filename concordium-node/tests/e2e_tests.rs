@@ -8,11 +8,10 @@ mod tests {
     use failure::Fallible;
     use p2p_client::{
         common::{PeerType, UCursor},
-        configuration::Config,
-        connection::{MessageManager, P2PEvent},
+        connection::{MessageManager, P2NodeMode, P2PEvent},
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::p2p_node::P2PNode,
-        prometheus_exporter::{PrometheusMode, PrometheusServer},
+        configuration::Config,
     };
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
@@ -21,7 +20,7 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc, RwLock,
         },
-        thread, time,
+        time,
     };
 
     mod utils {
@@ -37,10 +36,10 @@ mod tests {
         };
 
         use p2p_client::{
-            common::{PeerType, UCursor},
+            common::{PeerType, ConnectionType, UCursor},
             configuration::Config,
-            connection::MessageManager,
-            network::{NetworkMessage, NetworkPacketType, NetworkResponse},
+            connection::{MessageManager, P2PNodeMode},
+            network::{NetworkMessage, NetworkPacketType, NetworkResponse, NetworkRequest},
             p2p::p2p_node::P2PNode,
         };
 
@@ -136,6 +135,7 @@ mod tests {
             let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
 
             let mh = node.message_handler();
+            let mh = node.message_handler();
             safe_write!(mh)?.add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
                 into_err!(msg_wait_tx.send(m.clone()))
             }));
@@ -153,7 +153,7 @@ mod tests {
             receiver: &Receiver<NetworkMessage>,
         ) -> Fallible<()> {
             source.connect(
-                PeerType::Node,
+                ConnectionType::Node,
                 target.get_listening_ip(),
                 target.get_listening_port(),
                 None,
@@ -231,6 +231,53 @@ mod tests {
                     break;
                 }
             }
+        }
+
+        /// Helper handler to log as `info` the secuence of packets received by node.
+        ///
+        /// # Example
+        /// ```
+        /// let (mut node, waiter) = make_node_and_sync( 5555, vec![100], true).unwrap();
+        /// let port = node.get_listening_port();
+        ///
+        /// node.message_handler().write().unwrap()
+        ///     .add_callback( make_atomic_callback!( move |m: &NetworkMessage|{
+        ///         log_any_message_handler( port, m);
+        ///         Ok(())
+        ///     }));
+        /// ```
+        pub fn log_any_message_handler<T>( id :T, message: &NetworkMessage) where T: std::fmt::Display {
+            let msg_type :&str = match message {
+                NetworkMessage::NetworkRequest(ref request, ..) => {
+                    match request {
+                        NetworkRequest::Ping(..) => "Request::Ping",
+                        NetworkRequest::FindNode(..) => "Request::FindNode",
+                        NetworkRequest::BanNode(..)=> "Request::BanNode",
+                        NetworkRequest::Handshake(..)=> "Request::Handshake",
+                        NetworkRequest::GetPeers(..)=> "Request::GetPeers",
+                        NetworkRequest::UnbanNode(..)=> "Request::UnbanNode",
+                        NetworkRequest::JoinNetwork(..)=> "Request::JoinNetwork",
+                        NetworkRequest::LeaveNetwork(..)=> "Request::LeaveNetwork",
+                   }
+                }
+                NetworkMessage::NetworkResponse(ref response, ..) => {
+                    match response {
+                        NetworkResponse::Pong(..) => "Response::Pong",
+                        NetworkResponse::FindNode(..) => "Response::FindNode",
+                        NetworkResponse::PeerList(..) => "Response::PeerList",
+                        NetworkResponse::Handshake(..) => "Response::Handshake",
+                    }
+                },
+                NetworkMessage::NetworkPacket(ref packet, ..) => {
+                    match packet.packet_type {
+                        NetworkPacketType::BroadcastedMessage => "Packet::Broadcast",
+                        NetworkPacketType::DirectMessage(..) => "Packet::Direct",
+                    }
+                },
+                NetworkMessage::UnknownMessage => "Unknown",
+                NetworkMessage::InvalidMessage => "Invalid"
+            };
+            info!( "Message at {} type {}", id, msg_type);
         }
     }
 
@@ -656,14 +703,14 @@ mod tests {
     }
 
     #[test]
-    pub fn e2e_002_small_mesh_three_islands_net() {
-        islands_mesh_test(utils::next_port_offset(10) as usize, 3, 3);
+    pub fn e2e_002_small_mesh_three_islands_net() -> Fallible<()> {
+        islands_mesh_test(utils::next_port_offset(10) as usize, 3, 3)
     }
 
     #[ignore]
     #[test]
-    pub fn e2e_003_big_mesh_three_islands_net() {
-        islands_mesh_test(utils::next_port_offset(20) as usize, 5, 3);
+    pub fn e2e_003_big_mesh_three_islands_net() -> Fallible<()> {
+        islands_mesh_test(utils::next_port_offset(20) as usize, 5, 3)
     }
 
     #[test]
@@ -1017,5 +1064,63 @@ mod tests {
     pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() -> Fallible<()> {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network(5, 4, 10)
+    }
+
+    #[test]
+    pub fn e2e_006_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(1);
+
+        let (net_tx, _) = std::sync::mpsc::channel();
+        let mut config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
+        let mut node = P2PNode::new( None, &config, net_tx, None, P2PNodeMode::NormalMode, None);
+
+        node.close_and_join()?;
+        node.close_and_join()?;
+        node.close_and_join()?;
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_02_close_and_join_on_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync( port, vec![100], true)?;
+        let (mut node_2, waiter_2) = utils::make_node_and_sync( port +1, vec![100], true)?;
+        utils::connect_and_wait_handshake( &mut node_1, &node_2, &waiter_1);
+
+        let msg = b"Hello";
+        node_1.send_message( Some(node_2.id()), NetworkId::from(100), None, msg.to_vec(), false)?;
+        node_1.close_and_join()?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!( node_2_msg.as_slice(), msg);
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_03_close_from_inside_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync( port, vec![100], true)?;
+        let (mut node_2, waiter_2) = utils::make_node_and_sync( port +1, vec![100], true)?;
+
+        let node_2_cloned = RefCell::new(node_2.clone());
+        safe_write!( node_2.message_handler())?. add_packet_callback( make_atomic_callback!(
+                move |pac: &NetworkPacket| {
+                    let join_status = node_2_cloned.borrow_mut().close_and_join();
+                    assert_eq!( join_status.is_err(), true);
+                    Ok(())
+                }));
+        utils::connect_and_wait_handshake( &mut node_1, &node_2, &waiter_1);
+
+        let msg = b"Hello";
+        node_1.send_message( Some(node_2.id()), NetworkId::from(100), None, msg.to_vec(), false)?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!( node_2_msg.as_slice(), msg);
+        Ok(())
     }
 }
