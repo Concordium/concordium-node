@@ -490,7 +490,8 @@ impl P2PNode {
         if let Some(id) = id_opt {
             let current_thread_id = std::thread::current().id();
             if id != current_thread_id {
-                if let Some(join_handle) = safe_write!(self.thread)?.join_handle.take() {
+                let join_handle_opt = safe_write!(self.thread)?.join_handle.take();
+                if let Some(join_handle) = join_handle_opt {
                     return join_handle.join().map_err(|_| fails::JoinError)?;
                 }
             } else {
