@@ -10,6 +10,7 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Account
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.EnvironmentImplementation
 
@@ -65,10 +66,10 @@ constructBlock slotNumber blockParent lfPointer =
     -- Now we need to try to purge each invalid transaction from the pending table.
     -- Moreover all transactions successfully added will be removed from the pending table.
     -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
-
+    let nextNonceFor acct = maybe minNonce _accountNonce (getAccount acct (blockAccounts bs))
     newpt <- foldM (\cpt (tx, _) -> do b <- purgeTransaction tx
                                        return $! if b then cpt  -- if the transaction was purged don't put it back into the pending table
-                                                 else (extendPendingTransactionTable tx cpt))  -- but otherwise do
+                                                 else (extendPendingTransactionTable (nextNonceFor $ transactionSender tx) tx cpt))  -- but otherwise do
                    emptyPendingTransactionTable
                    invalid
     -- commit the new pending transactions to the tree state
