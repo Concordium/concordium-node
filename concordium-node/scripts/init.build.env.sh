@@ -19,7 +19,7 @@ rm -rf libffi
   LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
   cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
   cp target/release/libeddsa_ed25519.so /usr/local/lib &&
-  cp target/release/libsha_2.so /usr/local/lib )
+  cp target/release/libsha_2.so /usr/local/lib && cargo clean)
 
 curl -sSL https://get.haskellstack.org/ | sh
 ( cd deps/internal/consensus && 
@@ -29,7 +29,8 @@ curl -sSL https://get.haskellstack.org/ | sh
   find /usr/local/lib -name libHSacorn\*.so -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.so \; &&
   find /usr/local/lib -name libHSconcordium-crypto\*.so -exec ln -s {} /usr/local/lib/libHSconcordium-crypto-0.1.so \; &&
   find /usr/local/lib -name libHSglobalstate\*.so -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.so \; &&
-  find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; 
+  find ~/.stack/programs -name libHS\*-\*.so -exec cp {} /usr/local/lib \; &&
+  rm -rf ~/.stack/indices && rm ~/.stack/programs/x86_64-linux/ghc-tinfo6-8.4.4.tar.xz
   ) 
 
 ldconfig
