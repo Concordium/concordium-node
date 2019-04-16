@@ -35,6 +35,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Execution
+import Concordium.GlobalState.Account
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
@@ -54,7 +55,7 @@ isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         EQ -> b1 == b2
         LT -> isAncestorOf b1 (bpParent b2)
 
-updateFocusBlockTo :: (TreeStateMonad m) => BlockPointer -> m ()
+updateFocusBlockTo :: (HasCallStack, TreeStateMonad m) => BlockPointer -> m ()
 updateFocusBlockTo newBB = do
         oldBB <- getFocusBlock
         pts <- getPendingTransactions
@@ -390,7 +391,6 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
                                 (blockNonce block)
                     -- And the block signature
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
-                    let height = bpHeight parentP + 1
                     let ts = blockTransactions block
                     case executeFrom (blockSlot block) parentP lfBlockP ts of
                         Left err -> do
@@ -512,10 +512,10 @@ doReceiveTransaction tr slot = do
         added <- addCommitTransaction tr slot
         when added $ do
             ptrs <- getPendingTransactions
-            putPendingTransactions $ ptrs & at (transactionSender tr) %~ upd
-    where
-        upd Nothing = Just (transactionNonce tr, transactionNonce tr)
-        upd (Just (low, high)) = Just (low, max (transactionNonce tr) high)
+            focus <- getFocusBlock
+            let macct = getAccount (transactionSender tr) (blockAccounts (bpState focus))
+                nextNonce = maybe minNonce _accountNonce macct
+            putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
 
 noopSkovListeners :: Monad m => SkovListeners m
 noopSkovListeners = SkovListeners {

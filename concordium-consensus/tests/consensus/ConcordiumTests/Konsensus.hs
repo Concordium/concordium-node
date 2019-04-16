@@ -19,6 +19,7 @@ import Data.Time.Clock.POSIX
 import qualified Data.PQueue.Prio.Min as MPQ
 
 import Concordium.GlobalState.Types
+import Concordium.GlobalState.HashableTo
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.TreeState.Basic
 import Concordium.GlobalState.Transactions
@@ -38,9 +39,13 @@ import Concordium.Birk.Bake
 import Concordium.Skov.Monad
 import Concordium.TimeMonad
 
+import Debug.Trace
 
 import Test.QuickCheck
 import Test.Hspec
+
+type Trs = HM.HashMap TransactionHash (HashedTransaction, Slot)
+type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 invariantSkovData :: SkovData -> Either String ()
 invariantSkovData SkovData{..} = do
@@ -59,6 +64,12 @@ invariantSkovData SkovData{..} = do
             forM_ frs $ \fr -> do
                 checkBinary (==) fi (finalizationIndex fr) "==" "key in finalization pool" "finalization index"
         -- Transactions
+        (nonFinTrans, anftNonces) <- walkTransactions _skovGenesisBlockPointer lastFin (_ttHashMap _skovTransactionTable) (HM.empty)
+        let anft' = foldr (\(tr, _) nft -> nft & at (transactionSender tr) . non emptyANFT . anftMap . at (transactionNonce tr) . non Set.empty %~ Set.insert tr) anftNonces nonFinTrans
+        unless (anft' == _ttNonFinalizedTransactions _skovTransactionTable) $ Left "Incorrect non-finalized transactions"
+        (pendingTrans, pendingNonces) <- walkTransactions lastFin _skovFocusBlock nonFinTrans anftNonces
+        let ptt = foldr (\(tr, _) -> extendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
+        checkBinary (==) ptt _skovPendingTransactions "==" "expected pending transactions" "recorded pending transactions"
         {-
         checkFinTrans lastFin _skovTransactionsFinalized
         unless (null (Map.intersection _skovTransactionsPending _skovTransactionsFinalized)) $
@@ -93,23 +104,20 @@ invariantSkovData SkovData{..} = do
                     return (Set.insert ((blockSlot (pbBlock child)), (pbHash child, parent)) q)
             checkBinary (==) (_skovBlockTable ^. at parent) Nothing "==" "pending parent status" "Nothing"
             foldM checkChild queue children
-        {-
-        checkFinTrans bp finMap
-            | bpHeight bp == 0 = unless (null finMap) $ Left $ "Finalized transactions contains transactions that are not on finalized blocks: " ++ show finMap
-            | otherwise = case toTransactions $ blockData $ bpBlock bp of
-                            Nothing -> Left $ "Could not decode transactions of block " ++ show bp
-                            Just trs -> do
-                                finMap' <- foldM checkTransaction finMap trs
-                                checkFinTrans (bpParent bp) finMap'
-        checkTransaction :: Map.Map TransactionNonce Transaction -> Transaction -> Either String (Map.Map TransactionNonce Transaction)
-        checkTransaction finMap tr = at nonce checkRemoveTransaction finMap
-            where
-                nonce = transactionNonce tr
-                checkRemoveTransaction Nothing = Left $ "Missing transaction: " ++ show tr
-                checkRemoveTransaction (Just tr')
-                    | tr == tr' = return Nothing
-                    | otherwise = Left $ "Finalized transaction mismatch:\n" ++ show tr ++ "\n" ++ show tr'
-        -}
+        walkTransactions :: BlockPointer -> BlockPointer -> Trs -> ANFTS -> Either String (Trs, ANFTS)
+        walkTransactions src dest trMap anfts
+            | src == dest = return (trMap, anfts)
+            | otherwise = do
+                (trMap', anfts') <- walkTransactions src (bpParent dest) trMap anfts
+                foldM checkTransaction (trMap', anfts') (blockTransactions dest)
+        checkTransaction :: (Trs, ANFTS) -> HashedTransaction -> Either String (Trs, ANFTS)
+        checkTransaction (trMap, anfts) tr = do
+            let updMap Nothing = Left $ "Transaction missing: " ++ show (unhashed tr)
+                updMap (Just _) = Right Nothing
+            trMap' <- (at (transactionHash tr)) updMap trMap
+            let updNonce n = if n == transactionNonce tr then Right (n + 1) else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
+            anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
+            return (trMap', anfts')
         finSes = FinalizationSessionId (bpHash _skovGenesisBlockPointer) 0
         finCom = makeFinalizationCommittee (genesisFinalizationParameters _skovGenesisData)
         notDead BlockDead = False
@@ -148,6 +156,13 @@ data Event
     | EFinalization BS.ByteString
     | EFinalizationRecord FinalizationRecord
 
+instance Show Event where
+    show (EBake sl) = "bake for " ++ show sl
+    show (EBlock b) = "block: " ++ show (getHash b :: BlockHash)
+    show (ETransaction tr) = "transaction: " ++ show tr
+    show (EFinalization _) = "finalization message"
+    show (EFinalizationRecord fr) = "finalize: " ++ show (finalizationBlockPointer fr)
+
 type EventPool = Seq (Int, Event)
 
 -- |Pick an element from a seqeunce, returning the element
@@ -167,7 +182,7 @@ runKonsensusTest steps states events
             ((rcpt, ev), events') <- selectFromSeq events
             let (bkr, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
-            (fs', events'') <- case ev of
+            (fs', events'') <- {- trace (show rcpt ++ ": " ++ show ev) $ -} case ev of
                 EBake sl -> do
                     let (mb, fs', Endo evs) = runDummy (runFSM (bakeForSlot bkr sl) fi fs)
                     let blockEvents = case mb of
@@ -228,16 +243,6 @@ runKonsensusTestSimple steps states events
 
 nAccounts :: Int
 nAccounts = 2
-
-{-
-genTransaction :: Gen Transaction
-genTransaction = do
-        f <- arbitrary
-        g <- arbitrary
-        let (meta, payload) = update (f :: Integer) (g `mod` nAccounts)
-        nonce <- TransactionNonce . toEnum <$> arbitrary
-        return (Transaction nonce meta payload)
--}
 
 genTransactions :: Int -> Gen [Transaction]
 genTransactions n = mapM gent (take n [minNonce..])
