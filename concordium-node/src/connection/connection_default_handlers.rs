@@ -39,7 +39,9 @@ pub fn default_network_request_ping_handle(
         // Make `Pong` response and send
         let remote_peer = priv_conn_borrow
             .remote_peer()
-            .ok_or_else(|| make_fn_error_peer("Couldn't get peer"))?;
+            .is_post_handshake_or_else(|| {
+                make_fn_error_peer("Can't perform this action pre-handshake")
+            })?;
 
         NetworkResponse::Pong(remote_peer).serialize()
     };
@@ -63,7 +65,9 @@ pub fn default_network_request_find_node_handle(
             let priv_conn_borrow = priv_conn.borrow();
             let remote_peer = priv_conn_borrow
                 .remote_peer()
-                .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
+                .is_post_handshake_or_else(|| {
+                    make_fn_error_peer("Can't perform this action pre-handshake")
+                })?;
             let nodes = safe_read!(priv_conn_borrow.buckets)?
                 .buckets
                 .get(0)
@@ -107,7 +111,9 @@ pub fn default_network_request_get_peers(
 
             let remote_peer = priv_conn_borrow
                 .remote_peer()
-                .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
+                .is_post_handshake_or_else(|| {
+                    make_fn_error_peer("Can't perform this action pre-handshake")
+                })?;
             NetworkResponse::PeerList(remote_peer, nodes).serialize()
         };
 
@@ -194,7 +200,9 @@ pub fn default_network_request_join_network(
         let priv_conn_borrow = priv_conn.borrow();
         let remote_peer = priv_conn_borrow
             .remote_peer()
-            .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
+            .is_post_handshake_or_else(|| {
+                make_fn_error_peer("Can't perform this action pre-handshake")
+            })?;
 
         safe_write!(priv_conn_borrow.buckets)?
             .update_network_ids(&remote_peer, priv_conn_borrow.remote_end_networks.clone());
@@ -216,7 +224,9 @@ pub fn default_network_request_leave_network(
         let priv_conn_borrow = priv_conn.borrow();
         let remote_peer = priv_conn_borrow
             .remote_peer()
-            .ok_or_else(|| make_fn_error_peer("Couldn't borrow peer"))?;
+            .is_post_handshake_or_else(|| {
+                make_fn_error_peer("Can't perform this action pre-handshake")
+            })?;
 
         safe_write!(priv_conn_borrow.buckets)?
             .update_network_ids(&remote_peer, priv_conn_borrow.remote_end_networks.clone());

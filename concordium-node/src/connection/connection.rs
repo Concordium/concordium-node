@@ -19,7 +19,7 @@ use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         functor::{AFunctorCW, FunctorError, FunctorResult},
-        get_current_stamp, P2PNodeId, P2PPeer, PeerType, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     connection::{MessageHandler, P2PEvent, RequestHandler, ResponseHandler},
     network::{
@@ -115,6 +115,7 @@ impl Connection {
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
+        remote_peer_type: PeerType,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
         own_networks: Arc<RwLock<HashSet<NetworkId>>>,
@@ -124,6 +125,7 @@ impl Connection {
         let curr_stamp = get_current_stamp();
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             self_peer,
+            RemotePeer::PreHandshake(remote_peer_type),
             own_networks,
             buckets,
             tls_server_session,
@@ -307,8 +309,13 @@ impl Connection {
     pub fn local_id(&self) -> P2PNodeId { self.dptr.borrow().local_peer.id() }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> {
-        self.dptr.borrow().remote_peer().map(|p| p.id())
+        match self.dptr.borrow().remote_peer() {
+            RemotePeer::PostHandshake(ref remote_peer) => Some(remote_peer.id()),
+            _ => None,
+        }
     }
+
+    pub fn is_post_handshake(&self) -> bool { self.dptr.borrow().remote_peer.is_post_handshake() }
 
     pub fn ip(&self) -> IpAddr { self.dptr.borrow().local_peer.ip() }
 
@@ -328,7 +335,7 @@ impl Connection {
 
     pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer.clone() }
 
-    pub fn remote_peer(&self) -> Option<P2PPeer> { self.dptr.borrow().remote_peer().to_owned() }
+    pub fn remote_peer(&self) -> RemotePeer { self.dptr.borrow().remote_peer().to_owned() }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received }
 
@@ -503,21 +510,17 @@ impl Connection {
     }
 
     fn validate_packet_type(&self, buf: &[u8]) -> Fallible<()> {
-        // TODO TODO TODO - proper way that Miguel now decodes enum msg types
-        // if self.mode() == P2PNodeMode::BootstrapperMode {
-        // if let Ok(msg_id_str) = std::str::from_utf8(buf) {
-        // match ProtocolMessageType::try_from(msg_id_str) {
-        // Ok(ProtocolMessageType::DirectMessage)
-        // | Ok(ProtocolMessageType::BroadcastedMessage) => {
-        // bail!(fails::PeerError{message : &"Wrong data type message received for
-        // node"}) }
-        // _ => return Ok(()),
-        // }
-        // }
-        // Ok(())
-        // } else {
-        // Ok(())
-        // }
+        if self.local_peer_type() == PeerType::Bootstrapper {
+            if let Ok(msg_id_str) = std::str::from_utf8(&buf[..PROTOCOL_MESSAGE_TYPE_LENGTH]) {
+                match ProtocolMessageType::try_from(msg_id_str) {
+                    Ok(ProtocolMessageType::DirectMessage)
+                    | Ok(ProtocolMessageType::BroadcastedMessage) => bail!(fails::PeerError {
+                        message: "Wrong data type message received for node",
+                    }),
+                    _ => return Ok(()),
+                }
+            }
+        }
         Ok(())
     }
 
@@ -682,8 +685,15 @@ impl Connection {
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn set_remote_peer(&mut self, peer: P2PPeer) {
-        self.dptr.borrow_mut().set_remote_peer(peer);
+    pub fn promote_to_post_handshake(
+        &mut self,
+        id: P2PNodeId,
+        ip: IpAddr,
+        port: u16,
+    ) -> Fallible<()> {
+        self.dptr
+            .borrow_mut()
+            .promote_to_post_handshake(id, ip, port)
     }
 
     pub fn remote_end_networks(&self) -> HashSet<NetworkId> {

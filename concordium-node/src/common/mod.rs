@@ -48,6 +48,56 @@ pub struct P2PPeer {
     peer_type: PeerType,
 }
 
+// A represetation of different stages a remote peer goes through.
+// When a new peer is connected to (be it either via `connect()` or
+// `accept()` it starts in `PreHandshake` mode, and at this point all
+// we have is a specified `PeerType`. When the handshake is then
+// completed, the type is upgraded to `PostHandshake` and at this point
+// will contain the full `P2PPeer` struct, which also contains the
+// `PeerType` carried over from the previous state.
+#[derive(Debug, Clone)]
+pub enum RemotePeer {
+    PreHandshake(PeerType),
+    PostHandshake(P2PPeer),
+}
+
+impl RemotePeer {
+    pub fn is_post_handshake(&self) -> bool {
+        match self {
+            RemotePeer::PostHandshake(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_post_handshake_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<P2PPeer, E> {
+        match self {
+            RemotePeer::PostHandshake(v) => Ok(v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn promote_to_post_handshake(
+        &self,
+        id: P2PNodeId,
+        ip: IpAddr,
+        port: u16,
+    ) -> Fallible<Self> {
+        match *self {
+            RemotePeer::PreHandshake(peer_type) => Ok(RemotePeer::PostHandshake(P2PPeer::from(
+                peer_type, id, ip, port,
+            ))),
+            _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, ip, port)),
+        }
+    }
+
+    pub fn peer(self) -> Option<P2PPeer> {
+        match self {
+            RemotePeer::PostHandshake(peer) => Some(peer),
+            _ => None,
+        }
+    }
+}
+
 impl P2PPeerBuilder {
     pub fn build(&mut self) -> Fallible<P2PPeer> {
         let id = self.id.unwrap_or_else(|| P2PNodeId::default());
@@ -274,16 +324,18 @@ mod tests {
     };
     use std::collections::HashSet;
 
-    fn dummy_peer(ip: IpAddr, port: u16) -> P2PPeer {
-        P2PPeerBuilder::default()
-            .peer_type(PeerType::Node)
-            .ip(ip)
-            .port(port)
-            .build()
-            .unwrap()
+    fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
+        RemotePeer::PostHandshake(
+            P2PPeerBuilder::default()
+                .peer_type(PeerType::Node)
+                .ip(ip)
+                .port(port)
+                .build()
+                .unwrap(),
+        )
     }
 
-    fn self_peer() -> P2PPeer { dummy_peer(IpAddr::from([10, 10, 10, 10]), 9999) }
+    fn self_peer() -> RemotePeer { dummy_peer(IpAddr::from([10, 10, 10, 10]), 9999) }
 
     const ZK: &[u8] = b"Random zk data";
 
@@ -327,21 +379,26 @@ mod tests {
     macro_rules! net_test {
         ($msg:ident, $msg_type:ident) => {{
             let self_peer = self_peer();
-            let test_msg = create_message!($msg, $msg_type, self_peer);
+            let test_msg = create_message!($msg, $msg_type, self_peer.clone().peer().unwrap());
             let serialized = UCursor::from(test_msg.serialize());
-            let self_peer_ip = self_peer.ip();
-            let deserialized =
-                NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
+            let deserialized = NetworkMessage::deserialize(
+                self_peer.clone(),
+                self_peer.peer().unwrap().ip(),
+                serialized,
+            );
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
             let self_peer = self_peer();
             let nets = $nets;
-            let test_msg = create_message!($msg, $msg_type, self_peer.clone(), nets);
+            let test_msg =
+                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets);
             let serialized = UCursor::from(test_msg.serialize());
-            let self_peer_ip = self_peer.ip();
-            let deserialized =
-                NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
+            let deserialized = NetworkMessage::deserialize(
+                self_peer.clone(),
+                self_peer.peer().unwrap().ip(),
+                serialized,
+            );
             net_assertion!($msg, $msg_type, deserialized, nets)
         }};
         ($msg:ident, $msg_type:ident, $zk:expr, $nets:expr) => {{
@@ -351,11 +408,14 @@ mod tests {
                 .into_iter()
                 .map(|net: u16| NetworkId::from(net))
                 .collect();
-            let test_msg = create_message!($msg, $msg_type, self_peer, nets, zk);
+            let test_msg =
+                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets, zk);
             let serialized = UCursor::from(test_msg.serialize());
-            let self_peer_ip = self_peer.ip();
-            let deserialized =
-                NetworkMessage::deserialize(Some(self_peer), self_peer_ip, serialized);
+            let deserialized = NetworkMessage::deserialize(
+                self_peer.clone(),
+                self_peer.peer().unwrap().ip(),
+                serialized,
+            );
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
     }
@@ -405,7 +465,9 @@ mod tests {
         net_test!(NetworkResponse, FindNode, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
-        )])
+        )
+        .peer()
+        .unwrap()])
     }
 
     #[test]
@@ -413,14 +475,18 @@ mod tests {
         net_test!(NetworkResponse, FindNode, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
-        )])
+        )
+        .peer()
+        .unwrap()])
     }
 
     #[test]
     fn resp_findnode_mixed_test() {
         net_test!(NetworkResponse, FindNode, vec![
-            dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999),
-            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999),
+            dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999)
+                .peer()
+                .unwrap(),
+            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999).peer().unwrap(),
         ])
     }
 
@@ -429,7 +495,9 @@ mod tests {
         net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from([8, 8, 8, 8]),
             9999
-        )])
+        )
+        .peer()
+        .unwrap()])
     }
 
     #[test]
@@ -437,14 +505,18 @@ mod tests {
         net_test!(NetworkResponse, PeerList, vec![dummy_peer(
             IpAddr::from_str("ff80::dead:beaf").unwrap(),
             9999
-        )])
+        )
+        .peer()
+        .unwrap()])
     }
 
     #[test]
     fn resp_peerslist_mixed_test() {
         net_test!(NetworkResponse, PeerList, vec![
-            dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999),
-            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999),
+            dummy_peer(IpAddr::from_str("ff80::dead:beaf").unwrap(), 9999)
+                .peer()
+                .unwrap(),
+            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999).peer().unwrap(),
         ])
     }
 
@@ -454,15 +526,14 @@ mod tests {
         let self_peer = self_peer();
         let text_msg = ContainerView::from(b"Hello world!".to_vec());
         let msg = NetworkPacketBuilder::default()
-            .peer(self_peer.clone())
+            .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
-        let mut deserialized =
-            NetworkMessage::deserialize(Some(self_peer.clone()), ipaddr, s11n_cursor);
+        let mut deserialized = NetworkMessage::deserialize(self_peer.clone(), ipaddr, s11n_cursor);
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
@@ -484,7 +555,7 @@ mod tests {
         let self_peer = self_peer();
         let text_msg = ContainerView::from(b"Hello  broadcasted world!".to_vec());
         let msg = NetworkPacketBuilder::default()
-            .peer(self_peer.clone())
+            .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
@@ -492,8 +563,7 @@ mod tests {
 
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
-        let mut deserialized =
-            NetworkMessage::deserialize(Some(self_peer.clone()), ipaddr, s11n_cursor);
+        let mut deserialized = NetworkMessage::deserialize(self_peer.clone(), ipaddr, s11n_cursor);
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
             if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
@@ -513,7 +583,7 @@ mod tests {
         net_test!(
             NetworkRequest,
             BanNode,
-            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999)
+            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999).peer().unwrap()
         )
     }
 
@@ -522,7 +592,7 @@ mod tests {
         net_test!(
             NetworkRequest,
             UnbanNode,
-            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999)
+            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999).peer().unwrap()
         )
     }
 
@@ -535,7 +605,7 @@ mod tests {
     #[test]
     fn resp_invalid_version() {
         let deserialized = NetworkMessage::deserialize(
-            None,
+            self_peer(),
             IpAddr::from([127, 0, 0, 1]),
             UCursor::from(b"CONCORDIUMP2P0021001".to_vec()),
         );
@@ -548,7 +618,7 @@ mod tests {
     #[test]
     fn resp_invalid_protocol() {
         let deserialized = NetworkMessage::deserialize(
-            None,
+            self_peer(),
             IpAddr::from([127, 0, 0, 1]),
             UCursor::from(b"CONC0RD1UMP2P0021001".to_vec()),
         );

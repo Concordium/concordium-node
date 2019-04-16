@@ -46,6 +46,21 @@ impl InvalidLengthForIP {
 }
 
 #[derive(Debug, Fail)]
+#[fail(
+    display = "Remote peer already promoted to post-handshake <{}>/<{}>/<{}>",
+    id, ip, port
+)]
+pub struct RemotePeerAlreadyPromoted {
+    id:   P2PNodeId,
+    ip:   IpAddr,
+    port: u16,
+}
+
+impl RemotePeerAlreadyPromoted {
+    pub fn new(id: P2PNodeId, ip: IpAddr, port: u16) -> Self { Self { id, ip, port } }
+}
+
+#[derive(Debug, Fail)]
 #[fail(display = "Invalid IP type specified: type<{}>", ip_type)]
 pub struct InvalidIpType {
     ip_type: String,
