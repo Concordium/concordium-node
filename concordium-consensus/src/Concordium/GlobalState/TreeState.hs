@@ -13,7 +13,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization

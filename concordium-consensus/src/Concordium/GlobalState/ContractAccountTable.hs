@@ -12,7 +12,7 @@ import qualified Data.Serialize as S
 
 
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 
 type ContractAccountIndex = Word64
 newtype Version = Version Word32 deriving (Eq, Ord, Show, Num, Integral, Real, Enum)

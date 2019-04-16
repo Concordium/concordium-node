@@ -20,8 +20,8 @@ import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.ID.Types as IDTypes
 import Concordium.ID.AccountHolder
 
-import Concordium.GlobalState.Types
-import Concordium.GlobalState.HashableTo
+import Concordium.Types
+import Concordium.Types.HashableTo
 
 newtype TransactionSignature = TransactionSignature Sig.Signature
     deriving (Show, S.Serialize)

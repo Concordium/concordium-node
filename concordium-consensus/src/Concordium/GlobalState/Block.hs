@@ -14,9 +14,9 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.Transactions
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState
 
 type BlockHash = Hash.Hash

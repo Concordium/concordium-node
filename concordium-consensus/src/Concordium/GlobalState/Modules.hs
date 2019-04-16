@@ -1,7 +1,7 @@
 module Concordium.GlobalState.Modules where
 
-import qualified Concordium.GlobalState.Acorn.Core as Core
-import Concordium.GlobalState.Acorn.Interfaces
+import qualified Concordium.Types.Acorn.Core as Core
+import Concordium.Types.Acorn.Interfaces
 
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as Map

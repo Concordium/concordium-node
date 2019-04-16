@@ -6,10 +6,10 @@ import qualified Data.Map as Map
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import qualified Concordium.GlobalState.AccountTable as AT
 import Concordium.GlobalState.AccountTable (AccountIndex, AccountTable(Empty))
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 
 data Accounts = Accounts {

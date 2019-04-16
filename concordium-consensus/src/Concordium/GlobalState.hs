@@ -4,10 +4,10 @@ module Concordium.GlobalState where
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as HM
 
-import qualified Concordium.GlobalState.Acorn.Core as Core
-import Concordium.GlobalState.Acorn.Interfaces
-import Concordium.GlobalState.Execution
-import Concordium.GlobalState.Types
+import qualified Concordium.Types.Acorn.Core as Core
+import Concordium.Types.Acorn.Interfaces
+import Concordium.Types.Execution
+import Concordium.Types
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Transactions
 

@@ -14,8 +14,8 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
-import Concordium.GlobalState.Types
-import Concordium.GlobalState.HashableTo
+import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
