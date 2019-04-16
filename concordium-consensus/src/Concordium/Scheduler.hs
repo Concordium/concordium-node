@@ -141,7 +141,7 @@ dispatch msg = do
   
             CreateAccount aci -> 
               if AH.verifyAccount aci
-              then do -- if account information is correct then we create the account with initial nonce 1
+              then do -- if account information is correct then we create the account with initial nonce 'minNonce'
                 let aaddr = AH.accountAddress aci
                 let account = Account { _accountAddress = aaddr
                                       , _accountNonce = minNonce
