@@ -16,7 +16,7 @@ use std::{
         mpsc::{channel, Sender},
         Arc, RwLock,
     },
-    thread::{ JoinHandle, ThreadId},
+    thread::{JoinHandle, ThreadId},
     time::{Duration, SystemTime},
 };
 
@@ -61,9 +61,8 @@ pub struct P2PNodeConfig {
 #[derive(Default)]
 pub struct P2PNodeThread {
     pub join_handle: Option<JoinHandle<Fallible<()>>>,
-    pub id: Option<ThreadId>
+    pub id:          Option<ThreadId>,
 }
-
 
 #[derive(Clone)]
 pub struct P2PNode {
@@ -81,7 +80,7 @@ pub struct P2PNode {
     external_ip:         IpAddr,
     external_port:       u16,
     seen_messages:       SeenMessagesList,
-    thread:              Arc< RwLock< P2PNodeThread >>,
+    thread:              Arc<RwLock<P2PNodeThread>>,
     quit_tx:             Option<Sender<bool>>,
     pub max_nodes:       Option<u16>,
     pub print_peers:     bool,
@@ -282,7 +281,7 @@ impl P2PNode {
             external_port: own_peer_port,
             peer_type,
             seen_messages,
-            thread: Arc::new( RwLock::new( P2PNodeThread::default())),
+            thread: Arc::new(RwLock::new(P2PNodeThread::default())),
             quit_tx: None,
             max_nodes: None,
             print_peers: true,
@@ -474,26 +473,28 @@ impl P2PNode {
         // Register info about thread into P2PNode.
         {
             let mut locked_thread = safe_write!(self.thread)?;
-            locked_thread.id = Some( join_handle.thread().id());
+            locked_thread.id = Some(join_handle.thread().id());
             locked_thread.join_handle = Some(join_handle);
         }
 
         Ok(())
     }
 
-    /// Waits for P2PNode termination. Use `P2PNode::close` to notify the termination.
+    /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
+    /// termination.
     ///
-    /// It is safe to call this function several times, even from internal P2PNode thread.
+    /// It is safe to call this function several times, even from internal
+    /// P2PNode thread.
     pub fn join(&mut self) -> Fallible<()> {
-        let id_opt =  safe_read!(self.thread)?.id.clone();
+        let id_opt = safe_read!(self.thread)?.id.clone();
         if let Some(id) = id_opt {
             let current_thread_id = std::thread::current().id();
             if id != current_thread_id {
                 if let Some(join_handle) = safe_write!(self.thread)?.join_handle.take() {
-                    return join_handle.join().map_err( |_| fails::JoinError)?;
+                    return join_handle.join().map_err(|_| fails::JoinError)?;
                 }
             } else {
-                bail!( fails::JoinError);
+                bail!(fails::JoinError);
             }
         }
 

@@ -27,4 +27,3 @@ pub struct BannedNodeRequestedConnectionError;
 #[derive(Debug, Fail)]
 #[fail(display = "Thread join error")]
 pub struct JoinError;
-
