@@ -18,8 +18,8 @@ import GHC.Stack
 import Data.Time.Clock.POSIX
 import qualified Data.PQueue.Prio.Min as MPQ
 
-import Concordium.GlobalState.Types
-import Concordium.GlobalState.HashableTo
+import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.TreeState.Basic
 import Concordium.GlobalState.Transactions

@@ -36,7 +36,7 @@ import qualified Concordium.ID.AccountHolder as AH
 import Concordium.Crypto.SHA256(hash)
 import qualified Concordium.Crypto.Signature as Sig
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Acorn.Parser.Runner

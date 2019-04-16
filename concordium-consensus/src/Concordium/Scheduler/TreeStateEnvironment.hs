@@ -6,7 +6,7 @@ import qualified Data.Set as Set
 
 import Control.Monad
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState

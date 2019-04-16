@@ -6,7 +6,7 @@ import           Data.ByteString
 
 import qualified Concordium.Crypto.VRF    as VRF
 import           Concordium.GlobalState.Parameters
-import           Concordium.GlobalState.Types
+import           Concordium.Types
 import           Concordium.GlobalState.Block
 
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double

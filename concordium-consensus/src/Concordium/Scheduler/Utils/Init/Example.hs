@@ -8,7 +8,7 @@ import qualified Data.HashMap.Strict as Map
 import System.Random
 
 import qualified Concordium.Crypto.Signature as S
-import Concordium.GlobalState.Types
+import Concordium.Types
 import qualified Concordium.ID.AccountHolder as AH
 import qualified Concordium.ID.Types as AH
 import qualified Concordium.Scheduler.Types as Types

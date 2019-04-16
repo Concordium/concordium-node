@@ -9,9 +9,9 @@
 {-# OPTIONS_GHC -Wall #-}
 
 module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
-                                   module Concordium.GlobalState.Types,
-                                   module Concordium.GlobalState.Execution,
-                                   module Concordium.GlobalState.Acorn.Interfaces,
+                                   module Concordium.Types,
+                                   module Concordium.Types.Execution,
+                                   module Concordium.Types.Acorn.Interfaces,
                                    module Concordium.GlobalState.Transactions,
                                    module Concordium.GlobalState.Instances,
                                    module Concordium.GlobalState,
@@ -21,9 +21,9 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
 
 import Prelude hiding(fail)
 
-import Concordium.GlobalState.Types
-import Concordium.GlobalState.Acorn.Interfaces
-import Concordium.GlobalState.Execution
+import Concordium.Types
+import Concordium.Types.Acorn.Interfaces
+import Concordium.Types.Execution
 import Concordium.GlobalState
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Transactions

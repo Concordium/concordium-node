@@ -12,7 +12,7 @@ import Data.Hashable
 
 import Data.Foldable(toList)
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.Scheduler.Types(Message(..))
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types

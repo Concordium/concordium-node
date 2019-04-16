@@ -15,10 +15,10 @@ import Concordium.Logger
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.TreeState.Basic
-import Concordium.GlobalState.Types as T
+import Concordium.Types as T
 import Concordium.GlobalState.Information
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Account

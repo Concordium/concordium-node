@@ -12,7 +12,7 @@ import Data.IORef
 import qualified Data.ByteString as BS
 import Data.Monoid
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState

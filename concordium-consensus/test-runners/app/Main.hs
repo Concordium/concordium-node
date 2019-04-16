@@ -16,7 +16,7 @@ import Data.String
 import Lens.Micro.Platform
 import Data.Maybe
 
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
@@ -39,7 +39,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.List(intercalate)
 
 import Concordium.Scheduler.Utils.Init.Example(makeTransaction, initialState)
-import Concordium.GlobalState.Types
+import Concordium.Types
 
 import Concordium.Crypto.SHA256
 

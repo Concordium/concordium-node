@@ -10,7 +10,7 @@ import Data.Time.Clock.POSIX
 import Data.Time
 import Data.Fixed
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.TimeMonad

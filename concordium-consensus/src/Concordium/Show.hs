@@ -6,7 +6,7 @@ import qualified Data.ByteString as SBS
 
 
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 
 showBSHex :: SBS.ByteString -> String
 showBSHex bs = unpack (toLazyByteString $ byteStringHex bs)

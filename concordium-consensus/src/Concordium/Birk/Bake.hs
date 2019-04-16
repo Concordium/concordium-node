@@ -8,10 +8,10 @@ import Control.Monad
 
 import Data.Serialize
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.HashableTo
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState

@@ -6,7 +6,7 @@ import Control.Monad.Trans.Maybe
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters

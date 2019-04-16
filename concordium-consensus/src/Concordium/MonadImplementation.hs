@@ -25,8 +25,8 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 
-import Concordium.GlobalState.Types
-import Concordium.GlobalState.HashableTo
+import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.TreeState.Basic
 import Concordium.GlobalState.Block
@@ -34,7 +34,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Execution
+import Concordium.Types.Execution
 import Concordium.GlobalState.Account
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)

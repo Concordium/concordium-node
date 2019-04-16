@@ -18,7 +18,7 @@ import Control.Monad
 
 import qualified Concordium.Crypto.Signature as Sig
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.GlobalState.Types
+import Concordium.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
