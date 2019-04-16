@@ -91,19 +91,17 @@ instance SchedulerMonad SchedulerImplementation where
   payForExecution addr amnt = do
     s <- get
     let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
-    let camnt = acc ^. accountAmount
-    let newamount = camnt - (energyToGtu amnt)
-    let accs = Acc.putAccount (acc & accountAmount .~ newamount) (blockAccounts s)
+    let (newAmount, acc') = acc & accountAmount <%~ (subtract (energyToGtu amnt))
+    let accs = Acc.putAccount acc' (blockAccounts s)
     put (s { blockAccounts = accs })
-    return newamount
+    return newAmount
 
   {-# INLINE refundEnergy #-}
   refundEnergy addr amnt = do
     s <- get
     let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
-    let camnt = acc ^. accountAmount
-    let newamount = camnt + (energyToGtu amnt)
-    let accs = Acc.putAccount (acc & accountAmount .~ newamount) (blockAccounts s)
+    let acc' = acc & accountAmount %~ (+ energyToGtu amnt)
+    let accs = Acc.putAccount acc' (blockAccounts s)
     put (s { blockAccounts = accs })
 
   {-# INLINE firstFreeAddress #-}
