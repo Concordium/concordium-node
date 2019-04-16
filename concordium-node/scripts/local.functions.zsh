@@ -17,7 +17,7 @@
 function testnet_bootstrap() {
   if (( $# < 1 ))
     then
-    echo "Usage testnet_bootstrap instanceid"
+    echo "Usage: testnet_bootstrap instanceid"
     return 1
   fi
   bootstrap_id=$1; shift
@@ -33,7 +33,7 @@ function testnet_bootstrap() {
 function testnet_node() {
   if (( $# < 2 ))
   then
-    echo "Usage testnet_node instanceid bootstrapper_count"
+    echo "Usage: testnet_node instanceid bootstrapper_count"
     return 1
   elif (( $2 <1 ))
   then
@@ -49,5 +49,26 @@ function testnet_node() {
       cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
     done
     cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
+  )
+}
+
+#####
+# Start up a testnet using docker-compose with 4 bakers.
+#
+# testnet_docker_compose 4
+#
+#####
+function testnet_docker_compose() {
+  if (( $# < 1 ))
+  then
+    echo "Usage: testnet_docker_compose amount_of_bakers"
+    return 1
+  fi
+  baker_count=$1; shift
+  (
+    cd $CONCORDIUM_P2P_DIR/scripts/local && \
+    ./pre_build.sh && \
+    docker-compose build --no-cache && \
+    NUM_BAKERS=$baker_count docker-compose up --scale baker=$baker_count
   )
 }
