@@ -259,8 +259,9 @@ initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 makeBaker :: BakerId -> LotteryPower -> Gen (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk@(Sig.KeyPair _ spk) <- arbitrary
-        return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
+        sk                     <- arbitrary
+        let spk = Sig.verifyKey sk in 
+            return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
 initialiseStates :: Int -> Gen States
 initialiseStates n = do
