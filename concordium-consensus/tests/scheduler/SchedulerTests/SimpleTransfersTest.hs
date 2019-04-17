@@ -10,7 +10,7 @@ import Lens.Micro.Platform
 
 import qualified Concordium.ID.AccountHolder as AH
 import qualified Concordium.ID.Types as AH
-import qualified Concordium.Crypto.Signature as S
+import qualified Concordium.Crypto.BlockSignature as S
 import System.Random
 
 import qualified Concordium.Scheduler.Types as Types
@@ -84,7 +84,7 @@ testSimpleTransfer
         [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gstate) = Types.runSI (Sch.makeValidBlock transactions)
+    let ((suc, fails), gstate) = Types.runSI (Sch.filterTransactions transactions)
                                              Types.dummyChainMeta
                                              initialBlockState
     

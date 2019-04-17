@@ -31,16 +31,17 @@ executeFrom slotNumber blockParent lfPointer txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
-      res = runSI (Sch.execBlock txs) cm (bpState blockParent)
+      res = runSI (Sch.execTransactions txs) cm (bpState blockParent)
   in case res of
-       (Nothing, bs) -> Right bs
-       (Just fk, _) -> Left fk
+       (Right _, bs) -> Right bs
+       (Left fk, _) -> Left fk
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
--- hence the pending transaction table is correct for the new block. After
--- execution all transactions that were not added to the block are purged from
+-- hence the pending transaction table is correct for the new block.
+-- EFFECTS: After execution all transactions that were not added to the block are purged from
 -- the transaction table. If the purging is successful then the transaction is
--- also removed from the pending table.
+-- also removed from the pending table. Moreover all transactions which were added to the block
+-- are removed from the pending table.
 -- INVARIANT: The function always returns a list of transactions which make a valid block.
 constructBlock ::
   TreeStateMonad m
@@ -58,7 +59,7 @@ constructBlock slotNumber blockParent lfPointer =
     txSet <- mapM (\(acc, (l, _)) -> fmap snd <$> getAccountNonFinalized acc l) (HM.toList pt)
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     let txs = concatMap (concatMap Set.toList) txSet
-    let ((valid, invalid), bs) = runSI (Sch.makeValidBlock txs) cm (bpState blockParent)
+    let ((valid, invalid), bs) = runSI (Sch.filterTransactions txs) cm (bpState blockParent)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.

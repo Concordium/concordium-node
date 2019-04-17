@@ -4,7 +4,7 @@ import System.Random
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState.Parameters
@@ -18,7 +18,8 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
         mbs gen bid = (BakerIdentity bid sk spk ek epk, BakerInfo epk spk lot):mbs gen'' (bid+1)
             where
                 (ek@(VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
-                (sk@(Sig.KeyPair _ spk), gen'') = Sig.randomKeyPair gen'
+                (sk, gen'') = Sig.randomKeyPair gen'
+                spk = Sig.verifyKey sk
 
 makeGenesisData :: 
     Timestamp -- ^Genesis time

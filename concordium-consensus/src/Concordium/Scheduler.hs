@@ -4,9 +4,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
-  (makeValidBlock
-  ,runBlock
-  ,execBlock
+  (filterTransactions
+  ,runTransactions
+  ,execTransactions
   ) where
 
 import qualified Acorn.TypeCheck as TC
@@ -91,7 +91,7 @@ dispatch msg = do
                     -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
                     refundEnergy (thSender meta) energy
                     return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
-                    
+
             InitContract amount modref cname param -> do
               remainingAmount <- payForExecution (thSender meta) energy
               result <- evalLocalT (handleInit meta remainingAmount amount modref cname param energy)
@@ -318,7 +318,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                                          (ValueMessage (I.mkJust message'))
                                                          model'
                                                          contractamount'
-                            -- simple transfer to a contract is the same as a call to update with nothing
+                            -- simple transfer to a contract is the same as a call to update with Nothing
                             TSimpleTransfer (AddressContract cref') transferamount' -> do
                               cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
                               let receivefun' = Ins.ireceiveFun cinstance
@@ -414,14 +414,16 @@ handleTransferAccount origin acc txsender senderamount amount energy = do
                   withAmount (AddressAccount acc) (targetAmount + amount) $ do -- NB: Consider whether an overflow can happen
                     return (TxSuccess [Transferred txsender amount (AddressAccount acc)], energy)
           else return (TxReject (AmountTooLarge txsender amount), energy) -- amount insufficient
-  
 
 -- *Exposed methods.
--- |Make a valid block out of a list of messages/transactions. The list is
--- traversed from left to right and any invalid transactions are dropped. The
--- invalid transactions are not returned in order.
-makeValidBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
-makeValidBlock = go [] []
+-- |Make a valid block out of a list of transactions. The list is traversed from
+-- left to right and any invalid transactions are not included in the block. The
+-- return value is a pair of lists of transactions @(valid, invalid)@ where
+--    * @valid@ transactions is the list of transactions that should appear on the block in the order they should appear
+--    * @invalid@ is a list of invalid transactions.
+--    The order these transactions appear is arbitrary (i.e., they do not necessarily appear in the same order as in the input).
+filterTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
+filterTransactions = go [] []
   where go valid invalid (t:ts) = do
           dispatch t >>= \case
             TxValid reason -> go ((t, reason):valid) invalid ts
@@ -429,9 +431,9 @@ makeValidBlock = go [] []
         go valid invalid [] = return (reverse valid, invalid)
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
--- fails, and otherwise return a list of transactions with their outcome.
-runBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
-runBlock = go []
+-- fails, and otherwise return a list of transactions with their outcomes.
+runTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
+runTransactions = go []
   where go valid (t:ts) = do
           dispatch t >>= \case
             TxValid reason -> go ((t, reason):valid) ts
@@ -439,13 +441,13 @@ runBlock = go []
         go valid [] = return (Just (reverse valid))
 
 -- |Execute transactions in sequence only for sideffects on global state.
--- Returns 'Nothing' if block executed successfully, and 'Just' 'FailureKind' at
--- first failed transaction. This is more efficient than 'runBlock' since it
+-- Returns @Right ()@ if block executed successfully, and @Left@ @FailureKind@ at
+-- first failed transaction. This is more efficient than 'runTransactions' since it
 -- does not have to build a list of results.
-execBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe FailureKind)
-execBlock = go
+execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind ())
+execTransactions = go
   where go (t:ts) = do
           dispatch t >>= \case
             TxValid _ -> go ts
-            TxInvalid reason -> return (Just reason)
-        go [] = return Nothing
+            TxInvalid reason -> return (Left reason)
+        go [] = return (Right ())

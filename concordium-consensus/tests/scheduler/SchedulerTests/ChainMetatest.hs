@@ -8,7 +8,7 @@ import Test.Hspec
 
 import qualified Concordium.ID.AccountHolder as AH
 import qualified Concordium.ID.Types as AH
-import qualified Concordium.Crypto.Signature as S
+import qualified Concordium.Crypto.BlockSignature as S
 import System.Random
 
 import qualified Concordium.Scheduler.Types as Types
@@ -82,7 +82,7 @@ testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
+    let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
                                          chainMeta
                                          initialBlockState
     return (suc, fails, Ins.toList (gs ^. blockInstances))

@@ -11,7 +11,7 @@
 
 module Concordium.Scheduler.Environment where
 
-import Data.HashMap.Strict as Map
+import qualified Data.HashMap.Strict as Map
 
 import Control.Monad.Except
 import Control.Monad.RWS.Strict
@@ -91,8 +91,8 @@ class StaticEnvironmentMonad m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {_newAccounts :: Map.HashMap AccountAddress Account
-    ,_newContractStates :: Map.HashMap ContractAddress (Amount, Value)
+    {_newAccounts :: Map.HashMap AccountAddress Account -- ^Accounts whose states changed.
+    ,_newContractStates :: Map.HashMap ContractAddress (Amount, Value) -- ^Contracts whose states changed.
     }
 makeLenses ''ChangeSet
 
