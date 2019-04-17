@@ -318,7 +318,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                                          (ValueMessage (I.mkJust message'))
                                                          model'
                                                          contractamount'
-                            -- simple transfer to a contract is the same as a call to update with nothing
+                            -- simple transfer to a contract is the same as a call to update with Nothing
                             TSimpleTransfer (AddressContract cref') transferamount' -> do
                               cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
                               let receivefun' = Ins.ireceiveFun cinstance
@@ -414,7 +414,6 @@ handleTransferAccount origin acc txsender senderamount amount energy = do
                   withAmount (AddressAccount acc) (targetAmount + amount) $ do -- NB: Consider whether an overflow can happen
                     return (TxSuccess [Transferred txsender amount (AddressAccount acc)], energy)
           else return (TxReject (AmountTooLarge txsender amount), energy) -- amount insufficient
-  
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of messages/transactions. The list is
@@ -439,13 +438,13 @@ runBlock = go []
         go valid [] = return (Just (reverse valid))
 
 -- |Execute transactions in sequence only for sideffects on global state.
--- Returns 'Nothing' if block executed successfully, and 'Just' 'FailureKind' at
+-- Returns 'Right ()' if block executed successfully, and 'Left' 'FailureKind' at
 -- first failed transaction. This is more efficient than 'runBlock' since it
 -- does not have to build a list of results.
-execBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe FailureKind)
+execBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind ())
 execBlock = go
   where go (t:ts) = do
           dispatch t >>= \case
             TxValid _ -> go ts
-            TxInvalid reason -> return (Just reason)
-        go [] = return Nothing
+            TxInvalid reason -> return (Left reason)
+        go [] = return (Right ())
