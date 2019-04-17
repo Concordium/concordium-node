@@ -28,7 +28,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 
 import qualified Concordium.Crypto.VRF as VRF
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Scheduler.Utils.Init.Example(makeTransaction,initialState)
 import Concordium.Types

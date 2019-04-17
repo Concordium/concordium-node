@@ -24,7 +24,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
 import Concordium.Types
@@ -62,8 +62,9 @@ sendTransactions chan (t : ts) = do
 makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
-        sk@(Sig.KeyPair _ spk) <- Sig.newKeyPair
-        return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
+        sk                     <- Sig.newKeyPair
+        let spk = Sig.verifyKey sk in 
+            return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
 relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, Block, Maybe BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp sfsRef monitor outps = loop
