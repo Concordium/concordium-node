@@ -50,9 +50,7 @@ mod tests {
             let _guard = thread::spawn(move || loop {
                 if let Ok(msg) = receiver.recv() {
                     match msg {
-                        P2PEvent::ConnectEvent(addr) => {
-                            info!("Received connection from {}", addr)
-                        }
+                        P2PEvent::ConnectEvent(addr) => info!("Received connection from {}", addr),
                         P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                         P2PEvent::ReceivedMessageEvent(node_id) => {
                             info!("Received message from {:?}", node_id)
@@ -64,11 +62,7 @@ mod tests {
                             info!("Initiating connection to {}", addr)
                         }
                         P2PEvent::JoinedNetwork(peer, network_id) => {
-                            info!(
-                                "Peer {} joined network {}",
-                                peer.id(),
-                                network_id
-                            );
+                            info!("Peer {} joined network {}", peer.id(), network_id);
                         }
                         P2PEvent::LeftNetwork(peer, network_id) => {
                             info!("Peer {} left network {}", peer.id(), network_id);

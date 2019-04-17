@@ -77,12 +77,10 @@ fn main() -> Result<(), Error> {
     let prometheus = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
-        srv.start_server(
-            SocketAddr::new(
-                conf.prometheus.prometheus_listen_addr.parse()?,
-                conf.prometheus.prometheus_listen_port
-            ),
-        )
+        srv.start_server(SocketAddr::new(
+            conf.prometheus.prometheus_listen_addr.parse()?,
+            conf.prometheus.prometheus_listen_port,
+        ))
         .map_err(|e| error!("{}", e))
         .ok();
         Some(Arc::new(RwLock::new(srv)))

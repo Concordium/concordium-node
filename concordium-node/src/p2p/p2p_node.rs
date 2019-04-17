@@ -9,8 +9,10 @@ use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
 use std::{
     collections::{HashSet, VecDeque},
-    net::IpAddr::{self, V4, V6},
-    net::SocketAddr,
+    net::{
+        IpAddr::{self, V4, V6},
+        SocketAddr,
+    },
     str::FromStr,
     sync::{
         atomic::Ordering,
@@ -412,9 +414,13 @@ impl P2PNode {
                         Ok(nodes) => {
                             for (ip, port) in nodes {
                                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                self.connect(PeerType::Bootstrapper, SocketAddr::new(ip, port), None)
-                                    .map_err(|e| info!("{}", e))
-                                    .ok();
+                                self.connect(
+                                    PeerType::Bootstrapper,
+                                    SocketAddr::new(ip, port),
+                                    None,
+                                )
+                                .map_err(|e| info!("{}", e))
+                                .ok();
                             }
                         }
                         _ => error!("Can't find any bootstrap nodes - check DNS!"),
@@ -947,13 +953,7 @@ impl P2PNode {
         }
     }
 
-    fn get_self_peer(&self) -> P2PPeer {
-        P2PPeer::from(
-            self.peer_type,
-            self.id(),
-            self.addr,
-        )
-    }
+    fn get_self_peer(&self) -> P2PPeer { P2PPeer::from(self.peer_type, self.id(), self.addr) }
 
     pub fn ban_node(&mut self, peer: BannedNode) -> Fallible<()> {
         safe_write!(self.tls_server)?.ban_node(peer)?;

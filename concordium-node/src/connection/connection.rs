@@ -5,7 +5,7 @@ use std::{
     collections::HashSet,
     convert::TryFrom,
     io::Cursor,
-    net::{SocketAddr, Shutdown},
+    net::{Shutdown, SocketAddr},
     rc::Rc,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
 };
@@ -684,14 +684,8 @@ impl Connection {
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn promote_to_post_handshake(
-        &mut self,
-        id: P2PNodeId,
-        addr: SocketAddr,
-    ) -> Fallible<()> {
-        self.dptr
-            .borrow_mut()
-            .promote_to_post_handshake(id, addr)
+    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
+        self.dptr.borrow_mut().promote_to_post_handshake(id, addr)
     }
 
     pub fn remote_end_networks(&self) -> HashSet<NetworkId> {

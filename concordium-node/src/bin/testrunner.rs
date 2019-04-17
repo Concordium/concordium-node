@@ -475,11 +475,7 @@ fn main() -> Fallible<()> {
                         Ok(x) => {
                             for peer_node in peers {
                                 if _node_self_clone
-                                    .connect(
-                                        PeerType::Node,
-                                        peer_node.addr,
-                                        Some(peer_node.id()),
-                                    )
+                                    .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
                                     .map_err(|e| error!("{}", e))
                                     .is_ok()
                                 {

@@ -88,15 +88,11 @@ impl RemotePeer {
         }
     }
 
-    pub fn promote_to_post_handshake(
-        &self,
-        id: P2PNodeId,
-        addr: SocketAddr,
-    ) -> Fallible<Self> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<Self> {
         match *self {
-            RemotePeer::PreHandshake(peer_type, addr) => Ok(RemotePeer::PostHandshake(P2PPeer::from(
-                peer_type, id, addr,
-            ))),
+            RemotePeer::PreHandshake(peer_type, addr) => Ok(RemotePeer::PostHandshake(
+                P2PPeer::from(peer_type, id, addr),
+            )),
             _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, addr)),
         }
     }
@@ -272,9 +268,7 @@ impl P2PPeer {
         }
     }
 
-    pub fn serialize(&self) -> String {
-        format!("{}{}", self.id, serialize_addr(self.addr))
-    }
+    pub fn serialize(&self) -> String { format!("{}{}", self.id, serialize_addr(self.addr)) }
 
     pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
         let min_packet_size = PROTOCOL_NODE_ID_LENGTH;

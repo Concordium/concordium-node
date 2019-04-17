@@ -112,11 +112,7 @@ impl ConnectionPrivate {
 
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
-    pub fn promote_to_post_handshake(
-        &mut self,
-        id: P2PNodeId,
-        addr: SocketAddr,
-    ) -> Fallible<()> {
+    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
         Ok(())
     }

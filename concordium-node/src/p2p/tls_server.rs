@@ -114,20 +114,12 @@ impl TlsServer {
 
     /// Returns true if `addr` is in the `unreachable_nodes` list.
     pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
-        self.dptr
-            .read()
-            .unwrap()
-            .unreachable_nodes
-            .contains(addr)
+        self.dptr.read().unwrap().unreachable_nodes.contains(addr)
     }
 
     /// Adds the `addr` to the `unreachable_nodes` list.
     pub fn add_unreachable(&mut self, addr: SocketAddr) -> bool {
-        self.dptr
-            .write()
-            .unwrap()
-            .unreachable_nodes
-            .insert(addr)
+        self.dptr.write().unwrap().unreachable_nodes.insert(addr)
     }
 
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
@@ -258,10 +250,7 @@ impl TlsServer {
 
                 self.dptr.write().unwrap().add_connection(conn);
                 self.log_event(P2PEvent::ConnectEvent(addr));
-                debug!(
-                    "Requesting handshake from new peer {}",
-                    addr,
-                );
+                debug!("Requesting handshake from new peer {}", addr,);
                 let self_peer = self.get_self_peer();
 
                 if let Some(ref rc_conn) = self.dptr.read().unwrap().find_connection_by_token(token)

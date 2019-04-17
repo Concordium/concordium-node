@@ -122,7 +122,11 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use std::{collections::HashSet, net::{IpAddr, SocketAddr}, str::FromStr};
+    use std::{
+        collections::HashSet,
+        net::{IpAddr, SocketAddr},
+        str::FromStr,
+    };
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {

@@ -10,8 +10,8 @@ mod tests {
     use consensus_sys::consensus::*;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
-        common::PeerType, configuration::Config, db::P2PDB,
-        network::NetworkMessage, p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
+        p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
         sync::{

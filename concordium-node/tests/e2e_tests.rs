@@ -153,11 +153,7 @@ mod tests {
             target: &P2PNode,
             receiver: &Receiver<NetworkMessage>,
         ) -> Fallible<()> {
-            source.connect(
-                PeerType::Node,
-                target.addr,
-                None,
-            )?;
+            source.connect(PeerType::Node, target.addr, None)?;
 
             // Wait for Handshake response on source node
             loop {
@@ -572,7 +568,10 @@ mod tests {
                     central_peer
                         .connect(
                             PeerType::Node,
-                            SocketAddr::new(localhost, (test_port_added + (island_size * i)) as u16),
+                            SocketAddr::new(
+                                localhost,
+                                (test_port_added + (island_size * i)) as u16,
+                            ),
                             None,
                         )
                         .map_err(|e| println!("{}", e))
@@ -890,11 +889,7 @@ mod tests {
             debug_level_str.push_str(format!("\n\t[{}]: ", level).as_str());
             for idx in 0..nodes_per_level[level].len() {
                 debug_level_str.push_str(
-                    format!(
-                        "{}, ",
-                        nodes_per_level[level][idx].borrow().addr.port()
-                    )
-                    .as_str(),
+                    format!("{}, ", nodes_per_level[level][idx].borrow().addr.port()).as_str(),
                 );
             }
         }

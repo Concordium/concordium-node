@@ -9,8 +9,8 @@ extern crate grpciowin as grpcio;
 mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
-        common::PeerType, configuration::Config, db::P2PDB,
-        network::NetworkMessage, p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
+        p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
         sync::{

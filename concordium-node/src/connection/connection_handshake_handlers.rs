@@ -17,17 +17,11 @@ pub fn handshake_response_handle(
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.sent_handshake = get_current_stamp();
             priv_conn_mut.add_remote_end_networks(nets);
-            priv_conn_mut.promote_to_post_handshake(
-                remote_peer.id(),
-                remote_peer.addr,
-            )?;
+            priv_conn_mut.promote_to_post_handshake(remote_peer.id(), remote_peer.addr)?;
         }
 
-        let bucket_sender = P2PPeer::from(
-            remote_peer.peer_type(),
-            remote_peer.id(),
-            remote_peer.addr,
-        );
+        let bucket_sender =
+            P2PPeer::from(remote_peer.peer_type(), remote_peer.id(), remote_peer.addr);
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             safe_write!(priv_conn.borrow().buckets)?
                 .insert_into_bucket(&bucket_sender, nets.clone());

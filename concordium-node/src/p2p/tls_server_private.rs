@@ -170,22 +170,19 @@ impl TlsServerPrivate {
             .find(|&conn| conn.borrow().token() == token)
     }
 
-    pub fn find_connection_by_ip_addr(
-        &self,
-        addr: SocketAddr,
-    ) -> Option<&Rc<RefCell<Connection>>> {
-        self.connections.iter().find(|conn|
-            conn.borrow().remote_addr() == addr
-        )
+    pub fn find_connection_by_ip_addr(&self, addr: SocketAddr) -> Option<&Rc<RefCell<Connection>>> {
+        self.connections
+            .iter()
+            .find(|conn| conn.borrow().remote_addr() == addr)
     }
 
     pub fn find_connections_by_ip(
         &self,
         ip: IpAddr,
     ) -> impl Iterator<Item = &Rc<RefCell<Connection>>> {
-        self.connections.iter().filter(move |&conn| {
-            conn.borrow().remote_addr().ip() == ip
-        })
+        self.connections
+            .iter()
+            .filter(move |&conn| conn.borrow().remote_addr().ip() == ip)
     }
 
     fn remove_connection(&mut self, to_remove: Token) {
