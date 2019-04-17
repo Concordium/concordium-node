@@ -27,7 +27,7 @@ use crate::network::{PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH};
 
 const PROTOCOL_IP4_LENGTH: usize = 12;
 const PROTOCOL_IP6_LENGTH: usize = 32;
-const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
+pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -123,8 +123,42 @@ impl P2PPeerBuilder {
     }
 }
 
-fn deserialize_ip4(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
-    let min_packet_size = PROTOCOL_IP4_LENGTH + PROTOCOL_PORT_LENGTH;
+pub fn serialize_ip(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(ip4) => format!(
+            "IP4{:03}{:03}{:03}{:03}",
+            ip4.octets()[0],
+            ip4.octets()[1],
+            ip4.octets()[2],
+            ip4.octets()[3],
+        ),
+        IpAddr::V6(ip6) => format!(
+            "IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:\
+             02x}{:02x}{:02x}",
+            ip6.octets()[0],
+            ip6.octets()[1],
+            ip6.octets()[2],
+            ip6.octets()[3],
+            ip6.octets()[4],
+            ip6.octets()[5],
+            ip6.octets()[6],
+            ip6.octets()[7],
+            ip6.octets()[8],
+            ip6.octets()[9],
+            ip6.octets()[10],
+            ip6.octets()[11],
+            ip6.octets()[12],
+            ip6.octets()[13],
+            ip6.octets()[14],
+            ip6.octets()[15],
+        ),
+    }
+}
+
+pub fn serialize_ip_port(ip: IpAddr, p: u16) -> String { format!("{}{:05}", serialize_ip(ip), p) }
+
+pub fn deserialize_ip4(pkt: &mut UCursor) -> Fallible<IpAddr> {
+    let min_packet_size = PROTOCOL_IP4_LENGTH;
     ensure!(
         pkt.len() >= pkt.position() + min_packet_size as u64,
         "IPv4 package needs {} bytes",
@@ -142,13 +176,11 @@ fn deserialize_ip4(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
         &buf[6..9],
         &buf[9..12]
     ))?;
-    // Decode Port
-    let port = buf[PROTOCOL_IP4_LENGTH..][..PROTOCOL_PORT_LENGTH].parse::<u16>()?;
-    Ok((ip_addr, port))
+    Ok(ip_addr)
 }
 
-fn deserialize_ip6(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
-    let min_packet_size = PROTOCOL_IP6_LENGTH + PROTOCOL_PORT_LENGTH;
+pub fn deserialize_ip6(pkt: &mut UCursor) -> Fallible<IpAddr> {
+    let min_packet_size = PROTOCOL_IP6_LENGTH;
     ensure!(
         pkt.len() >= pkt.position() + min_packet_size as u64,
         "IPv6 package needs {} bytes",
@@ -171,8 +203,38 @@ fn deserialize_ip6(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
         &buf[24..28],
         &buf[28..32]
     ))?;
+    Ok(ip_addr)
+}
+
+pub fn deserialize_ip(pkt: &mut UCursor) -> Fallible<IpAddr> {
+    let min_packet_size = PROTOCOL_IP_TYPE_LENGTH;
+
+    ensure!(
+        pkt.len() >= pkt.position() + min_packet_size as u64,
+        "P2PPeer package needs {} bytes",
+        min_packet_size
+    );
+
+    let view = pkt.read_into_view(min_packet_size)?;
+    let buf = view.as_slice();
+    let ip_type = &buf[..PROTOCOL_IP_TYPE_LENGTH];
+
+    match ip_type {
+        b"IP4" => deserialize_ip4(pkt),
+        b"IP6" => deserialize_ip6(pkt),
+        _ => bail!(fails::InvalidIpType::new(
+            str::from_utf8(ip_type)?.to_owned()
+        )),
+    }
+}
+
+pub fn deserialize_ip_port(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
+    let ip_addr = deserialize_ip(pkt)?;
+
+    let view = pkt.read_into_view(PROTOCOL_PORT_LENGTH)?;
+    let buf = view.as_slice();
     // Decode Port
-    let port = buf[PROTOCOL_IP6_LENGTH..][..PROTOCOL_PORT_LENGTH].parse::<u16>()?;
+    let port = str::from_utf8(&buf[..PROTOCOL_PORT_LENGTH])?.parse::<u16>()?;
     Ok((ip_addr, port))
 }
 
@@ -188,43 +250,11 @@ impl P2PPeer {
     }
 
     pub fn serialize(&self) -> String {
-        match &self.ip {
-            IpAddr::V4(ip4) => format!(
-                "{}IP4{:03}{:03}{:03}{:03}{:05}",
-                self.id,
-                ip4.octets()[0],
-                ip4.octets()[1],
-                ip4.octets()[2],
-                ip4.octets()[3],
-                self.port,
-            ),
-            IpAddr::V6(ip6) => format!(
-                "{}IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:\
-                 02x}{:02x}{:02x}{:02x}{:05}",
-                self.id,
-                ip6.octets()[0],
-                ip6.octets()[1],
-                ip6.octets()[2],
-                ip6.octets()[3],
-                ip6.octets()[4],
-                ip6.octets()[5],
-                ip6.octets()[6],
-                ip6.octets()[7],
-                ip6.octets()[8],
-                ip6.octets()[9],
-                ip6.octets()[10],
-                ip6.octets()[11],
-                ip6.octets()[12],
-                ip6.octets()[13],
-                ip6.octets()[14],
-                ip6.octets()[15],
-                self.port
-            ),
-        }
+        format!("{}{}", self.id, serialize_ip_port(self.ip, self.port))
     }
 
     pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
-        let min_packet_size = PROTOCOL_NODE_ID_LENGTH + PROTOCOL_IP_TYPE_LENGTH;
+        let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
 
         ensure!(
             pkt.len() >= pkt.position() + min_packet_size as u64,
@@ -241,13 +271,8 @@ impl P2PPeer {
             &buf[..PROTOCOL_NODE_ID_LENGTH],
             node_id
         );
-        let ip_type = &buf[PROTOCOL_NODE_ID_LENGTH..][..PROTOCOL_IP_TYPE_LENGTH];
 
-        let (ip_addr, port) = match ip_type {
-            b"IP4" => deserialize_ip4(pkt)?,
-            b"IP6" => deserialize_ip6(pkt)?,
-            _ => bail!("Unsupported Ip type"),
-        };
+        let (ip_addr, port) = deserialize_ip_port(pkt)?;
 
         P2PPeerBuilder::default()
             .id(node_id)
@@ -318,9 +343,12 @@ pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().t
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::{
-        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
+    use crate::{
+        network::{
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
+        },
+        p2p::banned_nodes::tests::dummy_ban_node,
     };
     use std::collections::HashSet;
 
@@ -579,22 +607,28 @@ mod tests {
     }
 
     #[test]
-    fn req_bannode_test() {
+    fn req_banaddr_test() {
         net_test!(
             NetworkRequest,
             BanNode,
-            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999).peer().unwrap()
+            dummy_ban_node(Some(IpAddr::from([8, 8, 8, 8])))
         )
     }
 
     #[test]
-    fn req_unbannode_test() {
+    fn req_unbanaddr_test() {
         net_test!(
             NetworkRequest,
             UnbanNode,
-            dummy_peer(IpAddr::from([8, 8, 8, 8]), 9999).peer().unwrap()
+            dummy_ban_node(Some(IpAddr::from([8, 8, 8, 8])))
         )
     }
+
+    #[test]
+    fn req_banid_test() { net_test!(NetworkRequest, BanNode, dummy_ban_node(None)) }
+
+    #[test]
+    fn req_unbanid_test() { net_test!(NetworkRequest, UnbanNode, dummy_ban_node(None)) }
 
     #[test]
     fn req_joinnetwork_test() { net_test!(NetworkRequest, JoinNetwork, NetworkId::from(100)) }

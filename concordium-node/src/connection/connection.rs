@@ -23,7 +23,7 @@ use crate::{
     },
     connection::{MessageHandler, P2PEvent, RequestHandler, ResponseHandler},
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
@@ -32,9 +32,12 @@ use crate::{
 use super::fails;
 #[cfg(not(target_os = "windows"))]
 use crate::connection::writev_adapter::WriteVAdapter;
-use crate::connection::{
-    connection_default_handlers::*, connection_handshake_handlers::*,
-    connection_private::ConnectionPrivate,
+use crate::{
+    connection::{
+        connection_default_handlers::*, connection_handshake_handlers::*,
+        connection_private::ConnectionPrivate,
+    },
+    network::protocol_message_type::ProtocolMessageType,
 };
 
 /// This macro clones `dptr` and moves it into callback closure.
@@ -47,12 +50,12 @@ macro_rules! handle_by_private {
 }
 
 macro_rules! drop_conn_if_unwanted {
-    ($process:expr, $self:ident, $poll:ident) => {
+    ($process:expr, $self:ident) => {
         if let Err(e) = $process {
             match e.downcast::<fails::UnwantedMessageError>() {
                 Ok(f) => {
                     error!("Dropping connection: {}", f);
-                    $self.close($poll)?;
+                    $self.close();
                 }
                 Err(e) => {
                     if let Ok(f) = e.downcast::<FunctorError>() {
@@ -85,7 +88,7 @@ pub enum ConnectionStatus {
 }
 
 pub struct Connection {
-    socket:                  TcpStream,
+    pub socket:              TcpStream,
     token:                   Token,
     pub closing:             bool,
     closed:                  bool,
@@ -384,9 +387,9 @@ impl Connection {
 
     pub fn is_closed(&self) -> bool { self.closed }
 
-    pub fn close(&mut self, poll: &mut Poll) -> Fallible<()> {
-        self.closing = true;
-        poll.deregister(&self.socket)?;
+    pub fn close(&mut self) { self.closing = true; }
+
+    pub fn shutdown(&mut self) -> Fallible<()> {
         self.socket.shutdown(Shutdown::Both)?;
         Ok(())
     }
@@ -417,11 +420,6 @@ impl Connection {
                     written_bytes
                 );
             }
-        }
-
-        // Manage clossing event.
-        if self.closing {
-            self.close(poll).unwrap_or_else(|e| error!("{}", e));
         }
 
         let session_wants_read = self.dptr.borrow().tls_session.wants_read();
@@ -524,7 +522,7 @@ impl Connection {
         Ok(())
     }
 
-    fn validate_packet(&mut self, poll: &mut Poll) {
+    fn validate_packet(&mut self) {
         if !self.pkt_validated() {
             let buff = if let Some(ref bytebuf) = self.pkt_buffer {
                 if bytebuf.len() >= PROTOCOL_MESSAGE_LENGTH {
@@ -539,7 +537,7 @@ impl Connection {
                 if let Err(_) = self.validate_packet_type(bufdata) {
                     info!("Received network packet message, not wanted - disconnecting peer");
                     &self.clear_buffer();
-                    &self.close(poll);
+                    &self.close();
                 } else {
                     self.set_valid();
                     self.set_validated();
@@ -555,7 +553,7 @@ impl Connection {
         buf: &[u8],
     ) -> Fallible<()> {
         trace!("Received plaintext");
-        self.validate_packet(poll);
+        self.validate_packet();
         if self.expected_size > 0 && self.currently_read == self.expected_size {
             trace!("Completed packet with {} size", self.currently_read);
             if self.pkt_valid() || !self.pkt_validated() {
@@ -564,7 +562,7 @@ impl Connection {
                     buffered = buf[..].to_vec();
                 }
                 self.validate_packet_type(&buffered)?;
-                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
+                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
             }
 
             self.clear_buffer();
@@ -585,7 +583,7 @@ impl Connection {
                         buffered = buf[..].to_vec();
                     }
                     self.validate_packet_type(&buffered)?;
-                    drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
+                    drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
                 }
                 self.clear_buffer();
             }
@@ -601,7 +599,7 @@ impl Connection {
                     buffered = buf[..].to_vec();
                 }
                 self.validate_packet_type(&buffered)?;
-                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
+                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
             }
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;

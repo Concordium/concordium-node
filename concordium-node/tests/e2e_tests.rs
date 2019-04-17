@@ -5,13 +5,13 @@ extern crate log;
 
 #[cfg(test)]
 mod tests {
-    use failure::Fallible;
+    use failure::{bail, Fallible};
     use p2p_client::{
         common::{PeerType, UCursor},
         configuration::Config,
         connection::{MessageManager, P2PEvent},
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
-        p2p::p2p_node::P2PNode,
+        p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
         prometheus_exporter::{PrometheusMode, PrometheusServer},
     };
     use rand::{distributions::Standard, thread_rng, Rng};
@@ -1018,4 +1018,33 @@ mod tests {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network(5, 4, 10)
     }
+
+    #[test]
+    pub fn e2e_008_drop_on_ban() -> Fallible<()> {
+        utils::setup();
+
+        let port = utils::next_port_offset(3);
+        let networks = vec![100];
+
+        let (mut node_1, msg_waiter_1) = utils::make_node_and_sync(port, networks.clone(), true)?;
+        let (node_2, _msg_waiter_2) = utils::make_node_and_sync(port + 1, networks.clone(), true)?;
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+        utils::consume_pending_messages(&msg_waiter_1);
+
+        let to_ban = BannedNode::ById(node_2.id());
+
+        node_1.ban_node(to_ban)?;
+        let mut reply = node_1.get_peer_stats(&vec![])?;
+
+        let t1 = time::Instant::now();
+        while reply.len() == 1 {
+            reply = node_1.get_peer_stats(&vec![])?;
+            if time::Instant::now().duration_since(t1).as_secs() > 30 {
+                bail!("timeout");
+            }
+        }
+
+        Ok(())
+    }
+
 }

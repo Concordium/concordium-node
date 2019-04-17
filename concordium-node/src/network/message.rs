@@ -8,6 +8,7 @@ use crate::{
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
     },
+    p2p::banned_nodes::BannedNode,
 };
 use std::convert::TryFrom;
 
@@ -499,7 +500,7 @@ impl NetworkMessage {
                     peer.is_post_handshake_or_else(|| {
                         err_msg("BanNode Request requires a handshake to be completed first")
                     })?,
-                    P2PPeer::deserialize(&mut pkt)?,
+                    BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
@@ -509,7 +510,7 @@ impl NetworkMessage {
                     peer.is_post_handshake_or_else(|| {
                         err_msg("UnbanNode Request requires a handshake to be completed first")
                     })?,
-                    P2PPeer::deserialize(&mut pkt)?,
+                    BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
