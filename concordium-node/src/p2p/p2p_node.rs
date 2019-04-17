@@ -75,7 +75,6 @@ pub struct P2PNode {
     ip:                  IpAddr,
     port:                u16,
     incoming_pkts:       Sender<Arc<NetworkMessage>>,
-    event_log:           Option<Sender<P2PEvent>>,
     start_time:          DateTime<Utc>,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     peer_type:           PeerType,
@@ -248,7 +247,7 @@ impl P2PNode {
             server,
             Arc::new(server_conf),
             Arc::new(client_conf),
-            event_log.clone(),
+            event_log,
             self_peer,
             prometheus_exporter.clone(),
             networks,
@@ -276,7 +275,6 @@ impl P2PNode {
             ip,
             port: conf.common.listen_port,
             incoming_pkts: pkt_queue,
-            event_log,
             start_time: Utc::now(),
             prometheus_exporter,
             external_ip: own_peer_ip,
@@ -534,11 +532,11 @@ impl P2PNode {
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
 
-    fn log_event(&mut self, event: P2PEvent) {
-        if let Some(ref mut x) = self.event_log {
-            if let Err(e) = x.send(event) {
-                error!("Couldn't send event {:?}", e)
-            }
+    fn log_event(&self, event: P2PEvent) {
+        if let Ok(locked_tls) = self.tls_server.read() {
+            locked_tls.log_event(event);
+        } else {
+            error!("Couldn't lock tls server for reading")
         }
     }
 
