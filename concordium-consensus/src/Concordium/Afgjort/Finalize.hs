@@ -16,7 +16,7 @@ import Control.Monad.State.Class
 import Control.Monad.Reader.Class
 import Control.Monad
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Block

@@ -61,7 +61,8 @@ makeRunner logm bkr gen initBS = do
             handleMessages outChan out $ when (cs > lastBake) $
                 bakeForSlot bkr cs >>= \case
                     Nothing -> return ()
-                    Just block -> 
+                    Just block -> do
+                        updateFinState out
                         liftIO $ writeChan outChan (MsgNewBlock (bpBlock block))
             ns <- timeUntilNextSlot
             _ <- liftIO $ forkIO $ do
