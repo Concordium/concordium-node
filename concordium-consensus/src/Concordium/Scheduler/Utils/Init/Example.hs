@@ -18,6 +18,8 @@ import qualified Concordium.GlobalState.BlockState as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 
+import Lens.Micro.Platform
+
 import Data.Maybe(fromJust)
 
 import qualified Data.Text as Text
@@ -94,7 +96,9 @@ initialState n =
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        gs = BlockState.emptyBlockState { BlockState.blockAccounts = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts
-                                        , BlockState.blockModules = Mod.Modules mods }
+        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts
+        gs = BlockState.emptyBlockState &
+               (BlockState.blockAccounts .~ initAccount) .
+               (BlockState.blockModules .~ Mod.Modules mods)
         gs' = Types.execSI (execBlock (initialTrans n)) Types.dummyChainMeta gs
-    in gs' { BlockState.blockAccounts = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts }
+    in gs' & BlockState.blockAccounts .~ initAccount

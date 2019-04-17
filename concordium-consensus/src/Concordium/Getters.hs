@@ -46,21 +46,21 @@ getLastFinalState sfsRef = do
     runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
 
 getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AccountAddress]
-getLastFinalAccountList sfsRef = (Map.keys . accountMap . blockAccounts) <$> getLastFinalState sfsRef
+getLastFinalAccountList sfsRef = (Map.keys . accountMap . (^. blockAccounts)) <$> getLastFinalState sfsRef
 
 getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
-getLastFinalInstances sfsRef = (HashMap.keys . _instances . blockInstances) <$> getLastFinalState sfsRef
+getLastFinalInstances sfsRef = (HashMap.keys . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
 
 getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
 getLastFinalAccountInfo sfsRef addr = do
-  maybeAccount <- (getAccount addr . blockAccounts) <$> getLastFinalState sfsRef
+  maybeAccount <- (getAccount addr . (^. blockAccounts)) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
     Just acc -> return $ Just (AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount))
 
 getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
-  maybeAccount <- (HashMap.lookup addr . _instances . blockInstances) <$> getLastFinalState sfsRef
+  maybeAccount <- (HashMap.lookup addr . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
     Just is -> return $ Just (InstanceInfo (imsgTy is) (imodel is) (iamount is))

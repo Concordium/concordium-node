@@ -33,6 +33,8 @@ import qualified Data.Text.IO as TIO
 import Data.Maybe
 import Control.Monad.IO.Class
 
+import Lens.Micro.Platform
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -48,9 +50,9 @@ alesAccount = AH.accountAddress alesACI
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState
-    { blockAccounts = Acc.putAccount (Types.Account alesAccount 1 1000000000 alesACI) Acc.emptyAccounts
-    , blockModules = (let (_, _, gs) = Init.baseState in Mod.Modules gs) }
+  emptyBlockState &
+    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 1000000000 alesACI) Acc.emptyAccounts) .
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.Modules gs))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -91,7 +93,7 @@ testFibonacci = do
     let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
                                          Types.dummyChainMeta
                                          initialBlockState
-    return (suc, fails, Ins.toList (blockInstances gs))
+    return (suc, fails, Ins.toList (gs ^. blockInstances))
 
 fib :: [Int64]
 fib = 1:1:zipWith (+) fib (tail fib)

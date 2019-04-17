@@ -24,6 +24,8 @@ import Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 
+import Lens.Micro.Platform
+
 import qualified Data.Text.IO as TIO
 
 import Control.Monad.IO.Class
@@ -43,9 +45,9 @@ alesAccount = AH.accountAddress alesACI
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState
-    { blockAccounts = Acc.putAccount (Types.Account alesAccount 1 100000 alesACI) Acc.emptyAccounts
-    , blockModules = (let (_, _, gs) = Init.baseState in Mod.Modules gs) }
+  emptyBlockState &
+    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 100000 alesACI) Acc.emptyAccounts) . 
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.Modules gs))
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
@@ -83,7 +85,7 @@ testChainMeta = do
     let ((suc, fails), gs) = Types.runSI (Sch.makeValidBlock transactions)
                                          chainMeta
                                          initialBlockState
-    return (suc, fails, Ins.toList (blockInstances gs))
+    return (suc, fails, Ins.toList (gs ^. blockInstances))
 
 checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
 checkChainMetaResult (suc, fails, instances) =
