@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.29-debug"
+version = "0.1.30"
 description = "Concordium P2P library"
 authors = [ "Concordium AG <info@concordium.com>"]
 exclude = [
