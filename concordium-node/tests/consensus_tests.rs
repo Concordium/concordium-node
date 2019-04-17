@@ -10,7 +10,7 @@ mod tests {
     use consensus_sys::consensus::*;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
-        common::PeerType, configuration::Config, connection::P2PEvent, db::P2PDB,
+        common::PeerType, configuration::Config, db::P2PDB,
         network::NetworkMessage, p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
@@ -60,29 +60,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(addr) => {
-                        info!("Received connection from {}", addr)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(addr) => {
-                        info!("Initiating connection to {}", addr)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id(),
-                            network_id
-                        );
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id(), network_id);
-                    }
-                }
+                info!("{}", msg);
             }
         });
 
