@@ -221,44 +221,6 @@ impl TlsServerPrivate {
             }
         });
 
-        // Kill nodes which are no longer seen and also closing connections
-        let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) = self.connections
-            .iter()
-            // Get only connections that have been inactive for more time than allowed or closing connections
-            .filter(|rc_conn| {
-                let conn = rc_conn.borrow();
-                (peer_type == PeerType::Bootstrapper
-                    && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
-                    || ((conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
-                        && conn.local_peer().peer_type() == PeerType::Node)
-                        || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED)
-                    || conn.closing
-            })
-            .map(|rc_conn| {
-                // Deregister connection from the poll and shut down the socket
-                let mut conn = rc_conn.borrow_mut();
-                into_err!(poll.deregister(&conn.socket))?;
-                let _ = match conn.shutdown() {
-                    Err(e) => {
-                        let downcasted_error = e.downcast::<std::io::Error>().unwrap();
-                        match downcasted_error.kind() {
-                            std::io::ErrorKind::NotFound => Ok(()),
-                            _ => Err(failure::Error::from_boxed_compat(Box::new(downcasted_error)))
-                        }
-                    }
-                    _ => Ok(())
-                }?;
-                // Report number of peers to prometheus
-                if let Some(ref prom) = &self.prometheus_exporter {
-                    if conn.is_post_handshake() {
-                        if let Ok(mut p) = safe_write!(prom) {
-                            p.peers_dec_by(1)?;
-                        }
-                    }
-                }
-                Ok(conn.token())
-            }).partition(Result::is_ok);
-
         // Clean duplicates only if it's a regular node we're running
         if peer_type != PeerType::Bootstrapper {
             let mut connection_map: Vec<_> = self
@@ -290,6 +252,56 @@ impl TlsServerPrivate {
                 }
             });
         }
+
+        let filter_predicate_bootstrapper = |conn: &Connection| -> bool {
+            peer_type == PeerType::Bootstrapper
+                && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp
+        };
+
+        let filter_predicate_node = |conn: &Connection| -> bool {
+            (conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
+                && conn.local_peer().peer_type() == PeerType::Node)
+                || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+        };
+
+        let wrap_connection_already_gone_as_non_fatal =
+            |token, res: Fallible<()>| -> Fallible<Token> {
+                use std::io::ErrorKind;
+                match res {
+                    Err(e) => {
+                        let downcasted_error = e.downcast::<std::io::Error>()?;
+                        match downcasted_error.kind() {
+                            ErrorKind::NotFound | ErrorKind::NotConnected => Ok(token),
+                            _ => into_err!(Err(downcasted_error)),
+                        }
+                    }
+                    _ => Ok(token),
+                }
+            };
+
+        // Kill nodes which are no longer seen and also closing connections
+        let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) = self.connections
+            .iter()
+            // Get only connections that have been inactive for more time than allowed or closing connections
+            .filter(|rc_conn| {
+                let rc_conn_borrowed = rc_conn.borrow();
+                filter_predicate_bootstrapper(&rc_conn_borrowed) || filter_predicate_node(&rc_conn_borrowed) || rc_conn_borrowed.closing
+            })
+            .map(|rc_conn| {
+                // Deregister connection from the poll and shut down the socket
+                let mut conn = rc_conn.borrow_mut();
+                wrap_connection_already_gone_as_non_fatal(conn.token(),into_err!(poll.deregister(&conn.socket)))?;
+                wrap_connection_already_gone_as_non_fatal(conn.token(), conn.shutdown())?;
+                // Report number of peers to prometheus
+                if let Some(ref prom) = &self.prometheus_exporter {
+                    if conn.is_post_handshake() {
+                        if let Ok(mut p) = safe_write!(prom) {
+                            p.peers_dec_by(1)?;
+                        }
+                    }
+                }
+                Ok(conn.token())
+            }).partition(Result::is_ok);
 
         // Remove the connection from the list of connections
         for conn in closing_conns {

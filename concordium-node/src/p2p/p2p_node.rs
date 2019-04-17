@@ -565,7 +565,7 @@ impl P2PNode {
 
     fn process_unban(&self, inner_pkt: &NetworkRequest) -> Fallible<()> {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(conn, status);
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         if let NetworkRequest::UnbanNode(ref peer, ref unbanned_peer) = inner_pkt {
             match unbanned_peer {
                 BannedNode::ById(id) => {
@@ -597,7 +597,7 @@ impl P2PNode {
 
     fn process_ban(&self, inner_pkt: &NetworkRequest) -> Fallible<()> {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(conn, status);
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
             let data = inner_pkt.serialize();
             let retain = |conn: &Connection| match to_ban {
@@ -633,7 +633,7 @@ impl P2PNode {
                     };
                     trace!("Got message to process!");
                     let check_sent_status_fn = |conn: &Connection, status: Fallible<usize>| {
-                        self.check_sent_status(conn, status)
+                        self.check_sent_status(&conn, status)
                     };
 
                     match **x {
