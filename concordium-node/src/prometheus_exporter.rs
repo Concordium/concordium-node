@@ -2,7 +2,7 @@ use failure::Fallible;
 use iron::{headers::ContentType, prelude::*, status};
 use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
 use router::Router;
-use std::{fmt, sync::Arc, thread, time};
+use std::{fmt, net::SocketAddr, sync::Arc, thread, time};
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum PrometheusMode {
@@ -218,7 +218,7 @@ impl PrometheusServer {
         Ok(resp)
     }
 
-    pub fn start_server(&mut self, listen_ip: &str, port: u16) -> Fallible<()> {
+    pub fn start_server(&mut self, listen_addr: SocketAddr) -> Fallible<()> {
         let mut router = Router::new();
         let _self_clone = Arc::new(self.clone());
         let _self_clone_2 = Arc::clone(&_self_clone);
@@ -232,7 +232,7 @@ impl PrometheusServer {
             move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone_2).metrics(),
             "metrics",
         );
-        let addr = format!("{}:{}", listen_ip, port);
+        let addr = listen_addr.to_string();
         let _th = thread::spawn(move || {
             Iron::new(router).http(addr).unwrap();
         });

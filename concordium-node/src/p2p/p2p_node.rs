@@ -10,6 +10,7 @@ use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
 use std::{
     collections::{HashSet, VecDeque},
     net::IpAddr::{self, V4, V6},
+    net::SocketAddr,
     str::FromStr,
     sync::{
         atomic::Ordering,
@@ -72,8 +73,7 @@ pub struct P2PNode {
     poll:                Arc<RwLock<Poll>>,
     id:                  P2PNodeId,
     send_queue:          Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
-    ip:                  IpAddr,
-    port:                u16,
+    pub addr:            SocketAddr,
     incoming_pkts:       Sender<Arc<NetworkMessage>>,
     start_time:          DateTime<Utc>,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
@@ -232,7 +232,7 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(peer_type, id, own_peer_ip, own_peer_port);
+        let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(own_peer_ip, own_peer_port));
 
         let seen_messages = SeenMessagesList::new();
 
@@ -272,8 +272,7 @@ impl P2PNode {
             poll: Arc::new(RwLock::new(poll)),
             id,
             send_queue: Arc::new(RwLock::new(VecDeque::new())),
-            ip,
-            port: conf.common.listen_port,
+            addr: SocketAddr::new(ip, conf.common.listen_port),
             incoming_pkts: pkt_queue,
             start_time: Utc::now(),
             prometheus_exporter,
@@ -387,10 +386,7 @@ impl P2PNode {
         // Print nodes
         if self.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                info!(
-                    "Peer {}: {}/{}:{}/{}",
-                    i, peer.id, peer.ip, peer.port, peer.peer_type
-                );
+                info!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
             }
         }
     }
@@ -416,7 +412,7 @@ impl P2PNode {
                         Ok(nodes) => {
                             for (ip, port) in nodes {
                                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                self.connect(PeerType::Bootstrapper, ip, port, None)
+                                self.connect(PeerType::Bootstrapper, SocketAddr::new(ip, port), None)
                                     .map_err(|e| info!("{}", e))
                                     .ok();
                             }
@@ -514,28 +510,22 @@ impl P2PNode {
     pub fn connect(
         &mut self,
         peer_type: PeerType,
-        ip: IpAddr,
-        port: u16,
+        addr: SocketAddr,
         peer_id: Option<P2PNodeId>,
     ) -> Fallible<()> {
-        self.log_event(P2PEvent::InitiatingConnection(ip, port));
+        self.log_event(P2PEvent::InitiatingConnection(addr));
         let mut locked_server = safe_write!(self.tls_server)?;
         let mut locked_poll = safe_write!(self.poll)?;
         locked_server.connect(
             peer_type,
             &mut locked_poll,
-            ip,
-            port,
+            addr,
             peer_id,
             &self.get_self_peer(),
         )
     }
 
     pub fn id(&self) -> P2PNodeId { self.id }
-
-    pub fn get_listening_ip(&self) -> IpAddr { self.ip }
-
-    pub fn get_listening_port(&self) -> u16 { self.port }
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
 
@@ -961,8 +951,7 @@ impl P2PNode {
         P2PPeer::from(
             self.peer_type,
             self.id(),
-            self.get_listening_ip(),
-            self.get_listening_port(),
+            self.addr,
         )
     }
 

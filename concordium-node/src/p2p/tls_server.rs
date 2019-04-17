@@ -7,7 +7,7 @@ use mio::{
 use rustls::{ClientConfig, ClientSession, ServerConfig, ServerSession};
 use std::{
     collections::HashSet,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -112,22 +112,22 @@ impl TlsServer {
         safe_write!(self.dptr)?.add_network(network_id)
     }
 
-    /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
-    pub fn is_unreachable(&self, ip: IpAddr, port: u16) -> bool {
+    /// Returns true if `addr` is in the `unreachable_nodes` list.
+    pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
         self.dptr
             .read()
             .unwrap()
             .unreachable_nodes
-            .contains(ip, port)
+            .contains(addr)
     }
 
-    /// It adds the pair `ip`,`port` to its `unreachable_nodes` list.
-    pub fn add_unreachable(&mut self, ip: IpAddr, port: u16) -> bool {
+    /// Adds the `addr` to the `unreachable_nodes` list.
+    pub fn add_unreachable(&mut self, addr: SocketAddr) -> bool {
         self.dptr
             .write()
             .unwrap()
             .unreachable_nodes
-            .insert(ip, port)
+            .insert(addr)
     }
 
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
@@ -159,7 +159,7 @@ impl TlsServer {
             bail!(e);
         }
 
-        self.log_event(P2PEvent::ConnectEvent(addr.ip().to_string(), addr.port()));
+        self.log_event(P2PEvent::ConnectEvent(addr));
 
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
@@ -171,7 +171,7 @@ impl TlsServer {
             Some(tls_session),
             None,
             self_peer,
-            RemotePeer::PreHandshake(PeerType::Node, addr.ip(), addr.port()),
+            RemotePeer::PreHandshake(PeerType::Node, addr),
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
             networks,
@@ -190,18 +190,17 @@ impl TlsServer {
         &mut self,
         peer_type: PeerType,
         poll: &mut Poll,
-        ip: IpAddr,
-        port: u16,
+        addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
     ) -> Fallible<()> {
-        if peer_type == PeerType::Node && self.is_unreachable(ip, port) {
+        if peer_type == PeerType::Node && self.is_unreachable(addr) {
             error!("Node marked as unreachable, so not allowing the connection");
             bail!(fails::UnreachablePeerError);
         }
 
         // Avoid duplicate ip+port peers
-        if self_peer.ip() == ip && self_peer.port() == port {
+        if self_peer.addr == addr {
             bail!(fails::DuplicatePeerError);
         }
 
@@ -217,13 +216,13 @@ impl TlsServer {
 
         // Avoid duplicate ip+port connections
         if safe_read!(self.dptr)?
-            .find_connection_by_ip_addr(ip, port)
+            .find_connection_by_ip_addr(addr)
             .is_some()
         {
             bail!(fails::DuplicatePeerError);
         }
 
-        match TcpStream::connect(&SocketAddr::new(ip, port)) {
+        match TcpStream::connect(&addr) {
             Ok(socket) => {
                 if let Some(ref prom) = &self.prometheus_exporter {
                     safe_write!(prom)?
@@ -246,7 +245,7 @@ impl TlsServer {
                     None,
                     Some(tls_session),
                     self_peer.clone(),
-                    RemotePeer::PreHandshake(peer_type, ip, port),
+                    RemotePeer::PreHandshake(peer_type, addr),
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
                     Arc::clone(&networks),
@@ -258,11 +257,10 @@ impl TlsServer {
                 conn.register(poll)?;
 
                 self.dptr.write().unwrap().add_connection(conn);
-                self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
+                self.log_event(P2PEvent::ConnectEvent(addr));
                 debug!(
-                    "Requesting handshake from new peer {}:{}",
-                    ip.to_string(),
-                    port
+                    "Requesting handshake from new peer {}",
+                    addr,
                 );
                 let self_peer = self.get_self_peer();
 
@@ -282,7 +280,7 @@ impl TlsServer {
                 Ok(())
             }
             Err(e) => {
-                if peer_type == PeerType::Node && !self.add_unreachable(ip, port) {
+                if peer_type == PeerType::Node && !self.add_unreachable(addr) {
                     error!("Can't insert unreachable peer!");
                 }
                 into_err!(Err(e))

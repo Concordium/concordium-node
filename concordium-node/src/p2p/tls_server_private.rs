@@ -138,8 +138,7 @@ impl TlsServerPrivate {
                 {
                     ret.push(PeerStatistic::new(
                         remote_peer.id().to_string(),
-                        remote_peer.ip(),
-                        remote_peer.port(),
+                        remote_peer.addr,
                         remote_peer.peer_type(),
                         conn.get_messages_sent(),
                         conn.get_messages_received(),
@@ -173,13 +172,11 @@ impl TlsServerPrivate {
 
     pub fn find_connection_by_ip_addr(
         &self,
-        ip: IpAddr,
-        port: u16,
+        addr: SocketAddr,
     ) -> Option<&Rc<RefCell<Connection>>> {
-        self.connections.iter().find(|&conn| {
-            let borrowed = conn.borrow();
-            borrowed.remote_ip() == ip && borrowed.remote_port() == port
-        })
+        self.connections.iter().find(|conn|
+            conn.borrow().remote_addr() == addr
+        )
     }
 
     pub fn find_connections_by_ip(
@@ -187,8 +184,7 @@ impl TlsServerPrivate {
         ip: IpAddr,
     ) -> impl Iterator<Item = &Rc<RefCell<Connection>>> {
         self.connections.iter().filter(move |&conn| {
-            let borrowed = conn.borrow();
-            borrowed.remote_ip() == ip
+            conn.borrow().remote_addr().ip() == ip
         })
     }
 

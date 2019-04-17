@@ -34,7 +34,7 @@ use std::{
     collections::HashMap,
     fs::OpenOptions,
     io::{Read, Write},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
@@ -102,8 +102,10 @@ fn main() -> Fallible<()> {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
         srv.start_server(
-            &conf.prometheus.prometheus_listen_addr,
-            conf.prometheus.prometheus_listen_port,
+            SocketAddr::new(
+                conf.prometheus.prometheus_listen_addr.parse()?,
+                conf.prometheus.prometheus_listen_port
+            ),
         )
         .unwrap_or_else(|e| error!("{}", e));
 
@@ -144,16 +146,16 @@ fn main() -> Fallible<()> {
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
+                    P2PEvent::ConnectEvent(addr) => {
+                        info!("Received connection from {}", addr)
                     }
                     P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                     P2PEvent::ReceivedMessageEvent(node_id) => {
                         info!("Received message from {:?}", node_id)
                     }
                     P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
+                    P2PEvent::InitiatingConnection(addr) => {
+                        info!("Initiating connection to {}", addr)
                     }
                     P2PEvent::JoinedNetwork(peer, network_id) => {
                         info!("Peer {} joined network {}", peer.id(), network_id);
@@ -363,8 +365,7 @@ fn main() -> Fallible<()> {
                                         if _node_self_clone
                                             .connect(
                                                 PeerType::Node,
-                                                peer_node.ip(),
-                                                peer_node.port(),
+                                                peer_node.addr,
                                                 Some(peer_node.id()),
                                             )
                                             .map_err(|e| info!("{}", e))
@@ -585,9 +586,10 @@ fn start_baker(
 fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &mut P2PNode) {
     match bootstrap_nodes {
         Ok(nodes) => {
-            for (ip, port) in nodes {
-                info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                node.connect(PeerType::Bootstrapper, *ip, *port, None)
+            for &(ip, port) in nodes {
+                let addr = SocketAddr::new(ip, port);
+                info!("Found bootstrap node: {}", addr);
+                node.connect(PeerType::Bootstrapper, addr, None)
                     .unwrap_or_else(|e| error!("{}", e));
             }
         }
@@ -604,7 +606,7 @@ fn create_connections_from_config(
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(PeerType::Node, ip, port, None)
+                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
                     .unwrap_or_else(|e| error!("{}", e));
             }
             None => error!("Can't parse IP to connect to '{}'", &connect_to),

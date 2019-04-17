@@ -1,11 +1,10 @@
 use crate::common::PeerType;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 #[derive(Debug)]
 pub struct PeerStatistic {
     pub id:               String,
-    pub ip:               IpAddr,
-    pub port:             u16,
+    pub addr:             SocketAddr,
     pub peer_type:        PeerType,
     pub sent:             u64,
     pub received:         u64,
@@ -15,8 +14,7 @@ pub struct PeerStatistic {
 impl PeerStatistic {
     pub fn new(
         id: String,
-        ip: IpAddr,
-        port: u16,
+        addr: SocketAddr,
         peer_type: PeerType,
         sent: u64,
         received: u64,
@@ -24,8 +22,7 @@ impl PeerStatistic {
     ) -> PeerStatistic {
         PeerStatistic {
             id,
-            ip,
-            port,
+            addr,
             peer_type,
             sent,
             received,

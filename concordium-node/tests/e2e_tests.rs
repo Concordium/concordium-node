@@ -17,6 +17,7 @@ mod tests {
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
+        net::SocketAddr,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc, RwLock,
@@ -154,8 +155,7 @@ mod tests {
         ) -> Fallible<()> {
             source.connect(
                 PeerType::Node,
-                target.get_listening_ip(),
-                target.get_listening_port(),
+                target.addr,
                 None,
             )?;
 
@@ -375,26 +375,26 @@ mod tests {
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
+                    P2PEvent::ConnectEvent(addr) => {
+                        info!("Received connection from {}", addr)
                     }
                     P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                     P2PEvent::ReceivedMessageEvent(node_id) => {
                         info!("Received message from {:?}", node_id)
                     }
                     P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
+                    P2PEvent::InitiatingConnection(addr) => {
+                        info!("Initiating connection to {}", addr)
                     }
                     P2PEvent::JoinedNetwork(peer, network_id) => {
                         info!(
                             "Peer {} joined network {}",
-                            peer.id().to_string(),
+                            peer.id(),
                             network_id
                         );
                     }
                     P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                        info!("Peer {} left network {}", peer.id(), network_id);
                     }
                 }
             }
@@ -462,8 +462,7 @@ mod tests {
                 for i in 0..peer {
                     node.connect(
                         PeerType::Node,
-                        localhost,
-                        (instance_port - 1 - i) as u16,
+                        SocketAddr::new(localhost, (instance_port - 1 - i) as u16),
                         None,
                     )
                     .ok();
@@ -508,26 +507,26 @@ mod tests {
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
+                    P2PEvent::ConnectEvent(addr) => {
+                        info!("Received connection from {}", addr)
                     }
                     P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                     P2PEvent::ReceivedMessageEvent(node_id) => {
                         info!("Received message from {:?}", node_id)
                     }
                     P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
+                    P2PEvent::InitiatingConnection(addr) => {
+                        info!("Initiating connection to {}", addr)
                     }
                     P2PEvent::JoinedNetwork(peer, network_id) => {
                         info!(
                             "Peer {} joined network {}",
-                            peer.id().to_string(),
+                            peer.id(),
                             network_id
                         );
                     }
                     P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                        info!("Peer {} left network {}", peer.id(), network_id);
                     }
                 }
             }
@@ -597,8 +596,7 @@ mod tests {
                     for i in 0..peer {
                         node.connect(
                             PeerType::Node,
-                            localhost,
-                            (instance_port - 1 - (i)) as u16,
+                            SocketAddr::new(localhost, (instance_port - 1 - (i)) as u16),
                             None,
                         )
                         .ok();
@@ -618,8 +616,7 @@ mod tests {
                     central_peer
                         .connect(
                             PeerType::Node,
-                            localhost,
-                            (test_port_added + (island_size * i)) as u16,
+                            SocketAddr::new(localhost, (test_port_added + (island_size * i)) as u16),
                             None,
                         )
                         .map_err(|e| println!("{}", e))
@@ -729,7 +726,7 @@ mod tests {
 
                 debug!(
                     "Send message from {} in broadcast",
-                    src_node.borrow().get_listening_port()
+                    src_node.borrow().addr.port()
                 );
 
                 src_node
@@ -939,7 +936,7 @@ mod tests {
                 debug_level_str.push_str(
                     format!(
                         "{}, ",
-                        nodes_per_level[level][idx].borrow().get_listening_port()
+                        nodes_per_level[level][idx].borrow().addr.port()
                     )
                     .as_str(),
                 );
@@ -961,7 +958,7 @@ mod tests {
 
                 debug!(
                     "Send message from {} in broadcast",
-                    src_node.borrow().get_listening_port()
+                    src_node.borrow().addr.port()
                 );
 
                 src_node

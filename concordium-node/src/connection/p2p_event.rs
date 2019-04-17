@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 use crate::{
     common::{P2PNodeId, P2PPeer},
@@ -7,11 +7,11 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum P2PEvent {
-    ConnectEvent(String, u16),
+    ConnectEvent(SocketAddr),
     DisconnectEvent(String),
     ReceivedMessageEvent(P2PNodeId),
     SentMessageEvent(P2PNodeId),
-    InitiatingConnection(IpAddr, u16),
+    InitiatingConnection(SocketAddr),
     JoinedNetwork(P2PPeer, NetworkId),
     LeftNetwork(P2PPeer, NetworkId),
 }

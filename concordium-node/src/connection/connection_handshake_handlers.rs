@@ -19,16 +19,14 @@ pub fn handshake_response_handle(
             priv_conn_mut.add_remote_end_networks(nets);
             priv_conn_mut.promote_to_post_handshake(
                 remote_peer.id(),
-                remote_peer.ip(),
-                remote_peer.port(),
+                remote_peer.addr,
             )?;
         }
 
         let bucket_sender = P2PPeer::from(
             remote_peer.peer_type(),
             remote_peer.id(),
-            remote_peer.ip(),
-            remote_peer.port(),
+            remote_peer.addr,
         );
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             safe_write!(priv_conn.borrow().buckets)?
@@ -56,7 +54,7 @@ pub fn handshake_request_handle(
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.add_remote_end_networks(nets);
-            priv_conn_mut.promote_to_post_handshake(sender.id(), sender.ip(), sender.port())?;
+            priv_conn_mut.promote_to_post_handshake(sender.id(), sender.addr)?;
         }
         send_handshake_and_ping(priv_conn)?;
         {

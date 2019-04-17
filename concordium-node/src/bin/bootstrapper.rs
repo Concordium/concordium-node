@@ -27,6 +27,7 @@ use p2p_client::{
     safe_read, utils,
 };
 use std::{
+    net::SocketAddr,
     sync::{mpsc, Arc, RwLock},
     thread,
 };
@@ -77,8 +78,10 @@ fn main() -> Result<(), Error> {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
         srv.start_server(
-            &conf.prometheus.prometheus_listen_addr,
-            conf.prometheus.prometheus_listen_port,
+            SocketAddr::new(
+                conf.prometheus.prometheus_listen_addr.parse()?,
+                conf.prometheus.prometheus_listen_port
+            ),
         )
         .map_err(|e| error!("{}", e))
         .ok();
@@ -118,26 +121,26 @@ fn main() -> Result<(), Error> {
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
                 match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
+                    P2PEvent::ConnectEvent(addr) => {
+                        info!("Received connection from {}", addr)
                     }
                     P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
                     P2PEvent::ReceivedMessageEvent(node_id) => {
                         info!("Received message from {:?}", node_id)
                     }
                     P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
+                    P2PEvent::InitiatingConnection(addr) => {
+                        info!("Initiating connection to {}", addr)
                     }
                     P2PEvent::JoinedNetwork(peer, network_id) => {
                         info!(
                             "Peer {} joined network {}",
-                            peer.id().to_string(),
+                            peer.id(),
                             network_id
                         );
                     }
                     P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
+                        info!("Peer {} left network {}", peer.id(), network_id);
                     }
                 }
             }
