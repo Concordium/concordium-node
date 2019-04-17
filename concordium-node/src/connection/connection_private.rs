@@ -104,8 +104,8 @@ impl ConnectionPrivate {
         self.remote_end_networks.extend(networks.iter())
     }
 
-    pub fn remove_remote_end_network(&mut self, network: &NetworkId) {
-        self.remote_end_networks.remove(network);
+    pub fn remove_remote_end_network(&mut self, network: NetworkId) {
+        self.remote_end_networks.remove(&network);
     }
 
     pub fn set_measured_ping_sent(&mut self) { self.sent_ping = get_current_stamp() }

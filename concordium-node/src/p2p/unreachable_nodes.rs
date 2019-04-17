@@ -10,6 +10,10 @@ pub struct UnreachableNodes {
     nodes: Arc<RwLock<Vec<(u64, IpAddr, u16)>>>,
 }
 
+impl Default for UnreachableNodes {
+    fn default() -> Self { UnreachableNodes::new() }
+}
+
 impl UnreachableNodes {
     pub fn new() -> Self {
         UnreachableNodes {
@@ -21,11 +25,7 @@ impl UnreachableNodes {
         if let Ok(ref nodes) = safe_read!(self.nodes) {
             return nodes
                 .iter()
-                .find(|&&x| {
-                    let (_, mip, mport) = x;
-                    ip == mip && port == mport
-                })
-                .is_some();
+                .any(|(_, mip, mport)| ip == *mip && port == *mport);
         }
         true
     }

@@ -24,6 +24,7 @@ mod tests {
     };
     use failure::Fallible;
     use std::{
+        str::FromStr,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,

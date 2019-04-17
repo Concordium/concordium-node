@@ -412,18 +412,10 @@ impl AppPreferences {
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
                 if load_result.is_ok() {
                     let mut prefs = load_result.unwrap();
-                    if !prefs.contains_key(&APP_PREFERENCES_KEY_VERSION.to_string()) {
-                        prefs.insert(
-                            APP_PREFERENCES_KEY_VERSION.to_string(),
-                            super::VERSION.to_string(),
-                        );
-                        let mut writer = BufWriter::new(&file);
-                        if !prefs.save_to(&mut writer).is_ok() {
-                            panic!("Can't write to config file!");
-                        }
-                    } else if *prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string()).unwrap()
-                        != super::VERSION.to_string()
-                    {
+                    let entry = prefs
+                        .entry(APP_PREFERENCES_KEY_VERSION.to_string())
+                        .or_insert_with(|| super::VERSION.to_string());
+                    if entry != &super::VERSION.to_string() {
                         if let Some(ref vers_str) =
                             prefs.get(&APP_PREFERENCES_KEY_VERSION.to_string())
                         {
@@ -459,7 +451,7 @@ impl AppPreferences {
                         super::VERSION.to_string(),
                     );
                     let mut writer = BufWriter::new(&file);
-                    if !prefs.save_to(&mut writer).is_ok() {
+                    if prefs.save_to(&mut writer).is_err() {
                         panic!("Can't write to config file!");
                     }
                     writer.flush().ok();
@@ -478,7 +470,7 @@ impl AppPreferences {
                         super::VERSION.to_string(),
                     );
                     let mut writer = BufWriter::new(&file);
-                    if !prefs.save_to(&mut writer).is_ok() {
+                    if prefs.save_to(&mut writer).is_err() {
                         panic!("Can't write to config file!");
                     }
                     writer.flush().ok();
@@ -537,7 +529,7 @@ impl AppPreferences {
             match OpenOptions::new().read(true).write(true).open(&file_path) {
                 Ok(ref mut file) => {
                     let mut writer = BufWriter::new(file);
-                    if !store.save_to(&mut writer).is_ok() {
+                    if store.save_to(&mut writer).is_err() {
                         error!("Couldn't save config file changes");
                         return false;
                     }

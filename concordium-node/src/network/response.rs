@@ -2,7 +2,7 @@ use crate::{
     common::P2PPeer,
     network::{NetworkId, ProtocolMessageType},
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, string::ToString};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -22,10 +22,7 @@ impl NetworkResponse {
                 format!(
                     "{:03}{}",
                     peers.len(),
-                    peers
-                        .iter()
-                        .map(|peer| peer.serialize())
-                        .collect::<String>()
+                    peers.iter().map(P2PPeer::serialize).collect::<String>()
                 )
             ),
             NetworkResponse::PeerList(_, peers) => serialize_message!(
@@ -33,10 +30,7 @@ impl NetworkResponse {
                 format!(
                     "{:03}{}",
                     peers.len(),
-                    peers
-                        .iter()
-                        .map(|peer| peer.serialize())
-                        .collect::<String>()
+                    peers.iter().map(P2PPeer::serialize).collect::<String>()
                 )
             ),
             NetworkResponse::Handshake(me, networks, zk) => {
@@ -47,10 +41,7 @@ impl NetworkResponse {
                         me.id(),
                         me.port(),
                         networks.len(),
-                        networks
-                            .iter()
-                            .map(|net| net.to_string())
-                            .collect::<String>(),
+                        networks.iter().map(ToString::to_string).collect::<String>(),
                         zk.len()
                     )
                 );

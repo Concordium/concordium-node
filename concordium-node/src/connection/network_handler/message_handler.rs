@@ -22,6 +22,10 @@ pub struct MessageHandler {
     general_parser: AFunctor<NetworkMessage>,
 }
 
+impl Default for MessageHandler {
+    fn default() -> Self { MessageHandler::new() }
+}
+
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {

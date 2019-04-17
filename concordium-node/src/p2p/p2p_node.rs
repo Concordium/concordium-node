@@ -138,7 +138,7 @@ impl P2PNode {
                      characters long."
                 );
             } else {
-                P2PNodeId::from_str(s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
+                P2PNodeId::from_str(&s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
             }
         } else {
             P2PNodeId::default()
@@ -449,7 +449,7 @@ impl P2PNode {
                 let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
 
                 // Check termination channel.
-                if let Ok(_) = rx.try_recv() {
+                if rx.try_recv().is_ok() {
                     break;
                 }
 
@@ -488,7 +488,7 @@ impl P2PNode {
     /// It is safe to call this function several times, even from internal
     /// P2PNode thread.
     pub fn join(&mut self) -> Fallible<()> {
-        let id_opt = safe_read!(self.thread)?.id.clone();
+        let id_opt = safe_read!(self.thread)?.id;
         if let Some(id) = id_opt {
             let current_thread_id = std::thread::current().id();
             if id != current_thread_id {
@@ -629,7 +629,7 @@ impl P2PNode {
             match outer_pkt {
                 Some(ref x) => {
                     if let Some(ref prom) = &self.prometheus_exporter {
-                        let ref mut lock = safe_write!(prom)?;
+                        let mut lock = safe_write!(prom)?;
                         lock.queue_size_dec().unwrap_or_else(|e| error!("{}", e));
                     };
                     trace!("Got message to process!");
@@ -643,7 +643,7 @@ impl P2PNode {
                             match inner_pkt.packet_type {
                                 NetworkPacketType::DirectMessage(ref receiver) => {
                                     let filter =
-                                        |conn: &Connection| is_conn_peer_id(conn, receiver);
+                                        |conn: &Connection| is_conn_peer_id(conn, *receiver);
                                     safe_write!(self.tls_server)?.send_over_all_connections(
                                         &data,
                                         &filter,
@@ -733,7 +733,7 @@ impl P2PNode {
                     }
                 }
                 _ => {
-                    if resend_queue.len() > 0 {
+                    if !resend_queue.is_empty() {
                         if let Some(ref prom) = &self.prometheus_exporter {
                             match safe_write!(prom) {
                                 Ok(ref mut lock) => {
@@ -808,7 +808,7 @@ impl P2PNode {
         let packet = if broadcast {
             NetworkPacketBuilder::default()
                 .peer(self.get_self_peer())
-                .message_id(msg_id.unwrap_or(NetworkPacket::generate_message_id()))
+                .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
                 .build_broadcast()?
@@ -818,7 +818,7 @@ impl P2PNode {
 
             NetworkPacketBuilder::default()
                 .peer(self.get_self_peer())
-                .message_id(msg_id.unwrap_or(NetworkPacket::generate_message_id()))
+                .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
                 .build_direct(receiver)?
@@ -1050,9 +1050,9 @@ impl MessageManager for P2PNode {
     }
 }
 
-fn is_conn_peer_id(conn: &Connection, id: &P2PNodeId) -> bool {
+fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
     if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-        remote_peer.id() == *id
+        remote_peer.id() == id
     } else {
         false
     }

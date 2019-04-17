@@ -3,7 +3,7 @@ use crate::{
     network::{NetworkId, ProtocolMessageType},
     p2p::banned_nodes::BannedNode,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, string::ToString};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -42,10 +42,7 @@ impl NetworkRequest {
                 format!(
                     "{:05}{}",
                     networks.len(),
-                    networks
-                        .iter()
-                        .map(|net| net.to_string())
-                        .collect::<String>()
+                    networks.iter().map(ToString::to_string).collect::<String>()
                 )
             ),
             NetworkRequest::Handshake(me, networks, zk) => {
@@ -56,10 +53,7 @@ impl NetworkRequest {
                         me.id(),
                         me.port(),
                         networks.len(),
-                        networks
-                            .iter()
-                            .map(|net| net.to_string())
-                            .collect::<String>(),
+                        networks.iter().map(ToString::to_string).collect::<String>(),
                         zk.len()
                     )
                 );

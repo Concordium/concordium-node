@@ -144,7 +144,7 @@ pub fn generate_certificate(id: &str) -> Fallible<Cert> {
 }
 
 pub fn parse_ip_port(input: &str) -> Option<(IpAddr, u16)> {
-    if let Some(n) = input.rfind(":") {
+    if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
 
         if let Ok(ip) = IpAddr::from_str(&ip) {
@@ -214,7 +214,7 @@ pub fn parse_host_port(
     resolvers: &[String],
     dnssec_fail: bool,
 ) -> Option<(IpAddr, u16)> {
-    if let Some(n) = input.rfind(":") {
+    if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
         let port = &port[1..];
 
@@ -234,7 +234,7 @@ pub fn parse_host_port(
                         .flatten()
                         .collect::<Vec<_>>();
 
-                    if resolver_addresses.len() != 0 {
+                    if !resolver_addresses.is_empty() {
                         if let Ok(res) =
                             dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail)
                         {
@@ -290,7 +290,7 @@ pub fn get_bootstrap_nodes(
             .map(|x| parse_host_port(x, resolvers, dnssec_fail))
             .flatten()
             .collect();
-        return Ok(bootstrap_nodes);
+        Ok(bootstrap_nodes)
     } else {
         debug!("No bootstrap nodes given, so attempting DNS");
         let resolver_addresses = resolvers
@@ -504,9 +504,9 @@ pub fn read_peers_from_dns_entries(
                                                 Ok(signature_bytes) => {
                                                     if signature_bytes.len() == 64 {
                                                         let mut sig_bytes: [u8; 64] = [0; 64];
-                                                        for i in 0..64 {
-                                                            sig_bytes[i] = signature_bytes[i];
-                                                        }
+                                                        sig_bytes[..64].clone_from_slice(
+                                                            &signature_bytes[..64],
+                                                        );
                                                         let signature = Signature(sig_bytes);
                                                         let content_peers = ret
                                                             .iter()
@@ -571,7 +571,7 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     if let Some(ref _path) = path {
         info!("Trying path to find TPS test messages: {}", _path);
         if let Ok(files) = fs::read_dir(_path) {
-            for file in files.filter_map(|f| f.ok()).filter(|f| !f.path().is_dir()) {
+            for file in files.filter_map(Result::ok).filter(|f| !f.path().is_dir()) {
                 let data = fs::read(file.path()).expect("Unable to read file!");
                 ret.push(data);
             }
@@ -597,9 +597,7 @@ pub fn ban_node(
             _ => db.insert_ban_addr(&to_db.1.unwrap()),
         };
         if !no_trust_bans {
-            node.send_ban(to_ban.clone())
-                .map_err(|e| error!("{}", e))
-                .ok();
+            node.send_ban(to_ban).map_err(|e| error!("{}", e)).ok();
         }
     }
 }
@@ -620,9 +618,7 @@ pub fn unban_node(
             _ => db.delete_ban_addr(&to_db.1.unwrap()),
         };
         if !no_trust_bans {
-            node.send_unban(to_unban.clone())
-                .map_err(|e| error!("{}", e))
-                .ok();
+            node.send_unban(to_unban).map_err(|e| error!("{}", e)).ok();
         }
     }
 }

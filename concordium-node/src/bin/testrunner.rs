@@ -424,7 +424,7 @@ fn main() -> Fallible<()> {
 
     let mut node = P2PNode::new(node_id, &conf, pkt_in, node_sender, PeerType::Node, None);
 
-    let _node_th = node.spawn();
+    let _ = node.spawn();
 
     match db.get_banlist() {
         Some(nodes) => {
@@ -493,7 +493,7 @@ fn main() -> Fallible<()> {
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    match _node_self_clone.get_peer_stats(&vec![]) {
+                    match _node_self_clone.get_peer_stats(&[]) {
                         Ok(x) => {
                             for peer_node in peers {
                                 if _node_self_clone

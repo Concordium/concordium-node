@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct SeenMessagesList {
     seen_msgs: Arc<RwLock<Vec<String>>>,
 }
@@ -12,16 +12,16 @@ impl SeenMessagesList {
         }
     }
 
-    pub fn contains(&self, msgid: &String) -> bool {
+    pub fn contains(&self, msgid: &str) -> bool {
         if let Ok(ref mut list) = safe_read!(self.seen_msgs) {
-            return list.contains(msgid);
+            return list.contains(&msgid.to_owned());
         }
         false
     }
 
-    pub fn append(&self, msgid: &String) -> bool {
+    pub fn append(&self, msgid: &str) -> bool {
         if let Ok(ref mut list) = safe_write!(self.seen_msgs) {
-            if !list.contains(msgid) {
+            if !list.contains(&msgid.to_owned()) {
                 if list.len() >= 1000 {
                     list.remove(0);
                     list.push(msgid.to_owned());

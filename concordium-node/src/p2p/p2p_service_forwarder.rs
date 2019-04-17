@@ -12,6 +12,10 @@ pub struct P2PServiceForwarder {
     pub targets: Arc<Vec<Box<dyn P2P + Send + Sync>>>,
 }
 
+impl Default for P2PServiceForwarder {
+    fn default() -> Self { P2PServiceForwarder::new() }
+}
+
 impl P2PServiceForwarder {
     pub fn new() -> Self {
         P2PServiceForwarder {

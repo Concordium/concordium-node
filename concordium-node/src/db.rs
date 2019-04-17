@@ -1,31 +1,10 @@
-use crate::{
-    common::{self, P2PNodeId, PeerType},
-    p2p::banned_nodes::BannedNode,
-};
+use crate::{common::P2PNodeId, p2p::banned_nodes::BannedNode};
 use rusqlite::{types::ToSql, Connection};
 use std::{
     path::Path,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
-
-pub struct P2PPeer {
-    ip:   String,
-    port: u16,
-    id:   String,
-}
-
-impl P2PPeer {
-    pub fn new(id: String, ip: String, port: u16) -> Self { P2PPeer { id, ip, port } }
-
-    pub fn to_peer(self) -> common::P2PPeer {
-        common::P2PPeer::from(
-            PeerType::Node,
-            P2PNodeId::from_str(&self.id).unwrap(),
-            self.ip.parse().unwrap(),
-            self.port,
-        )
-    }
-}
 
 #[derive(Clone)]
 pub struct P2PDB {
@@ -62,7 +41,7 @@ impl P2PDB {
                     .and_then(|mut x| {
                         match x.query_map(&[] as &[&dyn ToSql], |row| {
                             let s1: String = row.get(0)?;
-                            Ok(BannedNode::ById(P2PNodeId::from_str(s1).unwrap()))
+                            Ok(BannedNode::ById(P2PNodeId::from_str(&s1).unwrap()))
                         }) {
                             Ok(rows) => {
                                 let mut list = vec![];

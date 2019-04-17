@@ -14,6 +14,10 @@ pub struct RequestHandler {
     pub leave_network_handler: AFunctor<NRequest>,
 }
 
+impl Default for RequestHandler {
+    fn default() -> Self { RequestHandler::new() }
+}
+
 impl RequestHandler {
     pub fn new() -> Self {
         RequestHandler {
@@ -69,7 +73,7 @@ impl RequestHandler {
     }
 
     pub fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
-        let spec_status = match msg {
+        match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
                 self.ping_handler.run_callbacks(ping_inner_pkt)
             }
@@ -94,9 +98,7 @@ impl RequestHandler {
             ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => self
                 .leave_network_handler
                 .run_callbacks(leave_network_inner_pkt),
-        };
-
-        spec_status
+        }
     }
 }
 
