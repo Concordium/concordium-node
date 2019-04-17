@@ -36,74 +36,68 @@ instance StaticEnvironmentMonad SchedulerImplementation where
   getChainMetadata = ask
 
   {-# INLINE getModuleInterfaces #-}
-  getModuleInterfaces addr = (Mod.getInterfaces addr . blockModules) <$> get
+  getModuleInterfaces addr = Mod.getInterfaces addr <$> use blockModules
 
 instance SchedulerMonad SchedulerImplementation where
 
   {-# INLINE getContractInstance #-}
-  getContractInstance addr = (Ins.getInstance addr . blockInstances) <$> get
+  getContractInstance addr = Ins.getInstance addr <$> use blockInstances
 
   {-# INLINE getAccount #-}
-  getAccount addr = (Acc.getAccount addr . blockAccounts) <$> get
+  getAccount addr = (Acc.getAccount addr . _blockAccounts) <$> get
 
   commitStateAndAccountChanges cs = do
     s <- get
     -- INVARIANT: the invariant which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    let Ins.Instances is = blockInstances s
+    let Ins.Instances is = s ^. blockInstances
     let instances' = Ins.Instances $ Map.foldlWithKey' (\acc addr (amnt, val) -> Map.adjust (\i -> i { iamount = amnt, imodel = val }) addr acc)
                                                        is
                                                        (cs ^. newContractStates)
-    let accounts' = Map.foldl' (flip Acc.putAccount) (blockAccounts s) (cs ^. newAccounts)
-    put (s { blockInstances = instances', blockAccounts = accounts'})
+    let accounts' = Map.foldl' (flip Acc.putAccount) (s ^. blockAccounts) (cs ^. newAccounts)
+    blockInstances .= instances'
+    blockAccounts .= accounts'
 
   {-# INLINE commitModule #-}
   commitModule mhash iface viface = do
-    s <- get
-    let mod' = Mod.putInterfaces mhash iface viface (blockModules s)
+    mods <- use blockModules
+    let mod' = Mod.putInterfaces mhash iface viface mods
     case mod' of
       Nothing -> return False
-      Just modules -> True <$ put (s { blockModules = modules })
+      Just modules -> True <$ (blockModules .= modules)
 
   {-# INLINE putNewInstance #-}
   putNewInstance istance = do
-    s <- get
-    case Ins.newInstance istance (blockInstances s) of
+    istances <- use blockInstances
+    case Ins.newInstance istance istances of
       Nothing -> return False
-      Just is -> True <$ put (s { blockInstances = is}) 
+      Just is -> True <$ (blockInstances .= is)
 
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce addr = do
-    s <- get
-    let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- NB: Relies on precondition.
-    put (s { blockAccounts = Acc.putAccount (acc & accountNonce +~ 1) (blockAccounts s) })
+    blockAccounts . ix addr . accountNonce += 1
+    -- s <- get
+    -- let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- NB: Relies on precondition.
+    -- put (s { blockAccounts = Acc.putAccount (acc & accountNonce +~ 1) (blockAccounts s) })
 
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do
-    s <- get
+    accs <- use blockAccounts
     let addr = acc ^. accountAddress
-    if addr `Acc.exists` blockAccounts s then return False
-    else True <$ put (s { blockAccounts = Acc.putAccount acc (blockAccounts s) })
+    if addr `Acc.exists` accs then return False
+    else True <$ (blockAccounts .= Acc.putAccount acc accs)
 
   {-# INLINE payForExecution #-}
   -- INVARIANT: should only be called when there are enough funds available, and thus it does not check the amounts.
-  payForExecution addr amnt = do
-    s <- get
-    let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
-    let (newAmount, acc') = acc & accountAmount <%~ (subtract (energyToGtu amnt))
-    let accs = Acc.putAccount acc' (blockAccounts s)
-    put (s { blockAccounts = accs })
-    return newAmount
+  payForExecution addr amnt = 
+    blockAccounts . singular (ix addr) . accountAmount <%= subtract (energyToGtu amnt)
+
 
   {-# INLINE refundEnergy #-}
   refundEnergy addr amnt = do
-    s <- get
-    let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- should be safe since accounts must exist before this is called (invariant)
-    let acc' = acc & accountAmount %~ (+ energyToGtu amnt)
-    let accs = Acc.putAccount acc' (blockAccounts s)
-    put (s { blockAccounts = accs })
+    blockAccounts . ix addr . accountAmount += (energyToGtu amnt)
+
 
   {-# INLINE firstFreeAddress #-}
-  firstFreeAddress =
-    Ins.firstFreeContract . blockInstances <$> get
+  firstFreeAddress = Ins.firstFreeContract <$> use blockInstances

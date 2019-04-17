@@ -47,10 +47,10 @@ thomasAccount = AH.accountAddress thomasACI
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState
-    { blockAccounts = Acc.putAccount (Types.Account alesAccount 1 100000 alesACI)
-                       (Acc.putAccount (Types.Account thomasAccount 1 100000 thomasACI) Acc.emptyAccounts)
-    , blockModules = (let (_, _, gs) = Init.baseState in Mod.Modules gs) }
+  emptyBlockState &
+    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 100000 alesACI)
+                      (Acc.putAccount (Types.Account thomasAccount 1 100000 thomasACI) Acc.emptyAccounts)) .
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.Modules gs))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -90,8 +90,8 @@ testSimpleTransfer = do
     
     return (suc,
             fails,
-            alesAccount `Acc.unsafeGetAccount` (blockAccounts gstate) ^. Types.accountAmount,
-            thomasAccount `Acc.unsafeGetAccount` (blockAccounts gstate) ^. Types.accountAmount)
+            gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
+            gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
 
 checkSimpleTransferResult :: ([(a, Types.ValidResult)], [b], Types.Amount, Types.Amount) -> Bool
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =

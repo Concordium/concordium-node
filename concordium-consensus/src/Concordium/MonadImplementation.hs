@@ -10,7 +10,6 @@ import Control.Monad.RWS
 import Lens.Micro.Platform
 import Data.Foldable
 import Data.Maybe
-import Data.List(intercalate)
 import Data.Time
 import Data.Time.Clock.POSIX
 
@@ -22,7 +21,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
 -}
 
-import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 
 import Concordium.Types
@@ -34,14 +32,11 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
-import Concordium.Types.Execution
 import Concordium.GlobalState.Account
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
--- import Concordium.Payload.Transaction
-import Concordium.Payload.Monad
--- import Concordium.Types
+
 import Concordium.Skov.Monad
 import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
@@ -513,7 +508,7 @@ doReceiveTransaction tr slot = do
         when added $ do
             ptrs <- getPendingTransactions
             focus <- getFocusBlock
-            let macct = getAccount (transactionSender tr) (blockAccounts (bpState focus))
+            let macct = getAccount (transactionSender tr) (bpState focus ^. blockAccounts)
                 nextNonce = maybe minNonce _accountNonce macct
             putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
 

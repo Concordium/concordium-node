@@ -10,9 +10,12 @@ import Concordium.Types
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Account
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.EnvironmentImplementation
+
+import Data.Maybe(fromMaybe)
+
+import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
 
@@ -66,7 +69,7 @@ constructBlock slotNumber blockParent lfPointer =
     -- Now we need to try to purge each invalid transaction from the pending table.
     -- Moreover all transactions successfully added will be removed from the pending table.
     -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
-    let nextNonceFor acct = maybe minNonce _accountNonce (getAccount acct (blockAccounts bs))
+    let nextNonceFor acct = fromMaybe minNonce (bs ^? blockAccounts . ix acct . accountNonce)
     newpt <- foldM (\cpt (tx, _) -> do b <- purgeTransaction tx
                                        return $! if b then cpt  -- if the transaction was purged don't put it back into the pending table
                                                  else (extendPendingTransactionTable (nextNonceFor $ transactionSender tx) tx cpt))  -- but otherwise do

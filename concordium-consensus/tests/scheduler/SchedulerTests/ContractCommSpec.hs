@@ -24,6 +24,8 @@ import Concordium.GlobalState.Modules as Mod
 
 import qualified Data.Text.IO as TIO
 
+import Lens.Micro.Platform
+
 import Control.Monad.IO.Class
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
@@ -40,9 +42,9 @@ alesKP = fst (S.randomKeyPair (mkStdGen 1))
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState
-    { blockAccounts = Acc.putAccount (Types.Account alesAccount 1 1000000 alesACI) Acc.emptyAccounts
-    , blockModules = (let (_, _, gs) = Init.baseState in Mod.Modules gs) }
+  emptyBlockState &
+    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 1000000 alesACI) Acc.emptyAccounts) .
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.Modules gs))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
