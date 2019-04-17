@@ -66,7 +66,7 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions
     logEvent Baker LLInfo $ "Baked block"
     pbReceiveTime <- currentTime
-    newbp <- blockArrive (PendingBlock { pbHash = getHash block
+    newbp <- storeBakedBlock (PendingBlock { pbHash = getHash block
                                        , pbBlock = block
                                        ,..})
                          bb

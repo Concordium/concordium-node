@@ -429,11 +429,6 @@ blockArrive block parentP lfBlockP gs = do
                 error errMsg
         return blockP
 
-
-
--- TODO: Block execution
--- TODO: Handling transactions wrt. tree state
-
 doResolveBlock :: (TreeStateMonad m) => BlockHash -> m (Maybe BlockPointer)
 {-# INLINE doResolveBlock #-}
 doResolveBlock cbp = getBlockStatus cbp <&> \case
@@ -455,6 +450,17 @@ doStoreBlock sl block0 = do
         forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
         addBlock sl pb
     return cbp
+
+doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m) => SkovListeners m 
+        -> PendingBlock     -- ^Block to add
+        -> BlockPointer     -- ^Parent pointer
+        -> BlockPointer     -- ^Last finalized pointer
+        -> BlockState       -- ^State
+        -> m BlockPointer
+doStoreBakedBlock SkovListeners{..} pb parent lastFin st = do
+        bp <- blockArrive pb parent lastFin st
+        onBlock bp
+        return bp
 
 doFinalizeBlock :: (TreeStateMonad m, SkovMonad m) => SkovListeners m -> FinalizationRecord -> m ()
 {-# INLINE doFinalizeBlock #-}
@@ -528,6 +534,7 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s) => SkovMonad (SimpleSkovMona
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
+    storeBakedBlock = doStoreBakedBlock noopSkovListeners
     receiveTransaction tr = doReceiveTransaction (makeHashed tr) 0
     finalizeBlock = doFinalizeBlock noopSkovListeners
     isFinalized = doIsFinalized
@@ -559,6 +566,7 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) =
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
+    storeBakedBlock = doStoreBakedBlock sfsSkovListeners
     receiveTransaction tr = doReceiveTransaction (makeHashed tr) 0
     finalizeBlock = doFinalizeBlock sfsSkovListeners
     isFinalized = doIsFinalized
