@@ -663,7 +663,7 @@ impl Connection {
                         Err(failure::Error::from_boxed_compat(Box::new(e)))
                     }
                     _ => {
-                        self.closed = true;
+                        self.closing = true;
                         Err(failure::Error::from_boxed_compat(Box::new(e)))
                     }
                 },
