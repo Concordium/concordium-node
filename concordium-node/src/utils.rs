@@ -1,5 +1,5 @@
 use crate::{
-    common::P2PPeer,
+    common::{serialize_addr, P2PPeer},
     crypto,
     db::P2PDB,
     p2p::{banned_nodes::BannedNode, P2PNode},
@@ -22,10 +22,9 @@ use openssl::{
 };
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
-#[cfg(not(target_os = "windows"))]
 use std::fs::File;
 #[cfg(not(target_os = "windows"))]
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::{
     fs,
     io::Cursor,
@@ -143,13 +142,13 @@ pub fn generate_certificate(id: &str) -> Fallible<Cert> {
     })
 }
 
-pub fn parse_ip_port(input: &str) -> Option<(IpAddr, u16)> {
+pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
 
         if let Ok(ip) = IpAddr::from_str(&ip) {
             if let Ok(port) = port[1..].parse::<u16>() {
-                return Some((ip, port));
+                return Some(SocketAddr::new(ip, port));
             }
         }
     }
@@ -313,41 +312,7 @@ pub fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static st
 
     for peer in peers {
         match parse_ip_port(peer) {
-            Some((ref ip, ref port)) => match ip {
-                IpAddr::V4(ip4) => {
-                    buffer.push_str(&format!(
-                        "IP4{:03}{:03}{:03}{:03}{:05}",
-                        ip4.octets()[0],
-                        ip4.octets()[1],
-                        ip4.octets()[2],
-                        ip4.octets()[3],
-                        port
-                    ));
-                }
-                IpAddr::V6(ip6) => {
-                    buffer.push_str(&format!(
-                        "IP6{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:\
-                         02x}{:02x}{:02x}{:02x}{:02x}{:05}",
-                        ip6.octets()[0],
-                        ip6.octets()[1],
-                        ip6.octets()[2],
-                        ip6.octets()[3],
-                        ip6.octets()[4],
-                        ip6.octets()[5],
-                        ip6.octets()[6],
-                        ip6.octets()[7],
-                        ip6.octets()[8],
-                        ip6.octets()[9],
-                        ip6.octets()[10],
-                        ip6.octets()[11],
-                        ip6.octets()[12],
-                        ip6.octets()[13],
-                        ip6.octets()[14],
-                        ip6.octets()[15],
-                        port
-                    ));
-                }
-            },
+            Some(addr) => buffer.push_str(&serialize_addr(addr)),
             _ => return Err("Invalid IP:port"),
         }
     }
