@@ -321,7 +321,7 @@ impl TlsServer {
     ///   of the operation.
     pub fn send_over_all_connections(
         &self,
-        data: &Vec<u8>,
+        data: &[u8],
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<usize>),
     ) {

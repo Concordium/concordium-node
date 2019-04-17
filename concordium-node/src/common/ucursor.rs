@@ -133,6 +133,9 @@ impl UCursor {
         }
     }
 
+    #[inline]
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+
     pub fn read_into_view(&mut self, size: usize) -> Result<ContainerView> {
         match self {
             UCursor::Memory(ref mut cursor) => {
@@ -154,7 +157,7 @@ impl UCursor {
                 let view = ContainerView::from(view_content);
                 debug_assert_eq!(view.len(), size);
 
-                uc_file.pos = uc_file.pos + size as u64;
+                uc_file.pos += size as u64;
                 Ok(view)
             }
         }
@@ -184,7 +187,7 @@ impl UCursor {
         }
     }
 
-    pub fn to_file(&mut self) -> Result<()> {
+    pub fn swap_to_file(&mut self) -> Result<()> {
         if let UCursor::Memory(ref mut cursor) = self {
             cursor.set_position(0);
         }
@@ -199,7 +202,7 @@ impl UCursor {
         Ok(())
     }
 
-    pub fn to_memory(&mut self) -> Result<()> {
+    pub fn swap_to_memory(&mut self) -> Result<()> {
         let mut data_opt = None;
 
         if let UCursor::File(ref mut uc_file) = self {
@@ -508,7 +511,7 @@ mod unit_test {
         let view = ContainerView::from(content);
 
         let mut cur = UCursor::build_from_view(view);
-        cur.to_file().map_err(|e| failure::Error::from(e))?;
+        cur.swap_to_file().map_err(|e| failure::Error::from(e))?;
         Ok(())
     }
 

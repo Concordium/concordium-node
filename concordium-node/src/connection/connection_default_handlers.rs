@@ -39,7 +39,7 @@ pub fn default_network_request_ping_handle(
         // Make `Pong` response and send
         let remote_peer = priv_conn_borrow
             .remote_peer()
-            .is_post_handshake_or_else(|| {
+            .post_handshake_peer_or_else(|| {
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 
@@ -65,7 +65,7 @@ pub fn default_network_request_find_node_handle(
             let priv_conn_borrow = priv_conn.borrow();
             let remote_peer = priv_conn_borrow
                 .remote_peer()
-                .is_post_handshake_or_else(|| {
+                .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
             let nodes = safe_read!(priv_conn_borrow.buckets)?
@@ -111,7 +111,7 @@ pub fn default_network_request_get_peers(
 
             let remote_peer = priv_conn_borrow
                 .remote_peer()
-                .is_post_handshake_or_else(|| {
+                .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
             NetworkResponse::PeerList(remote_peer, nodes).serialize()
@@ -200,7 +200,7 @@ pub fn default_network_request_join_network(
         let priv_conn_borrow = priv_conn.borrow();
         let remote_peer = priv_conn_borrow
             .remote_peer()
-            .is_post_handshake_or_else(|| {
+            .post_handshake_peer_or_else(|| {
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 
@@ -220,11 +220,11 @@ pub fn default_network_request_leave_network(
     req: &NetworkRequest,
 ) -> FunctorResult {
     if let NetworkRequest::LeaveNetwork(sender, network) = req {
-        priv_conn.borrow_mut().remove_remote_end_network(network);
+        priv_conn.borrow_mut().remove_remote_end_network(*network);
         let priv_conn_borrow = priv_conn.borrow();
         let remote_peer = priv_conn_borrow
             .remote_peer()
-            .is_post_handshake_or_else(|| {
+            .post_handshake_peer_or_else(|| {
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 

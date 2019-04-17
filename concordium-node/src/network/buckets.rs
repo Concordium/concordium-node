@@ -12,10 +12,14 @@ use crate::{
 
 const BUCKET_COUNT: usize = 1;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Eq, Clone)]
 pub struct Node {
     pub peer:     P2PPeer,
     pub networks: HashSet<NetworkId>,
+}
+
+impl PartialEq for Node {
+    fn eq(&self, other: &Node) -> bool { self.peer == other.peer }
 }
 
 impl Hash for Node {
@@ -29,6 +33,10 @@ pub struct Buckets {
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
+}
+
+impl Default for Buckets {
+    fn default() -> Self { Buckets::new() }
 }
 
 impl Buckets {
@@ -87,10 +95,12 @@ impl Buckets {
     pub fn len(&self) -> usize {
         self.buckets
             .iter()
-            .flat_map(|bucket| bucket.iter())
+            .flat_map(HashSet::iter)
             .map(|node| node.networks.len())
             .sum()
     }
+
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     pub fn get_random_nodes(
         &self,

@@ -47,10 +47,10 @@ pub fn forward_network_request(
 
 /// It forwards network packet message into `packet_queue` if message id has not
 /// been already seen and its `network id` belong to `own_networks`.
-pub fn forward_network_packet_message(
+pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &Arc<RwLock<HashSet<NetworkId>>>,
+    own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
@@ -87,10 +87,10 @@ fn make_fn_error_prometheus() -> FunctorError { make_fn_err("Prometheus has fail
 
 /// # TODO
 /// Avoid to create a new packet instead of reusing it.
-fn forward_network_packet_message_common(
+fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &Arc<RwLock<HashSet<NetworkId>>>,
+    own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
@@ -121,13 +121,11 @@ fn forward_network_packet_message_common(
                     e.to_string()
                 );
             }
-        } else {
-            if let Some(ref prom) = prometheus_exporter {
-                safe_write!(prom)?
-                    .invalid_network_pkts_received_inc()
-                    .map_err(|e| error!("{}", e))
-                    .ok();
-            }
+        } else if let Some(ref prom) = prometheus_exporter {
+            safe_write!(prom)?
+                .invalid_network_pkts_received_inc()
+                .map_err(|e| error!("{}", e))
+                .ok();
         }
     } else {
         info!(

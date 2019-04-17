@@ -35,7 +35,7 @@ use std::{
     fs::OpenOptions,
     io::{Read, Write},
     net::IpAddr,
-    str,
+    str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
 };
@@ -516,7 +516,7 @@ fn main() -> Fallible<()> {
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
                 if let Ok(node_list) = _node_ref.get_peer_stats(&[_network_id]) {
-                    if node_list.len() > 0 {
+                    if !node_list.is_empty() {
                         let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                         for message in test_messages {
                             let mut out_bytes = vec![];
@@ -571,7 +571,7 @@ fn start_baker(
         match get_baker_data(app_prefs, conf) {
             Ok((genesis, private_data)) => {
                 let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
-                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
+                consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
                 Some(consensus_runner)
             }
             Err(_) => {

@@ -3,7 +3,11 @@ use crate::{
     network::PROTOCOL_NODE_ID_LENGTH,
 };
 use failure::{bail, Fallible};
-use std::{collections::HashSet, net::IpAddr, str};
+use std::{
+    collections::HashSet,
+    net::IpAddr,
+    str::{self, FromStr},
+};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 /// Represents a structure used to manage a ban
@@ -62,6 +66,10 @@ pub struct BannedNodes {
     pub by_addr: HashSet<IpAddr>,
 }
 
+impl Default for BannedNodes {
+    fn default() -> Self { BannedNodes::new() }
+}
+
 impl BannedNodes {
     pub fn new() -> BannedNodes {
         BannedNodes {
@@ -101,7 +109,7 @@ impl BannedNodes {
 pub mod tests {
     use super::BannedNode;
     use crate::common::P2PNodeId;
-    use std::net::IpAddr;
+    use std::{net::IpAddr, str::FromStr};
 
     pub fn dummy_ban_node(addr: Option<IpAddr>) -> BannedNode {
         if let Some(addr) = addr {

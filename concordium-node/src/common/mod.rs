@@ -69,7 +69,7 @@ impl RemotePeer {
         }
     }
 
-    pub fn is_post_handshake_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<P2PPeer, E> {
+    pub fn post_handshake_peer_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<P2PPeer, E> {
         match self {
             RemotePeer::PostHandshake(v) => Ok(v),
             _ => Err(err()),
@@ -100,7 +100,7 @@ impl RemotePeer {
 
 impl P2PPeerBuilder {
     pub fn build(&mut self) -> Fallible<P2PPeer> {
-        let id = self.id.unwrap_or_else(|| P2PNodeId::default());
+        let id = self.id.unwrap_or_else(P2PNodeId::default);
         self.id(id);
 
         if self.peer_type.is_some() && self.id.is_some() && self.ip.is_some() && self.port.is_some()
@@ -327,9 +327,11 @@ impl fmt::Display for P2PNodeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:016x}", self.0) }
 }
 
-impl P2PNodeId {
-    pub fn from_str<T: AsRef<str>>(s: T) -> Fallible<Self> {
-        match u64::from_str_radix(s.as_ref(), 16) {
+impl FromStr for P2PNodeId {
+    type Err = failure::Error;
+
+    fn from_str(s: &str) -> Fallible<Self> {
+        match u64::from_str_radix(s, 16) {
             Ok(n) => Ok(P2PNodeId(n)),
             Err(e) => bail!("Invalid Node Id ({})", e),
         }

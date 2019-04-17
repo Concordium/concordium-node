@@ -534,10 +534,10 @@ impl Connection {
                 None
             };
             if let Some(ref bufdata) = buff {
-                if let Err(_) = self.validate_packet_type(bufdata) {
+                if self.validate_packet_type(bufdata).is_err() {
                     info!("Received network packet message, not wanted - disconnecting peer");
-                    &self.clear_buffer();
-                    &self.close();
+                    self.clear_buffer();
+                    self.close();
                 } else {
                     self.set_valid();
                     self.set_validated();

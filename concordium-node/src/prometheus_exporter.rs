@@ -154,7 +154,7 @@ impl PrometheusServer {
     }
 
     pub fn conn_received_inc(&mut self) -> Fallible<()> {
-        &self.connections_received.inc();
+        self.connections_received.inc();
         Ok(())
     }
 
@@ -218,7 +218,7 @@ impl PrometheusServer {
         Ok(resp)
     }
 
-    pub fn start_server(&mut self, listen_ip: &String, port: u16) -> Fallible<()> {
+    pub fn start_server(&mut self, listen_ip: &str, port: u16) -> Fallible<()> {
         let mut router = Router::new();
         let _self_clone = Arc::new(self.clone());
         let _self_clone_2 = Arc::clone(&_self_clone);

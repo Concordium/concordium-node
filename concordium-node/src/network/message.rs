@@ -10,7 +10,7 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str::FromStr};
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
@@ -462,14 +462,14 @@ impl NetworkMessage {
         let message_type_id = ProtocolMessageType::try_from(message_type_id_str)?;
         match message_type_id {
             ProtocolMessageType::RequestPing => Ok(NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(peer.is_post_handshake_or_else(|| {
+                NetworkRequest::Ping(peer.post_handshake_peer_or_else(|| {
                     err_msg("Ping message requires handshake to be completed first")
                 })?),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::ResponsePong => Ok(NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong(peer.is_post_handshake_or_else(|| {
+                NetworkResponse::Pong(peer.post_handshake_peer_or_else(|| {
                     err_msg("Pong message requires handshake to be completed first")
                 })?),
                 Some(timestamp),
@@ -479,7 +479,7 @@ impl NetworkMessage {
                 deserialize_response_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestGetPeers => deserialize_request_get_peers(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("GetPeers Request requires handshake to be completed first")
                 })?,
                 timestamp,
@@ -489,7 +489,7 @@ impl NetworkMessage {
                 deserialize_request_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("FindNode Request requires a handshake to be completed first")
                 })?,
                 timestamp,
@@ -497,7 +497,7 @@ impl NetworkMessage {
             ),
             ProtocolMessageType::RequestBanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::BanNode(
-                    peer.is_post_handshake_or_else(|| {
+                    peer.post_handshake_peer_or_else(|| {
                         err_msg("BanNode Request requires a handshake to be completed first")
                     })?,
                     BannedNode::deserialize(&mut pkt)?,
@@ -507,7 +507,7 @@ impl NetworkMessage {
             )),
             ProtocolMessageType::RequestUnbanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
-                    peer.is_post_handshake_or_else(|| {
+                    peer.post_handshake_peer_or_else(|| {
                         err_msg("UnbanNode Request requires a handshake to be completed first")
                     })?,
                     BannedNode::deserialize(&mut pkt)?,
@@ -516,42 +516,42 @@ impl NetworkMessage {
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::RequestJoinNetwork => deserialize_request_join_network(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("Join Network Request requires a handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::RequestLeaveNetwork => deserialize_request_leave_network(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("Leave Network Request requires a handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::ResponseFindNode => deserialize_response_find_node(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("Find Node Response requires a handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::ResponsePeersList => deserialize_response_peer_list(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("Peer List Response requires a handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::DirectMessage => deserialize_direct_message(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("Direct Message requires a handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::BroadcastedMessage => deserialize_broadcast_message(
-                peer.is_post_handshake_or_else(|| {
+                peer.post_handshake_peer_or_else(|| {
                     err_msg("Broadcast Message requires a handshake to be completed first")
                 })?,
                 timestamp,

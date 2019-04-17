@@ -10,6 +10,10 @@ pub struct ResponseHandler {
     pub handshake_handler: AFunctor<NetworkResponse>,
 }
 
+impl Default for ResponseHandler {
+    fn default() -> Self { ResponseHandler::new() }
+}
+
 impl ResponseHandler {
     pub fn new() -> Self {
         ResponseHandler {

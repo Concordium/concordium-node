@@ -77,7 +77,7 @@ impl NetworkPacketBuilder {
 }
 
 impl NetworkPacket {
-    fn direct_header_as_vec(&self, receiver: &P2PNodeId) -> Vec<u8> {
+    fn direct_header_as_vec(&self, receiver: P2PNodeId) -> Vec<u8> {
         serialize_message!(
             ProtocolMessageType::DirectMessage,
             format!(
@@ -104,7 +104,7 @@ impl NetworkPacket {
 
     fn header_as_vec(&self) -> Vec<u8> {
         match self.packet_type {
-            NetworkPacketType::DirectMessage(ref receiver) => self.direct_header_as_vec(receiver),
+            NetworkPacketType::DirectMessage(receiver) => self.direct_header_as_vec(receiver),
             NetworkPacketType::BroadcastedMessage => self.broadcast_header_as_vec(),
         }
     }

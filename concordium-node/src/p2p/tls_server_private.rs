@@ -25,8 +25,8 @@ use super::fails;
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
-const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300000;
-const MAX_NORMAL_KEEP_ALIVE: u64 = 1200000;
+const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
+const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 
 /// This class allows to share some information between `TlsServer` and its
 /// handler. This concept is similar to `d-Pointer` of C++ but it is used just
@@ -64,9 +64,9 @@ impl TlsServerPrivate {
         if self.banned_peers.borrow_mut().insert(peer) {
             match peer {
                 BannedNode::ById(id) => {
-                    self.find_connection_by_id(id).map(|c| {
+                    if let Some(c) = self.find_connection_by_id(id) {
                         c.borrow_mut().close();
-                    });
+                    }
                 }
                 BannedNode::ByAddr(addr) => {
                     self.find_connections_by_ip(addr).for_each(|c| {
@@ -127,10 +127,10 @@ impl TlsServerPrivate {
     /// to any of networks in `nids`.
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
         let mut ret = vec![];
-        for ref rc_conn in &self.connections {
+        for rc_conn in &self.connections {
             let conn = rc_conn.borrow();
             if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-                if nids.len() == 0
+                if nids.is_empty()
                     || conn
                         .remote_end_networks()
                         .iter()
@@ -278,8 +278,8 @@ impl TlsServerPrivate {
             .iter()
             .filter(|ref rc_conn| {
                 let conn = rc_conn.borrow();
-                conn.last_seen() + 120000 < curr_stamp
-                    || conn.get_last_ping_sent() + 300000 < curr_stamp
+                conn.last_seen() + 120_000 < curr_stamp
+                    || conn.get_last_ping_sent() + 300_000 < curr_stamp
             })
             .for_each(|ref rc_conn| {
                 let mut conn = rc_conn.borrow_mut();
