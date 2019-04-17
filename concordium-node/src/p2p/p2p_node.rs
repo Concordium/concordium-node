@@ -1,4 +1,4 @@
-use crate::{prometheus_exporter::PrometheusServer, utils};
+use crate::{p2p::banned_nodes::BannedNode, prometheus_exporter::PrometheusServer, utils};
 use chrono::prelude::*;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -8,22 +8,25 @@ use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
 use std::{
-    cell::Cell,
     collections::{HashSet, VecDeque},
-    net::IpAddr::{self, V4, V6},
-    rc::Rc,
+    net::{
+        IpAddr::{self, V4, V6},
+        SocketAddr,
+    },
     str::FromStr,
     sync::{
         atomic::Ordering,
         mpsc::{channel, Sender},
         Arc, RwLock,
     },
-    thread,
+    thread::{JoinHandle, ThreadId},
     time::{Duration, SystemTime},
 };
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, UCursor},
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+    },
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
@@ -36,6 +39,7 @@ use crate::{
 };
 
 use crate::p2p::{
+    fails,
     no_certificate_verification::NoCertificateVerification,
     p2p_node_handlers::{
         forward_network_packet_message, forward_network_request, forward_network_response,
@@ -59,23 +63,26 @@ pub struct P2PNodeConfig {
     blind_trusted_broadcast: bool,
 }
 
+#[derive(Default)]
+pub struct P2PNodeThread {
+    pub join_handle: Option<JoinHandle<Fallible<()>>>,
+    pub id:          Option<ThreadId>,
+}
+
 #[derive(Clone)]
 pub struct P2PNode {
     tls_server:          Arc<RwLock<TlsServer>>,
     poll:                Arc<RwLock<Poll>>,
     id:                  P2PNodeId,
     send_queue:          Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
-    ip:                  IpAddr,
-    port:                u16,
+    pub internal_addr:   SocketAddr,
     incoming_pkts:       Sender<Arc<NetworkMessage>>,
-    event_log:           Option<Sender<P2PEvent>>,
     start_time:          DateTime<Utc>,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     peer_type:           PeerType,
-    external_ip:         IpAddr,
-    external_port:       u16,
+    external_addr:       SocketAddr,
     seen_messages:       SeenMessagesList,
-    process_th:          Option<Rc<Cell<thread::JoinHandle<()>>>>,
+    thread:              Arc<RwLock<P2PNodeThread>>,
     quit_tx:             Option<Sender<bool>>,
     pub max_nodes:       Option<u16>,
     pub print_peers:     bool,
@@ -131,7 +138,7 @@ impl P2PNode {
                      characters long."
                 );
             } else {
-                P2PNodeId::from_str(s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
+                P2PNodeId::from_str(&s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
             }
         } else {
             P2PNodeId::default()
@@ -226,7 +233,7 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(PeerType::Node, id, own_peer_ip, own_peer_port);
+        let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(own_peer_ip, own_peer_port));
 
         let seen_messages = SeenMessagesList::new();
 
@@ -241,7 +248,7 @@ impl P2PNode {
             server,
             Arc::new(server_conf),
             Arc::new(client_conf),
-            event_log.clone(),
+            event_log,
             self_peer,
             prometheus_exporter.clone(),
             networks,
@@ -266,17 +273,14 @@ impl P2PNode {
             poll: Arc::new(RwLock::new(poll)),
             id,
             send_queue: Arc::new(RwLock::new(VecDeque::new())),
-            ip,
-            port: conf.common.listen_port,
+            internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             incoming_pkts: pkt_queue,
-            event_log,
             start_time: Utc::now(),
             prometheus_exporter,
-            external_ip: own_peer_ip,
-            external_port: own_peer_port,
+            external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             peer_type,
             seen_messages,
-            process_th: None,
+            thread: Arc::new(RwLock::new(P2PNodeThread::default())),
             quit_tx: None,
             max_nodes: None,
             print_peers: true,
@@ -382,15 +386,19 @@ impl P2PNode {
         // Print nodes
         if self.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                info!("Peer {}: {}/{}:{}", i, peer.id(), peer.ip(), peer.port());
+                info!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
             }
         }
     }
 
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
-        if !self.config.no_net
-            && self.config.desired_nodes_count > peer_stat_list.len() as u8
-            && self.peer_type != PeerType::Bootstrapper
+        if self.peer_type != PeerType::Bootstrapper
+            && !self.config.no_net
+            && self.config.desired_nodes_count
+                > peer_stat_list
+                    .iter()
+                    .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
+                    .count() as u8
         {
             if peer_stat_list.is_empty() {
                 if !self.config.no_bootstrap_dns {
@@ -404,9 +412,13 @@ impl P2PNode {
                         Ok(nodes) => {
                             for (ip, port) in nodes {
                                 info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                self.connect(PeerType::Bootstrapper, ip, port, None)
-                                    .map_err(|e| info!("{}", e))
-                                    .ok();
+                                self.connect(
+                                    PeerType::Bootstrapper,
+                                    SocketAddr::new(ip, port),
+                                    None,
+                                )
+                                .map_err(|e| info!("{}", e))
+                                .ok();
                             }
                         }
                         _ => error!("Can't find any bootstrap nodes - check DNS!"),
@@ -429,18 +441,20 @@ impl P2PNode {
         }
     }
 
-    pub fn spawn(&mut self) {
+    pub fn spawn(&mut self) -> Fallible<()> {
         let mut self_clone = self.clone();
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
-        self.process_th = Some(Rc::new(Cell::new(thread::spawn(move || {
+
+        let join_handle = std::thread::spawn(move || -> Fallible<()> {
             let mut events = Events::with_capacity(1024);
             let mut log_time = SystemTime::now();
+
             loop {
                 let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
 
                 // Check termination channel.
-                if let Ok(_) = rx.try_recv() {
+                if rx.try_recv().is_ok() {
                     break;
                 }
 
@@ -459,7 +473,40 @@ impl P2PNode {
                     }
                 }
             }
-        }))));
+
+            Ok(())
+        });
+
+        // Register info about thread into P2PNode.
+        {
+            let mut locked_thread = safe_write!(self.thread)?;
+            locked_thread.id = Some(join_handle.thread().id());
+            locked_thread.join_handle = Some(join_handle);
+        }
+
+        Ok(())
+    }
+
+    /// Waits for P2PNode termination. Use `P2PNode::close` to notify the
+    /// termination.
+    ///
+    /// It is safe to call this function several times, even from internal
+    /// P2PNode thread.
+    pub fn join(&mut self) -> Fallible<()> {
+        let id_opt = safe_read!(self.thread)?.id;
+        if let Some(id) = id_opt {
+            let current_thread_id = std::thread::current().id();
+            if id != current_thread_id {
+                let join_handle_opt = safe_write!(self.thread)?.join_handle.take();
+                if let Some(join_handle) = join_handle_opt {
+                    return join_handle.join().map_err(|_| fails::JoinError)?;
+                }
+            } else {
+                bail!(fails::JoinError);
+            }
+        }
+
+        Ok(())
     }
 
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
@@ -467,18 +514,16 @@ impl P2PNode {
     pub fn connect(
         &mut self,
         peer_type: PeerType,
-        ip: IpAddr,
-        port: u16,
+        addr: SocketAddr,
         peer_id: Option<P2PNodeId>,
     ) -> Fallible<()> {
-        self.log_event(P2PEvent::InitiatingConnection(ip, port));
+        self.log_event(P2PEvent::InitiatingConnection(addr));
         let mut locked_server = safe_write!(self.tls_server)?;
         let mut locked_poll = safe_write!(self.poll)?;
         locked_server.connect(
             peer_type,
             &mut locked_poll,
-            ip,
-            port,
+            addr,
             peer_id,
             &self.get_self_peer(),
         )
@@ -486,17 +531,13 @@ impl P2PNode {
 
     pub fn id(&self) -> P2PNodeId { self.id }
 
-    pub fn get_listening_ip(&self) -> IpAddr { self.ip }
-
-    pub fn get_listening_port(&self) -> u16 { self.port }
-
     pub fn peer_type(&self) -> PeerType { self.peer_type }
 
-    fn log_event(&mut self, event: P2PEvent) {
-        if let Some(ref mut x) = self.event_log {
-            if let Err(e) = x.send(event) {
-                error!("Couldn't send event {:?}", e)
-            }
+    fn log_event(&self, event: P2PEvent) {
+        if let Ok(locked_tls) = self.tls_server.read() {
+            locked_tls.log_event(event);
+        } else {
+            error!("Couldn't lock tls server for reading")
         }
     }
 
@@ -505,7 +546,7 @@ impl P2PNode {
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
-        if let Some(remote_peer) = conn.remote_peer() {
+        if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc().unwrap(); // assuming non-failable
@@ -522,6 +563,59 @@ impl P2PNode {
         }
     }
 
+    fn process_unban(&self, inner_pkt: &NetworkRequest) -> Fallible<()> {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        if let NetworkRequest::UnbanNode(ref peer, ref unbanned_peer) = inner_pkt {
+            match unbanned_peer {
+                BannedNode::ById(id) => {
+                    if peer.id() != *id {
+                        let data = inner_pkt.serialize();
+                        let no_filter = |_: &Connection| true;
+
+                        safe_write!(self.tls_server)?.send_over_all_connections(
+                            &data,
+                            &no_filter,
+                            &check_sent_status_fn,
+                        );
+                    }
+                }
+                _ => {
+                    let data = inner_pkt.serialize();
+                    let no_filter = |_: &Connection| true;
+
+                    safe_write!(self.tls_server)?.send_over_all_connections(
+                        &data,
+                        &no_filter,
+                        &check_sent_status_fn,
+                    );
+                }
+            }
+        };
+        Ok(())
+    }
+
+    fn process_ban(&self, inner_pkt: &NetworkRequest) -> Fallible<()> {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
+            let data = inner_pkt.serialize();
+            let retain = |conn: &Connection| match to_ban {
+                BannedNode::ById(id) => conn.remote_peer().peer().map_or(true, |x| x.id() != *id),
+                BannedNode::ByAddr(addr) => {
+                    conn.remote_peer().peer().map_or(true, |x| x.ip() != *addr)
+                }
+            };
+
+            safe_write!(self.tls_server)?.send_over_all_connections(
+                &data,
+                &retain,
+                &check_sent_status_fn,
+            );
+        };
+        Ok(())
+    }
+
     pub fn process_messages(&mut self) -> Fallible<()> {
         let mut send_q = safe_write!(self.send_queue)?;
         if send_q.len() == 0 {
@@ -534,12 +628,12 @@ impl P2PNode {
             match outer_pkt {
                 Some(ref x) => {
                     if let Some(ref prom) = &self.prometheus_exporter {
-                        let ref mut lock = safe_write!(prom)?;
+                        let mut lock = safe_write!(prom)?;
                         lock.queue_size_dec().unwrap_or_else(|e| error!("{}", e));
                     };
                     trace!("Got message to process!");
                     let check_sent_status_fn = |conn: &Connection, status: Fallible<usize>| {
-                        self.check_sent_status(conn, status)
+                        self.check_sent_status(&conn, status)
                     };
 
                     match **x {
@@ -548,7 +642,7 @@ impl P2PNode {
                             match inner_pkt.packet_type {
                                 NetworkPacketType::DirectMessage(ref receiver) => {
                                     let filter =
-                                        |conn: &Connection| is_conn_peer_id(conn, receiver);
+                                        |conn: &Connection| is_conn_peer_id(conn, *receiver);
                                     safe_write!(self.tls_server)?.send_over_all_connections(
                                         &data,
                                         &filter,
@@ -572,37 +666,35 @@ impl P2PNode {
                             };
                         }
                         NetworkMessage::NetworkRequest(
-                            ref inner_pkt @ NetworkRequest::UnbanNode(..),
-                            ..
-                        )
-                        | NetworkMessage::NetworkRequest(
                             ref inner_pkt @ NetworkRequest::GetPeers(..),
-                            ..
-                        )
-                        | NetworkMessage::NetworkRequest(
-                            ref inner_pkt @ NetworkRequest::BanNode(..),
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
-                            let no_filter = |_: &Connection| true;
 
                             safe_write!(self.tls_server)?.send_over_all_connections(
                                 &data,
-                                &no_filter,
+                                &is_valid_connection_post_handshake,
                                 &check_sent_status_fn,
                             );
                         }
+                        NetworkMessage::NetworkRequest(
+                            ref inner_pkt @ NetworkRequest::UnbanNode(..),
+                            ..
+                        ) => self.process_unban(inner_pkt)?,
+                        NetworkMessage::NetworkRequest(
+                            ref inner_pkt @ NetworkRequest::BanNode(..),
+                            ..
+                        ) => self.process_ban(inner_pkt)?,
                         NetworkMessage::NetworkRequest(
                             ref inner_pkt @ NetworkRequest::JoinNetwork(..),
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
-                            let no_filter = |_: &Connection| true;
 
                             let mut locked_tls_server = safe_write!(self.tls_server)?;
                             locked_tls_server.send_over_all_connections(
                                 &data,
-                                &no_filter,
+                                &is_valid_connection_post_handshake,
                                 &check_sent_status_fn,
                             );
 
@@ -618,12 +710,11 @@ impl P2PNode {
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
-                            let no_filter = |_: &Connection| true;
 
                             let mut locked_tls_server = safe_write!(self.tls_server)?;
                             locked_tls_server.send_over_all_connections(
                                 &data,
-                                &no_filter,
+                                &is_valid_connection_post_handshake,
                                 &check_sent_status_fn,
                             );
 
@@ -638,7 +729,7 @@ impl P2PNode {
                     }
                 }
                 _ => {
-                    if resend_queue.len() > 0 {
+                    if !resend_queue.is_empty() {
                         if let Some(ref prom) = &self.prometheus_exporter {
                             match safe_write!(prom) {
                                 Ok(ref mut lock) => {
@@ -713,7 +804,7 @@ impl P2PNode {
         let packet = if broadcast {
             NetworkPacketBuilder::default()
                 .peer(self.get_self_peer())
-                .message_id(msg_id.unwrap_or(NetworkPacket::generate_message_id()))
+                .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
                 .build_broadcast()?
@@ -723,7 +814,7 @@ impl P2PNode {
 
             NetworkPacketBuilder::default()
                 .peer(self.get_self_peer())
-                .message_id(msg_id.unwrap_or(NetworkPacket::generate_message_id()))
+                .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
                 .build_direct(receiver)?
@@ -736,7 +827,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_ban(&mut self, id: P2PPeer) -> Fallible<()> {
+    pub fn send_ban(&mut self, id: BannedNode) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::BanNode(self.get_self_peer(), id),
             None,
@@ -746,7 +837,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_unban(&mut self, id: P2PPeer) -> Fallible<()> {
+    pub fn send_unban(&mut self, id: BannedNode) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::UnbanNode(self.get_self_peer(), id),
             None,
@@ -797,7 +888,7 @@ impl P2PNode {
     }
 
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
-        Ok(safe_read!(self.tls_server)?.get_peer_stats(nids))
+        Ok(safe_read!(self.tls_server)?.get_peer_stats(nids)?)
     }
 
     #[cfg(not(windows))]
@@ -861,21 +952,16 @@ impl P2PNode {
     }
 
     fn get_self_peer(&self) -> P2PPeer {
-        P2PPeer::from(
-            PeerType::Node,
-            self.id(),
-            self.get_listening_ip(),
-            self.get_listening_port(),
-        )
+        P2PPeer::from(self.peer_type, self.id(), self.internal_addr)
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> Fallible<()> {
-        safe_write!(self.tls_server)?.ban_node(peer);
+    pub fn ban_node(&mut self, peer: BannedNode) -> Fallible<()> {
+        safe_write!(self.tls_server)?.ban_node(peer)?;
         Ok(())
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) -> Fallible<()> {
-        safe_write!(self.tls_server)?.unban_node(&peer);
+    pub fn unban_node(&mut self, peer: BannedNode) -> Fallible<()> {
+        safe_write!(self.tls_server)?.unban_node(peer)?;
         Ok(())
     }
 
@@ -925,29 +1011,21 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn process_th_sc(&mut self) -> Option<Rc<Cell<thread::JoinHandle<()>>>> {
-        if let Some(p) = self.process_th.take() {
-            let ret = Rc::try_unwrap(p).ok().unwrap();
-            Some(Rc::new(ret))
-        } else {
-            None
+    pub fn close(&mut self) -> Fallible<()> {
+        if let Some(ref q) = self.quit_tx {
+            q.send(true)?;
         }
+
+        Ok(())
     }
 
     pub fn close_and_join(&mut self) -> Fallible<()> {
-        if let Some(ref q) = self.quit_tx {
-            info!("Closing P2P node with id: {}", self.id());
-            let _ = q.send(true);
-            let p_th = self.process_th.take();
-            if let Ok(r) = Rc::try_unwrap(p_th.unwrap()) {
-                let _ = r.into_inner().join();
-            } else {
-                bail!(err_msg(
-                    "Unable to get the thread back, the node isn't holding it"
-                ));
-            }
-        }
-        Ok(())
+        self.close()?;
+        self.join()
+    }
+
+    pub fn get_banlist(&self) -> Fallible<Vec<BannedNode>> {
+        safe_read!(self.tls_server)?.get_banlist()
     }
 }
 
@@ -963,9 +1041,9 @@ impl MessageManager for P2PNode {
     }
 }
 
-fn is_conn_peer_id(conn: &Connection, id: &P2PNodeId) -> bool {
-    if let Some(remote_peer) = conn.remote_peer() {
-        remote_peer.id() == *id
+fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
+    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
+        remote_peer.id() == id
     } else {
         false
     }
@@ -979,7 +1057,7 @@ pub fn is_valid_connection_in_broadcast(
     sender: &P2PPeer,
     network_id: NetworkId,
 ) -> bool {
-    if let Some(remote_peer) = conn.remote_peer() {
+    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         if remote_peer.id() != sender.id() && remote_peer.peer_type() != PeerType::Bootstrapper {
             let local_end_networks = conn.local_end_networks();
             return safe_read!(local_end_networks)
@@ -989,3 +1067,6 @@ pub fn is_valid_connection_in_broadcast(
     }
     false
 }
+
+/// Connection is valid to send over as it has completed the handshake
+pub fn is_valid_connection_post_handshake(conn: &Connection) -> bool { conn.is_post_handshake() }

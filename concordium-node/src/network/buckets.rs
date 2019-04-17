@@ -12,10 +12,14 @@ use crate::{
 
 const BUCKET_COUNT: usize = 1;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Eq, Clone)]
 pub struct Node {
     pub peer:     P2PPeer,
     pub networks: HashSet<NetworkId>,
+}
+
+impl PartialEq for Node {
+    fn eq(&self, other: &Node) -> bool { self.peer == other.peer }
 }
 
 impl Hash for Node {
@@ -29,6 +33,10 @@ pub struct Buckets {
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
+}
+
+impl Default for Buckets {
+    fn default() -> Self { Buckets::new() }
 }
 
 impl Buckets {
@@ -87,10 +95,12 @@ impl Buckets {
     pub fn len(&self) -> usize {
         self.buckets
             .iter()
-            .flat_map(|bucket| bucket.iter())
+            .flat_map(HashSet::iter)
             .map(|node| node.networks.len())
             .sum()
     }
+
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     pub fn get_random_nodes(
         &self,
@@ -112,7 +122,11 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use std::{collections::HashSet, net::IpAddr, str::FromStr};
+    use std::{
+        collections::HashSet,
+        net::{IpAddr, SocketAddr},
+        str::FromStr,
+    };
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
@@ -123,14 +137,12 @@ mod tests {
         let p2p_peer = P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            IpAddr::from_str("127.0.0.1").unwrap(),
-            8888,
+            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8888),
         );
         let p2p_duplicate_peer = P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            IpAddr::from_str("127.0.0.1").unwrap(),
-            8889,
+            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8889),
         );
         buckets.insert_into_bucket(&p2p_peer, HashSet::new());
         buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());

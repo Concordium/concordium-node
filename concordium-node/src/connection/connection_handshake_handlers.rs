@@ -17,15 +17,11 @@ pub fn handshake_response_handle(
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.sent_handshake = get_current_stamp();
             priv_conn_mut.add_remote_end_networks(nets);
-            priv_conn_mut.set_remote_peer(remote_peer.to_owned());
+            priv_conn_mut.promote_to_post_handshake(remote_peer.id(), remote_peer.addr)?;
         }
 
-        let bucket_sender = P2PPeer::from(
-            remote_peer.peer_type(),
-            remote_peer.id(),
-            remote_peer.ip(),
-            remote_peer.port(),
-        );
+        let bucket_sender =
+            P2PPeer::from(remote_peer.peer_type(), remote_peer.id(), remote_peer.addr);
         if remote_peer.peer_type() != PeerType::Bootstrapper {
             safe_write!(priv_conn.borrow().buckets)?
                 .insert_into_bucket(&bucket_sender, nets.clone());
@@ -52,7 +48,7 @@ pub fn handshake_request_handle(
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.add_remote_end_networks(nets);
-            priv_conn_mut.set_remote_peer(sender.to_owned());
+            priv_conn_mut.promote_to_post_handshake(sender.id(), sender.addr)?;
         }
         send_handshake_and_ping(priv_conn)?;
         {
@@ -63,7 +59,7 @@ pub fn handshake_request_handle(
 
         update_buckets(priv_conn, sender, nets.clone())?;
 
-        if sender.peer_type() == PeerType::Bootstrapper {
+        if priv_conn.borrow().local_peer.peer_type() == PeerType::Bootstrapper {
             send_peer_list(priv_conn, sender, nets)?;
         }
         Ok(())

@@ -60,7 +60,6 @@ stages:
   extends: .generic-lint
   stage: lint
   <<: *compile-cache-settings
-  allow_failure: true
   script:
     - rustc --version && cargo --version
     - mkdir -p stack

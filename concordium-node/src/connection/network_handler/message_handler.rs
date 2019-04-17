@@ -22,6 +22,10 @@ pub struct MessageHandler {
     general_parser: AFunctor<NetworkMessage>,
 }
 
+impl Default for MessageHandler {
+    fn default() -> Self { MessageHandler::new() }
+}
+
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {
@@ -123,7 +127,7 @@ mod message_handler_unit_test {
 
     use crate::common::{P2PPeerBuilder, PeerType};
     use std::{
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{Arc, RwLock},
     };
 
@@ -148,8 +152,7 @@ mod message_handler_unit_test {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
             .peer_type(PeerType::Node)
-            .ip(ip)
-            .port(8080)
+            .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
         let msg = NetworkMessage::NetworkRequest(NetworkRequest::Ping(p2p_peer), None, None);
@@ -170,7 +173,7 @@ mod integration_test {
     };
 
     use std::{
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, RwLock,
@@ -188,8 +191,7 @@ mod integration_test {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
             .peer_type(PeerType::Node)
-            .ip(ip)
-            .port(8080)
+            .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
         let inner_msg = UCursor::from(b"Message XXX".to_vec());

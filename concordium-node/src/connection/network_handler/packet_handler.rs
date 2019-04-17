@@ -10,6 +10,10 @@ pub struct PacketHandler {
     pub broadcast_parser: AFunctor<NetworkPacket>,
 }
 
+impl Default for PacketHandler {
+    fn default() -> Self { PacketHandler::new() }
+}
+
 impl PacketHandler {
     pub fn new() -> Self {
         PacketHandler {

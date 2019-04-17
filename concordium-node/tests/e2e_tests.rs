@@ -5,18 +5,19 @@ extern crate log;
 
 #[cfg(test)]
 mod tests {
-    use failure::Fallible;
+    use failure::{bail, Fallible};
     use p2p_client::{
         common::{PeerType, UCursor},
         configuration::Config,
-        connection::{MessageManager, P2PEvent},
+        connection::MessageManager,
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
-        p2p::p2p_node::P2PNode,
+        p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
         prometheus_exporter::{PrometheusMode, PrometheusServer},
     };
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
+        net::SocketAddr,
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc, RwLock,
@@ -140,7 +141,7 @@ mod tests {
                 into_err!(msg_wait_tx.send(m.clone()))
             }));
 
-            node.spawn();
+            let _ = node.spawn();
             Ok((node, msg_wait_rx))
         }
 
@@ -152,12 +153,7 @@ mod tests {
             target: &P2PNode,
             receiver: &Receiver<NetworkMessage>,
         ) -> Fallible<()> {
-            source.connect(
-                PeerType::Node,
-                target.get_listening_ip(),
-                target.get_listening_port(),
-                None,
-            )?;
+            source.connect(PeerType::Node, target.internal_addr, None)?;
 
             // Wait for Handshake response on source node
             loop {
@@ -374,29 +370,7 @@ mod tests {
 
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id().to_string(),
-                            network_id
-                        );
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
-                    }
-                }
+                info!("{}", msg);
             }
         });
 
@@ -456,14 +430,13 @@ mod tests {
                     }
                 }
             });
-            node.spawn();
+            let _ = node.spawn();
             if peer > 0 {
                 let localhost = "127.0.0.1".parse().unwrap();
                 for i in 0..peer {
                     node.connect(
                         PeerType::Node,
-                        localhost,
-                        (instance_port - 1 - i) as u16,
+                        SocketAddr::new(localhost, (instance_port - 1 - i) as u16),
                         None,
                     )
                     .ok();
@@ -507,29 +480,7 @@ mod tests {
 
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id().to_string(),
-                            network_id
-                        );
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
-                    }
-                }
+                info!("{}", msg);
             }
         });
 
@@ -592,13 +543,12 @@ mod tests {
                         }
                     }
                 });
-                node.spawn();
+                let _ = node.spawn();
                 if peer > 0 {
                     for i in 0..peer {
                         node.connect(
                             PeerType::Node,
-                            localhost,
-                            (instance_port - 1 - (i)) as u16,
+                            SocketAddr::new(localhost, (instance_port - 1 - (i)) as u16),
                             None,
                         )
                         .ok();
@@ -618,8 +568,10 @@ mod tests {
                     central_peer
                         .connect(
                             PeerType::Node,
-                            localhost,
-                            (test_port_added + (island_size * i)) as u16,
+                            SocketAddr::new(
+                                localhost,
+                                (test_port_added + (island_size * i)) as u16,
+                            ),
                             None,
                         )
                         .map_err(|e| println!("{}", e))
@@ -729,7 +681,7 @@ mod tests {
 
                 debug!(
                     "Send message from {} in broadcast",
-                    src_node.borrow().get_listening_port()
+                    src_node.borrow().internal_addr.port()
                 );
 
                 src_node
@@ -939,7 +891,7 @@ mod tests {
                 debug_level_str.push_str(
                     format!(
                         "{}, ",
-                        nodes_per_level[level][idx].borrow().get_listening_port()
+                        nodes_per_level[level][idx].borrow().internal_addr.port()
                     )
                     .as_str(),
                 );
@@ -961,7 +913,7 @@ mod tests {
 
                 debug!(
                     "Send message from {} in broadcast",
-                    src_node.borrow().get_listening_port()
+                    src_node.borrow().internal_addr.port()
                 );
 
                 src_node
@@ -1018,4 +970,104 @@ mod tests {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network(5, 4, 10)
     }
+
+    #[test]
+    pub fn e2e_006_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(1);
+
+        let (net_tx, _) = std::sync::mpsc::channel();
+        let config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
+        let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
+
+        node.close_and_join()?;
+        node.close_and_join()?;
+        node.close_and_join()?;
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_02_close_and_join_on_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync(port, vec![100], true)?;
+        let (node_2, waiter_2) = utils::make_node_and_sync(port + 1, vec![100], true)?;
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
+
+        let msg = b"Hello";
+        node_1.send_message(
+            Some(node_2.id()),
+            NetworkId::from(100),
+            None,
+            msg.to_vec(),
+            false,
+        )?;
+        node_1.close_and_join()?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!(node_2_msg.as_slice(), msg);
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_03_close_from_inside_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync(port, vec![100], true)?;
+        let (node_2, waiter_2) = utils::make_node_and_sync(port + 1, vec![100], true)?;
+
+        let node_2_cloned = RefCell::new(node_2.clone());
+        safe_write!(node_2.message_handler())?.add_packet_callback(make_atomic_callback!(
+            move |_pac: &NetworkPacket| {
+                let join_status = node_2_cloned.borrow_mut().close_and_join();
+                assert_eq!(join_status.is_err(), true);
+                Ok(())
+            }
+        ));
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
+
+        let msg = b"Hello";
+        node_1.send_message(
+            Some(node_2.id()),
+            NetworkId::from(100),
+            None,
+            msg.to_vec(),
+            false,
+        )?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!(node_2_msg.as_slice(), msg);
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_008_drop_on_ban() -> Fallible<()> {
+        utils::setup();
+
+        let port = utils::next_port_offset(3);
+        let networks = vec![100];
+
+        let (mut node_1, msg_waiter_1) = utils::make_node_and_sync(port, networks.clone(), true)?;
+        let (node_2, _msg_waiter_2) = utils::make_node_and_sync(port + 1, networks.clone(), true)?;
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
+        utils::consume_pending_messages(&msg_waiter_1);
+
+        let to_ban = BannedNode::ById(node_2.id());
+
+        node_1.ban_node(to_ban)?;
+        let mut reply = node_1.get_peer_stats(&vec![])?;
+
+        let t1 = time::Instant::now();
+        while reply.len() == 1 {
+            reply = node_1.get_peer_stats(&vec![])?;
+            if time::Instant::now().duration_since(t1).as_secs() > 30 {
+                bail!("timeout");
+            }
+        }
+
+        Ok(())
+    }
+
 }
