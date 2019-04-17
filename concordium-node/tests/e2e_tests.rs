@@ -140,7 +140,7 @@ mod tests {
                 into_err!(msg_wait_tx.send(m.clone()))
             }));
 
-            node.spawn();
+            let _ = node.spawn();
             Ok((node, msg_wait_rx))
         }
 
@@ -456,7 +456,7 @@ mod tests {
                     }
                 }
             });
-            node.spawn();
+            let _ = node.spawn();
             if peer > 0 {
                 let localhost = "127.0.0.1".parse().unwrap();
                 for i in 0..peer {
@@ -592,7 +592,7 @@ mod tests {
                         }
                     }
                 });
-                node.spawn();
+                let _ = node.spawn();
                 if peer > 0 {
                     for i in 0..peer {
                         node.connect(
@@ -1017,6 +1017,77 @@ mod tests {
     pub fn e2e_005_003_no_relay_broadcast_to_sender_on_complex_tree_network() -> Fallible<()> {
         utils::setup();
         no_relay_broadcast_to_sender_on_tree_network(5, 4, 10)
+    }
+
+    #[test]
+    pub fn e2e_006_01_close_and_join_on_not_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(1);
+
+        let (net_tx, _) = std::sync::mpsc::channel();
+        let config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
+        let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
+
+        node.close_and_join()?;
+        node.close_and_join()?;
+        node.close_and_join()?;
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_02_close_and_join_on_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync(port, vec![100], true)?;
+        let (node_2, waiter_2) = utils::make_node_and_sync(port + 1, vec![100], true)?;
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
+
+        let msg = b"Hello";
+        node_1.send_message(
+            Some(node_2.id()),
+            NetworkId::from(100),
+            None,
+            msg.to_vec(),
+            false,
+        )?;
+        node_1.close_and_join()?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!(node_2_msg.as_slice(), msg);
+        Ok(())
+    }
+
+    #[test]
+    pub fn e2e_006_03_close_from_inside_spawned_node() -> Fallible<()> {
+        utils::setup();
+        let port = utils::next_port_offset(2);
+
+        let (mut node_1, waiter_1) = utils::make_node_and_sync(port, vec![100], true)?;
+        let (node_2, waiter_2) = utils::make_node_and_sync(port + 1, vec![100], true)?;
+
+        let node_2_cloned = RefCell::new(node_2.clone());
+        safe_write!(node_2.message_handler())?.add_packet_callback(make_atomic_callback!(
+            move |_pac: &NetworkPacket| {
+                let join_status = node_2_cloned.borrow_mut().close_and_join();
+                assert_eq!(join_status.is_err(), true);
+                Ok(())
+            }
+        ));
+        utils::connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
+
+        let msg = b"Hello";
+        node_1.send_message(
+            Some(node_2.id()),
+            NetworkId::from(100),
+            None,
+            msg.to_vec(),
+            false,
+        )?;
+
+        let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
+        assert_eq!(node_2_msg.as_slice(), msg);
+        Ok(())
     }
 
     #[test]

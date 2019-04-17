@@ -27,7 +27,6 @@ use p2p_client::{
     safe_read, utils,
 };
 use std::{
-    rc::Rc,
     sync::{mpsc, Arc, RwLock},
     thread,
 };
@@ -224,14 +223,10 @@ fn main() -> Result<(), Error> {
         let mut locked_node = safe_write!(node)?;
         locked_node.max_nodes = Some(conf.bootstrapper.max_nodes);
         locked_node.print_peers = true;
-        locked_node.spawn();
+        locked_node.spawn()?;
     }
 
-    let _node_th = Rc::try_unwrap(safe_write!(node)?.process_th_sc().unwrap())
-        .ok()
-        .unwrap()
-        .into_inner();
-    _node_th.join().expect("Node thread panicked!");
+    safe_write!(node)?.join().expect("Node thread panicked!");
 
     Ok(())
 }
