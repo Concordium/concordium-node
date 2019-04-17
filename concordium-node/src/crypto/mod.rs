@@ -4,7 +4,7 @@ use sha2::{Digest, Sha224};
 
 pub const ADDRESS_SCHEME: u8 = 2;
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct KeyPair {
     pub public_key:  [u8; 32],
     pub private_key: [u8; 32],
@@ -15,7 +15,7 @@ impl KeyPair {
         let mut sk: [u8; 32] = [0; 32];
         let mut pk: [u8; 32] = [0; 32];
         eddsa_ed25519::eddsa_priv_key(&mut sk);
-        eddsa_ed25519::eddsa_pub_key(&mut sk, &mut pk);
+        eddsa_ed25519::eddsa_pub_key(&sk, &mut pk);
         KeyPair {
             public_key:  pk,
             private_key: sk,

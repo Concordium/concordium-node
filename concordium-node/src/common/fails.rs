@@ -1,7 +1,6 @@
 use super::{P2PNodeId, PeerType};
 use failure::Fail;
-use num_bigint::ParseBigIntError;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 #[derive(Debug, Fail)]
 #[fail(display = "Empty IP or Port on P2PPeer building")]
@@ -9,28 +8,25 @@ pub struct EmptyIpPortError;
 
 #[derive(Debug, Fail)]
 #[fail(
-    display = "Missing fields on P2PPeer build: type<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>",
-    peer_type, id, ip, port
+    display = "Missing fields on P2PPeer build: type<{:?}>, id<{:?}>, addr<{:?}>",
+    peer_type, id, addr
 )]
 pub struct MissingFieldsError {
     peer_type: Option<PeerType>,
     id:        Option<P2PNodeId>,
-    ip:        Option<IpAddr>,
-    port:      Option<u16>,
+    addr:      Option<SocketAddr>,
 }
 
 impl MissingFieldsError {
     pub fn new(
         peer_type: Option<PeerType>,
         id: Option<P2PNodeId>,
-        ip: Option<IpAddr>,
-        port: Option<u16>,
+        addr: Option<SocketAddr>,
     ) -> MissingFieldsError {
         MissingFieldsError {
             peer_type,
             id,
-            ip,
-            port,
+            addr,
         }
     }
 }
@@ -46,6 +42,20 @@ impl InvalidLengthForIP {
 }
 
 #[derive(Debug, Fail)]
+#[fail(
+    display = "Remote peer already promoted to post-handshake <{}>/<{}>",
+    id, addr
+)]
+pub struct RemotePeerAlreadyPromoted {
+    id:   P2PNodeId,
+    addr: SocketAddr,
+}
+
+impl RemotePeerAlreadyPromoted {
+    pub fn new(id: P2PNodeId, addr: SocketAddr) -> Self { Self { id, addr } }
+}
+
+#[derive(Debug, Fail)]
 #[fail(display = "Invalid IP type specified: type<{}>", ip_type)]
 pub struct InvalidIpType {
     ip_type: String,
@@ -58,11 +68,3 @@ impl InvalidIpType {
 #[derive(Debug, Fail)]
 #[fail(display = "Invalid length for serialized P2PPeer")]
 pub struct InvalidLength;
-
-#[derive(Debug, Fail)]
-#[fail(display = "Error while parsing P2PNodeId")]
-pub struct P2PNodeIdError;
-
-impl From<ParseBigIntError> for P2PNodeIdError {
-    fn from(_: ParseBigIntError) -> Self { P2PNodeIdError }
-}

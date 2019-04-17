@@ -42,7 +42,7 @@ impl StatsEngine {
         // calculate that
         self.datapoints.push_back(DataPoint::new(
             size,
-            (_dur.as_secs() * 1000) + (_dur.subsec_millis() as u64),
+            (_dur.as_secs() * 1000) + u64::from(_dur.subsec_millis()),
         ));
     }
 
@@ -58,7 +58,7 @@ impl StatsEngine {
 
         // Calculate the average amount of time used per transaction expressed in
         // seconds.
-        let avg_time = ((_dur as f64) / (self.datapoints.len() as f64)) / 1000 as f64;
+        let avg_time = ((_dur as f64) / (self.datapoints.len() as f64)) / f64::from(1000);
 
         // Convert into transactions per second.
         avg_time.powi(-1)
@@ -86,7 +86,7 @@ impl StatsEngine {
 
         // Calculate the average amount of time used per transaction expressed in
         // seconds.
-        let avg_time = ((_dur as f64) / (within_slot.len() as f64)) / 1000 as f64;
+        let avg_time = ((_dur as f64) / (within_slot.len() as f64)) / f64::from(1000);
 
         // Convert into transactions per second.
         avg_time.powi(-1)
@@ -103,7 +103,7 @@ impl StatsEngine {
         // Calculate total amount of data
         let total_size = self.datapoints.iter().map(|dp| dp.size).sum::<u64>();
 
-        let calculated = ((_dur as f64) / (total_size as f64)) / 1000 as f64;
+        let calculated = ((_dur as f64) / (total_size as f64)) / f64::from(1000);
 
         calculated.powi(-1)
     }

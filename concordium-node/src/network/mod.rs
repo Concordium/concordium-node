@@ -1,5 +1,18 @@
-use crate::common::get_current_stamp_b64;
 use std::fmt;
+
+macro_rules! serialize_message {
+    ($msg_type:expr, $content:expr) => {
+        format!(
+            "{}{}{}{}{}",
+            crate::network::PROTOCOL_NAME,
+            crate::network::PROTOCOL_VERSION,
+            crate::common::get_current_stamp_b64(),
+            $msg_type,
+            $content
+        )
+        .into_bytes()
+    };
+}
 
 pub mod buckets;
 pub mod message;
@@ -31,8 +44,8 @@ pub use self::{
     response::NetworkResponse,
 };
 
-pub const PROTOCOL_NAME: &'static str = "CONCORDIUMP2P";
-pub const PROTOCOL_VERSION: &'static str = "001";
+pub const PROTOCOL_NAME: &str = "CONCORDIUMP2P";
+pub const PROTOCOL_VERSION: &str = "001";
 pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
 pub const PROTOCOL_HEADER_LENGTH: usize = 13 + 3 + PROTOCOL_SENT_TIMESTAMP_LENGTH;
 pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
@@ -51,12 +64,3 @@ pub const PROTOCOL_MESSAGE_LENGTH: usize = PROTOCOL_HEADER_LENGTH
 #[cfg(test)]
 // panics with "attempt to subtract with overflow" when the assertion is broken
 const_assert!(protocol_message_length; PROTOCOL_MESSAGE_LENGTH == 130);
-
-pub fn make_header() -> String {
-    format!(
-        "{}{}{}",
-        PROTOCOL_NAME,
-        PROTOCOL_VERSION,
-        get_current_stamp_b64()
-    )
-}
