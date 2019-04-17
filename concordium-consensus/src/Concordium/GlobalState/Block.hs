@@ -9,7 +9,7 @@ import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Hashable hiding (unhashed, hashed)
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 
