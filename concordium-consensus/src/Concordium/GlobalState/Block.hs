@@ -28,13 +28,23 @@ type BlockNonce = (VRF.Hash, VRF.Proof)
 newtype BlockTransactions = BlockTransactions {transactionList :: [HashedTransaction]}
 
 class BlockData b where
+    -- |The slot number of the block (0 for genesis block)
     blockSlot :: b -> Slot
+    -- |The 'BlockHash' of the parent block (undefined for genesis block)
     blockPointer :: b -> BlockHash
+    -- |The identity of the block baker (undefined for genesis block)
     blockBaker :: b -> BakerId
+    -- |The proof that the baker was entitled (undefined for genesis block)
     blockProof :: b -> BlockProof
+    -- |The block nonce (undefined for genesis block)
     blockNonce :: b -> BlockNonce
+    -- |The 'BlockHash' of the last finalized block when the block was baked
+    -- (undefined for genesis block)
     blockLastFinalized :: b -> BlockHash
+    -- |The list of transactions in the block (empty for genesis block)
     blockTransactions :: b -> [HashedTransaction]
+    -- |Determine if the block is signed by the given key
+    -- (always 'True' for genesis block)
     verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
 
 data Block
@@ -142,11 +152,17 @@ instance BlockData PendingBlock where
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
 
 data BlockPointer = BlockPointer {
+    -- |Hash of the block
     bpHash :: !BlockHash,
+    -- |The block itself
     bpBlock :: !Block,
+    -- |Pointer to the parent (circular reference for genesis block)
     bpParent :: BlockPointer,
+    -- |Pointer to the last finalized block (circular for genesis)
     bpLastFinalized :: BlockPointer,
+    -- |Height of the block in the tree
     bpHeight :: !BlockHeight,
+    -- |The state (of accounts etc.) after execution of the block
     bpState :: !BlockState,
     -- |Time at which the block was first received
     bpReceiveTime :: UTCTime,

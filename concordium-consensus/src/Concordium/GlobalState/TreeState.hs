@@ -196,12 +196,11 @@ class Monad m => TreeStateMonad m where
     -- |Set the pending transactions after execution of the focus block.
     putPendingTransactions :: PendingTransactionTable -> m ()
 
+    -- * Operations on the transaction table
     -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
     -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
     -- with that nonce.
     getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set HashedTransaction)]
-
-    -- * Operations on the transaction table
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
