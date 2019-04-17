@@ -72,3 +72,84 @@ function testnet_docker_compose() {
     NUM_BAKERS=$baker_count docker-compose up --scale baker=$baker_count
   )
 }
+
+#####
+# Start a tps receiver node, expecting 1000 packets 
+# 
+# c_tps_recv 1000
+#
+#####
+function c_tps_recv() {
+  if (( $# < 1 ))
+    then
+    echo "Usage: c_tps_recv packet_count"
+    return 1
+  fi
+  (
+    cd $CONCORDIUM_P2P_DIR && \
+    cargo run --bin p2p_client-cli -- \
+      --bootstrap-node=127.0.0.1:9999 \
+      --no-dnssec \
+      --listen-port 9990 \
+      --id 05c2198f706ebede \
+      --tps-message-count $1 \
+      --enable-tps-test-recv
+  )
+}
+
+#####
+# Start a tps sender node, expecting 1000 packets 
+# 
+# c_tps_recv 1000
+#
+#####
+function c_tps_send() {
+  if (( $# < 1 ))
+    then
+    echo "Usage: c_tps_send packet_count"
+    return 1
+  fi
+  (
+    cd $CONCORDIUM_P2P_DIR && \
+    cargo run --bin p2p_client-cli -- \
+      --bootstrap-node=127.0.0.1:9999 \
+      --no-dnssec \
+      --listen-port 9991 \
+      --id 05c2198f706ebedf \
+      --tps-message-count $1 \
+      --tps-test-data-dir /tmp/datatest \
+      --tps-test-recv-id 05c2198f706ebede \
+      --connect-to 127.0.0.1:9990
+  )
+}
+
+#####
+# Generate 1000 dummy test paylods of 1MB for c_tps_send()
+# 
+# c_make_test_pkts 1000 1m
+#
+#####
+c_make_test_pkts() {
+  setopt localoptions rmstarsilent
+  if (( $# < 2 ))
+  then
+    echo "Usage: make_test_pkts packet_count packet_size"
+    return 1
+  elif (( $2 < 1 ))
+  then
+    echo "packet size can't be less than one!"
+    return 1
+  fi
+  if [ ! -d /tmp/datatest ]
+  then
+    mkdir -p /tmp/datatest
+  elif
+    then
+    rm -f /tmp/datatest/*
+  fi
+  for n ({0..$1})
+  do
+    echo "Generating test packet $n"
+    dd if=/dev/urandom of=/tmp/datatest/test-$n bs=1 count=$2 > /dev/null 2>&1
+  done
+}
