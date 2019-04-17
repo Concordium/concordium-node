@@ -7,6 +7,7 @@ services:
             - RUST_BACKTRACE=1
             - RUST_LOG=trace
             - MODE=local_bootstrapper
+            - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /build-project/start.sh
     baker_id_gen:
@@ -24,11 +25,12 @@ services:
         environment:
             - RUST_BACKTRACE=1
             - RUST_LOG=debug
-            - DESIRED_PEERS=${NUM_BAKERS}
+            - DESIRED_PEERS=${DESIRED_PEERS}
             - BOOTSTRAP_NODE=bootstrapper:8888
             - EXTERNAL_PORT=8888
             - NUM_BAKERS=${NUM_BAKERS}
             - MODE=local_basic
+            - EXTRA_ARGS=${EXTRA_ARGS}
         ports:
             - "11100-11500:10000"
     testrunner:
@@ -39,10 +41,11 @@ services:
             - /build-project/start.sh
         environment:
             - BOOTSTRAP_NODE=bootstrapper:8888
-            - DESIRED_PEERS=${NUM_BAKERS}
+            - DESIRED_PEERS=${DESIRED_PEERS}
             - EXTERNAL_PORT=8888
             - RUST_BACKTRACE=1
             - RUST_LOG=debug
             - MODE=local_testrunner
+            - EXTRA_ARGS=${EXTRA_ARGS}
         ports:
             - "11000:8950"

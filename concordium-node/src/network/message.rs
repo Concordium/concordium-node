@@ -365,12 +365,12 @@ fn deserialize_common_handshake(
 }
 
 fn deserialize_response_handshake(
-    ip: IpAddr,
+    remote_ip: IpAddr,
     timestamp: u64,
     pkt: &mut UCursor,
 ) -> Fallible<NetworkMessage> {
     let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(PeerType::Node, node_id, ip, port);
+    let peer = P2PPeer::from(PeerType::Node, node_id, remote_ip, port);
 
     Ok(NetworkMessage::NetworkResponse(
         NetworkResponse::Handshake(peer, network_ids, content.as_slice().to_vec()),
@@ -380,12 +380,12 @@ fn deserialize_response_handshake(
 }
 
 fn deserialize_request_handshake(
-    ip: IpAddr,
+    remote_ip: IpAddr,
     timestamp: u64,
     pkt: &mut UCursor,
 ) -> Fallible<NetworkMessage> {
     let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(PeerType::Node, node_id, ip, port);
+    let peer = P2PPeer::from(PeerType::Node, node_id, remote_ip, port);
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::Handshake(peer, network_ids, content.as_slice().to_vec()),

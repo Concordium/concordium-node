@@ -23,7 +23,7 @@ use crate::{
 };
 
 use crate::{
-    common::{P2PNodeId, P2PPeer, PeerType},
+    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer},
     connection::{Connection, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
 };
@@ -171,7 +171,7 @@ impl TlsServer {
             Some(tls_session),
             None,
             self_peer,
-            PeerType::Node,
+            RemotePeer::PreHandshake(PeerType::Node, addr.ip(), addr.port()),
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
             networks,
@@ -246,7 +246,7 @@ impl TlsServer {
                     None,
                     Some(tls_session),
                     self_peer.clone(),
-                    peer_type,
+                    RemotePeer::PreHandshake(peer_type, ip, port),
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
                     Arc::clone(&networks),

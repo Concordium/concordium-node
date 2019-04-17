@@ -112,6 +112,10 @@ impl ConnectionPrivate {
 
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
+    pub fn remote_ip(&self) -> IpAddr { self.remote_peer().ip() }
+
+    pub fn remote_port(&self) -> u16 { self.remote_peer().port() }
+
     pub fn promote_to_post_handshake(
         &mut self,
         id: P2PNodeId,

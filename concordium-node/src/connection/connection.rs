@@ -118,7 +118,7 @@ impl Connection {
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
-        remote_peer_type: PeerType,
+        remote_peer: RemotePeer,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
         own_networks: Arc<RwLock<HashSet<NetworkId>>>,
@@ -128,7 +128,7 @@ impl Connection {
         let curr_stamp = get_current_stamp();
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             self_peer,
-            RemotePeer::PreHandshake(remote_peer_type),
+            remote_peer,
             own_networks,
             buckets,
             tls_server_session,
@@ -320,9 +320,13 @@ impl Connection {
 
     pub fn is_post_handshake(&self) -> bool { self.dptr.borrow().remote_peer.is_post_handshake() }
 
-    pub fn ip(&self) -> IpAddr { self.dptr.borrow().local_peer.ip() }
+    pub fn local_ip(&self) -> IpAddr { self.dptr.borrow().local_peer.ip() }
 
-    pub fn port(&self) -> u16 { self.dptr.borrow().local_peer.port() }
+    pub fn local_port(&self) -> u16 { self.dptr.borrow().local_peer.port() }
+
+    pub fn remote_ip(&self) -> IpAddr { self.dptr.borrow().remote_ip() }
+
+    pub fn remote_port(&self) -> u16 { self.dptr.borrow().remote_port() }
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
@@ -492,7 +496,7 @@ impl Connection {
         let buf_cursor = UCursor::from(buf);
         let outer = Arc::new(NetworkMessage::deserialize(
             self.remote_peer(),
-            self.ip(),
+            self.remote_ip(),
             buf_cursor,
         ));
         self.messages_received += 1;
@@ -645,8 +649,8 @@ impl Connection {
             debug!(
                 "{}/{}:{} is attempting to write to socket {:?}",
                 self.local_id(),
-                self.ip(),
-                self.port(),
+                self.local_ip(),
+                self.local_port(),
                 self.socket
             );
 
@@ -680,6 +684,8 @@ impl Connection {
     }
 
     pub fn local_peer_type(&self) -> PeerType { self.dptr.borrow().local_peer.peer_type() }
+
+    pub fn remote_peer_type(&self) -> PeerType { self.dptr.borrow().remote_peer.peer_type() }
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 

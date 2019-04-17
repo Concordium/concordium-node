@@ -140,6 +140,7 @@ impl TlsServerPrivate {
                         remote_peer.id().to_string(),
                         remote_peer.ip(),
                         remote_peer.port(),
+                        remote_peer.peer_type(),
                         conn.get_messages_sent(),
                         conn.get_messages_received(),
                         conn.get_last_latency_measured(),
@@ -157,6 +158,13 @@ impl TlsServerPrivate {
             .find(|&conn| conn.borrow().remote_id() == Some(id))
     }
 
+    pub fn find_connections_by_id(&self, id: P2PNodeId) -> Vec<&Rc<RefCell<Connection>>> {
+        self.connections
+            .iter()
+            .filter(|&conn| conn.borrow().remote_id() == Some(id))
+            .collect()
+    }
+
     pub fn find_connection_by_token(&self, token: Token) -> Option<&Rc<RefCell<Connection>>> {
         self.connections
             .iter()
@@ -170,7 +178,7 @@ impl TlsServerPrivate {
     ) -> Option<&Rc<RefCell<Connection>>> {
         self.connections.iter().find(|&conn| {
             let borrowed = conn.borrow();
-            borrowed.ip() == ip && borrowed.port() == port
+            borrowed.remote_ip() == ip && borrowed.remote_port() == port
         })
     }
 
@@ -180,7 +188,7 @@ impl TlsServerPrivate {
     ) -> impl Iterator<Item = &Rc<RefCell<Connection>>> {
         self.connections.iter().filter(move |&conn| {
             let borrowed = conn.borrow();
-            borrowed.ip() == ip
+            borrowed.remote_ip() == ip
         })
     }
 
@@ -237,7 +245,16 @@ impl TlsServerPrivate {
                 // Deregister connection from the poll and shut down the socket
                 let mut conn = rc_conn.borrow_mut();
                 into_err!(poll.deregister(&conn.socket))?;
-                conn.shutdown()?;
+                let _ = match conn.shutdown() {
+                    Err(e) => {
+                        let downcasted_error = e.downcast::<std::io::Error>().unwrap();
+                        match downcasted_error.kind() {
+                            std::io::ErrorKind::NotFound => Ok(()),
+                            _ => Err(failure::Error::from_boxed_compat(Box::new(downcasted_error)))
+                        }
+                    }
+                    _ => Ok(())
+                }?;
                 // Report number of peers to prometheus
                 if let Some(ref prom) = &self.prometheus_exporter {
                     if conn.is_post_handshake() {
@@ -246,9 +263,40 @@ impl TlsServerPrivate {
                         }
                     }
                 }
-
                 Ok(conn.token())
             }).partition(Result::is_ok);
+
+        // Clean duplicates only if it's a regular node we're running
+        if peer_type != PeerType::Bootstrapper {
+            let mut connection_map: Vec<_> = self
+                .connections
+                .iter()
+                .filter_map(|rc_conn| {
+                    let rc_conn_borrowed = rc_conn.borrow();
+                    if rc_conn_borrowed.remote_id().is_some() {
+                        Some((
+                            rc_conn_borrowed.remote_id().unwrap(),
+                            rc_conn_borrowed.token(),
+                            rc_conn_borrowed.last_seen(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
+            connection_map.dedup_by_key(|p| p.0);
+            self.connections.iter().for_each(|rc_conn| {
+                let mut rc_conn_borrowed = rc_conn.borrow_mut();
+                if rc_conn_borrowed.remote_id().is_some()
+                    && !connection_map
+                        .iter()
+                        .any(|(_, token, _)| token == &rc_conn_borrowed.token())
+                {
+                    rc_conn_borrowed.close();
+                }
+            });
+        }
 
         // Remove the connection from the list of connections
         for conn in closing_conns {

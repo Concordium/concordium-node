@@ -36,6 +36,19 @@ pub enum PeerType {
     Bootstrapper,
 }
 
+impl fmt::Display for PeerType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                PeerType::Node => "Node",
+                PeerType::Bootstrapper => "Bootstrapper",
+            }
+        )
+    }
+}
+
 #[derive(Debug, Clone, Builder)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[builder(build_fn(skip))]
@@ -57,7 +70,7 @@ pub struct P2PPeer {
 // `PeerType` carried over from the previous state.
 #[derive(Debug, Clone)]
 pub enum RemotePeer {
-    PreHandshake(PeerType),
+    PreHandshake(PeerType, IpAddr, u16),
     PostHandshake(P2PPeer),
 }
 
@@ -83,9 +96,9 @@ impl RemotePeer {
         port: u16,
     ) -> Fallible<Self> {
         match *self {
-            RemotePeer::PreHandshake(peer_type) => Ok(RemotePeer::PostHandshake(P2PPeer::from(
-                peer_type, id, ip, port,
-            ))),
+            RemotePeer::PreHandshake(peer_type, ..) => Ok(RemotePeer::PostHandshake(
+                P2PPeer::from(peer_type, id, ip, port),
+            )),
             _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, ip, port)),
         }
     }
@@ -94,6 +107,27 @@ impl RemotePeer {
         match self {
             RemotePeer::PostHandshake(peer) => Some(peer),
             _ => None,
+        }
+    }
+
+    pub fn ip(self) -> IpAddr {
+        match self {
+            RemotePeer::PreHandshake(_, ip, _) => ip,
+            RemotePeer::PostHandshake(peer) => peer.ip(),
+        }
+    }
+
+    pub fn port(self) -> u16 {
+        match self {
+            RemotePeer::PreHandshake(.., port) => port,
+            RemotePeer::PostHandshake(peer) => peer.port(),
+        }
+    }
+
+    pub fn peer_type(&self) -> PeerType {
+        match self {
+            RemotePeer::PostHandshake(peer) => peer.peer_type(),
+            RemotePeer::PreHandshake(peer_type, ..) => *peer_type,
         }
     }
 }
