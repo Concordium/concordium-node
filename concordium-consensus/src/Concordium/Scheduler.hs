@@ -4,9 +4,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
-  (makeValidBlock
-  ,runBlock
-  ,execBlock
+  (filterTransactions
+  ,runTransactions
+  ,execTransactions
   ) where
 
 import qualified Acorn.TypeCheck as TC
@@ -422,8 +422,8 @@ handleTransferAccount origin acc txsender senderamount amount energy = do
 --    * @valid@ transactions is the list of transactions that should appear on the block in the order they should appear
 --    * @invalid@ is a list of invalid transactions.
 --    The order these transactions appear is arbitrary (i.e., they do not necessarily appear in the same order as in the input).
-makeValidBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
-makeValidBlock = go [] []
+filterTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
+filterTransactions = go [] []
   where go valid invalid (t:ts) = do
           dispatch t >>= \case
             TxValid reason -> go ((t, reason):valid) invalid ts
@@ -432,8 +432,8 @@ makeValidBlock = go [] []
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.
-runBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
-runBlock = go []
+runTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
+runTransactions = go []
   where go valid (t:ts) = do
           dispatch t >>= \case
             TxValid reason -> go ((t, reason):valid) ts
@@ -442,10 +442,10 @@ runBlock = go []
 
 -- |Execute transactions in sequence only for sideffects on global state.
 -- Returns @Right ()@ if block executed successfully, and @Left@ @FailureKind@ at
--- first failed transaction. This is more efficient than 'runBlock' since it
+-- first failed transaction. This is more efficient than 'runTransactions' since it
 -- does not have to build a list of results.
-execBlock :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind ())
-execBlock = go
+execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind ())
+execTransactions = go
   where go (t:ts) = do
           dispatch t >>= \case
             TxValid _ -> go ts

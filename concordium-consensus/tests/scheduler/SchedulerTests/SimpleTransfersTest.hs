@@ -84,7 +84,7 @@ testSimpleTransfer
         [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processTransactions transactionsInput
-    let ((suc, fails), gstate) = Types.runSI (Sch.makeValidBlock transactions)
+    let ((suc, fails), gstate) = Types.runSI (Sch.filterTransactions transactions)
                                              Types.dummyChainMeta
                                              initialBlockState
     

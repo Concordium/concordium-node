@@ -111,7 +111,7 @@ testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
-    let (suc, fails) = Types.evalSI (Sch.makeValidBlock transactions)
+    let (suc, fails) = Types.evalSI (Sch.filterTransactions transactions)
                                     Types.dummyChainMeta
                                     initialBlockState
     return (suc, fails)

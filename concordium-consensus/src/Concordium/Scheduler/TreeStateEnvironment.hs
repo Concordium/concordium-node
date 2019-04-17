@@ -31,7 +31,7 @@ executeFrom slotNumber blockParent lfPointer txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
-      res = runSI (Sch.execBlock txs) cm (bpState blockParent)
+      res = runSI (Sch.execTransactions txs) cm (bpState blockParent)
   in case res of
        (Right _, bs) -> Right bs
        (Left fk, _) -> Left fk
@@ -59,7 +59,7 @@ constructBlock slotNumber blockParent lfPointer =
     txSet <- mapM (\(acc, (l, _)) -> fmap snd <$> getAccountNonFinalized acc l) (HM.toList pt)
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     let txs = concatMap (concatMap Set.toList) txSet
-    let ((valid, invalid), bs) = runSI (Sch.makeValidBlock txs) cm (bpState blockParent)
+    let ((valid, invalid), bs) = runSI (Sch.filterTransactions txs) cm (bpState blockParent)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
