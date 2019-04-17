@@ -5,7 +5,7 @@ use std::{
     collections::HashSet,
     convert::TryFrom,
     io::Cursor,
-    net::{IpAddr, Shutdown},
+    net::{Shutdown, SocketAddr},
     rc::Rc,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
 };
@@ -320,13 +320,9 @@ impl Connection {
 
     pub fn is_post_handshake(&self) -> bool { self.dptr.borrow().remote_peer.is_post_handshake() }
 
-    pub fn local_ip(&self) -> IpAddr { self.dptr.borrow().local_peer.ip() }
+    pub fn local_addr(&self) -> SocketAddr { self.dptr.borrow().local_peer.addr }
 
-    pub fn local_port(&self) -> u16 { self.dptr.borrow().local_peer.port() }
-
-    pub fn remote_ip(&self) -> IpAddr { self.dptr.borrow().remote_ip() }
-
-    pub fn remote_port(&self) -> u16 { self.dptr.borrow().remote_port() }
+    pub fn remote_addr(&self) -> SocketAddr { self.dptr.borrow().remote_peer.addr() }
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
@@ -496,7 +492,7 @@ impl Connection {
         let buf_cursor = UCursor::from(buf);
         let outer = Arc::new(NetworkMessage::deserialize(
             self.remote_peer(),
-            self.remote_ip(),
+            self.remote_addr().ip(),
             buf_cursor,
         ));
         self.messages_received += 1;
@@ -647,10 +643,9 @@ impl Connection {
             self.dptr.borrow().tls_session.wants_write() && !self.closed && !self.closing;
         if wants_write {
             debug!(
-                "{}/{}:{} is attempting to write to socket {:?}",
+                "{}/{} is attempting to write to socket {:?}",
                 self.local_id(),
-                self.local_ip(),
-                self.local_port(),
+                self.local_addr(),
                 self.socket
             );
 
@@ -689,15 +684,8 @@ impl Connection {
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn promote_to_post_handshake(
-        &mut self,
-        id: P2PNodeId,
-        ip: IpAddr,
-        port: u16,
-    ) -> Fallible<()> {
-        self.dptr
-            .borrow_mut()
-            .promote_to_post_handshake(id, ip, port)
+    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
+        self.dptr.borrow_mut().promote_to_post_handshake(id, addr)
     }
 
     pub fn remote_end_networks(&self) -> HashSet<NetworkId> {

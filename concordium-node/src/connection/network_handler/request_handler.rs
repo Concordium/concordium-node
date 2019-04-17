@@ -112,7 +112,7 @@ mod request_handler_test {
     };
 
     use std::{
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, RwLock,
@@ -147,8 +147,7 @@ mod request_handler_test {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
             .peer_type(PeerType::Node)
-            .ip(ip)
-            .port(8080)
+            .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
         let node_id = P2PNodeId::default();

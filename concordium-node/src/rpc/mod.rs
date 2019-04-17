@@ -17,7 +17,7 @@ use consensus_sys::consensus::ConsensusContainer;
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use std::{
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, mpsc, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -268,10 +268,11 @@ impl P2P for RpcServerImpl {
                     )
                 });
                 let port = req.get_port().get_value() as u16;
+                let addr = SocketAddr::new(ip, port);
                 r.set_value(
                     self.node
                         .lock()
-                        .map(|mut locked| locked.connect(PeerType::Node, ip, port, None))
+                        .map(|mut locked| locked.connect(PeerType::Node, addr, None))
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -550,10 +551,10 @@ impl P2P for RpcServerImpl {
                             node_id.set_value(x.id.to_string());
                             peer_resp.set_node_id(node_id);
                             let mut ip = ::protobuf::well_known_types::StringValue::new();
-                            ip.set_value(x.ip.to_string());
+                            ip.set_value(x.addr.ip().to_string());
                             peer_resp.set_ip(ip);
                             let mut port = ::protobuf::well_known_types::UInt32Value::new();
-                            port.set_value(x.port.into());
+                            port.set_value(x.addr.port().into());
                             peer_resp.set_port(port);
                             peer_resp
                         })

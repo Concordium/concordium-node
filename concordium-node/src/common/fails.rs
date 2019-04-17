@@ -1,6 +1,6 @@
 use super::{P2PNodeId, PeerType};
 use failure::Fail;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 #[derive(Debug, Fail)]
 #[fail(display = "Empty IP or Port on P2PPeer building")]
@@ -8,28 +8,25 @@ pub struct EmptyIpPortError;
 
 #[derive(Debug, Fail)]
 #[fail(
-    display = "Missing fields on P2PPeer build: type<{:?}>, id<{:?}>, ip<{:?}>, port<{:?}>",
-    peer_type, id, ip, port
+    display = "Missing fields on P2PPeer build: type<{:?}>, id<{:?}>, addr<{:?}>",
+    peer_type, id, addr
 )]
 pub struct MissingFieldsError {
     peer_type: Option<PeerType>,
     id:        Option<P2PNodeId>,
-    ip:        Option<IpAddr>,
-    port:      Option<u16>,
+    addr:      Option<SocketAddr>,
 }
 
 impl MissingFieldsError {
     pub fn new(
         peer_type: Option<PeerType>,
         id: Option<P2PNodeId>,
-        ip: Option<IpAddr>,
-        port: Option<u16>,
+        addr: Option<SocketAddr>,
     ) -> MissingFieldsError {
         MissingFieldsError {
             peer_type,
             id,
-            ip,
-            port,
+            addr,
         }
     }
 }
@@ -46,17 +43,16 @@ impl InvalidLengthForIP {
 
 #[derive(Debug, Fail)]
 #[fail(
-    display = "Remote peer already promoted to post-handshake <{}>/<{}>/<{}>",
-    id, ip, port
+    display = "Remote peer already promoted to post-handshake <{}>/<{}>",
+    id, addr
 )]
 pub struct RemotePeerAlreadyPromoted {
     id:   P2PNodeId,
-    ip:   IpAddr,
-    port: u16,
+    addr: SocketAddr,
 }
 
 impl RemotePeerAlreadyPromoted {
-    pub fn new(id: P2PNodeId, ip: IpAddr, port: u16) -> Self { Self { id, ip, port } }
+    pub fn new(id: P2PNodeId, addr: SocketAddr) -> Self { Self { id, addr } }
 }
 
 #[derive(Debug, Fail)]

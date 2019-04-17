@@ -1,13 +1,13 @@
 use crate::common;
 
 use std::{
-    net::IpAddr,
+    net::SocketAddr,
     sync::{Arc, RwLock},
 };
 
 #[derive(Clone, Debug)]
 pub struct UnreachableNodes {
-    nodes: Arc<RwLock<Vec<(u64, IpAddr, u16)>>>,
+    nodes: Arc<RwLock<Vec<(u64, SocketAddr)>>>,
 }
 
 impl Default for UnreachableNodes {
@@ -21,18 +21,16 @@ impl UnreachableNodes {
         }
     }
 
-    pub fn contains(&self, ip: IpAddr, port: u16) -> bool {
+    pub fn contains(&self, addr: SocketAddr) -> bool {
         if let Ok(ref nodes) = safe_read!(self.nodes) {
-            return nodes
-                .iter()
-                .any(|(_, mip, mport)| ip == *mip && port == *mport);
+            return nodes.iter().any(|&(_, a)| a == addr);
         }
         true
     }
 
-    pub fn insert(&mut self, ip: IpAddr, port: u16) -> bool {
+    pub fn insert(&mut self, addr: SocketAddr) -> bool {
         if let Ok(ref mut nodes) = safe_write!(self.nodes) {
-            nodes.push((common::get_current_stamp(), ip, port));
+            nodes.push((common::get_current_stamp(), addr));
             true
         } else {
             false

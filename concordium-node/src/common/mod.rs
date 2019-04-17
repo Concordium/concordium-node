@@ -19,7 +19,7 @@ use std::{
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
 
@@ -54,8 +54,7 @@ impl fmt::Display for PeerType {
 #[builder(build_fn(skip))]
 pub struct P2PPeer {
     id: P2PNodeId,
-    ip: IpAddr,
-    port: u16,
+    pub addr: SocketAddr,
     #[builder(setter(skip))]
     last_seen: u64,
     peer_type: PeerType,
@@ -70,7 +69,7 @@ pub struct P2PPeer {
 // `PeerType` carried over from the previous state.
 #[derive(Debug, Clone)]
 pub enum RemotePeer {
-    PreHandshake(PeerType, IpAddr, u16),
+    PreHandshake(PeerType, SocketAddr),
     PostHandshake(P2PPeer),
 }
 
@@ -89,17 +88,12 @@ impl RemotePeer {
         }
     }
 
-    pub fn promote_to_post_handshake(
-        &self,
-        id: P2PNodeId,
-        ip: IpAddr,
-        port: u16,
-    ) -> Fallible<Self> {
+    pub fn promote_to_post_handshake(&self, id: P2PNodeId, addr: SocketAddr) -> Fallible<Self> {
         match *self {
-            RemotePeer::PreHandshake(peer_type, ..) => Ok(RemotePeer::PostHandshake(
-                P2PPeer::from(peer_type, id, ip, port),
+            RemotePeer::PreHandshake(peer_type, addr) => Ok(RemotePeer::PostHandshake(
+                P2PPeer::from(peer_type, id, addr),
             )),
-            _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, ip, port)),
+            _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, addr)),
         }
     }
 
@@ -110,17 +104,10 @@ impl RemotePeer {
         }
     }
 
-    pub fn ip(self) -> IpAddr {
+    pub fn addr(&self) -> SocketAddr {
         match self {
-            RemotePeer::PreHandshake(_, ip, _) => ip,
-            RemotePeer::PostHandshake(peer) => peer.ip(),
-        }
-    }
-
-    pub fn port(self) -> u16 {
-        match self {
-            RemotePeer::PreHandshake(.., port) => port,
-            RemotePeer::PostHandshake(peer) => peer.port(),
+            RemotePeer::PreHandshake(_, addr) => *addr,
+            RemotePeer::PostHandshake(peer) => peer.addr,
         }
     }
 
@@ -137,12 +124,10 @@ impl P2PPeerBuilder {
         let id = self.id.unwrap_or_else(P2PNodeId::default);
         self.id(id);
 
-        if self.peer_type.is_some() && self.id.is_some() && self.ip.is_some() && self.port.is_some()
-        {
+        if self.peer_type.is_some() && self.id.is_some() && self.addr.is_some() {
             Ok(P2PPeer {
                 peer_type: self.peer_type.unwrap(),
-                ip: self.ip.unwrap(),
-                port: self.port.unwrap(),
+                addr: self.addr.unwrap(),
                 id,
                 last_seen: get_current_stamp(),
             })
@@ -150,8 +135,7 @@ impl P2PPeerBuilder {
             bail!(fails::MissingFieldsError::new(
                 self.peer_type,
                 self.id,
-                self.ip,
-                self.port
+                self.addr
             ))
         }
     }
@@ -189,7 +173,9 @@ pub fn serialize_ip(ip: IpAddr) -> String {
     }
 }
 
-pub fn serialize_ip_port(ip: IpAddr, p: u16) -> String { format!("{}{:05}", serialize_ip(ip), p) }
+pub fn serialize_addr(addr: SocketAddr) -> String {
+    format!("{}{:05}", serialize_ip(addr.ip()), addr.port())
+}
 
 pub fn deserialize_ip4(pkt: &mut UCursor) -> Fallible<IpAddr> {
     let min_packet_size = PROTOCOL_IP4_LENGTH;
@@ -273,19 +259,16 @@ pub fn deserialize_ip_port(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
 }
 
 impl P2PPeer {
-    pub fn from(peer_type: PeerType, id: P2PNodeId, ip: IpAddr, port: u16) -> Self {
+    pub fn from(peer_type: PeerType, id: P2PNodeId, addr: SocketAddr) -> Self {
         P2PPeer {
             peer_type,
             id,
-            ip,
-            port,
+            addr,
             last_seen: get_current_stamp(),
         }
     }
 
-    pub fn serialize(&self) -> String {
-        format!("{}{}", self.id, serialize_ip_port(self.ip, self.port))
-    }
+    pub fn serialize(&self) -> String { format!("{}{}", self.id, serialize_addr(self.addr)) }
 
     pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
         let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
@@ -310,17 +293,16 @@ impl P2PPeer {
 
         P2PPeerBuilder::default()
             .id(node_id)
-            .ip(ip_addr)
-            .port(port)
+            .addr(SocketAddr::new(ip_addr, port))
             .peer_type(PeerType::Node)
             .build()
     }
 
     pub fn id(&self) -> P2PNodeId { self.id }
 
-    pub fn ip(&self) -> IpAddr { self.ip }
+    pub fn ip(&self) -> IpAddr { self.addr.ip() }
 
-    pub fn port(&self) -> u16 { self.port }
+    pub fn port(&self) -> u16 { self.addr.port() }
 
     pub fn last_seen(&self) -> u64 { self.last_seen }
 
@@ -392,8 +374,7 @@ mod tests {
         RemotePeer::PostHandshake(
             P2PPeerBuilder::default()
                 .peer_type(PeerType::Node)
-                .ip(ip)
-                .port(port)
+                .addr(SocketAddr::new(ip, port))
                 .build()
                 .unwrap(),
         )

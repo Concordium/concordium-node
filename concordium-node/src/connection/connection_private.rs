@@ -1,7 +1,7 @@
 use rustls::{ClientSession, ServerSession};
 use std::{
     collections::HashSet,
-    net::IpAddr,
+    net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::Sender,
@@ -112,17 +112,8 @@ impl ConnectionPrivate {
 
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
-    pub fn remote_ip(&self) -> IpAddr { self.remote_peer().ip() }
-
-    pub fn remote_port(&self) -> u16 { self.remote_peer().port() }
-
-    pub fn promote_to_post_handshake(
-        &mut self,
-        id: P2PNodeId,
-        ip: IpAddr,
-        port: u16,
-    ) -> Fallible<()> {
-        self.remote_peer = self.remote_peer.promote_to_post_handshake(id, ip, port)?;
+    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
+        self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
         Ok(())
     }
 

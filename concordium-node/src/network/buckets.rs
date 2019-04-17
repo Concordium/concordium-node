@@ -122,7 +122,11 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use std::{collections::HashSet, net::IpAddr, str::FromStr};
+    use std::{
+        collections::HashSet,
+        net::{IpAddr, SocketAddr},
+        str::FromStr,
+    };
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
@@ -133,14 +137,12 @@ mod tests {
         let p2p_peer = P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            IpAddr::from_str("127.0.0.1").unwrap(),
-            8888,
+            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8888),
         );
         let p2p_duplicate_peer = P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            IpAddr::from_str("127.0.0.1").unwrap(),
-            8889,
+            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8889),
         );
         buckets.insert_into_bucket(&p2p_peer, HashSet::new());
         buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());
