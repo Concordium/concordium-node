@@ -75,13 +75,12 @@ pub struct P2PNode {
     poll:                Arc<RwLock<Poll>>,
     id:                  P2PNodeId,
     send_queue:          Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
-    pub addr:            SocketAddr,
+    pub internal_addr:   SocketAddr,
     incoming_pkts:       Sender<Arc<NetworkMessage>>,
     start_time:          DateTime<Utc>,
     prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
     peer_type:           PeerType,
-    external_ip:         IpAddr,
-    external_port:       u16,
+    external_addr:       SocketAddr,
     seen_messages:       SeenMessagesList,
     thread:              Arc<RwLock<P2PNodeThread>>,
     quit_tx:             Option<Sender<bool>>,
@@ -274,12 +273,11 @@ impl P2PNode {
             poll: Arc::new(RwLock::new(poll)),
             id,
             send_queue: Arc::new(RwLock::new(VecDeque::new())),
-            addr: SocketAddr::new(ip, conf.common.listen_port),
+            internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             incoming_pkts: pkt_queue,
             start_time: Utc::now(),
             prometheus_exporter,
-            external_ip: own_peer_ip,
-            external_port: own_peer_port,
+            external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             peer_type,
             seen_messages,
             thread: Arc::new(RwLock::new(P2PNodeThread::default())),
@@ -953,7 +951,9 @@ impl P2PNode {
         }
     }
 
-    fn get_self_peer(&self) -> P2PPeer { P2PPeer::from(self.peer_type, self.id(), self.addr) }
+    fn get_self_peer(&self) -> P2PPeer {
+        P2PPeer::from(self.peer_type, self.id(), self.internal_addr)
+    }
 
     pub fn ban_node(&mut self, peer: BannedNode) -> Fallible<()> {
         safe_write!(self.tls_server)?.ban_node(peer)?;
