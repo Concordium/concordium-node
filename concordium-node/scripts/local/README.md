@@ -59,10 +59,13 @@ Use `--scale` argument and (`NUM_BAKERS` environment variable  to increase
 number of bakers for a specific service. As example, to run it using 4 baker nodes:
 
 ```bash
-$> NUM_BAKERS=4 docker-compose up --scale baker=4
+$> NUM_BAKERS=4 DESIRED_PEERS=4 docker-compose up --scale baker=4
 ```
-*NOTE:* It is crucial than environment variable `NUM_BAKERS` *will be equal to number
-of scaled bakers*.
+*NOTE:* It is crucial that the environment variable `NUM_BAKERS` *will be equal to number
+of scaled bakers*, and `DESIRED_PEERS` must be greater than or equal to `NUM_BAKERS`.
+
+*NOTE 2* To set extra args to the binaries, use the environment variable `EXTRA_ARGS`,
+where an example of which could be `--debug` to enable debug logging in the components.
 
 In order to *stop* and *remove* containers, networks, volumes, etc., you have to
 use:

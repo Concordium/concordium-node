@@ -57,19 +57,23 @@ function testnet_node() {
 #
 # testnet_docker_compose 4
 #
+# or for a debug edition
+#
+# testnet_docker_compose 4 --debug
+#
 #####
 function testnet_docker_compose() {
   if (( $# < 1 ))
   then
-    echo "Usage: testnet_docker_compose amount_of_bakers"
+    echo "Usage: testnet_docker_compose amount_of_bakers extra_args"
     return 1
   fi
   baker_count=$1; shift
   (
     cd $CONCORDIUM_P2P_DIR/scripts/local && \
     ./pre_build.sh && \
-    docker-compose build --no-cache && \
-    NUM_BAKERS=$baker_count docker-compose up --scale baker=$baker_count
+    docker-compose build && \
+    NUM_BAKERS=$baker_count DESIRED_PEERS=$(($baker_count)) EXTRA_ARGS="$@" docker-compose up --scale baker=$baker_count
   )
 }
 

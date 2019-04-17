@@ -387,15 +387,22 @@ impl P2PNode {
         // Print nodes
         if self.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                info!("Peer {}: {}/{}:{}", i, peer.id(), peer.ip(), peer.port());
+                info!(
+                    "Peer {}: {}/{}:{}/{}",
+                    i, peer.id, peer.ip, peer.port, peer.peer_type
+                );
             }
         }
     }
 
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
-        if !self.config.no_net
-            && self.config.desired_nodes_count > peer_stat_list.len() as u8
-            && self.peer_type != PeerType::Bootstrapper
+        if self.peer_type != PeerType::Bootstrapper
+            && !self.config.no_net
+            && self.config.desired_nodes_count
+                > peer_stat_list
+                    .iter()
+                    .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
+                    .count() as u8
         {
             if peer_stat_list.is_empty() {
                 if !self.config.no_bootstrap_dns {
@@ -669,11 +676,10 @@ impl P2PNode {
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
-                            let no_filter = |_: &Connection| true;
 
                             safe_write!(self.tls_server)?.send_over_all_connections(
                                 &data,
-                                &no_filter,
+                                &is_valid_connection_post_handshake,
                                 &check_sent_status_fn,
                             );
                         }
@@ -690,12 +696,11 @@ impl P2PNode {
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
-                            let no_filter = |_: &Connection| true;
 
                             let mut locked_tls_server = safe_write!(self.tls_server)?;
                             locked_tls_server.send_over_all_connections(
                                 &data,
-                                &no_filter,
+                                &is_valid_connection_post_handshake,
                                 &check_sent_status_fn,
                             );
 
@@ -711,12 +716,11 @@ impl P2PNode {
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
-                            let no_filter = |_: &Connection| true;
 
                             let mut locked_tls_server = safe_write!(self.tls_server)?;
                             locked_tls_server.send_over_all_connections(
                                 &data,
-                                &no_filter,
+                                &is_valid_connection_post_handshake,
                                 &check_sent_status_fn,
                             );
 
@@ -1074,3 +1078,6 @@ pub fn is_valid_connection_in_broadcast(
     }
     false
 }
+
+/// Connection is valid to send over as it has completed the handshake
+pub fn is_valid_connection_post_handshake(conn: &Connection) -> bool { conn.is_post_handshake() }

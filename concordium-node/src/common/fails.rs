@@ -1,6 +1,5 @@
 use super::{P2PNodeId, PeerType};
 use failure::Fail;
-use num_bigint::ParseBigIntError;
 use std::net::IpAddr;
 
 #[derive(Debug, Fail)]
@@ -73,11 +72,3 @@ impl InvalidIpType {
 #[derive(Debug, Fail)]
 #[fail(display = "Invalid length for serialized P2PPeer")]
 pub struct InvalidLength;
-
-#[derive(Debug, Fail)]
-#[fail(display = "Error while parsing P2PNodeId")]
-pub struct P2PNodeIdError;
-
-impl From<ParseBigIntError> for P2PNodeIdError {
-    fn from(_: ParseBigIntError) -> Self { P2PNodeIdError }
-}
