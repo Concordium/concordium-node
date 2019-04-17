@@ -167,7 +167,7 @@ fn main() -> Result<(), Error> {
             info!("Found existing banlist, loading up!");
             let mut locked_node = safe_write!(node)?;
             for n in nodes {
-                locked_node.ban_node(n.to_peer())?;
+                locked_node.ban_node(n)?;
             }
         }
         None => {
@@ -184,30 +184,13 @@ fn main() -> Result<(), Error> {
     safe_write!(message_handler)?.add_request_callback(make_atomic_callback!(
         move |msg: &NetworkRequest| {
             match msg {
-                NetworkRequest::BanNode(ref peer, ref x) => {
-                    info!("Ban node request for {:?}", x);
+                NetworkRequest::BanNode(ref peer, x) => {
                     let mut locked_cloned_node = safe_write!(cloned_node)?;
-                    let ban = locked_cloned_node
-                        .ban_node(x.to_owned())
-                        .map_err(|e| error!("{}", e));
-                    if ban.is_ok() {
-                        db.insert_ban(&peer.id().to_string(), &peer.ip().to_string(), peer.port());
-                        if !_no_trust_bans {
-                            locked_cloned_node.send_ban(x.to_owned())?;
-                        }
-                    }
+                    utils::ban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
                 }
-                NetworkRequest::UnbanNode(ref peer, ref x) => {
-                    info!("Unban node requets for {:?}", x);
-                    let req = safe_write!(cloned_node)?
-                        .unban_node(x.to_owned())
-                        .map_err(|e| error!("{}", e));
-                    if req.is_ok() {
-                        db.delete_ban(peer.id().to_string(), peer.ip().to_string(), peer.port());
-                        if !_no_trust_bans {
-                            safe_write!(cloned_node)?.send_unban(x.to_owned())?;
-                        }
-                    }
+                NetworkRequest::UnbanNode(ref peer, x) => {
+                    let mut locked_cloned_node = safe_write!(cloned_node)?;
+                    utils::unban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
                 }
                 _ => {}
             };

@@ -1,9 +1,9 @@
 use crate::proto::{
-    concordium_p2p_rpc_grpc::{create_p2_p, P2P},
-    AccountAddress, BlockHash, BlockHashAndAmount, ContractInstanceAddress, Empty,
-    NetworkChangeRequest, NodeInfoResponse, NumberResponse, P2PNetworkMessage, PeerConnectRequest,
-    PeerElement, PeerListResponse, PeerStatsResponse, SendMessageRequest, SendTransactionRequest,
-    StringResponse, SuccessResponse, SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
+    concordium_p2p_rpc_grpc::P2P, AccountAddress, BlockHash, BlockHashAndAmount,
+    ContractInstanceAddress, Empty, NetworkChangeRequest, NodeInfoResponse, NumberResponse,
+    P2PNetworkMessage, PeerConnectRequest, PeerElement, PeerListResponse, PeerStatsResponse,
+    SendMessageRequest, SendTransactionRequest, StringResponse, SuccessResponse,
+    SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
 };
 use std::sync::Arc;
 
@@ -269,5 +269,14 @@ impl P2P for P2PServiceForwarder {
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
     ) {
         forward_to_targets!(self.targets, get_last_final_instance_info, ctx, req, sink);
+    }
+
+    fn get_banned_peers(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<PeerListResponse>,
+    ) {
+        forward_to_targets!(self.targets, get_banned_peers, ctx, req, sink);
     }
 }

@@ -28,7 +28,9 @@ use crate::{
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
 };
 
-use crate::p2p::{peer_statistics::PeerStatistic, tls_server_private::TlsServerPrivate};
+use crate::p2p::{
+    banned_nodes::BannedNode, peer_statistics::PeerStatistic, tls_server_private::TlsServerPrivate,
+};
 
 pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
 pub type PreHandshake = AFunctor<SocketAddr>;
@@ -81,7 +83,9 @@ impl TlsServer {
         };
 
         mself.add_default_prehandshake_validations();
-        mself.setup_default_message_handler();
+        let _ = mself
+            .setup_default_message_handler()
+            .map_err(|e| error!("Couldn't set default message handlers for TLSServer: {}", e));
         mself
     }
 
@@ -126,14 +130,20 @@ impl TlsServer {
             .insert(ip, port)
     }
 
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
-        self.dptr.write().unwrap().get_peer_stats(nids)
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
+        Ok(safe_write!(self.dptr)?.get_peer_stats(nids))
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> bool { self.dptr.write().unwrap().ban_node(peer) }
+    pub fn ban_node(&mut self, peer: BannedNode) -> Fallible<bool> {
+        Ok(safe_write!(self.dptr)?.ban_node(peer))
+    }
 
-    pub fn unban_node(&mut self, peer: &P2PPeer) -> bool {
-        self.dptr.write().unwrap().unban_node(peer)
+    pub fn unban_node(&mut self, peer: BannedNode) -> Fallible<bool> {
+        Ok(safe_write!(self.dptr)?.unban_node(peer))
+    }
+
+    pub fn get_banlist(&self) -> Fallible<Vec<BannedNode>> {
+        Ok(safe_read!(self.dptr)?.get_banlist())
     }
 
     pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
@@ -328,7 +338,22 @@ impl TlsServer {
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It setups default message handler at TLSServer level.
-    fn setup_default_message_handler(&mut self) {}
+    fn setup_default_message_handler(&mut self) -> Fallible<()> {
+        let cloned_dptr = Arc::clone(&self.dptr);
+        let banned_nodes = Rc::clone(&safe_read!(cloned_dptr)?.banned_peers);
+        let to_disconnect = Rc::clone(&safe_read!(cloned_dptr)?.to_disconnect);
+        safe_write!(self.message_handler)?.add_request_callback(make_atomic_callback!(
+            move |req: &NetworkRequest| {
+                if let NetworkRequest::Handshake(ref peer, ..) = req {
+                    if banned_nodes.borrow().is_id_banned(peer.id()) {
+                        to_disconnect.borrow_mut().push_back(peer.id());
+                    }
+                }
+                Ok(())
+            }
+        ));
+        Ok(())
+    }
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
@@ -349,7 +374,7 @@ impl TlsServer {
     fn make_check_banned(&self) -> PreHandshakeCW {
         let cloned_dptr = Arc::clone(&self.dptr);
         make_atomic_callback!(move |sockaddr: &SocketAddr| {
-            if cloned_dptr.read().unwrap().addr_is_banned(sockaddr)? {
+            if cloned_dptr.read().unwrap().addr_is_banned(*sockaddr) {
                 bail!(fails::BannedNodeRequestedConnectionError);
             }
             Ok(())

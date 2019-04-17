@@ -1,4 +1,9 @@
-use crate::crypto;
+use crate::{
+    common::P2PPeer,
+    crypto,
+    db::P2PDB,
+    p2p::{banned_nodes::BannedNode, P2PNode},
+};
 use ::dns::dns;
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -574,6 +579,52 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     }
 
     ret
+}
+
+pub fn ban_node(
+    node: &mut P2PNode,
+    peer: &P2PPeer,
+    to_ban: BannedNode,
+    db: &P2PDB,
+    no_trust_bans: bool,
+) {
+    info!("Ban node request for {:?} from {:?}", to_ban, peer);
+    let ban = node.ban_node(to_ban).map_err(|e| error!("{}", e));
+    if ban.is_ok() {
+        let to_db = to_ban.to_db_repr();
+        match to_ban {
+            BannedNode::ById(_) => db.insert_ban_id(&to_db.0.unwrap()),
+            _ => db.insert_ban_addr(&to_db.1.unwrap()),
+        };
+        if !no_trust_bans {
+            node.send_ban(to_ban.clone())
+                .map_err(|e| error!("{}", e))
+                .ok();
+        }
+    }
+}
+
+pub fn unban_node(
+    node: &mut P2PNode,
+    peer: &P2PPeer,
+    to_unban: BannedNode,
+    db: &P2PDB,
+    no_trust_bans: bool,
+) {
+    info!("Unban node request for {:?} from {:?}", to_unban, peer);
+    let req = node.unban_node(to_unban).map_err(|e| error!("{}", e));
+    if req.is_ok() {
+        let to_db = to_unban.to_db_repr();
+        match to_unban {
+            BannedNode::ById(_) => db.delete_ban_id(&to_db.0.unwrap()),
+            _ => db.delete_ban_addr(&to_db.1.unwrap()),
+        };
+        if !no_trust_bans {
+            node.send_unban(to_unban.clone())
+                .map_err(|e| error!("{}", e))
+                .ok();
+        }
+    }
 }
 
 #[cfg(test)]

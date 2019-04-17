@@ -106,6 +106,7 @@ mod request_handler_test {
         common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::RequestHandler,
         network::request::NetworkRequest as NRequest,
+        p2p::banned_nodes::tests::dummy_ban_node,
     };
 
     use std::{
@@ -149,11 +150,12 @@ mod request_handler_test {
             .build()
             .unwrap();
         let node_id = P2PNodeId::default();
+        let banning_node = dummy_ban_node(Some(ip));
 
         let data = vec![
             NRequest::Ping(p2p_peer.clone()),
             NRequest::FindNode(p2p_peer.clone(), node_id),
-            NRequest::BanNode(p2p_peer.clone(), p2p_peer),
+            NRequest::BanNode(p2p_peer.clone(), banning_node),
         ];
         data
     }
