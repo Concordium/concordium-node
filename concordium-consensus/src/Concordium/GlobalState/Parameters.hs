@@ -9,7 +9,7 @@ import Data.Word
 import Data.ByteString
 import Data.Serialize
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 
 type BakerId = Word64

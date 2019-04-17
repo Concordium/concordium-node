@@ -15,7 +15,7 @@ import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 -- import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.Types as IDTypes
 import Concordium.ID.AccountHolder
