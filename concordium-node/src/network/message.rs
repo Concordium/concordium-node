@@ -1,6 +1,6 @@
 use super::{NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, UCursor},
+    common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
@@ -8,6 +8,7 @@ use crate::{
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
     },
+    p2p::banned_nodes::BannedNode,
 };
 use std::convert::TryFrom;
 
@@ -406,7 +407,7 @@ impl NetworkMessage {
     }
 
     pub fn try_deserialize(
-        peer: Option<P2PPeer>,
+        peer: RemotePeer,
         ip: IpAddr,
         mut pkt: UCursor,
     ) -> Fallible<NetworkMessage> {
@@ -461,16 +462,16 @@ impl NetworkMessage {
         let message_type_id = ProtocolMessageType::try_from(message_type_id_str)?;
         match message_type_id {
             ProtocolMessageType::RequestPing => Ok(NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(
-                    peer.ok_or_else(|| err_msg("Ping message requires a valid peer"))?,
-                ),
+                NetworkRequest::Ping(peer.is_post_handshake_or_else(|| {
+                    err_msg("Ping message requires handshake to be completed first")
+                })?),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::ResponsePong => Ok(NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong(
-                    peer.ok_or_else(|| err_msg("Pong message requires a valid peer"))?,
-                ),
+                NetworkResponse::Pong(peer.is_post_handshake_or_else(|| {
+                    err_msg("Pong message requires handshake to be completed first")
+                })?),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
@@ -478,7 +479,9 @@ impl NetworkMessage {
                 deserialize_response_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestGetPeers => deserialize_request_get_peers(
-                peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("GetPeers Request requires handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
@@ -486,64 +489,78 @@ impl NetworkMessage {
                 deserialize_request_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
-                peer.ok_or_else(|| err_msg("FindNode Request requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("FindNode Request requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::RequestBanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::BanNode(
-                    peer.ok_or_else(|| err_msg("BanNode Request requires a valid peer"))?,
-                    P2PPeer::deserialize(&mut pkt)?,
+                    peer.is_post_handshake_or_else(|| {
+                        err_msg("BanNode Request requires a handshake to be completed first")
+                    })?,
+                    BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::RequestUnbanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
-                    peer.ok_or_else(|| err_msg("UnbanNode Request requires a valid peer"))?,
-                    P2PPeer::deserialize(&mut pkt)?,
+                    peer.is_post_handshake_or_else(|| {
+                        err_msg("UnbanNode Request requires a handshake to be completed first")
+                    })?,
+                    BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::RequestJoinNetwork => deserialize_request_join_network(
-                peer.ok_or_else(|| err_msg("Join Network Request requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("Join Network Request requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::RequestLeaveNetwork => deserialize_request_leave_network(
-                peer.ok_or_else(|| err_msg("Leave Network Request requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("Leave Network Request requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::ResponseFindNode => deserialize_response_find_node(
-                peer.ok_or_else(|| err_msg("Find Node Response requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("Find Node Response requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::ResponsePeersList => deserialize_response_peer_list(
-                peer.ok_or_else(|| err_msg("Peer List Response requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("Peer List Response requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::DirectMessage => deserialize_direct_message(
-                peer.ok_or_else(|| err_msg("Direct Message requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("Direct Message requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::BroadcastedMessage => deserialize_broadcast_message(
-                peer.ok_or_else(|| err_msg("Broadcast Message requires a valid peer"))?,
+                peer.is_post_handshake_or_else(|| {
+                    err_msg("Broadcast Message requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
         }
     }
 
-    pub fn deserialize(
-        connection_peer: Option<P2PPeer>,
-        ip: IpAddr,
-        pkt: UCursor,
-    ) -> NetworkMessage {
+    pub fn deserialize(connection_peer: RemotePeer, ip: IpAddr, pkt: UCursor) -> NetworkMessage {
         match NetworkMessage::try_deserialize(connection_peer, ip, pkt) {
             Ok(message) => message,
             Err(e) => {
@@ -665,8 +682,11 @@ mod unit_test {
             .port(8888)
             .build()?;
 
-        let message =
-            NetworkMessage::try_deserialize(Some(local_peer.clone()), local_ip, cursor_on_disk)?;
+        let message = NetworkMessage::try_deserialize(
+            RemotePeer::PostHandshake(local_peer.clone()),
+            local_ip,
+            cursor_on_disk,
+        )?;
 
         if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {

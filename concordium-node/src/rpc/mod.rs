@@ -1,7 +1,7 @@
 mod fails;
 
 use crate::{
-    common::{P2PNodeId, P2PPeer, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration,
     db::P2PDB,
     failure::{Error, Fallible},
@@ -10,12 +10,12 @@ use crate::{
 
 use crate::{
     common::counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
-    p2p::P2PNode,
+    p2p::{banned_nodes::BannedNode, P2PNode},
     proto::*,
 };
-use ::grpcio::{self, Environment, ServerBuilder};
 use consensus_sys::consensus::ConsensusContainer;
 use futures::future::Future;
+use grpcio::{self, Environment, ServerBuilder};
 use std::{
     net::IpAddr,
     str::FromStr,
@@ -549,8 +549,8 @@ impl P2P for RpcServerImpl {
                             let mut ip = ::protobuf::well_known_types::StringValue::new();
                             ip.set_value(x.ip().to_string());
                             peer_resp.set_ip(ip);
-                            let mut port = ::protobuf::well_known_types::Int32Value::new();
-                            port.set_value(x.port() as i32);
+                            let mut port = ::protobuf::well_known_types::UInt32Value::new();
+                            port.set_value(x.port().into());
                             peer_resp.set_port(port);
                             peer_resp
                         })
@@ -701,47 +701,49 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
-            let f = if req.has_node_id() && req.has_ip() && req.has_port() {
-                let req_id = req.get_node_id().get_value().to_string();
-                let node_id = P2PNodeId::from_str(&req_id);
-                let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
-                let port = req.get_port().get_value() as u16;
-
-                if node_id.is_ok() && ip.is_ok() {
-                    let mut locked_node = self
-                        .node
-                        .lock()
-                        .expect("can't lock the node in rpc::ban_node!");
-                    let peer = P2PPeer::from(PeerType::Node, node_id.unwrap(), ip.unwrap(), port);
-                    if locked_node.ban_node(peer.clone()).is_ok() {
-                        let db_done = self.db.insert_ban(
-                            &peer.id().to_string(),
-                            &peer.ip().to_string(),
-                            peer.port(),
-                        );
+            let banned_node = if req.has_node_id() && !req.has_ip() {
+                P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
+                    .ok()
+                    .map(BannedNode::ById)
+            } else {
+                if req.has_ip() && !req.has_node_id() {
+                    IpAddr::from_str(&req.get_ip().get_value().to_string())
+                        .ok()
+                        .map(BannedNode::ByAddr)
+                } else {
+                    None
+                }
+            };
+            let f = if let Some(to_ban) = banned_node {
+                if let Ok(mut node) = self.node.lock() {
+                    if node.ban_node(to_ban).is_ok() {
+                        let to_db = to_ban.to_db_repr();
+                        let db_done = match to_ban {
+                            BannedNode::ById(_) => self.db.insert_ban_id(&to_db.0.unwrap()),
+                            _ => self.db.insert_ban_addr(&to_db.1.unwrap()),
+                        };
                         if db_done {
-                            r.set_value(locked_node.send_ban(peer.clone()).is_ok());
+                            r.set_value(node.send_ban(to_ban).is_ok());
                         } else {
-                            locked_node
-                                .unban_node(peer.clone())
-                                .map_err(|e| error!("{}", e))
-                                .ok();
+                            error!("There was an error inserting in the database, reverting ban");
+                            node.unban_node(to_ban).map_err(|e| error!("{}", e)).ok();
                             r.set_value(false);
                         }
                     }
                     sink.success(r)
                 } else {
                     sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::InvalidArgument,
-                        Some("invalid node_id or ip".to_string()),
+                        grpcio::RpcStatusCode::ResourceExhausted,
+                        Some("Node can't be locked".to_string()),
                     ))
                 }
             } else {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::InvalidArgument,
-                    Some("missing node_id, ip or port".to_string()),
+                    Some("Missing banned IP or address".to_string()),
                 ))
             };
+
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
@@ -755,45 +757,46 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, &self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
-            let f = if req.has_node_id() && req.has_ip() && req.has_port() {
-                let req_id = req.get_node_id().get_value().to_string();
-                let node_id = P2PNodeId::from_str(&req_id);
-                let ip = IpAddr::from_str(&req.get_ip().get_value().to_string());
-                let port = req.get_port().get_value() as u16;
-
-                if node_id.is_ok() && ip.is_ok() {
-                    let mut locked_node = self
-                        .node
-                        .lock()
-                        .expect("can't lock the node in rpc::unban_node!");
-                    let peer = P2PPeer::from(PeerType::Node, node_id.unwrap(), ip.unwrap(), port);
-                    if locked_node.unban_node(peer.clone()).is_ok() {
-                        let db_done = self.db.delete_ban(
-                            peer.id().to_string(),
-                            peer.ip().to_string(),
-                            peer.port(),
-                        );
+            let banned_node = if req.has_node_id() && !req.has_ip() {
+                P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
+                    .ok()
+                    .map(BannedNode::ById)
+            } else {
+                if req.has_ip() && !req.has_node_id() {
+                    IpAddr::from_str(&req.get_ip().get_value().to_string())
+                        .ok()
+                        .map(BannedNode::ByAddr)
+                } else {
+                    None
+                }
+            };
+            let f = if let Some(to_unban) = banned_node {
+                if let Ok(mut node) = self.node.lock() {
+                    if node.unban_node(to_unban).is_ok() {
+                        let to_db = to_unban.to_db_repr();
+                        let db_done = match to_unban {
+                            BannedNode::ById(_) => self.db.delete_ban_id(&to_db.0.unwrap()),
+                            _ => self.db.delete_ban_addr(&to_db.1.unwrap()),
+                        };
                         if db_done {
-                            r.set_value(locked_node.send_unban(peer.clone()).is_ok());
+                            r.set_value(node.send_unban(to_unban).is_ok());
                         } else {
-                            locked_node
-                                .ban_node(peer.clone())
-                                .map_err(|e| error!("{}", e))
-                                .ok();
+                            error!("There was an error deleting in the database, redoing ban");
+                            node.ban_node(to_unban).map_err(|e| error!("{}", e)).ok();
                             r.set_value(false);
                         }
                     }
                     sink.success(r)
                 } else {
                     sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::InvalidArgument,
-                        Some("invalid node_id or ip".to_string()),
+                        grpcio::RpcStatusCode::ResourceExhausted,
+                        Some("Node can't be locked".to_string()),
                     ))
                 }
             } else {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::InvalidArgument,
-                    Some("missing node_id, ip or port".to_string()),
+                    Some("Missing banned ID or address".to_string()),
                 ))
             };
             let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
@@ -902,6 +905,51 @@ impl P2P for RpcServerImpl {
             successful_byte_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
                 consensus.get_last_final_instance_info(req.get_payload())
             });
+        });
+    }
+
+    fn get_banned_peers(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<PeerListResponse>,
+    ) {
+        authenticate!(ctx, req, sink, &self.access_token, {
+            let mut r: PeerListResponse = PeerListResponse::new();
+            let f = if let Ok(node) = self.node.lock() {
+                if let Ok(s) = node.get_banlist() {
+                    r.set_peer(::protobuf::RepeatedField::from_vec(
+                        s.iter()
+                            .map(|banned_node| {
+                                let mut pe = PeerElement::new();
+                                let mut node_id = ::protobuf::well_known_types::StringValue::new();
+                                node_id.set_value(match banned_node {
+                                    BannedNode::ById(id) => id.to_string(),
+                                    _ => "*".to_owned(),
+                                });
+                                pe.set_node_id(node_id);
+                                let mut ip = ::protobuf::well_known_types::StringValue::new();
+                                ip.set_value(match banned_node {
+                                    BannedNode::ByAddr(addr) => addr.to_string(),
+                                    _ => "*".to_owned(),
+                                });
+                                pe.set_ip(ip);
+                                pe
+                            })
+                            .collect::<Vec<PeerElement>>(),
+                    ))
+                } else {
+                    r.set_peer(::protobuf::RepeatedField::from_vec(vec![]))
+                };
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Node can't be locked".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            ctx.spawn(f);
         });
     }
 }

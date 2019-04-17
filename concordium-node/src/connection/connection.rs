@@ -19,11 +19,11 @@ use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         functor::{AFunctorCW, FunctorError, FunctorResult},
-        get_current_stamp, P2PNodeId, P2PPeer, PeerType, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     connection::{MessageHandler, P2PEvent, RequestHandler, ResponseHandler},
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
         PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
     prometheus_exporter::PrometheusServer,
@@ -32,9 +32,12 @@ use crate::{
 use super::fails;
 #[cfg(not(target_os = "windows"))]
 use crate::connection::writev_adapter::WriteVAdapter;
-use crate::connection::{
-    connection_default_handlers::*, connection_handshake_handlers::*,
-    connection_private::ConnectionPrivate,
+use crate::{
+    connection::{
+        connection_default_handlers::*, connection_handshake_handlers::*,
+        connection_private::ConnectionPrivate,
+    },
+    network::protocol_message_type::ProtocolMessageType,
 };
 
 /// This macro clones `dptr` and moves it into callback closure.
@@ -47,12 +50,12 @@ macro_rules! handle_by_private {
 }
 
 macro_rules! drop_conn_if_unwanted {
-    ($process:expr, $self:ident, $poll:ident) => {
+    ($process:expr, $self:ident) => {
         if let Err(e) = $process {
             match e.downcast::<fails::UnwantedMessageError>() {
                 Ok(f) => {
                     error!("Dropping connection: {}", f);
-                    $self.close($poll)?;
+                    $self.close();
                 }
                 Err(e) => {
                     if let Ok(f) = e.downcast::<FunctorError>() {
@@ -85,7 +88,7 @@ pub enum ConnectionStatus {
 }
 
 pub struct Connection {
-    socket:                  TcpStream,
+    pub socket:              TcpStream,
     token:                   Token,
     pub closing:             bool,
     closed:                  bool,
@@ -115,6 +118,7 @@ impl Connection {
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
+        remote_peer_type: PeerType,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         event_log: Option<Sender<P2PEvent>>,
         own_networks: Arc<RwLock<HashSet<NetworkId>>>,
@@ -124,6 +128,7 @@ impl Connection {
         let curr_stamp = get_current_stamp();
         let priv_conn = Rc::new(RefCell::new(ConnectionPrivate::new(
             self_peer,
+            RemotePeer::PreHandshake(remote_peer_type),
             own_networks,
             buckets,
             tls_server_session,
@@ -307,8 +312,13 @@ impl Connection {
     pub fn local_id(&self) -> P2PNodeId { self.dptr.borrow().local_peer.id() }
 
     pub fn remote_id(&self) -> Option<P2PNodeId> {
-        self.dptr.borrow().remote_peer().map(|p| p.id())
+        match self.dptr.borrow().remote_peer() {
+            RemotePeer::PostHandshake(ref remote_peer) => Some(remote_peer.id()),
+            _ => None,
+        }
     }
+
+    pub fn is_post_handshake(&self) -> bool { self.dptr.borrow().remote_peer.is_post_handshake() }
 
     pub fn ip(&self) -> IpAddr { self.dptr.borrow().local_peer.ip() }
 
@@ -328,7 +338,7 @@ impl Connection {
 
     pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer.clone() }
 
-    pub fn remote_peer(&self) -> Option<P2PPeer> { self.dptr.borrow().remote_peer().to_owned() }
+    pub fn remote_peer(&self) -> RemotePeer { self.dptr.borrow().remote_peer().to_owned() }
 
     pub fn get_messages_received(&self) -> u64 { self.messages_received }
 
@@ -377,9 +387,9 @@ impl Connection {
 
     pub fn is_closed(&self) -> bool { self.closed }
 
-    pub fn close(&mut self, poll: &mut Poll) -> Fallible<()> {
-        self.closing = true;
-        poll.deregister(&self.socket)?;
+    pub fn close(&mut self) { self.closing = true; }
+
+    pub fn shutdown(&mut self) -> Fallible<()> {
         self.socket.shutdown(Shutdown::Both)?;
         Ok(())
     }
@@ -410,11 +420,6 @@ impl Connection {
                     written_bytes
                 );
             }
-        }
-
-        // Manage clossing event.
-        if self.closing {
-            self.close(poll).unwrap_or_else(|e| error!("{}", e));
         }
 
         let session_wants_read = self.dptr.borrow().tls_session.wants_read();
@@ -503,25 +508,21 @@ impl Connection {
     }
 
     fn validate_packet_type(&self, buf: &[u8]) -> Fallible<()> {
-        // TODO TODO TODO - proper way that Miguel now decodes enum msg types
-        // if self.mode() == P2PNodeMode::BootstrapperMode {
-        // if let Ok(msg_id_str) = std::str::from_utf8(buf) {
-        // match ProtocolMessageType::try_from(msg_id_str) {
-        // Ok(ProtocolMessageType::DirectMessage)
-        // | Ok(ProtocolMessageType::BroadcastedMessage) => {
-        // bail!(fails::PeerError{message : &"Wrong data type message received for
-        // node"}) }
-        // _ => return Ok(()),
-        // }
-        // }
-        // Ok(())
-        // } else {
-        // Ok(())
-        // }
+        if self.local_peer_type() == PeerType::Bootstrapper {
+            if let Ok(msg_id_str) = std::str::from_utf8(&buf[..PROTOCOL_MESSAGE_TYPE_LENGTH]) {
+                match ProtocolMessageType::try_from(msg_id_str) {
+                    Ok(ProtocolMessageType::DirectMessage)
+                    | Ok(ProtocolMessageType::BroadcastedMessage) => bail!(fails::PeerError {
+                        message: "Wrong data type message received for node",
+                    }),
+                    _ => return Ok(()),
+                }
+            }
+        }
         Ok(())
     }
 
-    fn validate_packet(&mut self, poll: &mut Poll) {
+    fn validate_packet(&mut self) {
         if !self.pkt_validated() {
             let buff = if let Some(ref bytebuf) = self.pkt_buffer {
                 if bytebuf.len() >= PROTOCOL_MESSAGE_LENGTH {
@@ -536,7 +537,7 @@ impl Connection {
                 if let Err(_) = self.validate_packet_type(bufdata) {
                     info!("Received network packet message, not wanted - disconnecting peer");
                     &self.clear_buffer();
-                    &self.close(poll);
+                    &self.close();
                 } else {
                     self.set_valid();
                     self.set_validated();
@@ -552,7 +553,7 @@ impl Connection {
         buf: &[u8],
     ) -> Fallible<()> {
         trace!("Received plaintext");
-        self.validate_packet(poll);
+        self.validate_packet();
         if self.expected_size > 0 && self.currently_read == self.expected_size {
             trace!("Completed packet with {} size", self.currently_read);
             if self.pkt_valid() || !self.pkt_validated() {
@@ -561,7 +562,7 @@ impl Connection {
                     buffered = buf[..].to_vec();
                 }
                 self.validate_packet_type(&buffered)?;
-                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
+                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
             }
 
             self.clear_buffer();
@@ -582,7 +583,7 @@ impl Connection {
                         buffered = buf[..].to_vec();
                     }
                     self.validate_packet_type(&buffered)?;
-                    drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
+                    drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
                 }
                 self.clear_buffer();
             }
@@ -598,7 +599,7 @@ impl Connection {
                     buffered = buf[..].to_vec();
                 }
                 self.validate_packet_type(&buffered)?;
-                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self, poll)
+                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
             }
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;
@@ -682,8 +683,15 @@ impl Connection {
 
     pub fn buckets(&self) -> Arc<RwLock<Buckets>> { Arc::clone(&self.dptr.borrow().buckets) }
 
-    pub fn set_remote_peer(&mut self, peer: P2PPeer) {
-        self.dptr.borrow_mut().set_remote_peer(peer);
+    pub fn promote_to_post_handshake(
+        &mut self,
+        id: P2PNodeId,
+        ip: IpAddr,
+        port: u16,
+    ) -> Fallible<()> {
+        self.dptr
+            .borrow_mut()
+            .promote_to_post_handshake(id, ip, port)
     }
 
     pub fn remote_end_networks(&self) -> HashSet<NetworkId> {

@@ -7,6 +7,4 @@ fi
 
 git submodule update --init --recursive
 
-scripts/build-base-docker.sh
-scripts/build-build-docker.sh $1
 scripts/build-universal-docker.sh $1

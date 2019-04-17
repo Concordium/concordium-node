@@ -1,4 +1,4 @@
-use crate::{prometheus_exporter::PrometheusServer, utils};
+use crate::{p2p::banned_nodes::BannedNode, prometheus_exporter::PrometheusServer, utils};
 use chrono::prelude::*;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -21,7 +21,9 @@ use std::{
 };
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, UCursor},
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+    },
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
@@ -231,7 +233,7 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(PeerType::Node, id, own_peer_ip, own_peer_port);
+        let self_peer = P2PPeer::from(peer_type, id, own_peer_ip, own_peer_port);
 
         let seen_messages = SeenMessagesList::new();
 
@@ -545,7 +547,7 @@ impl P2PNode {
     }
 
     fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
-        if let Some(remote_peer) = conn.remote_peer() {
+        if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
             match status {
                 Ok(_) => {
                     self.pks_sent_inc().unwrap(); // assuming non-failable
@@ -560,6 +562,59 @@ impl P2PNode {
                 }
             }
         }
+    }
+
+    fn process_unban(&self, inner_pkt: &NetworkRequest) -> Fallible<()> {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(conn, status);
+        if let NetworkRequest::UnbanNode(ref peer, ref unbanned_peer) = inner_pkt {
+            match unbanned_peer {
+                BannedNode::ById(id) => {
+                    if peer.id() != *id {
+                        let data = inner_pkt.serialize();
+                        let no_filter = |_: &Connection| true;
+
+                        safe_write!(self.tls_server)?.send_over_all_connections(
+                            &data,
+                            &no_filter,
+                            &check_sent_status_fn,
+                        );
+                    }
+                }
+                _ => {
+                    let data = inner_pkt.serialize();
+                    let no_filter = |_: &Connection| true;
+
+                    safe_write!(self.tls_server)?.send_over_all_connections(
+                        &data,
+                        &no_filter,
+                        &check_sent_status_fn,
+                    );
+                }
+            }
+        };
+        Ok(())
+    }
+
+    fn process_ban(&self, inner_pkt: &NetworkRequest) -> Fallible<()> {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(conn, status);
+        if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
+            let data = inner_pkt.serialize();
+            let retain = |conn: &Connection| match to_ban {
+                BannedNode::ById(id) => conn.remote_peer().peer().map_or(true, |x| x.id() != *id),
+                BannedNode::ByAddr(addr) => {
+                    conn.remote_peer().peer().map_or(true, |x| x.ip() != *addr)
+                }
+            };
+
+            safe_write!(self.tls_server)?.send_over_all_connections(
+                &data,
+                &retain,
+                &check_sent_status_fn,
+            );
+        };
+        Ok(())
     }
 
     pub fn process_messages(&mut self) -> Fallible<()> {
@@ -612,15 +667,7 @@ impl P2PNode {
                             };
                         }
                         NetworkMessage::NetworkRequest(
-                            ref inner_pkt @ NetworkRequest::UnbanNode(..),
-                            ..
-                        )
-                        | NetworkMessage::NetworkRequest(
                             ref inner_pkt @ NetworkRequest::GetPeers(..),
-                            ..
-                        )
-                        | NetworkMessage::NetworkRequest(
-                            ref inner_pkt @ NetworkRequest::BanNode(..),
                             ..
                         ) => {
                             let data = inner_pkt.serialize();
@@ -632,6 +679,14 @@ impl P2PNode {
                                 &check_sent_status_fn,
                             );
                         }
+                        NetworkMessage::NetworkRequest(
+                            ref inner_pkt @ NetworkRequest::UnbanNode(..),
+                            ..
+                        ) => self.process_unban(inner_pkt)?,
+                        NetworkMessage::NetworkRequest(
+                            ref inner_pkt @ NetworkRequest::BanNode(..),
+                            ..
+                        ) => self.process_ban(inner_pkt)?,
                         NetworkMessage::NetworkRequest(
                             ref inner_pkt @ NetworkRequest::JoinNetwork(..),
                             ..
@@ -776,7 +831,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_ban(&mut self, id: P2PPeer) -> Fallible<()> {
+    pub fn send_ban(&mut self, id: BannedNode) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::BanNode(self.get_self_peer(), id),
             None,
@@ -786,7 +841,7 @@ impl P2PNode {
         Ok(())
     }
 
-    pub fn send_unban(&mut self, id: P2PPeer) -> Fallible<()> {
+    pub fn send_unban(&mut self, id: BannedNode) -> Fallible<()> {
         safe_write!(self.send_queue)?.push_back(Arc::new(NetworkMessage::NetworkRequest(
             NetworkRequest::UnbanNode(self.get_self_peer(), id),
             None,
@@ -837,7 +892,7 @@ impl P2PNode {
     }
 
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
-        Ok(safe_read!(self.tls_server)?.get_peer_stats(nids))
+        Ok(safe_read!(self.tls_server)?.get_peer_stats(nids)?)
     }
 
     #[cfg(not(windows))]
@@ -902,20 +957,20 @@ impl P2PNode {
 
     fn get_self_peer(&self) -> P2PPeer {
         P2PPeer::from(
-            PeerType::Node,
+            self.peer_type,
             self.id(),
             self.get_listening_ip(),
             self.get_listening_port(),
         )
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> Fallible<()> {
-        safe_write!(self.tls_server)?.ban_node(peer);
+    pub fn ban_node(&mut self, peer: BannedNode) -> Fallible<()> {
+        safe_write!(self.tls_server)?.ban_node(peer)?;
         Ok(())
     }
 
-    pub fn unban_node(&mut self, peer: P2PPeer) -> Fallible<()> {
-        safe_write!(self.tls_server)?.unban_node(&peer);
+    pub fn unban_node(&mut self, peer: BannedNode) -> Fallible<()> {
+        safe_write!(self.tls_server)?.unban_node(peer)?;
         Ok(())
     }
 
@@ -977,6 +1032,10 @@ impl P2PNode {
         self.close()?;
         self.join()
     }
+
+    pub fn get_banlist(&self) -> Fallible<Vec<BannedNode>> {
+        safe_read!(self.tls_server)?.get_banlist()
+    }
 }
 
 impl Drop for P2PNode {
@@ -992,7 +1051,7 @@ impl MessageManager for P2PNode {
 }
 
 fn is_conn_peer_id(conn: &Connection, id: &P2PNodeId) -> bool {
-    if let Some(remote_peer) = conn.remote_peer() {
+    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         remote_peer.id() == *id
     } else {
         false
@@ -1007,7 +1066,7 @@ pub fn is_valid_connection_in_broadcast(
     sender: &P2PPeer,
     network_id: NetworkId,
 ) -> bool {
-    if let Some(remote_peer) = conn.remote_peer() {
+    if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         if remote_peer.id() != sender.id() && remote_peer.peer_type() != PeerType::Bootstrapper {
             let local_end_networks = conn.local_end_networks();
             return safe_read!(local_end_networks)

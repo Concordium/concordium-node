@@ -181,7 +181,7 @@ fn main() -> Fallible<()> {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n.to_peer())?;
+                node.ban_node(n)?;
             }
         }
         None => {
@@ -329,46 +329,16 @@ fn main() -> Fallible<()> {
                         }
 
                         NetworkMessage::NetworkRequest(
-                            NetworkRequest::BanNode(ref peer, ref x),
+                            NetworkRequest::BanNode(ref peer, x),
                             ..
                         ) => {
-                            info!("Ban node request for {:?}", x);
-                            let ban = _node_self_clone
-                                .ban_node(x.clone())
-                                .map_err(|e| error!("{}", e));
-                            if ban.is_ok() {
-                                db.insert_ban(
-                                    &peer.id().to_string(),
-                                    &peer.ip().to_string(),
-                                    peer.port(),
-                                );
-                                if !_no_trust_bans {
-                                    _node_self_clone
-                                        .send_ban(x.clone())
-                                        .unwrap_or_else(|e| error!("{}", e));
-                                }
-                            }
+                            utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
                         }
                         NetworkMessage::NetworkRequest(
-                            NetworkRequest::UnbanNode(ref peer, ref x),
+                            NetworkRequest::UnbanNode(ref peer, x),
                             ..
                         ) => {
-                            info!("Unban node requets for {:?}", x);
-                            let req = _node_self_clone
-                                .unban_node(x.to_owned())
-                                .map_err(|e| error!("{}", e));
-                            if req.is_ok() {
-                                db.delete_ban(
-                                    peer.id().to_string(),
-                                    peer.ip().to_string(),
-                                    peer.port(),
-                                );
-                                if !_no_trust_bans {
-                                    _node_self_clone
-                                        .send_unban(x.to_owned())
-                                        .unwrap_or_else(|e| error!("{}", e));
-                                }
-                            }
+                            utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
                         }
                         NetworkMessage::NetworkResponse(
                             NetworkResponse::PeerList(ref peer, ref peers),

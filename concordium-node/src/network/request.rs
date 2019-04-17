@@ -1,6 +1,7 @@
 use crate::{
     common::{P2PNodeId, P2PPeer},
     network::{NetworkId, ProtocolMessageType},
+    p2p::banned_nodes::BannedNode,
 };
 use std::collections::HashSet;
 
@@ -9,10 +10,10 @@ use std::collections::HashSet;
 pub enum NetworkRequest {
     Ping(P2PPeer),
     FindNode(P2PPeer, P2PNodeId),
-    BanNode(P2PPeer, P2PPeer),
+    BanNode(P2PPeer, BannedNode),
     Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
     GetPeers(P2PPeer, HashSet<NetworkId>),
-    UnbanNode(P2PPeer, P2PPeer),
+    UnbanNode(P2PPeer, BannedNode),
     JoinNetwork(P2PPeer, NetworkId),
     LeaveNetwork(P2PPeer, NetworkId),
 }
