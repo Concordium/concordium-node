@@ -34,7 +34,7 @@ import qualified Concordium.ID.AccountHolder as AH
 -- import qualified Data.Base58String.Bitcoin as Base58
 
 import Concordium.Crypto.SHA256(hash)
-import qualified Concordium.Crypto.BlockSignature as Sig
+import Concordium.Crypto.SignatureScheme(SchemeId(Ed25519), KeyPair)
 
 import Concordium.Types
 import qualified Concordium.Scheduler.Types as Types
@@ -49,8 +49,8 @@ import Prelude hiding(mod, exp)
 --     Left err -> fail $ "Error decoding JSON: " ++ err
 --     Right t -> transactionHelper t
 
-signTx :: Sig.KeyPair -> Types.TransactionHeader -> SerializedPayload -> Types.Transaction
-signTx = Types.signTransaction
+signTx :: KeyPair -> Types.TransactionHeader -> SerializedPayload -> Types.Transaction
+signTx = Types.signTransaction Ed25519
 
 transactionHelper :: MonadFail m => TransactionJSON -> Context m Types.Transaction
 transactionHelper t = do
@@ -102,7 +102,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
 
 data TransactionJSON = TJSON { metadata :: Types.TransactionHeader
                              , payload :: PayloadJSON
-                             , keypair :: Sig.KeyPair
+                             , keypair :: KeyPair
                              }
   deriving(Generic)
 

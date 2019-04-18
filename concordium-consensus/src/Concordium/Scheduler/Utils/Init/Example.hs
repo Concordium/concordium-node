@@ -7,7 +7,11 @@ module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, m
 import qualified Data.HashMap.Strict as Map
 import System.Random
 
-import qualified Concordium.Crypto.BlockSignature as S
+import Concordium.Crypto.SignatureScheme(KeyPair, SchemeId(Ed25519))
+import qualified Concordium.Crypto.SignatureScheme as Sig
+import Concordium.Crypto.Ed25519Signature(randomKeyPair)
+
+
 import Concordium.Types
 import qualified Concordium.ID.AccountHolder as AH
 import qualified Concordium.ID.Types as AH
@@ -67,22 +71,23 @@ initialTrans n = map initSimpleCounter $ enumFromTo 1 n
 mateuszAccount :: AccountAddress
 mateuszAccount = AH.accountAddress mateuszACI
 
-mateuszKP :: S.KeyPair
-mateuszKP = fst (S.randomKeyPair (mkStdGen 0))
+mateuszKP :: KeyPair
+mateuszKP = fst (randomKeyPair (mkStdGen 0))
 
 mateuszACI :: AH.AccountCreationInformation
-mateuszACI = AH.createAccount (S.verifyKey mateuszKP)
+mateuszACI = AH.createAccount (Sig.verifyKey mateuszKP)
 
 
 initSimpleCounter :: Int -> Types.Transaction
-initSimpleCounter n = Types.signTransaction mateuszKP
+initSimpleCounter n = Types.signTransaction Ed25519
+                                            mateuszKP
                                             (Types.TransactionHeader { thSender = mateuszAccount
                                                                      , thGasAmount = 10000
                                                                      , thNonce = fromIntegral n})
                        (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0))))
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
-makeTransaction inc ca n = Types.signTransaction mateuszKP hdr payload
+makeTransaction inc ca n = Types.signTransaction Ed25519 mateuszKP hdr payload
     where
         hdr = Types.TransactionHeader {thSender = mateuszAccount, thGasAmount = 100000, thNonce = n}
         payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))))
