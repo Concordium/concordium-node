@@ -15,16 +15,22 @@ import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
-import qualified Concordium.Crypto.BlockSignature as Sig
--- import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import Concordium.Crypto.SignatureScheme(SchemeId, Signature, KeyPair)
+import qualified Concordium.Crypto.AccountSignatureSchemes as SigScheme
 import qualified Concordium.ID.Types as IDTypes
 import Concordium.ID.AccountHolder
 
 import Concordium.Types
 import Concordium.Types.HashableTo
 
-newtype TransactionSignature = TransactionSignature Sig.Signature
-    deriving (Show, S.Serialize)
+data TransactionSignature = TransactionSignature {
+  tsScheme :: !SchemeId
+  ,tsSignature :: !Signature
+  }
+  deriving (Show, Generic)
+
+-- FIXME: Serialization will need to be relative to account address, since that specifies the scheme.
+instance S.Serialize TransactionSignature
 
 class S.Serialize t => TransactionData t where
     transactionHeader :: t -> TransactionHeader
@@ -33,15 +39,16 @@ class S.Serialize t => TransactionData t where
     transactionGasAmount :: t -> Amount
     transactionPayload :: t -> SerializedPayload
     transactionSignature :: t -> TransactionSignature
-    transactionSerialized :: t -> BS.ByteString
     transactionHash :: t -> H.Hash
 
+-- FIXME: Add last finalized block pointer to the header.
 data TransactionHeader = TransactionHeader {
     thSender :: AccountAddress,
     thNonce :: Nonce,
     thGasAmount :: Amount
 } deriving (Generic, Show)
 
+-- FIXME: Implement directly as specified in Transactions on the wiki
 instance S.Serialize TransactionHeader
 
 data Transaction = Transaction {
@@ -50,20 +57,29 @@ data Transaction = Transaction {
     trSignature :: TransactionSignature
 } deriving (Show, Generic)
 
+-- FIXME: Implement directly as specified in Transactions on the wiki
+instance S.Serialize Transaction
+
 -- |NB: We do not use the serialize instance of the body here, since that is
 -- already serialized and there is no need to add additional length information.
 -- FIXME: This method is inefficient (it creates temporary bytestrings which are
 -- probably not necessary if we had a more appropriate sign function.
 
-signTransaction :: Sig.KeyPair -> TransactionHeader -> SerializedPayload -> Transaction
-signTransaction keys header sb =
-    Transaction header sb (TransactionSignature (Sig.sign keys (S.encode header <> (_spayload sb))))
+signTransaction :: SchemeId -> KeyPair -> TransactionHeader -> SerializedPayload -> Transaction
+signTransaction sch keys header sb =
+    Transaction header sb (TransactionSignature sch (SigScheme.sign sch keys (S.encode header <> (_spayload sb))))
 
 -- |Verify that the given transaction was signed by the sender's key.
--- FIXME: Unimplemented until we have support from the crypto library.
 verifyTransactionSignature :: IDTypes.AccountVerificationKey -> BS.ByteString -> TransactionSignature -> Bool
-verifyTransactionSignature vfkey bs sig = True
+verifyTransactionSignature vfkey bs (TransactionSignature sid sig) = SigScheme.verify sid vfkey bs sig
+{-# INLINE verifyTransactionSignature #-}
 
+-- |Verify that the given transaction was signed by the sender's key.
+-- In contrast to 'verifyTransactionSignature' this method takes a structured transaction.
+verifyTransactionSignature' :: TransactionData msg => IDTypes.AccountVerificationKey -> msg -> TransactionSignature -> Bool
+verifyTransactionSignature' vfkey tx (TransactionSignature sid sig) =
+  SigScheme.verify sid vfkey (S.encode (transactionHeader tx) <> (_spayload (transactionPayload tx))) sig
+{-# INLINE verifyTransactionSignature' #-}
 
 
 instance TransactionData Transaction where
@@ -73,10 +89,7 @@ instance TransactionData Transaction where
     transactionGasAmount = thGasAmount . trHeader
     transactionPayload = trPayload
     transactionSignature = trSignature
-    transactionSerialized = S.encode
     transactionHash = getHash
-
-instance S.Serialize Transaction
 
 instance HashableTo H.Hash Transaction where
     getHash = H.hashLazy . S.runPutLazy . S.put
@@ -96,7 +109,6 @@ instance TransactionData HashedTransaction where
     transactionGasAmount = transactionGasAmount . unhashed
     transactionPayload = transactionPayload . unhashed
     transactionSignature = transactionSignature . unhashed
-    transactionSerialized = transactionSerialized . unhashed
     transactionHash = getHash
 
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
