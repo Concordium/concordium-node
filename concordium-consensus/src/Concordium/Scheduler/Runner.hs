@@ -11,6 +11,8 @@ module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
 
+import Data.Maybe(fromJust)
+
 import Data.Text(Text)
 import qualified Data.Text.Encoding as TE
 -- import Data.String
@@ -50,7 +52,7 @@ import Prelude hiding(mod, exp)
 --     Right t -> transactionHelper t
 
 signTx :: KeyPair -> Types.TransactionHeader -> SerializedPayload -> Types.Transaction
-signTx = Types.signTransaction Ed25519
+signTx kp th = fromJust . Types.signTransaction kp th
 
 transactionHelper :: MonadFail m => TransactionJSON -> Context m Types.Transaction
 transactionHelper t = do

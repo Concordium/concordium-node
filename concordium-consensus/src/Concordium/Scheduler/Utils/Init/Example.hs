@@ -79,7 +79,8 @@ mateuszACI = AH.createAccount (Sig.verifyKey mateuszKP)
 
 
 initSimpleCounter :: Int -> Types.Transaction
-initSimpleCounter n = Types.signTransaction Ed25519
+initSimpleCounter n = fromJust $
+                        Types.signTransaction
                                             mateuszKP
                                             (Types.TransactionHeader { thSender = mateuszAccount
                                                                      , thGasAmount = 10000
@@ -87,7 +88,7 @@ initSimpleCounter n = Types.signTransaction Ed25519
                        (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0))))
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
-makeTransaction inc ca n = Types.signTransaction Ed25519 mateuszKP hdr payload
+makeTransaction inc ca n = fromJust (Types.signTransaction mateuszKP hdr payload)
     where
         hdr = Types.TransactionHeader {thSender = mateuszAccount, thGasAmount = 100000, thNonce = n}
         payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))))
