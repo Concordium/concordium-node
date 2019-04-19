@@ -15,7 +15,7 @@ import Concordium.GlobalState.Transactions
 
 groupIntoSize :: (Show a, Integral a) => a -> String
 groupIntoSize s = 
-  let kb = s `div` 1
+  let kb = s
       nd = if kb > 0 then truncate (logBase 10 (fromIntegral kb)) else 0
   in if nd == 0 then show kb ++ "B"
      else let lb = 10^nd
@@ -36,4 +36,3 @@ tests = parallel $ do
   specify ("Transaction serialization with size = 100.") $ withMaxSuccess 10000 $ testTransaction 100
   specify ("Transaction serialization with size = 1000.") $ withMaxSuccess 10000 $ testTransaction 1000
   specify ("Transaction serialization with size = 100000.") $ withMaxSuccess 500 $ testTransaction 100000
-

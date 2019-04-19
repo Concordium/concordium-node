@@ -80,9 +80,11 @@ instance S.Serialize Transaction where
 -- FIXME: This method is inefficient (it creates temporary bytestrings which are
 -- probably not necessary if we had a more appropriate sign function.
 
-signTransaction :: SchemeId -> KeyPair -> TransactionHeader -> SerializedPayload -> Transaction
-signTransaction sch keys header sb =
-    Transaction header sb (TransactionSignature sch (SigScheme.sign sch keys (S.encode header <> (_spayload sb))))
+-- |Sign a transaction with the given header and body. If the header is invalid the method returns Nothing.
+signTransaction :: KeyPair -> TransactionHeader -> SerializedPayload -> Maybe Transaction
+signTransaction keys header sb = do
+  sch <- accountScheme (thSender header)
+  return (Transaction header sb (TransactionSignature sch (SigScheme.sign sch keys (S.encode header <> (_spayload sb)))))
 
 -- |Verify that the given transaction was signed by the sender's key.
 verifyTransactionSignature :: IDTypes.AccountVerificationKey -> BS.ByteString -> TransactionSignature -> Bool
