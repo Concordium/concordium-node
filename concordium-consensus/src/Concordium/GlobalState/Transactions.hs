@@ -8,6 +8,8 @@ module Concordium.GlobalState.Transactions where
 import Control.Exception
 import GHC.Generics
 import qualified Data.Serialize as S
+import qualified Data.Serialize.Put as P
+import qualified Data.Serialize.Get as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
@@ -27,7 +29,7 @@ data TransactionSignature = TransactionSignature {
   tsScheme :: !SchemeId
   ,tsSignature :: !Signature
   }
-  deriving (Show, Generic)
+  deriving (Eq, Show, Generic)
 
 -- FIXME: Serialization will need to be relative to account address, since that specifies the scheme.
 instance S.Serialize TransactionSignature
@@ -46,7 +48,7 @@ data TransactionHeader = TransactionHeader {
     thSender :: AccountAddress,
     thNonce :: Nonce,
     thGasAmount :: Amount
-} deriving (Generic, Show)
+} deriving (Eq, Generic, Show)
 
 -- FIXME: Implement directly as specified in Transactions on the wiki
 instance S.Serialize TransactionHeader
@@ -55,10 +57,23 @@ data Transaction = Transaction {
     trHeader :: TransactionHeader,
     trPayload :: SerializedPayload,
     trSignature :: TransactionSignature
-} deriving (Show, Generic)
+} deriving (Eq, Show, Generic)
 
--- FIXME: Implement directly as specified in Transactions on the wiki
-instance S.Serialize Transaction
+instance S.Serialize Transaction where
+  put tr = S.put (tsSignature . trSignature $ tr) <>
+           S.put (trHeader tr) <>
+           P.putByteString (_spayload (trPayload tr))
+
+  get = do
+    tsSignature <- S.get
+    trHeader <- S.get
+    case accountScheme (thSender trHeader) of
+      Nothing -> fail $ "Incorrect account address. Scheme does not exist: " ++ show (thSender trHeader)
+      Just tsScheme -> do
+        let trSignature = TransactionSignature{..}
+        l <- G.remaining
+        trPayload <- SerializedPayload <$> G.getBytes l
+        return Transaction{..}
 
 -- |NB: We do not use the serialize instance of the body here, since that is
 -- already serialized and there is no need to add additional length information.
@@ -78,7 +93,10 @@ verifyTransactionSignature vfkey bs (TransactionSignature sid sig) = SigScheme.v
 -- In contrast to 'verifyTransactionSignature' this method takes a structured transaction.
 verifyTransactionSignature' :: TransactionData msg => IDTypes.AccountVerificationKey -> msg -> TransactionSignature -> Bool
 verifyTransactionSignature' vfkey tx (TransactionSignature sid sig) =
-  SigScheme.verify sid vfkey (S.encode (transactionHeader tx) <> (_spayload (transactionPayload tx))) sig
+  SigScheme.verify sid
+                   vfkey (S.encode (transactionHeader tx) <>
+                          (_spayload (transactionPayload tx)))
+                   sig
 {-# INLINE verifyTransactionSignature' #-}
 
 
