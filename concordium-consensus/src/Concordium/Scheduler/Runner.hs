@@ -47,7 +47,7 @@ import Prelude hiding(mod, exp)
 --     Right t -> transactionHelper t
 
 signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.Transaction
-signTx kp th = Types.signTransaction kp Ed25519 th
+signTx kp th = Types.signTransaction kp th
 
 transactionHelper :: MonadFail m => TransactionJSON -> Context m Types.Transaction
 transactionHelper t = do
