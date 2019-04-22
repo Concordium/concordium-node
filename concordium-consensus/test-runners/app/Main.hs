@@ -38,7 +38,7 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Concordium.Scheduler.Utils.Init.Example(makeTransaction, initialState)
+import Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Types
 
 import Concordium.Crypto.SHA256
@@ -50,7 +50,7 @@ transactions :: StdGen -> [Transaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nAccounts) 0
-        trs n (a : b : rs) = makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
+        trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
@@ -127,7 +127,7 @@ main = do
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
-    let iState = initialState nAccounts
+    let iState = Example.initialState nAccounts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bix, (_, bid)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"

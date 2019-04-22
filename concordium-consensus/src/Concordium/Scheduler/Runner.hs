@@ -11,14 +11,9 @@ module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
 
-import Data.Maybe(fromJust)
-
 import Data.Text(Text)
 import qualified Data.Text.Encoding as TE
--- import Data.String
-
 import qualified Data.Serialize as S
-
 import qualified Data.HashMap.Strict as Map
 
 import Control.Monad.Except
@@ -51,8 +46,8 @@ import Prelude hiding(mod, exp)
 --     Left err -> fail $ "Error decoding JSON: " ++ err
 --     Right t -> transactionHelper t
 
-signTx :: KeyPair -> Types.TransactionHeader -> SerializedPayload -> Types.Transaction
-signTx kp th = fromJust . Types.signTransaction kp th
+signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.Transaction
+signTx kp th = Types.signTransaction kp Ed25519 th
 
 transactionHelper :: MonadFail m => TransactionJSON -> Context m Types.Transaction
 transactionHelper t = do

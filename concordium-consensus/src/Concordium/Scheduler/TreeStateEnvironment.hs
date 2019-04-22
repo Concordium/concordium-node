@@ -25,7 +25,7 @@ executeFrom ::
   Slot -- ^Slot number of the block being executed.
   -> BlockPointer  -- ^Parent pointer from which to start executing
   -> BlockPointer -- ^Last finalized block pointer.
-  -> [HashedTransaction] -- ^Transactions on this block.
+  -> [Transaction] -- ^Transactions on this block.
   -> Either FailureKind BlockState
 executeFrom slotNumber blockParent lfPointer txs =
   let cm = let blockHeight = bpHeight blockParent + 1
@@ -48,7 +48,7 @@ constructBlock ::
   => Slot -- ^Slot number of the block to bake
   -> BlockPointer -- ^Parent pointer from which to start executing
   -> BlockPointer -- ^Last finalized block pointer.
-  -> m ([HashedTransaction], BlockState)
+  -> m ([Transaction], BlockState)
 constructBlock slotNumber blockParent lfPointer =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer

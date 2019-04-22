@@ -502,7 +502,7 @@ doGetBlocksAtHeight h = do
             | otherwise = findFrom (bpParent bp)
 
 
-doReceiveTransaction :: (TreeStateMonad m) => HashedTransaction -> Slot -> m ()
+doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m ()
 doReceiveTransaction tr slot = do
         added <- addCommitTransaction tr slot
         when added $ do
@@ -528,7 +528,7 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s) => SkovMonad (SimpleSkovMona
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
-    receiveTransaction tr = doReceiveTransaction (makeHashed tr) 0
+    receiveTransaction tr = doReceiveTransaction tr 0
     finalizeBlock = doFinalizeBlock noopSkovListeners
     isFinalized = doIsFinalized
     lastFinalizedBlock = getLastFinalized
@@ -559,7 +559,7 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) =
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
-    receiveTransaction tr = doReceiveTransaction (makeHashed tr) 0
+    receiveTransaction tr = doReceiveTransaction tr 0
     finalizeBlock = doFinalizeBlock sfsSkovListeners
     isFinalized = doIsFinalized
     lastFinalizedBlock = getLastFinalized
