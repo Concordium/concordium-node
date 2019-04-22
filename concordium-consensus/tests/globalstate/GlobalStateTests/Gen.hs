@@ -3,6 +3,7 @@ module GlobalStateTests.Gen where
 
 import Test.QuickCheck
 
+import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.GlobalState.Transactions
 import Concordium.Crypto.SignatureScheme
 import Concordium.ID.AccountHolder
@@ -24,19 +25,21 @@ genAccountAddress = do
   addr <- AccountAddress <$> (FBS.pack . (fromIntegral (fromEnum tsScheme) :) <$> vector 20)
   return (addr, tsScheme)
 
-genTransactionHeader :: Gen (TransactionHeader, SchemeId)
+genTransactionHeader :: Gen TransactionHeader
 genTransactionHeader = do
-  (thSender, tsScheme) <- genAccountAddress
+  thSenderKey <- VerifyKey . BS.pack <$> (vector 32)
   thNonce <- Nonce <$> arbitrary
   thGasAmount <- Amount <$> arbitrary
-  return (TransactionHeader{..}, tsScheme)
+  thFinalizedPointer <- Hash . FBS.pack <$> vector 32
+  return TransactionHeader{..}
 
 genTransaction :: Gen Transaction
 genTransaction = do
-  (trHeader, tsScheme) <- genTransactionHeader
+  trHeader <- genTransactionHeader
   n <- getSize
   l <- choose (1, n)
-  trPayload <- SerializedPayload . BS.pack <$>  (vector l)
+  trPayload <- EncodedPayload . BS.pack <$>  (vector l)
   s <- choose (1, 500)
+  tsScheme <- genSchemeId
   trSignature <- TransactionSignature tsScheme . Signature . BS.pack <$> vector s
-  return Transaction{..}
+  return $! makeTransaction trSignature trHeader trPayload

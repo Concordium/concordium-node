@@ -11,7 +11,6 @@ import Data.Hashable hiding (unhashed, hashed)
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
-import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState.Parameters
 import Concordium.Types
@@ -19,13 +18,7 @@ import Concordium.GlobalState.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.BlockState
 
-type BlockHash = Hash.Hash
-type BlockProof = VRF.Proof
-type BlockSignature = Sig.Signature
--- TODO: The hash is redundant; should be removed
-type BlockNonce = (VRF.Hash, VRF.Proof)
-
-newtype BlockTransactions = BlockTransactions {transactionList :: [HashedTransaction]}
+newtype BlockTransactions = BlockTransactions {transactionList :: [Transaction]}
 
 class BlockData b where
     -- |The slot number of the block (0 for genesis block)
@@ -42,7 +35,7 @@ class BlockData b where
     -- (undefined for genesis block)
     blockLastFinalized :: b -> BlockHash
     -- |The list of transactions in the block (empty for genesis block)
-    blockTransactions :: b -> [HashedTransaction]
+    blockTransactions :: b -> [Transaction]
     -- |Determine if the block is signed by the given key
     -- (always 'True' for genesis block)
     verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
@@ -88,7 +81,7 @@ blockBody (NormalBlock slot parent baker proof bnonce lastFin transactions _) = 
         put proof
         put bnonce
         put lastFin
-        put (unhashed <$> transactionList transactions)
+        put (transactionList transactions)
 
 instance Serialize Block where
     put b@GenesisBlock{} = blockBody b
@@ -104,7 +97,7 @@ instance Serialize Block where
             proof <- get
             bnonce <- get
             lastFin <- get
-            transactions <- BlockTransactions . fmap makeHashed <$> get
+            transactions <- BlockTransactions <$> get
             sig <- get
             return $ NormalBlock sl parent baker proof bnonce lastFin transactions sig
 
@@ -116,7 +109,7 @@ signBlock ::
     -> BlockProof
     -> BlockNonce
     -> BlockHash
-    -> [HashedTransaction]
+    -> [Transaction]
     -> Block
 signBlock key slot parent baker proof bnonce lastFin transactions
     | slot == 0 = error "Only the genesis block may have slot 0"

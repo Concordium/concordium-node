@@ -200,7 +200,7 @@ class Monad m => TreeStateMonad m where
     -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
     -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
     -- with that nonce.
-    getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set HashedTransaction)]
+    getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set Transaction)]
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
@@ -210,23 +210,23 @@ class Monad m => TreeStateMonad m where
     -- A return value of @True@ indicates that the transaction was added (and not already
     -- present).  A return value of @False@ indicates that the transaction was not added,
     -- either because it was already present or the nonce has already been finalized.
-    addTransaction :: HashedTransaction -> m Bool
+    addTransaction :: Transaction -> m Bool
     addTransaction tr = addCommitTransaction tr 0
     -- |Finalize a list of transactions.  Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
-    finalizeTransactions :: [HashedTransaction] -> m ()
+    finalizeTransactions :: [Transaction] -> m ()
     -- |Mark a transaction as committed on a block with the given slot number.
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
-    commitTransaction :: Slot -> HashedTransaction -> m ()
+    commitTransaction :: Slot -> Transaction -> m ()
     -- |Add a transaction and mark it committed for the given slot number.
-    addCommitTransaction :: HashedTransaction -> Slot -> m Bool
+    addCommitTransaction :: Transaction -> Slot -> m Bool
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
     -- Returns @True@ if the transaction is purged.
-    purgeTransaction :: HashedTransaction -> m Bool
+    purgeTransaction :: Transaction -> m Bool
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
