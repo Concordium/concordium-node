@@ -68,7 +68,6 @@ impl ConnectionPrivate {
             panic!("Connection needs one session");
         };
 
-        // trace!( "New ConnectionPrivate on {:?} at {}", self_peer, Backtrace::new());
         ConnectionPrivate {
             local_peer,
             remote_peer,

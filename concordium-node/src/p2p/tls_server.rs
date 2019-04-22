@@ -14,7 +14,6 @@ use std::{
         mpsc::Sender,
         Arc, RwLock,
     },
-    time::Duration,
 };
 use webpki::DNSNameRef;
 
@@ -35,10 +34,6 @@ use crate::p2p::{
 
 pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
 pub type PreHandshake = AFunctor<SocketAddr>;
-
-lazy_static! {
-    pub static ref CONNECTION_KEEP_ALIVE: Duration = Duration::from_secs(60);
-}
 
 pub struct TlsServer {
     server:                   TcpListener,
@@ -145,7 +140,6 @@ impl TlsServer {
 
     pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
-        let _ = socket.set_keepalive(Some(*CONNECTION_KEEP_ALIVE));
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
             addr,
@@ -222,9 +216,6 @@ impl TlsServer {
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                let _ = socket.set_keepalive(Some(*CONNECTION_KEEP_ALIVE));
-                // info!( "# Miguel: Socket with keepalive {:?} ms", socket.keepalive());
-
                 if let Some(ref prom) = &self.prometheus_exporter {
                     safe_write!(prom)?
                         .conn_received_inc()
