@@ -18,9 +18,8 @@ use consensus_sys::consensus;
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
-    common::{ConnectionType, P2PNodeId, UCursor},
+    common::{P2PNodeId, PeerType, UCursor},
     configuration,
-    connection::{P2PEvent, P2PNodeMode},
     db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
@@ -34,9 +33,8 @@ use std::{
     collections::HashMap,
     fs::OpenOptions,
     io::{Read, Write},
-    net::IpAddr,
-    rc::Rc,
-    str,
+    net::{IpAddr, SocketAddr},
+    str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
 };
@@ -102,10 +100,10 @@ fn main() -> Fallible<()> {
     let prometheus = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
-        srv.start_server(
-            &conf.prometheus.prometheus_listen_addr,
+        srv.start_server(SocketAddr::new(
+            conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
-        )
+        ))
         .unwrap_or_else(|e| error!("{}", e));
 
         Some(Arc::new(RwLock::new(srv)))
@@ -144,25 +142,7 @@ fn main() -> Fallible<()> {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!("Peer {} joined network {}", peer.id(), network_id);
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id(), network_id);
-                    }
-                }
+                info!("{}", msg);
             }
         });
         P2PNode::new(
@@ -170,18 +150,11 @@ fn main() -> Fallible<()> {
             &conf,
             pkt_in,
             Some(sender),
-            P2PNodeMode::NormalMode,
+            PeerType::Node,
             arc_prometheus,
         )
     } else {
-        P2PNode::new(
-            node_id,
-            &conf,
-            pkt_in,
-            None,
-            P2PNodeMode::NormalMode,
-            arc_prometheus,
-        )
+        P2PNode::new(node_id, &conf, pkt_in, None, PeerType::Node, arc_prometheus)
     };
 
     // Banning nodes in database
@@ -189,7 +162,7 @@ fn main() -> Fallible<()> {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n.to_peer())?;
+                node.ban_node(n)?;
             }
         }
         None => {
@@ -337,46 +310,16 @@ fn main() -> Fallible<()> {
                         }
 
                         NetworkMessage::NetworkRequest(
-                            NetworkRequest::BanNode(ref peer, ref x),
+                            NetworkRequest::BanNode(ref peer, x),
                             ..
                         ) => {
-                            info!("Ban node request for {:?}", x);
-                            let ban = _node_self_clone
-                                .ban_node(x.clone())
-                                .map_err(|e| error!("{}", e));
-                            if ban.is_ok() {
-                                db.insert_ban(
-                                    &peer.id().to_string(),
-                                    &peer.ip().to_string(),
-                                    peer.port(),
-                                );
-                                if !_no_trust_bans {
-                                    _node_self_clone
-                                        .send_ban(x.clone())
-                                        .unwrap_or_else(|e| error!("{}", e));
-                                }
-                            }
+                            utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
                         }
                         NetworkMessage::NetworkRequest(
-                            NetworkRequest::UnbanNode(ref peer, ref x),
+                            NetworkRequest::UnbanNode(ref peer, x),
                             ..
                         ) => {
-                            info!("Unban node requets for {:?}", x);
-                            let req = _node_self_clone
-                                .unban_node(x.to_owned())
-                                .map_err(|e| error!("{}", e));
-                            if req.is_ok() {
-                                db.delete_ban(
-                                    peer.id().to_string(),
-                                    peer.ip().to_string(),
-                                    peer.port(),
-                                );
-                                if !_no_trust_bans {
-                                    _node_self_clone
-                                        .send_unban(x.to_owned())
-                                        .unwrap_or_else(|e| error!("{}", e));
-                                }
-                            }
+                            utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
                         }
                         NetworkMessage::NetworkResponse(
                             NetworkResponse::PeerList(ref peer, ref peers),
@@ -400,9 +343,8 @@ fn main() -> Fallible<()> {
                                         );
                                         if _node_self_clone
                                             .connect(
-                                                ConnectionType::Node,
-                                                peer_node.ip(),
-                                                peer_node.port(),
+                                                PeerType::Node,
+                                                peer_node.addr,
                                                 Some(peer_node.id()),
                                             )
                                             .map_err(|e| info!("{}", e))
@@ -554,7 +496,7 @@ fn main() -> Fallible<()> {
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
                 if let Ok(node_list) = _node_ref.get_peer_stats(&[_network_id]) {
-                    if node_list.len() > 0 {
+                    if !node_list.is_empty() {
                         let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                         for message in test_messages {
                             let mut out_bytes = vec![];
@@ -609,7 +551,7 @@ fn start_baker(
         match get_baker_data(app_prefs, conf) {
             Ok((genesis, private_data)) => {
                 let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
-                &consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
+                consensus_runner.start_baker(conf.baker_id.unwrap(), private_data);
                 Some(consensus_runner)
             }
             Err(_) => {
@@ -623,9 +565,10 @@ fn start_baker(
 fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &mut P2PNode) {
     match bootstrap_nodes {
         Ok(nodes) => {
-            for (ip, port) in nodes {
-                info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                node.connect(ConnectionType::Bootstrapper, *ip, *port, None)
+            for &(ip, port) in nodes {
+                let addr = SocketAddr::new(ip, port);
+                info!("Found bootstrap node: {}", addr);
+                node.connect(PeerType::Bootstrapper, addr, None)
                     .unwrap_or_else(|e| error!("{}", e));
             }
         }
@@ -642,7 +585,7 @@ fn create_connections_from_config(
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(ConnectionType::Node, ip, port, None)
+                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
                     .unwrap_or_else(|e| error!("{}", e));
             }
             None => error!("Can't parse IP to connect to '{}'", &connect_to),

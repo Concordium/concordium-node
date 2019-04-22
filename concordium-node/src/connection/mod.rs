@@ -1,7 +1,6 @@
 pub mod network_handler;
 
 mod p2p_event;
-mod p2p_node_mode;
 mod seen_messages_list;
 mod writev_adapter;
 
@@ -26,6 +25,5 @@ pub use self::{
         NetworkResponseCW, PacketHandler, RequestHandler, ResponseHandler,
     },
     p2p_event::P2PEvent,
-    p2p_node_mode::P2PNodeMode,
     seen_messages_list::SeenMessagesList,
 };

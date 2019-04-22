@@ -14,6 +14,10 @@ pub struct RequestHandler {
     pub leave_network_handler: AFunctor<NRequest>,
 }
 
+impl Default for RequestHandler {
+    fn default() -> Self { RequestHandler::new() }
+}
+
 impl RequestHandler {
     pub fn new() -> Self {
         RequestHandler {
@@ -69,7 +73,7 @@ impl RequestHandler {
     }
 
     pub fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
-        let spec_status = match msg {
+        match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
                 self.ping_handler.run_callbacks(ping_inner_pkt)
             }
@@ -94,22 +98,21 @@ impl RequestHandler {
             ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => self
                 .leave_network_handler
                 .run_callbacks(leave_network_inner_pkt),
-        };
-
-        spec_status
+        }
     }
 }
 
 #[cfg(test)]
 mod request_handler_test {
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeerBuilder},
+        common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::RequestHandler,
         network::request::NetworkRequest as NRequest,
+        p2p::banned_nodes::tests::dummy_ban_node,
     };
 
     use std::{
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, RwLock,
@@ -143,17 +146,17 @@ mod request_handler_test {
     fn ut_1_data() -> Vec<NRequest> {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let p2p_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
-            .ip(ip)
-            .port(8080)
+            .peer_type(PeerType::Node)
+            .addr(SocketAddr::new(ip, 8080))
             .build()
             .unwrap();
         let node_id = P2PNodeId::default();
+        let banning_node = dummy_ban_node(Some(ip));
 
         let data = vec![
             NRequest::Ping(p2p_peer.clone()),
             NRequest::FindNode(p2p_peer.clone(), node_id),
-            NRequest::BanNode(p2p_peer.clone(), p2p_peer),
+            NRequest::BanNode(p2p_peer.clone(), banning_node),
         ];
         data
     }

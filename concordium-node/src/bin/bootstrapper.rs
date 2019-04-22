@@ -17,8 +17,9 @@ use chrono::prelude::Utc;
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
+    common::PeerType,
     configuration,
-    connection::{MessageManager, P2PEvent, P2PNodeMode},
+    connection::MessageManager,
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
@@ -26,7 +27,7 @@ use p2p_client::{
     safe_read, utils,
 };
 use std::{
-    rc::Rc,
+    net::SocketAddr,
     sync::{mpsc, Arc, RwLock},
     thread,
 };
@@ -76,10 +77,10 @@ fn main() -> Result<(), Error> {
     let prometheus = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
-        srv.start_server(
-            &conf.prometheus.prometheus_listen_addr,
+        srv.start_server(SocketAddr::new(
+            conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
-        )
+        ))
         .map_err(|e| error!("{}", e))
         .ok();
         Some(Arc::new(RwLock::new(srv)))
@@ -117,29 +118,7 @@ fn main() -> Result<(), Error> {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id().to_string(),
-                            network_id
-                        );
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
-                    }
-                }
+                info!("{}", msg);
             }
         });
         Arc::new(RwLock::new(P2PNode::new(
@@ -147,7 +126,7 @@ fn main() -> Result<(), Error> {
             &conf,
             pkt_in,
             Some(sender),
-            P2PNodeMode::BootstrapperMode,
+            PeerType::Bootstrapper,
             arc_prometheus,
         )))
     } else {
@@ -156,7 +135,7 @@ fn main() -> Result<(), Error> {
             &conf,
             pkt_in,
             None,
-            P2PNodeMode::BootstrapperMode,
+            PeerType::Bootstrapper,
             arc_prometheus,
         )))
     };
@@ -166,7 +145,7 @@ fn main() -> Result<(), Error> {
             info!("Found existing banlist, loading up!");
             let mut locked_node = safe_write!(node)?;
             for n in nodes {
-                locked_node.ban_node(n.to_peer())?;
+                locked_node.ban_node(n)?;
             }
         }
         None => {
@@ -183,30 +162,13 @@ fn main() -> Result<(), Error> {
     safe_write!(message_handler)?.add_request_callback(make_atomic_callback!(
         move |msg: &NetworkRequest| {
             match msg {
-                NetworkRequest::BanNode(ref peer, ref x) => {
-                    info!("Ban node request for {:?}", x);
+                NetworkRequest::BanNode(ref peer, x) => {
                     let mut locked_cloned_node = safe_write!(cloned_node)?;
-                    let ban = locked_cloned_node
-                        .ban_node(x.to_owned())
-                        .map_err(|e| error!("{}", e));
-                    if ban.is_ok() {
-                        db.insert_ban(&peer.id().to_string(), &peer.ip().to_string(), peer.port());
-                        if !_no_trust_bans {
-                            locked_cloned_node.send_ban(x.to_owned())?;
-                        }
-                    }
+                    utils::ban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
                 }
-                NetworkRequest::UnbanNode(ref peer, ref x) => {
-                    info!("Unban node requets for {:?}", x);
-                    let req = safe_write!(cloned_node)?
-                        .unban_node(x.to_owned())
-                        .map_err(|e| error!("{}", e));
-                    if req.is_ok() {
-                        db.delete_ban(peer.id().to_string(), peer.ip().to_string(), peer.port());
-                        if !_no_trust_bans {
-                            safe_write!(cloned_node)?.send_unban(x.to_owned())?;
-                        }
-                    }
+                NetworkRequest::UnbanNode(ref peer, x) => {
+                    let mut locked_cloned_node = safe_write!(cloned_node)?;
+                    utils::unban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
                 }
                 _ => {}
             };

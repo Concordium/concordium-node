@@ -8,7 +8,7 @@ use rustls::{ClientConfig, ClientSession, ServerConfig, ServerSession};
 use std::{
     time::Duration,
     collections::HashSet,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -24,12 +24,14 @@ use crate::{
 };
 
 use crate::{
-    common::{ConnectionType, P2PNodeId, P2PPeer},
-    connection::{Connection, MessageHandler, MessageManager, P2PEvent, P2PNodeMode},
+    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer},
+    connection::{Connection, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
 };
 
-use crate::p2p::{peer_statistics::PeerStatistic, tls_server_private::TlsServerPrivate};
+use crate::p2p::{
+    banned_nodes::BannedNode, peer_statistics::PeerStatistic, tls_server_private::TlsServerPrivate,
+};
 
 pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
 pub type PreHandshake = AFunctor<SocketAddr>;
@@ -45,7 +47,6 @@ pub struct TlsServer {
     client_tls_config:        Arc<ClientConfig>,
     event_log:                Option<Sender<P2PEvent>>,
     self_peer:                P2PPeer,
-    mode:                     P2PNodeMode,
     buckets:                  Arc<RwLock<Buckets>>,
     prometheus_exporter:      Option<Arc<RwLock<PrometheusServer>>>,
     message_handler:          Arc<RwLock<MessageHandler>>,
@@ -61,7 +62,6 @@ impl TlsServer {
         client_cfg: Arc<ClientConfig>,
         event_log: Option<Sender<P2PEvent>>,
         self_peer: P2PPeer,
-        mode: P2PNodeMode,
         prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
         networks: HashSet<NetworkId>,
         buckets: Arc<RwLock<Buckets>>,
@@ -79,7 +79,6 @@ impl TlsServer {
             client_tls_config: client_cfg,
             event_log,
             self_peer,
-            mode,
             prometheus_exporter,
             buckets,
             message_handler: Arc::new(RwLock::new(MessageHandler::new())),
@@ -87,14 +86,17 @@ impl TlsServer {
             blind_trusted_broadcast,
             prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
         };
+
         mself.add_default_prehandshake_validations();
-        mself.setup_default_message_handler();
+        let _ = mself
+            .setup_default_message_handler()
+            .map_err(|e| error!("Couldn't set default message handlers for TLSServer: {}", e));
         mself
     }
 
-    pub fn log_event(&mut self, event: P2PEvent) {
-        if let Some(ref mut x) = self.event_log {
-            if let Err(e) = x.send(event) {
+    pub fn log_event(&self, event: P2PEvent) {
+        if let Some(ref log) = self.event_log {
+            if let Err(e) = log.send(event) {
                 error!("Couldn't send error {:?}", e)
             }
         }
@@ -115,37 +117,35 @@ impl TlsServer {
         safe_write!(self.dptr)?.add_network(network_id)
     }
 
-    /// It returns true if `ip` at port `port` is in `unreachable_nodes` list.
-    pub fn is_unreachable(&self, ip: IpAddr, port: u16) -> bool {
-        self.dptr
-            .read()
-            .unwrap()
-            .unreachable_nodes
-            .contains(ip, port)
+    /// Returns true if `addr` is in the `unreachable_nodes` list.
+    pub fn is_unreachable(&self, addr: SocketAddr) -> bool {
+        self.dptr.read().unwrap().unreachable_nodes.contains(addr)
     }
 
-    /// It adds the pair `ip`,`port` to its `unreachable_nodes` list.
-    pub fn add_unreachable(&mut self, ip: IpAddr, port: u16) -> bool {
-        self.dptr
-            .write()
-            .unwrap()
-            .unreachable_nodes
-            .insert(ip, port)
+    /// Adds the `addr` to the `unreachable_nodes` list.
+    pub fn add_unreachable(&mut self, addr: SocketAddr) -> bool {
+        self.dptr.write().unwrap().unreachable_nodes.insert(addr)
     }
 
-    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
-        self.dptr.write().unwrap().get_peer_stats(nids)
+    pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Fallible<Vec<PeerStatistic>> {
+        Ok(safe_write!(self.dptr)?.get_peer_stats(nids))
     }
 
-    pub fn ban_node(&mut self, peer: P2PPeer) -> bool { self.dptr.write().unwrap().ban_node(peer) }
+    pub fn ban_node(&mut self, peer: BannedNode) -> Fallible<bool> {
+        Ok(safe_write!(self.dptr)?.ban_node(peer))
+    }
 
-    pub fn unban_node(&mut self, peer: &P2PPeer) -> bool {
-        self.dptr.write().unwrap().unban_node(peer)
+    pub fn unban_node(&mut self, peer: BannedNode) -> Fallible<bool> {
+        Ok(safe_write!(self.dptr)?.unban_node(peer))
+    }
+
+    pub fn get_banlist(&self) -> Fallible<Vec<BannedNode>> {
+        Ok(safe_read!(self.dptr)?.get_banlist())
     }
 
     pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
-        socket.set_keepalive( Some( *CONNECTION_KEEP_ALIVE));
+        let _ = socket.set_keepalive( Some( *CONNECTION_KEEP_ALIVE));
         // info!( "# Miguel: Accepted Socket with keepalive {:?} ms", socket.keepalive());
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
@@ -158,20 +158,19 @@ impl TlsServer {
             bail!(e);
         }
 
-        self.log_event(P2PEvent::ConnectEvent(addr.ip().to_string(), addr.port()));
+        self.log_event(P2PEvent::ConnectEvent(addr));
 
         let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
         let networks = self.networks();
         let mut conn = Connection::new(
-            ConnectionType::Node,
             socket,
             token,
             Some(tls_session),
             None,
             self_peer,
-            self.mode,
+            RemotePeer::PreHandshake(PeerType::Node, addr),
             self.prometheus_exporter.clone(),
             self.event_log.clone(),
             networks,
@@ -188,20 +187,19 @@ impl TlsServer {
 
     pub fn connect(
         &mut self,
-        connection_type: ConnectionType,
+        peer_type: PeerType,
         poll: &mut Poll,
-        ip: IpAddr,
-        port: u16,
+        addr: SocketAddr,
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
     ) -> Fallible<()> {
-        if connection_type == ConnectionType::Node && self.is_unreachable(ip, port) {
+        if peer_type == PeerType::Node && self.is_unreachable(addr) {
             error!("Node marked as unreachable, so not allowing the connection");
             bail!(fails::UnreachablePeerError);
         }
 
         // Avoid duplicate ip+port peers
-        if self_peer.ip() == ip && self_peer.port() == port {
+        if self_peer.addr == addr {
             bail!(fails::DuplicatePeerError);
         }
 
@@ -217,15 +215,15 @@ impl TlsServer {
 
         // Avoid duplicate ip+port connections
         if safe_read!(self.dptr)?
-            .find_connection_by_ip_addr(ip, port)
+            .find_connection_by_ip_addr(addr)
             .is_some()
         {
             bail!(fails::DuplicatePeerError);
         }
 
-        match TcpStream::connect(&SocketAddr::new(ip, port)) {
+        match TcpStream::connect(&addr) {
             Ok(socket) => {
-                socket.set_keepalive( Some( *CONNECTION_KEEP_ALIVE));
+                let _ = socket.set_keepalive( Some( *CONNECTION_KEEP_ALIVE));
                 // info!( "# Miguel: Socket with keepalive {:?} ms", socket.keepalive());
 
                 if let Some(ref prom) = &self.prometheus_exporter {
@@ -244,13 +242,12 @@ impl TlsServer {
 
                 let networks = self.networks();
                 let mut conn = Connection::new(
-                    connection_type,
                     socket,
                     token,
                     None,
                     Some(tls_session),
                     self_peer.clone(),
-                    self.mode,
+                    RemotePeer::PreHandshake(peer_type, addr),
                     self.prometheus_exporter.clone(),
                     self.event_log.clone(),
                     Arc::clone(&networks),
@@ -262,12 +259,8 @@ impl TlsServer {
                 conn.register(poll)?;
 
                 self.dptr.write().unwrap().add_connection(conn);
-                self.log_event(P2PEvent::ConnectEvent(ip.to_string(), port));
-                debug!(
-                    "Requesting handshake from new peer {}:{}",
-                    ip.to_string(),
-                    port
-                );
+                self.log_event(P2PEvent::ConnectEvent(addr));
+                debug!("Requesting handshake from new peer {}", addr,);
                 let self_peer = self.get_self_peer();
 
                 if let Some(ref rc_conn) = self.dptr.read().unwrap().find_connection_by_token(token)
@@ -286,7 +279,7 @@ impl TlsServer {
                 Ok(())
             }
             Err(e) => {
-                if connection_type == ConnectionType::Node && !self.add_unreachable(ip, port) {
+                if peer_type == PeerType::Node && !self.add_unreachable(addr) {
                     error!("Can't insert unreachable peer!");
                 }
                 into_err!(Err(e))
@@ -310,7 +303,7 @@ impl TlsServer {
         self.dptr
             .write()
             .unwrap()
-            .cleanup_connections(self.mode, poll)
+            .cleanup_connections(self.peer_type(), poll)
     }
 
     pub fn liveness_check(&self) -> Fallible<()> { self.dptr.write().unwrap().liveness_check() }
@@ -325,7 +318,7 @@ impl TlsServer {
     ///   of the operation.
     pub fn send_over_all_connections(
         &self,
-        data: &Vec<u8>,
+        data: &[u8],
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<usize>),
     ) {
@@ -336,13 +329,28 @@ impl TlsServer {
     }
 
     #[inline]
-    pub fn mode(&self) -> P2PNodeMode { self.mode }
+    pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type() }
 
     #[inline]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     /// It setups default message handler at TLSServer level.
-    fn setup_default_message_handler(&mut self) {}
+    fn setup_default_message_handler(&mut self) -> Fallible<()> {
+        let cloned_dptr = Arc::clone(&self.dptr);
+        let banned_nodes = Rc::clone(&safe_read!(cloned_dptr)?.banned_peers);
+        let to_disconnect = Rc::clone(&safe_read!(cloned_dptr)?.to_disconnect);
+        safe_write!(self.message_handler)?.add_request_callback(make_atomic_callback!(
+            move |req: &NetworkRequest| {
+                if let NetworkRequest::Handshake(ref peer, ..) = req {
+                    if banned_nodes.borrow().is_id_banned(peer.id()) {
+                        to_disconnect.borrow_mut().push_back(peer.id());
+                    }
+                }
+                Ok(())
+            }
+        ));
+        Ok(())
+    }
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
@@ -363,7 +371,7 @@ impl TlsServer {
     fn make_check_banned(&self) -> PreHandshakeCW {
         let cloned_dptr = Arc::clone(&self.dptr);
         make_atomic_callback!(move |sockaddr: &SocketAddr| {
-            if cloned_dptr.read().unwrap().addr_is_banned(sockaddr)? {
+            if cloned_dptr.read().unwrap().addr_is_banned(*sockaddr) {
                 bail!(fails::BannedNodeRequestedConnectionError);
             }
             Ok(())

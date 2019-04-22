@@ -14,9 +14,8 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use iron::{headers::ContentType, prelude::*, status};
 use p2p_client::{
-    common::{self, ConnectionType},
+    common::{self, PeerType},
     configuration,
-    connection::{P2PEvent, P2PNodeMode},
     db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
@@ -25,6 +24,7 @@ use p2p_client::{
 use rand::{distributions::Standard, thread_rng, Rng};
 use router::Router;
 use std::{
+    net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -392,29 +392,7 @@ fn main() -> Fallible<()> {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
             if let Ok(msg) = receiver.recv() {
-                match msg {
-                    P2PEvent::ConnectEvent(ip, port) => {
-                        info!("Received connection from {}:{}", ip, port)
-                    }
-                    P2PEvent::DisconnectEvent(msg) => info!("Received disconnect for {}", msg),
-                    P2PEvent::ReceivedMessageEvent(node_id) => {
-                        info!("Received message from {:?}", node_id)
-                    }
-                    P2PEvent::SentMessageEvent(node_id) => info!("Sent message to {:?}", node_id),
-                    P2PEvent::InitiatingConnection(ip, port) => {
-                        info!("Initiating connection to {}:{}", ip, port)
-                    }
-                    P2PEvent::JoinedNetwork(peer, network_id) => {
-                        info!(
-                            "Peer {} joined network {}",
-                            peer.id().to_string(),
-                            network_id
-                        );
-                    }
-                    P2PEvent::LeftNetwork(peer, network_id) => {
-                        info!("Peer {} left network {}", peer.id().to_string(), network_id);
-                    }
-                }
+                info!("{}", msg);
             }
         });
         Some(sender)
@@ -422,22 +400,15 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let mut node = P2PNode::new(
-        node_id,
-        &conf,
-        pkt_in,
-        node_sender,
-        P2PNodeMode::NormalMode,
-        None,
-    );
+    let mut node = P2PNode::new(node_id, &conf, pkt_in, node_sender, PeerType::Node, None);
 
-    let _node_th = node.spawn();
+    let _ = node.spawn();
 
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n.to_peer())?;
+                node.ban_node(n)?;
             }
         }
         None => {
@@ -491,49 +462,20 @@ fn main() -> Fallible<()> {
                         }
                     }
                 },
-                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, ref x), ..) => {
-                    info!("Ban node request for {:?}", x);
-                    let ban = _node_self_clone
-                        .ban_node(x.to_owned())
-                        .map_err(|e| error!("{}", e));
-                    if ban.is_ok() {
-                        db.insert_ban(&peer.id().to_string(), &peer.ip().to_string(), peer.port());
-                        if !_no_trust_bans {
-                            _node_self_clone
-                                .send_ban(x.to_owned())
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        }
-                    }
+                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
+                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
                 }
-                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, ref x), ..) => {
-                    info!("Unban node requets for {:?}", x);
-                    let req = _node_self_clone
-                        .unban_node(x.to_owned())
-                        .map_err(|e| error!("{}", e));
-                    if req.is_ok() {
-                        db.delete_ban(peer.id().to_string(), format!("{}", peer.ip()), peer.port());
-                        if !_no_trust_bans {
-                            _node_self_clone
-                                .send_unban(x.to_owned())
-                                .map_err(|e| error!("{}", e))
-                                .ok();
-                        }
-                    }
+                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
+                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
                 }
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    match _node_self_clone.get_peer_stats(&vec![]) {
+                    match _node_self_clone.get_peer_stats(&[]) {
                         Ok(x) => {
                             for peer_node in peers {
                                 if _node_self_clone
-                                    .connect(
-                                        ConnectionType::Node,
-                                        peer_node.ip(),
-                                        peer_node.port(),
-                                        Some(peer_node.id()),
-                                    )
+                                    .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
                                     .map_err(|e| error!("{}", e))
                                     .is_ok()
                                 {
@@ -558,7 +500,7 @@ fn main() -> Fallible<()> {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {
             Some((ip, port)) => {
                 info!("Connecting to peer {}", &connect_to);
-                node.connect(ConnectionType::Node, ip, port, None)
+                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
                     .map_err(|e| error!("{}", e))
                     .ok();
             }
@@ -571,8 +513,9 @@ fn main() -> Fallible<()> {
         match bootstrap_nodes {
             Ok(nodes) => {
                 for (ip, port) in nodes {
-                    info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                    node.connect(ConnectionType::Bootstrapper, ip, port, None)
+                    let addr = SocketAddr::new(ip, port);
+                    info!("Found bootstrap node: {}", addr);
+                    node.connect(PeerType::Bootstrapper, addr, None)
                         .map_err(|e| error!("{}", e))
                         .ok();
                 }

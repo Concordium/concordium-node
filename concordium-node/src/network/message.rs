@@ -1,6 +1,6 @@
 use super::{NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{get_current_stamp, ConnectionType, ContainerView, P2PNodeId, P2PPeer, UCursor},
+    common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
@@ -8,8 +8,9 @@ use crate::{
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
         PROTOCOL_VERSION,
     },
+    p2p::banned_nodes::BannedNode,
 };
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str::FromStr};
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
@@ -17,7 +18,7 @@ use crate::network::serialization::nom::s11n_network_message;
 use std::{
     collections::HashSet,
     io::{Seek, SeekFrom},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     str,
 };
 
@@ -364,12 +365,12 @@ fn deserialize_common_handshake(
 }
 
 fn deserialize_response_handshake(
-    ip: IpAddr,
+    remote_ip: IpAddr,
     timestamp: u64,
     pkt: &mut UCursor,
 ) -> Fallible<NetworkMessage> {
     let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(ConnectionType::Node, node_id, ip, port);
+    let peer = P2PPeer::from(PeerType::Node, node_id, SocketAddr::new(remote_ip, port));
 
     Ok(NetworkMessage::NetworkResponse(
         NetworkResponse::Handshake(peer, network_ids, content.as_slice().to_vec()),
@@ -379,12 +380,12 @@ fn deserialize_response_handshake(
 }
 
 fn deserialize_request_handshake(
-    ip: IpAddr,
+    remote_ip: IpAddr,
     timestamp: u64,
     pkt: &mut UCursor,
 ) -> Fallible<NetworkMessage> {
     let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(ConnectionType::Node, node_id, ip, port);
+    let peer = P2PPeer::from(PeerType::Node, node_id, SocketAddr::new(remote_ip, port));
 
     Ok(NetworkMessage::NetworkRequest(
         NetworkRequest::Handshake(peer, network_ids, content.as_slice().to_vec()),
@@ -406,7 +407,7 @@ impl NetworkMessage {
     }
 
     pub fn try_deserialize(
-        peer: Option<P2PPeer>,
+        peer: RemotePeer,
         ip: IpAddr,
         mut pkt: UCursor,
     ) -> Fallible<NetworkMessage> {
@@ -461,16 +462,16 @@ impl NetworkMessage {
         let message_type_id = ProtocolMessageType::try_from(message_type_id_str)?;
         match message_type_id {
             ProtocolMessageType::RequestPing => Ok(NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(
-                    peer.ok_or_else(|| err_msg("Ping message requires a valid peer"))?,
-                ),
+                NetworkRequest::Ping(peer.post_handshake_peer_or_else(|| {
+                    err_msg("Ping message requires handshake to be completed first")
+                })?),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::ResponsePong => Ok(NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong(
-                    peer.ok_or_else(|| err_msg("Pong message requires a valid peer"))?,
-                ),
+                NetworkResponse::Pong(peer.post_handshake_peer_or_else(|| {
+                    err_msg("Pong message requires handshake to be completed first")
+                })?),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
@@ -478,8 +479,8 @@ impl NetworkMessage {
                 deserialize_response_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestGetPeers => deserialize_request_get_peers(
-                peer.ok_or_else(|| {
-                    err_msg("Get Peers Request requires a valid peer")
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("GetPeers Request requires handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
@@ -488,66 +489,78 @@ impl NetworkMessage {
                 deserialize_request_handshake(ip, timestamp, &mut pkt)
             }
             ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
-                peer.ok_or_else(|| {
-                    err_msg("FindNode Request requires a valid peer")
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("FindNode Request requires a handshake to be completed first")
                 })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::RequestBanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::BanNode(
-                    peer.ok_or_else(|| err_msg("BanNode Request requires a valid peer"))?,
-                    P2PPeer::deserialize(&mut pkt)?,
+                    peer.post_handshake_peer_or_else(|| {
+                        err_msg("BanNode Request requires a handshake to be completed first")
+                    })?,
+                    BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::RequestUnbanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::UnbanNode(
-                    peer.ok_or_else(|| err_msg("UnbanNode Request requires a valid peer"))?,
-                    P2PPeer::deserialize(&mut pkt)?,
+                    peer.post_handshake_peer_or_else(|| {
+                        err_msg("UnbanNode Request requires a handshake to be completed first")
+                    })?,
+                    BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
             )),
             ProtocolMessageType::RequestJoinNetwork => deserialize_request_join_network(
-                peer.ok_or_else(|| err_msg("Join Network Request requires a valid peer"))?,
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Join Network Request requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::RequestLeaveNetwork => deserialize_request_leave_network(
-                peer.ok_or_else(|| err_msg("Leave Network Request requires a valid peer"))?,
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Leave Network Request requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::ResponseFindNode => deserialize_response_find_node(
-                peer.ok_or_else(|| err_msg("Find Node Response requires a valid peer"))?,
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Find Node Response requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::ResponsePeersList => deserialize_response_peer_list(
-                peer.ok_or_else(|| err_msg("Peer List Response requires a valid peer"))?,
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Peer List Response requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::DirectMessage => deserialize_direct_message(
-                peer.ok_or_else(|| err_msg("Direct Message requires a valid peer"))?,
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Direct Message requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
             ProtocolMessageType::BroadcastedMessage => deserialize_broadcast_message(
-                peer.ok_or_else(|| err_msg("Broadcast Message requires a valid peer"))?,
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Broadcast Message requires a handshake to be completed first")
+                })?,
                 timestamp,
                 &mut pkt,
             ),
         }
     }
 
-    pub fn deserialize(
-        connection_peer: Option<P2PPeer>,
-        ip: IpAddr,
-        pkt: UCursor,
-    ) -> NetworkMessage {
+    pub fn deserialize(connection_peer: RemotePeer, ip: IpAddr, pkt: UCursor) -> NetworkMessage {
         match NetworkMessage::try_deserialize(connection_peer, ip, pkt) {
             Ok(message) => message,
             Err(e) => {
@@ -587,13 +600,13 @@ mod unit_test {
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
     use std::{
         io::Write,
-        net::{IpAddr, Ipv4Addr},
+        net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
     };
 
     use super::*;
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder, UCursor},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
         network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
     };
 
@@ -619,10 +632,9 @@ mod unit_test {
             let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
             let pkt = NetworkPacketBuilder::default()
                 .peer(P2PPeer::from(
-                    ConnectionType::Node,
+                    PeerType::Node,
                     p2p_node_id,
-                    IpAddr::from_str("127.0.0.1")?,
-                    8888,
+                    SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
                 ))
                 .message_id(NetworkPacket::generate_message_id())
                 .network_id(NetworkId::from(111))
@@ -664,13 +676,15 @@ mod unit_test {
         // Local stuff
         let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let local_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
-            .ip(local_ip)
-            .port(8888)
+            .peer_type(PeerType::Node)
+            .addr(SocketAddr::new(local_ip, 8888))
             .build()?;
 
-        let message =
-            NetworkMessage::try_deserialize(Some(local_peer.clone()), local_ip, cursor_on_disk)?;
+        let message = NetworkMessage::try_deserialize(
+            RemotePeer::PostHandshake(local_peer.clone()),
+            local_ip,
+            cursor_on_disk,
+        )?;
 
         if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {

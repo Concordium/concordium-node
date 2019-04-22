@@ -21,13 +21,13 @@ message PeerConnectRequest {
 
 message PeerElement {
   google.protobuf.StringValue node_id = 1;
-  google.protobuf.Int32Value port = 2;
+  google.protobuf.UInt32Value port = 2;
   google.protobuf.StringValue ip = 3;
 }
 
 message PeerListResponse {
-          string node_type = 1;
-          repeated PeerElement peer = 2;
+  string peer_type = 1;
+  repeated PeerElement peer = 2;
 }
 
 message PeerStatsResponse {
@@ -79,9 +79,9 @@ message NetworkChangeRequest {
 }
 
 message NodeInfoResponse {
-   google.protobuf.StringValue node_id = 1;
-   uint64 current_localtime = 2;
-  string node_type = 3;
+  google.protobuf.StringValue node_id = 1;
+  uint64 current_localtime = 2;
+  string peer_type = 3;
 }
 
 message SuccessfulJsonPayloadResponse {
@@ -155,4 +155,5 @@ service P2P {
   rpc GetLastFinalInstances(Empty) returns (SuccessfulBytePayloadResponse) {}
   rpc GetLastFinalAccountInfo(AccountAddress) returns (SuccessfulBytePayloadResponse) {}
   rpc GetLastFinalInstanceInfo(ContractInstanceAddress) returns (SuccessfulBytePayloadResponse) {}
+  rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
 }

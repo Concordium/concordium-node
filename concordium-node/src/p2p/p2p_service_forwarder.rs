@@ -1,34 +1,26 @@
 use crate::proto::{
-    concordium_p2p_rpc_grpc::{create_p2_p, P2P},
-    AccountAddress, BlockHash, BlockHashAndAmount, ContractInstanceAddress, Empty,
-    NetworkChangeRequest, NodeInfoResponse, NumberResponse, P2PNetworkMessage, PeerConnectRequest,
-    PeerElement, PeerListResponse, PeerStatsResponse, SendMessageRequest, SendTransactionRequest,
-    StringResponse, SuccessResponse, SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
+    concordium_p2p_rpc_grpc::P2P, AccountAddress, BlockHash, BlockHashAndAmount,
+    ContractInstanceAddress, Empty, NetworkChangeRequest, NodeInfoResponse, NumberResponse,
+    P2PNetworkMessage, PeerConnectRequest, PeerElement, PeerListResponse, PeerStatsResponse,
+    SendMessageRequest, SendTransactionRequest, StringResponse, SuccessResponse,
+    SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
 };
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct P2PServiceForwarder {
-    pub targets: Arc<RwLock<Vec<Box<dyn P2P>>>>,
-    service:     Option<Arc<::grpcio::Service>>,
+    pub targets: Arc<Vec<Box<dyn P2P + Send + Sync>>>,
 }
 
-unsafe impl Send for P2PServiceForwarder {}
-unsafe impl Sync for P2PServiceForwarder {}
+impl Default for P2PServiceForwarder {
+    fn default() -> Self { P2PServiceForwarder::new() }
+}
 
 impl P2PServiceForwarder {
     pub fn new() -> Self {
-        let part_mself = P2PServiceForwarder {
-            targets: Arc::new(RwLock::new(Vec::new())),
-            service: None,
-        };
-        let targets = Arc::clone(&part_mself.targets);
-        let service = create_p2_p(part_mself);
-        let mself = P2PServiceForwarder {
-            targets,
-            service: Some(Arc::new(service)),
-        };
-        mself
+        P2PServiceForwarder {
+            targets: Arc::new(Vec::new()),
+        }
     }
 }
 
@@ -41,14 +33,14 @@ pub fn p2p_service_forwarder() -> Arc<P2PServiceForwarder> { Arc::clone(&P2P_SER
 
 macro_rules! forward_to_targets {
     ($target:expr, $func:ident, $ctx:ident, $req:ident, $sink:ident) => {
-        let target_ref = &*($target.read().expect("Coudn't read target when forwarding"));
+        let target_ref = &$target;
 
         match target_ref.len() {
             1 => {
                 target_ref[0].$func($ctx, $req, $sink);
             }
             _ => {
-                error!("Unsupported more that one forward target");
+                error!("Only one forward target is supported");
                 // for p2p in target_ref {
                 // p2p.$func( $ctx.clone(), $req.clone(), $sink.clone());
                 // }
@@ -281,5 +273,14 @@ impl P2P for P2PServiceForwarder {
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
     ) {
         forward_to_targets!(self.targets, get_last_final_instance_info, ctx, req, sink);
+    }
+
+    fn get_banned_peers(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<PeerListResponse>,
+    ) {
+        forward_to_targets!(self.targets, get_banned_peers, ctx, req, sink);
     }
 }

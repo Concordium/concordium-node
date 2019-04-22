@@ -1,4 +1,3 @@
-use crate::fails as global_fails;
 use failure::{bail, Error};
 use std::sync::{Arc, RwLock};
 
@@ -77,7 +76,7 @@ impl<T> AFunctor<T> {
 
             if let Err(e) = match safe_read!(cb) {
                 Ok(locked_cb) => (*locked_cb)(message),
-                Err(p) => Err(Error::from(global_fails::PoisonError::from(p))),
+                Err(p) => Err(Error::from(p)),
             } {
                 status.push(e);
             };

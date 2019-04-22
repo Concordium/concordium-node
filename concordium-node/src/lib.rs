@@ -48,12 +48,15 @@ extern crate capnp;
 #[macro_use]
 extern crate nom;
 
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-pub const APPNAME: &'static str = env!("CARGO_PKG_NAME");
-const DEFAULT_DNS_PUBLIC_KEY: &'static str =
-    "58C4FD93586B92A76BA89141667B1C205349C6C38CC8AB2F6613F7483EBFDAA3";
-const ENV_DNS_PUBLIC_KEY: Option<&'static str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
+#[cfg(test)]
+#[macro_use]
+extern crate static_assertions;
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APPNAME: &str = env!("CARGO_PKG_NAME");
+const DEFAULT_DNS_PUBLIC_KEY: &str =
+    "58C4FD93586B92A76BA89141667B1C205349C6C38CC8AB2F6613F7483EBFDAA3";
+const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
 pub fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
 #[macro_use]
