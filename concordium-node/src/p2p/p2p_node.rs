@@ -69,7 +69,6 @@ pub struct P2PNodeThread {
     pub id:          Option<ThreadId>,
 }
 
-
 #[derive(Clone)]
 pub struct P2PNode {
     tls_server:          Arc<RwLock<TlsServer>>,
@@ -500,14 +499,28 @@ impl P2PNode {
             if id != current_thread_id {
                 let join_handle_opt = safe_write!(self.thread)?.join_handle.take();
                 if let Some(join_handle) = join_handle_opt {
-                    return join_handle.join().map_err(|_| fails::JoinError)?;
+                    let join_ret = join_handle.join().map_err(|e| {
+                        let join_error = format!("{:?}", e);
+                        fails::JoinError {
+                            cause: err_msg(join_error),
+                        }
+                    })?;
+                    return join_ret;
+                } else {
+                    bail!(fails::JoinError {
+                        cause: err_msg("Event thread has already be joined"),
+                    });
                 }
             } else {
-                bail!(fails::JoinError);
+                bail!(fails::JoinError {
+                    cause: err_msg("It is called from inside event thread"),
+                });
             }
+        } else {
+            bail!(fails::JoinError {
+                cause: err_msg("Missing event thread id"),
+            });
         }
-
-        Ok(())
     }
 
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }

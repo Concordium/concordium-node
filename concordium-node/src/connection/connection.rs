@@ -13,7 +13,7 @@ use std::{
 use mio::{net::TcpStream, Event, Poll, PollOpt, Ready, Token};
 use rustls::{ClientSession, ServerSession};
 
-use failure::{bail, Error, Fallible, Backtrace};
+use failure::{bail, Error, Fallible};
 
 use crate::{
     common::{
@@ -22,10 +22,9 @@ use crate::{
         get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     connection::{
-        MessageHandler, P2PEvent, RequestHandler, ResponseHandler,
-        connection_default_handlers::*,
-        connection_handshake_handlers::*,
-        connection_private::ConnectionPrivate
+        connection_default_handlers::*, connection_handshake_handlers::*,
+        connection_private::ConnectionPrivate, MessageHandler, P2PEvent, RequestHandler,
+        ResponseHandler,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
@@ -445,7 +444,6 @@ impl Connection {
                         Ok(0)
                     } else {
                         self.closing = true;
-                        error!( "# Miguel: Set close in {} due to {:?}", Backtrace::new(), read_err);
                         into_err!(Err(read_err))
                     }
                 }
@@ -475,7 +473,6 @@ impl Connection {
             }
             Err(read_err) => {
                 self.closing = true;
-                error!( "# Miguel: Set close in {}", Backtrace::new());
                 bail!(read_err);
             }
         }
@@ -499,7 +496,9 @@ impl Connection {
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref prom) = &self.prometheus_exporter() {
             if let Ok(mut plock) = safe_write!(prom) {
-                plock.pkt_received_inc().unwrap_or_else(|e| error!("Prometheus cannot increment packet received counter: {}", e));
+                plock.pkt_received_inc().unwrap_or_else(|e| {
+                    error!("Prometheus cannot increment packet received counter: {}", e)
+                });
             }
         };
 

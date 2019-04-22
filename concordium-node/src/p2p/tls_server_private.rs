@@ -218,7 +218,6 @@ impl TlsServerPrivate {
         self.to_disconnect.borrow_mut().drain(..).for_each(|x| {
             if let Some(conn) = self.find_connection_by_id(x) {
                 conn.borrow_mut().close();
-                    panic!("# Miguel: Close connection by timeout 1");
             }
         });
 

@@ -1,4 +1,4 @@
-use failure::Fail;
+use failure::{Error, Fail};
 
 #[derive(Debug, Fail)]
 #[fail(display = "Peer not found")]
@@ -18,5 +18,7 @@ pub struct BannedNodeRequestedConnectionError;
 
 #[derive(Debug, Fail)]
 #[fail(display = "Thread join error")]
-pub struct JoinError;
-
+pub struct JoinError {
+    #[fail(cause)]
+    pub cause: Error,
+}
