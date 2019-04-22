@@ -27,11 +27,12 @@ genAccountAddress = do
 
 genTransactionHeader :: Gen TransactionHeader
 genTransactionHeader = do
+  thScheme <- genSchemeId
   thSenderKey <- VerifyKey . BS.pack <$> (vector 32)
   thNonce <- Nonce <$> arbitrary
   thGasAmount <- Amount <$> arbitrary
   thFinalizedPointer <- Hash . FBS.pack <$> vector 32
-  return TransactionHeader{..}
+  return $ makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer
 
 genTransaction :: Gen Transaction
 genTransaction = do
@@ -40,6 +41,5 @@ genTransaction = do
   l <- choose (1, n)
   trPayload <- EncodedPayload . BS.pack <$>  (vector l)
   s <- choose (1, 500)
-  tsScheme <- genSchemeId
-  trSignature <- TransactionSignature tsScheme . Signature . BS.pack <$> vector s
+  trSignature <- TransactionSignature . Signature . BS.pack <$> vector s
   return $! makeTransaction trSignature trHeader trPayload

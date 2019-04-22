@@ -10,7 +10,6 @@ import qualified Data.Serialize as S
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
-import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -22,20 +21,18 @@ import qualified Concordium.ID.AccountHolder as AH
 import Concordium.Types
 import Concordium.Types.HashableTo
 
-data TransactionSignature = TransactionSignature {
-  tsScheme :: !SchemeId
-  ,tsSignature :: !Signature
-  }
+newtype TransactionSignature = TransactionSignature { tsSignature :: Signature }
   deriving (Eq, Show)
 
 -- |NB: Relies on the scheme and signature serialization to be sensibly defined as specified on the wiki!
 instance S.Serialize TransactionSignature where
-  put TransactionSignature{..} = S.put tsScheme <> S.put tsSignature
-  get = TransactionSignature <$> S.get <*> S.get
+  put TransactionSignature{..} = S.put tsSignature
+  get = TransactionSignature <$> S.get
 
 -- INVARIANT: First byte of 'thSender' matches the signature 'thScheme' field, and
 -- @thSender = AH.accountAddress' thSenderKey thScheme@.
 data TransactionHeader = TransactionHeader {
+    thScheme :: !SchemeId,  -- |Signature scheme used by the account.
     thSenderKey :: !IDTypes.AccountVerificationKey,  -- |Verification key of the sender.
     thNonce :: !Nonce,  -- |Per account nonce, strictly increasing, no gaps.
     thGasAmount :: !Amount,  -- |Amount dedicated for the execution of this transaction.
@@ -43,27 +40,27 @@ data TransactionHeader = TransactionHeader {
                                        -- is too out of date at the time of
                                        -- execution the transaction is dropped.
 
-    -- * The following fields are strictly redundant, but are here to avoid needless recomputation.
+    -- *The following fields are strictly redundant, but are here to avoid needless recomputation.
     -- In serialization we do not output them.
     thSender :: AccountAddress  -- | Sender account. Derived from the sender key as specified.
     } deriving (Eq, Show)
 
 -- |NB: Relies on the verify key serialization being defined as specified on the wiki.
-putTransactionHeader :: TransactionHeader -> S.Put
-putTransactionHeader TransactionHeader{..} =
-    S.put thSenderKey <>
-    S.put thNonce <>
-    S.put thGasAmount <>
-    S.put thFinalizedPointer
+instance S.Serialize TransactionHeader where
+  put TransactionHeader{..} =
+      S.put thScheme <>
+      S.put thSenderKey <>
+      S.put thNonce <>
+      S.put thGasAmount <>
+      S.put thFinalizedPointer
 
-getTransactionHeader :: SchemeId -> S.Get TransactionHeader
-getTransactionHeader tsScheme = do
+  get = do
+    thScheme <- S.get
     thSenderKey <- S.get
     thNonce <- S.get
     thGasAmount <- S.get
     thFinalizedPointer <- S.get
-    return $ makeTransactionHeader tsScheme thSenderKey thNonce thGasAmount thFinalizedPointer
-
+    return $ makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer
 
 type TransactionHash = H.Hash
 
@@ -89,12 +86,12 @@ instance Ord Transaction where
 instance S.Serialize Transaction where
   put Transaction{..} =
     S.put trSignature <>
-    putTransactionHeader trHeader <>
+    S.put trHeader <>
     S.put trPayload
 
   get = do
     trSignature <- S.get
-    trHeader <- getTransactionHeader (tsScheme trSignature)
+    trHeader <- S.get
     trPayload <- S.get
     return $ makeTransaction trSignature trHeader trPayload
 
@@ -105,13 +102,13 @@ makeTransactionHeader ::
   -> Amount
   -> BlockHash
   -> TransactionHeader
-makeTransactionHeader sch thSenderKey thNonce thGasAmount thFinalizedPointer =
-  TransactionHeader{thSender = AH.accountAddress' thSenderKey sch,..}
+makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer =
+  TransactionHeader{thSender = AH.accountAddress' thSenderKey thScheme,..}
 
 -- |Make a transaction out of minimal data needed.
 makeTransaction :: TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
 makeTransaction trSignature trHeader trPayload =
-  let trHash = H.hash . S.runPut $ S.put trSignature <> putTransactionHeader trHeader <> S.put trPayload
+  let trHash = H.hash . S.runPut $ S.put trSignature <> S.put trHeader <> S.put trPayload
   in Transaction{..}
 
 -- |NB: We do not use the serialize instance of the body (trPayload) here, since
@@ -121,24 +118,21 @@ makeTransaction trSignature trHeader trPayload =
 -- probably not necessary if we had a more appropriate sign function.
 
 -- |Sign a transaction with the given header and body. Uses serialization as defined on the wiki.
-signTransaction :: KeyPair -> SchemeId -> TransactionHeader -> EncodedPayload -> Transaction
-signTransaction keys tsScheme trHeader trPayload =
-  let body = S.runPut (putTransactionHeader trHeader <> S.put trPayload)
+signTransaction :: KeyPair -> TransactionHeader -> EncodedPayload -> Transaction
+signTransaction keys trHeader trPayload =
+  let body = S.runPut (S.put trHeader <> S.put trPayload)
+      tsScheme = thScheme trHeader
       tsSignature = SigScheme.sign tsScheme keys body
       trHash = H.hash (S.encode trSignature <> body)
       trSignature = TransactionSignature{..}
   in Transaction{..}
 
 -- |Verify that the given transaction was signed by the sender's key.
-verifyTransactionSignature :: IDTypes.AccountVerificationKey -> BS.ByteString -> TransactionSignature -> Bool
-verifyTransactionSignature vfkey bs (TransactionSignature sid sig) = SigScheme.verify sid vfkey bs sig
-
--- |Verify that the given transaction was signed by the sender's key.
 -- In contrast to 'verifyTransactionSignature' this method takes a structured transaction.
 verifyTransactionSignature' :: TransactionData msg => IDTypes.AccountVerificationKey -> msg -> TransactionSignature -> Bool
-verifyTransactionSignature' vfkey tx (TransactionSignature sid sig) =
-  SigScheme.verify sid
-                   vfkey (S.runPut (putTransactionHeader (transactionHeader tx) <> S.put (transactionPayload tx)))
+verifyTransactionSignature' vfkey tx (TransactionSignature sig) =
+  SigScheme.verify (thScheme (transactionHeader tx))
+                   vfkey (S.runPut (S.put (transactionHeader tx) <> S.put (transactionPayload tx)))
                    sig
 
 
