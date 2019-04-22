@@ -26,7 +26,7 @@ else
     mkdir -p ~/.stack/global-project
 fi
 
-cp scripts/stack.yaml ~/.stack/global-project/stack.yaml
+(mkdir -p ~/.stack/global-project/ && echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml)
 
 ( cd deps/internal/crypto/rust-src &&
   LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
