@@ -28,20 +28,20 @@ struct IpAddr {
     }
 }
 
-enum ConnectionType {
+enum PeerType {
     node @0;
     bootstrapper @1;
 }
 
 struct P2PNodeId {
-    id @0 :Data;
+    id @0 :UInt64;
 }
 
 struct P2PPeer {
     ip @0 :IpAddr;
     port @1 :UInt16;
     id @2 :P2PNodeId;
-    connectionType @3 :ConnectionType;
+    peerType @3 :PeerType;
 }
 
 struct NetworkPacketDirect{

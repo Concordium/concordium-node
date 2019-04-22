@@ -23,6 +23,7 @@ pub mod response;
 pub mod serialization;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkId {
     pub id: u16,
 }

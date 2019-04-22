@@ -10,6 +10,7 @@ use std::{
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 /// Represents a structure used to manage a ban
 ///
 /// A node can either be banned by its id or
