@@ -154,7 +154,7 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let cloned_node = node.clone();
+    let cloned_node = Arc::clone(&node);
     let _no_trust_bans = conf.common.no_trust_bans;
 
     // Register handles for ban & unban requests.
