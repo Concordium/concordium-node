@@ -190,7 +190,7 @@ mod tests {
                 }
             }
 
-            Ok(payload)
+            Ok(*payload)
         }
 
         pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
@@ -205,7 +205,7 @@ mod tests {
                 }
             }
 
-            Ok(payload)
+            Ok(*payload)
         }
 
         pub fn wait_direct_message_timeout(
@@ -227,7 +227,7 @@ mod tests {
                 }
             }
 
-            payload
+            payload.map(|e| *e)
         }
 
         #[allow(dead_code)]

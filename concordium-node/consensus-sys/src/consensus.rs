@@ -333,6 +333,9 @@ lazy_static! {
     static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
+type GenesisData = Vec<u8>;
+type PrivateData = HashMap<i64, Vec<u8>>;
+
 #[derive(Clone)]
 pub struct ConsensusContainer {
     genesis_data: Vec<u8>,
@@ -418,7 +421,7 @@ impl ConsensusContainer {
     pub fn generate_data(
         genesis_time: u64,
         num_bakers: u64,
-    ) -> Result<(Vec<u8>, HashMap<i64, Vec<u8>>), &'static str> {
+    ) -> Result<(GenesisData, PrivateData), &'static str> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }

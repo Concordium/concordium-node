@@ -31,7 +31,7 @@ pub fn make_direct_message_header(content_size: usize) -> Vec<u8> {
         ))
         .message_id(NetworkPacket::generate_message_id())
         .network_id(NetworkId::from(111u16))
-        .message(UCursor::from(vec![]))
+        .message(Box::new(UCursor::from(vec![])))
         .build_direct(P2PNodeId::from_str("100000002dd2b6ed").unwrap())
         .unwrap();
 

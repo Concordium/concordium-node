@@ -322,9 +322,9 @@ impl TestRunner {
     }
 }
 
-fn main() -> Fallible<()> {
+fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     let conf = configuration::parse_config();
-    let mut app_prefs = configuration::AppPreferences::new(
+    let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
     );
@@ -358,28 +358,13 @@ fn main() -> Fallible<()> {
     log_builder.init();
 
     p2p_client::setup_panics();
+    (conf, app_prefs)
+}
 
-    let mut db_path = app_prefs.get_user_app_dir();
-    db_path.push("p2p.db");
-
-    let db = P2PDB::new(db_path.as_path());
-
-    info!("Debugging enabled {}", conf.common.debug);
-
-    let dns_resolvers =
-        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-
-    for resolver in &dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-
-    let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.connection.bootstrap_server.clone(),
-        &dns_resolvers,
-        conf.connection.no_dnssec,
-        &conf.connection.bootstrap_node,
-    );
-
+fn instantiate_node(
+    conf: &configuration::Config,
+    app_prefs: &mut configuration::AppPreferences,
+) -> (P2PNode, mpsc::Receiver<Arc<NetworkMessage>>) {
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let node_id = if conf.common.id.is_some() {
@@ -400,30 +385,17 @@ fn main() -> Fallible<()> {
         None
     };
 
-    let mut node = P2PNode::new(node_id, &conf, pkt_in, node_sender, PeerType::Node, None);
+    let node = P2PNode::new(node_id, &conf, pkt_in, node_sender, PeerType::Node, None);
 
-    let _ = node.spawn();
+    (node, pkt_out)
+}
 
-    match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n)?;
-            }
-        }
-        None => {
-            info!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist();
-        }
-    };
-
-    if !app_prefs.set_config(
-        configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
-        Some(node.id().to_string()),
-    ) {
-        error!("Failed to persist own node id");
-    }
-
+fn setup_process_output(
+    node: &P2PNode,
+    conf: &configuration::Config,
+    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    db: P2PDB,
+) {
     let mut _node_self_clone = node.clone();
 
     let _no_trust_bans = conf.common.no_trust_bans;
@@ -454,7 +426,7 @@ fn main() -> Fallible<()> {
                                     None,
                                     pac.network_id,
                                     Some(pac.message_id.to_owned()),
-                                    pac.message.to_owned(),
+                                    (*pac.message).to_owned(),
                                     true,
                                 )
                                 .map_err(|e| error!("Error sending message {}", e))
@@ -495,6 +467,57 @@ fn main() -> Fallible<()> {
             }
         }
     });
+}
+
+fn main() -> Fallible<()> {
+    let (conf, mut app_prefs) = get_config_and_logging_setup();
+
+    let mut db_path = app_prefs.get_user_app_dir();
+    db_path.push("p2p.db");
+
+    let db = P2PDB::new(db_path.as_path());
+
+    info!("Debugging enabled {}", conf.common.debug);
+
+    let dns_resolvers =
+        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
+
+    for resolver in &dns_resolvers {
+        debug!("Using resolver: {}", resolver);
+    }
+
+    let bootstrap_nodes = utils::get_bootstrap_nodes(
+        conf.connection.bootstrap_server.clone(),
+        &dns_resolvers,
+        conf.connection.no_dnssec,
+        &conf.connection.bootstrap_node,
+    );
+
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs);
+
+    node.spawn()?;
+
+    match db.get_banlist() {
+        Some(nodes) => {
+            info!("Found existing banlist, loading up!");
+            for n in nodes {
+                node.ban_node(n)?;
+            }
+        }
+        None => {
+            info!("Couldn't find existing banlist. Creating new!");
+            db.create_banlist();
+        }
+    };
+
+    if !app_prefs.set_config(
+        configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
+        Some(node.id().to_string()),
+    ) {
+        error!("Failed to persist own node id");
+    }
+
+    setup_process_output(&node, &conf, pkt_out, db);
 
     for connect_to in conf.connection.connect_to {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {

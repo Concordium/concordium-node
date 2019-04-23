@@ -31,7 +31,7 @@ pub fn make_log_error(e: &'static str) -> FunctorError {
     FunctorError::new(vec![Error::from(fails::LogError { message: e })])
 }
 
-pub fn serialize_bytes(session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> FunctorResult {
+pub fn serialize_bytes(session: &mut dyn CommonSession, pkt: &[u8]) -> FunctorResult {
     // Write size of pkt into 4 bytes vector.
     let mut size_vec = Vec::with_capacity(4);
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
@@ -79,7 +79,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
         (remote_end_networks, local_peer)
     };
 
-    let session = &mut priv_conn.borrow_mut().tls_session;
+    let session = &mut *priv_conn.borrow_mut().tls_session;
     serialize_bytes(
         session,
         &NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize(),
@@ -114,7 +114,7 @@ pub fn send_peer_list(
         NetworkResponse::PeerList(local_peer.to_owned(), random_nodes).serialize()
     };
 
-    serialize_bytes(&mut priv_conn.borrow_mut().tls_session, &data)?;
+    serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
 
     if let Some(ref service) = priv_conn.borrow().stats_export_service {
         let mut writable_service = safe_write!(service)?;

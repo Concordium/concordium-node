@@ -22,7 +22,7 @@ use crate::{
         functor::afunctor::{AFunctor, AFunctorCW},
         P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
-    connection::{Connection, MessageHandler, MessageManager, P2PEvent},
+    connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
@@ -33,6 +33,134 @@ use crate::{
 
 pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
 pub type PreHandshake = AFunctor<SocketAddr>;
+
+pub struct TlsServerBuilder {
+    server:                  Option<TcpListener>,
+    server_tls_config:       Option<Arc<ServerConfig>>,
+    client_tls_config:       Option<Arc<ClientConfig>>,
+    event_log:               Option<Sender<P2PEvent>>,
+    self_peer:               Option<P2PPeer>,
+    buckets:                 Option<Arc<RwLock<Buckets>>>,
+    stats_export_service:    Option<Arc<RwLock<StatsExportService>>>,
+    blind_trusted_broadcast: Option<bool>,
+    networks:                Option<HashSet<NetworkId>>,
+}
+
+impl Default for TlsServerBuilder {
+    fn default() -> Self { TlsServerBuilder::new() }
+}
+
+impl TlsServerBuilder {
+    pub fn new() -> TlsServerBuilder {
+        TlsServerBuilder {
+            server:                  None,
+            server_tls_config:       None,
+            client_tls_config:       None,
+            event_log:               None,
+            self_peer:               None,
+            buckets:                 None,
+            stats_export_service:    None,
+            blind_trusted_broadcast: None,
+            networks:                None,
+        }
+    }
+
+    pub fn build(self) -> Fallible<TlsServer> {
+        if let (
+            Some(networks),
+            Some(server),
+            Some(server_tls_config),
+            Some(client_tls_config),
+            Some(self_peer),
+            Some(buckets),
+            Some(blind_trusted_broadcast),
+        ) = (
+            self.networks,
+            self.server,
+            self.server_tls_config,
+            self.client_tls_config,
+            self.self_peer,
+            self.buckets,
+            self.blind_trusted_broadcast,
+        ) {
+            let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
+                networks,
+                self.stats_export_service.clone(),
+            )));
+
+            let mut mself = TlsServer {
+                server,
+                next_id: AtomicUsize::new(2),
+                server_tls_config,
+                client_tls_config,
+                event_log: self.event_log,
+                self_peer,
+                stats_export_service: self.stats_export_service,
+                buckets,
+                message_handler: Arc::new(RwLock::new(MessageHandler::new())),
+                dptr: mdptr,
+                blind_trusted_broadcast,
+                prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
+            };
+
+            mself.add_default_prehandshake_validations();
+            let _ = mself
+                .setup_default_message_handler()
+                .map_err(|e| error!("Couldn't set default message handlers for TLSServer: {}", e));
+            Ok(mself)
+        } else {
+            bail!(fails::MissingFieldsOnTlsServerBuilder)
+        }
+    }
+
+    pub fn set_server(mut self, s: TcpListener) -> TlsServerBuilder {
+        self.server = Some(s);
+        self
+    }
+
+    pub fn set_server_tls_config(mut self, c: Arc<ServerConfig>) -> TlsServerBuilder {
+        self.server_tls_config = Some(c);
+        self
+    }
+
+    pub fn set_client_tls_config(mut self, c: Arc<ClientConfig>) -> TlsServerBuilder {
+        self.client_tls_config = Some(c);
+        self
+    }
+
+    pub fn set_self_peer(mut self, sp: P2PPeer) -> TlsServerBuilder {
+        self.self_peer = Some(sp);
+        self
+    }
+
+    pub fn set_event_log(mut self, el: Option<Sender<P2PEvent>>) -> TlsServerBuilder {
+        self.event_log = el;
+        self
+    }
+
+    pub fn set_buckets(mut self, b: Arc<RwLock<Buckets>>) -> TlsServerBuilder {
+        self.buckets = Some(b);
+        self
+    }
+
+    pub fn set_stats_export_service(
+        mut self,
+        ses: Option<Arc<RwLock<StatsExportService>>>,
+    ) -> TlsServerBuilder {
+        self.stats_export_service = ses;
+        self
+    }
+
+    pub fn set_blind_trusted_broadcast(mut self, btb: bool) -> TlsServerBuilder {
+        self.blind_trusted_broadcast = Some(btb);
+        self
+    }
+
+    pub fn set_networks(mut self, n: HashSet<NetworkId>) -> TlsServerBuilder {
+        self.networks = Some(n);
+        self
+    }
+}
 
 pub struct TlsServer {
     server:                   TcpListener,
@@ -50,44 +178,6 @@ pub struct TlsServer {
 }
 
 impl TlsServer {
-    pub fn new(
-        server: TcpListener,
-        server_cfg: Arc<ServerConfig>,
-        client_cfg: Arc<ClientConfig>,
-        event_log: Option<Sender<P2PEvent>>,
-        self_peer: P2PPeer,
-        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
-        networks: HashSet<NetworkId>,
-        buckets: Arc<RwLock<Buckets>>,
-        blind_trusted_broadcast: bool,
-    ) -> Self {
-        let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
-            networks,
-            stats_export_service.clone(),
-        )));
-
-        let mut mself = TlsServer {
-            server,
-            next_id: AtomicUsize::new(2),
-            server_tls_config: server_cfg,
-            client_tls_config: client_cfg,
-            event_log,
-            self_peer,
-            stats_export_service,
-            buckets,
-            message_handler: Arc::new(RwLock::new(MessageHandler::new())),
-            dptr: mdptr,
-            blind_trusted_broadcast,
-            prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
-        };
-
-        mself.add_default_prehandshake_validations();
-        let _ = mself
-            .setup_default_message_handler()
-            .map_err(|e| error!("Couldn't set default message handlers for TLSServer: {}", e));
-        mself
-    }
-
     pub fn log_event(&self, event: P2PEvent) {
         if let Some(ref log) = self.event_log {
             if let Err(e) = log.send(event) {
@@ -156,19 +246,21 @@ impl TlsServer {
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
         let networks = self.networks();
-        let mut conn = Connection::new(
-            socket,
-            token,
-            Some(tls_session),
-            None,
-            self_peer,
-            RemotePeer::PreHandshake(PeerType::Node, addr),
-            self.stats_export_service.clone(),
-            self.event_log.clone(),
-            networks,
-            Arc::clone(&self.buckets),
-            self.blind_trusted_broadcast,
-        );
+
+        let mut conn = ConnectionBuilder::new()
+            .set_socket(socket)
+            .set_token(token)
+            .set_server_session(Some(tls_session))
+            .set_client_session(None)
+            .set_local_peer(self_peer)
+            .set_remote_peer(RemotePeer::PreHandshake(PeerType::Node, addr))
+            .set_stats_export_service(self.stats_export_service.clone())
+            .set_event_log(self.event_log.clone())
+            .set_local_end_networks(networks)
+            .set_buckets(Arc::clone(&self.buckets))
+            .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
+            .build()?;
+
         self.register_message_handlers(&mut conn);
 
         let register_status = conn.register(poll);
@@ -227,19 +319,19 @@ impl TlsServer {
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
                 let networks = self.networks();
-                let mut conn = Connection::new(
-                    socket,
-                    token,
-                    None,
-                    Some(tls_session),
-                    self_peer.clone(),
-                    RemotePeer::PreHandshake(peer_type, addr),
-                    self.stats_export_service.clone(),
-                    self.event_log.clone(),
-                    Arc::clone(&networks),
-                    Arc::clone(&self.buckets),
-                    self.blind_trusted_broadcast,
-                );
+                let mut conn = ConnectionBuilder::new()
+                    .set_socket(socket)
+                    .set_token(token)
+                    .set_server_session(None)
+                    .set_client_session(Some(tls_session))
+                    .set_local_peer(self_peer.clone())
+                    .set_remote_peer(RemotePeer::PreHandshake(peer_type, addr))
+                    .set_stats_export_service(self.stats_export_service.clone())
+                    .set_event_log(self.event_log.clone())
+                    .set_local_end_networks(Arc::clone(&networks))
+                    .set_buckets(Arc::clone(&self.buckets))
+                    .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
+                    .build()?;
 
                 self.register_message_handlers(&mut conn);
                 conn.register(poll)?;
