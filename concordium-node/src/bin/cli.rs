@@ -21,14 +21,20 @@ use p2p_client::{
     common::{P2PNodeId, PeerType, UCursor},
     configuration,
     db::P2PDB,
-    network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
+    network::{
+        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
+        NetworkResponse,
+    },
     p2p::*,
-    prometheus_exporter::{PrometheusMode, PrometheusServer},
     rpc::RpcServerImpl,
-    safe_read,
     stats_engine::StatsEngine,
+    stats_export_service::{StatsExportService, StatsServiceMode},
     utils,
 };
+
+#[cfg(feature = "instrumentation")]
+use p2p_client::safe_read;
+
 use std::{
     collections::HashMap,
     fs::OpenOptions,
@@ -96,10 +102,11 @@ fn main() -> Fallible<()> {
     db_path.push("p2p.db");
     let db = P2PDB::new(db_path.as_path());
 
-    // Instantiate prometheus
-    let prometheus = if conf.prometheus.prometheus_server {
+    #[cfg(feature = "instrumentation")]
+    // Instantiate stats export service
+    let stats_export_service = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
-        let mut srv = PrometheusServer::new(PrometheusMode::NodeMode);
+        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode);
         srv.start_server(SocketAddr::new(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
@@ -109,11 +116,15 @@ fn main() -> Fallible<()> {
         Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
-        let srv = PrometheusServer::new(PrometheusMode::NodeMode);
+        let srv = StatsExportService::new(StatsServiceMode::NodeMode);
         Some(Arc::new(RwLock::new(srv)))
     } else {
         None
     };
+    #[cfg(not(feature = "instrumentation"))]
+    let stats_export_service = Some(Arc::new(RwLock::new(StatsExportService::new(
+        StatsServiceMode::NodeMode,
+    ))));
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -131,8 +142,8 @@ fn main() -> Fallible<()> {
             Some(id)
         },
     );
-    let arc_prometheus = if let Some(ref p) = prometheus {
-        Some(Arc::clone(p))
+    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
+        Some(Arc::clone(service))
     } else {
         None
     };
@@ -151,10 +162,17 @@ fn main() -> Fallible<()> {
             pkt_in,
             Some(sender),
             PeerType::Node,
-            arc_prometheus,
+            arc_stats_export_service,
         )
     } else {
-        P2PNode::new(node_id, &conf, pkt_in, None, PeerType::Node, arc_prometheus)
+        P2PNode::new(
+            node_id,
+            &conf,
+            pkt_in,
+            None,
+            PeerType::Node,
+            arc_stats_export_service,
+        )
     };
 
     // Banning nodes in database
@@ -284,21 +302,11 @@ fn main() -> Fallible<()> {
                                         });
                                     }
                                     if let Some(ref testrunner_url) = _test_runner_url {
-                                        info!("Sending information to test runner");
-                                        match reqwest::get(&format!(
-                                            "{}/register/{}/{}",
+                                        send_packet_to_testrunner(
+                                            &_node_self_clone,
                                             testrunner_url,
-                                            _node_self_clone.id(),
-                                            pac.message_id
-                                        )) {
-                                            Ok(ref mut res) if res.status().is_success() => {
-                                                info!("Registered packet received with test runner")
-                                            }
-                                            _ => error!(
-                                                "Couldn't register packet received with test \
-                                                 runner"
-                                            ),
-                                        }
+                                            pac,
+                                        );
                                     };
                                 }
                             };
@@ -376,8 +384,9 @@ fn main() -> Fallible<()> {
         );
     }
 
+    #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    start_push_gateway(&conf.prometheus, &prometheus, node.id())?;
+    start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
     // Start the P2PNode
     //
@@ -593,19 +602,39 @@ fn create_connections_from_config(
     }
 }
 
+#[cfg(feature = "instrumentation")]
+fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &String, pac: &NetworkPacket) {
+    info!("Sending information to test runner");
+    match reqwest::get(&format!(
+        "{}/register/{}/{}",
+        test_runner_url,
+        node.id(),
+        pac.message_id
+    )) {
+        Ok(ref mut res) if res.status().is_success() => {
+            info!("Registered packet received with test runner")
+        }
+        _ => error!("Couldn't register packet received with test runner"),
+    }
+}
+
+#[cfg(not(feature = "instrumentation"))]
+fn send_packet_to_testrunner(_: &P2PNode, _: &String, _: &NetworkPacket) {}
+
+#[cfg(feature = "instrumentation")]
 fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
-    prometheus: &Option<Arc<RwLock<PrometheusServer>>>,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     id: P2PNodeId,
 ) -> Fallible<()> {
-    if let Some(ref prom) = prometheus {
+    if let Some(ref service) = stats_export_service {
         if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
             let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
                 instance_id.clone()
             } else {
                 id.to_string()
             };
-            safe_read!(prom)?.start_push_to_gateway(
+            safe_read!(service)?.start_push_to_gateway(
                 prom_push_addy.clone(),
                 conf.prometheus_push_interval,
                 conf.prometheus_job_name.clone(),

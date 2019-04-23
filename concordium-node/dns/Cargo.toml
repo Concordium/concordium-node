@@ -2,12 +2,8 @@
 name = "dns"
 version = "0.0.1"
 description = "dns module"
-authors = ["Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
-exclude = [
-    ".gitignore",
-    ".gitlab-ci.yml",
-    "test/**/*"
-]
+authors = ["Concordium AG <info@concordium.com>"]
+exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]
 publish = false
 edition = "2018"
 

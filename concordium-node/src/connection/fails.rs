@@ -20,8 +20,8 @@ pub struct LogError {
 }
 
 #[derive(Debug, Fail)]
-#[fail(display = "Prometheus error: {}", message)]
-pub struct PrometheusError {
+#[fail(display = "Stats Exporter error: {}", message)]
+pub struct StatsExporterError {
     pub message: &'static str,
 }
 

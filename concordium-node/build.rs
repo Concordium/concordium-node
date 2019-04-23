@@ -9,7 +9,8 @@ fn main() {
     #[cfg(feature = "s11n_capnp")]
     ::capnpc::CompilerCommand::new()
         .edition(::capnpc::RustEdition::Rust2018)
-        .file("p2p.capnp")
+        .src_prefix("src/network/serialization")
+        .file("src/network/serialization/p2p.capnp")
         .run()
         .expect("CapNP P2P compiler command");
 

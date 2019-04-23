@@ -337,9 +337,9 @@ impl serde::ser::Serialize for UCursor {
     fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer, {
-        let content = match self.inner_cursor {
-            TypeUCursor::Memory(ref cursor) => cursor.get_ref(),
-            TypeUCursor::File(..) => {
+        let content = match self {
+            UCursor::Memory(ref cursor) => cursor.get_ref(),
+            UCursor::File(..) => {
                 return Err(serde::ser::Error::custom("Cannot serialize from file"));
             }
         };

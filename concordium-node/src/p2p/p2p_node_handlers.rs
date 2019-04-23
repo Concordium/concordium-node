@@ -4,15 +4,14 @@ use std::{
 };
 
 use crate::{
-    common::functor::{FunctorError, FunctorResult},
+    common::functor::FunctorResult,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
         NetworkResponse,
     },
-    prometheus_exporter::PrometheusServer,
+    stats_export_service::StatsExportService,
 };
-use failure::err_msg;
 
 /// It forwards network response message into `queue`.
 pub fn forward_network_response(
@@ -49,7 +48,7 @@ pub fn forward_network_request(
 /// been already seen and its `network id` belong to `own_networks`.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
-    prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
@@ -59,7 +58,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     match pac.packet_type {
         NetworkPacketType::DirectMessage(..) => forward_network_packet_message_common(
             seen_messages,
-            prometheus_exporter,
+            stats_export_service,
             own_networks,
             send_queue,
             packet_queue,
@@ -69,7 +68,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
         ),
         NetworkPacketType::BroadcastedMessage => forward_network_packet_message_common(
             seen_messages,
-            prometheus_exporter,
+            stats_export_service,
             own_networks,
             send_queue,
             packet_queue,
@@ -80,16 +79,11 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     }
 }
 
-/// It returns a `FunctorRunningError` with the specific message.
-fn make_fn_err(e: &'static str) -> FunctorError { FunctorError::new(vec![err_msg(e)]) }
-
-fn make_fn_error_prometheus() -> FunctorError { make_fn_err("Prometheus has failed") }
-
 /// # TODO
 /// Avoid to create a new packet instead of reusing it.
 fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
-    prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
@@ -107,10 +101,8 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
             if blind_trust_broadcast {
                 if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                     safe_write!(send_queue)?.push_back(Arc::clone(&outer));
-                    if let Some(ref prom) = prometheus_exporter {
-                        safe_write!(prom)?
-                            .queue_size_inc()
-                            .map_err(|_| make_fn_error_prometheus())?;
+                    if let Some(ref service) = stats_export_service {
+                        safe_write!(service)?.queue_size_inc();
                     };
                 }
             }
@@ -121,11 +113,8 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
                     e.to_string()
                 );
             }
-        } else if let Some(ref prom) = prometheus_exporter {
-            safe_write!(prom)?
-                .invalid_network_pkts_received_inc()
-                .map_err(|e| error!("{}", e))
-                .ok();
+        } else if let Some(ref service) = stats_export_service {
+            safe_write!(service)?.invalid_network_pkts_received_inc();
         }
     } else {
         info!(

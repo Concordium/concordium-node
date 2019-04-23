@@ -21,24 +21,22 @@ use crate::{
         functor::{AFunctorCW, FunctorError, FunctorResult},
         get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
-    connection::{MessageHandler, P2PEvent, RequestHandler, ResponseHandler},
-    network::{
-        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
-        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+    connection::{
+        connection_default_handlers::*, connection_handshake_handlers::*,
+        connection_private::ConnectionPrivate, MessageHandler, P2PEvent, RequestHandler,
+        ResponseHandler,
     },
-    prometheus_exporter::PrometheusServer,
+    network::{
+        Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
+        PROTOCOL_HEADER_LENGTH, PROTOCOL_MAX_MESSAGE_SIZE, PROTOCOL_MESSAGE_LENGTH,
+        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_WHOLE_PACKET_SIZE,
+    },
+    stats_export_service::StatsExportService,
 };
 
 use super::fails;
 #[cfg(not(target_os = "windows"))]
 use crate::connection::writev_adapter::WriteVAdapter;
-use crate::{
-    connection::{
-        connection_default_handlers::*, connection_handshake_handlers::*,
-        connection_private::ConnectionPrivate,
-    },
-    network::protocol_message_type::ProtocolMessageType,
-};
 
 /// This macro clones `dptr` and moves it into callback closure.
 /// That closure is just a call to `fn` Fn.
@@ -52,22 +50,17 @@ macro_rules! handle_by_private {
 macro_rules! drop_conn_if_unwanted {
     ($process:expr, $self:ident) => {
         if let Err(e) = $process {
-            match e.downcast::<fails::UnwantedMessageError>() {
-                Ok(f) => {
-                    error!("Dropping connection: {}", f);
-                    $self.close();
-                }
-                Err(e) => {
-                    if let Ok(f) = e.downcast::<FunctorError>() {
-                        f.errors.iter().for_each(|x| {
-                            if x.to_string().contains("SendError(..)") {
-                                trace!("Send Error in incoming plaintext");
-                            } else {
-                                error!("{}", x);
-                            }
-                        });
-                    }
-                }
+            if let Some(ref as_unwanted_message_err) =
+                e.downcast_ref::<fails::UnwantedMessageError>()
+            {
+                error!("Dropping connection: {}", as_unwanted_message_err);
+                $self.close();
+            } else if let Some(ref as_functor_err) = e.downcast_ref::<FunctorError>() {
+                as_functor_err.errors.iter().for_each(|step_functor_error| {
+                    error!("Functor error: {}", step_functor_error);
+                });
+            } else {
+                error!("Unexpected error: {}", e);
             }
         } else if $self.status == ConnectionStatus::Untrusted {
             $self.setup_message_handler();
@@ -119,7 +112,7 @@ impl Connection {
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
         remote_peer: RemotePeer,
-        prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
         event_log: Option<Sender<P2PEvent>>,
         own_networks: Arc<RwLock<HashSet<NetworkId>>>,
         buckets: Arc<RwLock<Buckets>>,
@@ -133,7 +126,7 @@ impl Connection {
             buckets,
             tls_server_session,
             tls_client_session,
-            prometheus_exporter,
+            stats_export_service,
             event_log,
             blind_trusted_broadcast,
         )));
@@ -497,9 +490,9 @@ impl Connection {
         ));
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref prom) = &self.prometheus_exporter() {
-            if let Ok(mut plock) = safe_write!(prom) {
-                plock.pkt_received_inc().unwrap_or_else(|e| error!("{}", e));
+        if let Some(ref service) = &self.stats_export_service() {
+            if let Ok(mut slock) = safe_write!(service) {
+                slock.pkt_received_inc();
             }
         };
 
@@ -603,22 +596,29 @@ impl Connection {
             }
             self.clear_buffer();
             self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;
-        } else if buf.len() >= 4 {
+        } else if buf.len() >= PROTOCOL_WHOLE_PACKET_SIZE {
             trace!("Trying to read size");
-            let _buf = &buf[..4].to_vec();
+            let _buf = &buf[..PROTOCOL_WHOLE_PACKET_SIZE].to_vec();
             let mut size_bytes = Cursor::new(_buf);
             self.expected_size = size_bytes
                 .read_u32::<NetworkEndian>()
                 .expect("Couldn't read from buffer on incoming plaintext");
-            if self.expected_size > 268_435_456 {
-                error!("Packet can't be bigger than 256MB");
+            if self.expected_size as usize > PROTOCOL_MAX_MESSAGE_SIZE {
+                error!(
+                    "Packet can't be bigger than {} bytes",
+                    PROTOCOL_MAX_MESSAGE_SIZE
+                );
                 self.expected_size = 0;
-                self.incoming_plaintext(poll, &packets_queue, &buf[4..])?;
+                self.incoming_plaintext(poll, &packets_queue, &buf[PROTOCOL_WHOLE_PACKET_SIZE..])?;
             } else {
                 self.setup_buffer();
-                if buf.len() > 4 {
+                if buf.len() > PROTOCOL_WHOLE_PACKET_SIZE {
                     trace!("Got enough to read it...");
-                    self.incoming_plaintext(poll, &packets_queue, &buf[4..])?;
+                    self.incoming_plaintext(
+                        poll,
+                        &packets_queue,
+                        &buf[PROTOCOL_WHOLE_PACKET_SIZE..],
+                    )?;
                 }
             }
         }
@@ -627,7 +627,7 @@ impl Connection {
 
     pub fn serialize_bytes(&mut self, pkt: &[u8]) -> Fallible<usize> {
         trace!("Serializing data to connection {} bytes", pkt.len());
-        let mut size_vec = Vec::with_capacity(4);
+        let mut size_vec = Vec::with_capacity(PROTOCOL_WHOLE_PACKET_SIZE);
 
         size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
         self.write_to_tls(&size_vec[..])?;
@@ -674,8 +674,8 @@ impl Connection {
         }
     }
 
-    pub fn prometheus_exporter(&self) -> Option<Arc<RwLock<PrometheusServer>>> {
-        self.dptr.borrow().prometheus_exporter.clone()
+    pub fn stats_export_service(&self) -> Option<Arc<RwLock<StatsExportService>>> {
+        self.dptr.borrow().stats_export_service.clone()
     }
 
     pub fn local_peer_type(&self) -> PeerType { self.dptr.borrow().local_peer.peer_type() }
