@@ -109,18 +109,22 @@ toLogMethod logCallbackPtr = le
         le src lvl msg = BS.useAsCString (BS.pack msg) $
                             logCallback (logSourceId src) (logLevelId lvl)
 
-outLoop :: Chan OutMessage -> BlockCallback -> IO ()
-outLoop chan cbk = do
+-- outLoop :: Chan OutMessage -> BlockCallback -> IO ()
+outLoop :: LogMethod IO -> Chan OutMessage -> BlockCallback -> IO ()
+outLoop logm chan cbk = do
     readChan chan >>= \case
         MsgNewBlock block -> do
             let bbs = runPut (put block)
+            logm External LLDebug $ "Sending block data size = " ++ show (BS.length bbs)
             BS.useAsCStringLen bbs $ \(cstr, l) -> cbk 0 cstr (fromIntegral l)
         MsgFinalization finMsg -> do
+            logm External LLDebug $ "Sending serialization message size = " ++ show (BS.length finMsg)
             BS.useAsCStringLen finMsg $ \(cstr, l) -> cbk 1 cstr (fromIntegral l)
         MsgFinalizationRecord finRec -> do
             let bs = runPut (put finRec)
+            logm External LLDebug $ "Sending serialization record data size = " ++ show (BS.length bs)
             BS.useAsCStringLen bs $ \(cstr, l) -> cbk 2 cstr (fromIntegral l)
-    outLoop chan cbk
+    outLoop logm chan cbk
 
 startBaker ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
@@ -132,7 +136,7 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
                 (cin, cout, out) <- makeRunner logM bid genData (initialState 2)
-                _ <- forkIO $ outLoop cout (callBlockCallback bcbk)
+                _ <- forkIO $ outLoop logM cout (callBlockCallback bcbk)
                 newStablePtr (BakerRunner cin cout out logM)
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -146,25 +150,31 @@ stopBaker bptr = do
 
 receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveBlock bptr cstr l = do
-    BakerRunner cin _ _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get blockBS of
-        Left _ -> return ()
-        Right block -> writeChan cin $ MsgBlockReceived block
+        Left _ -> logm External LLDebug $ "Block deserialization failed. Ignoring the block."
+        Right block -> do logm External LLInfo $ "Block deserialized. Sending to consensus."
+                          writeChan cin $ MsgBlockReceived block
 
 receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalization bptr cstr l = do
-    BakerRunner cin _ _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLDebug $ "Received serialization message size = " ++ show l
     bs <- BS.packCStringLen (cstr, fromIntegral l)
     writeChan cin $ MsgFinalizationReceived bs
 
 receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalizationRecord bptr cstr l = do
-    BakerRunner cin _ _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLDebug $ "Received serialization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get finRecBS of
-        Left _ -> return ()
-        Right finRec -> writeChan cin $ MsgFinalizationRecordReceived finRec
+        Left _ -> logm External LLDebug "Deserialization of finalization record failed."
+        Right finRec -> do
+          logm External LLDebug "Finalization record deserialized."
+          writeChan cin $ MsgFinalizationRecordReceived finRec
 
 printBlock :: CString -> Int64 -> IO ()
 printBlock cstr l = do
