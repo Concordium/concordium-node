@@ -38,10 +38,14 @@ pub enum PeerType {
 
 impl fmt::Display for PeerType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            PeerType::Node => "Node",
-            PeerType::Bootstrapper => "Bootstrapper",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                PeerType::Node => "Node",
+                PeerType::Bootstrapper => "Bootstrapper",
+            }
+        )
     }
 }
 
