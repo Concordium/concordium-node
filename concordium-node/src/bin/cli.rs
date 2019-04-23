@@ -45,6 +45,8 @@ use std::{
     thread,
 };
 
+const PAYLOAD_TYPE_LENGTH: usize = 2;
+
 fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     // Get config and app preferences
     let conf = configuration::parse_config();
@@ -329,7 +331,7 @@ fn setup_process_output(
 
                 let consensus_type = msg.read_u16::<BigEndian>()?;
                 let view = msg.read_all_into_view()?;
-                let content = view.as_slice();
+                let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH..];
 
                 match consensus_type {
                     0 => match consensus::Block::deserialize(content) {
