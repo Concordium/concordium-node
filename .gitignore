@@ -20,3 +20,4 @@ workdir
 win_build
 scripts/local/assets/repos
 deps/internal/crypto/build
+src/proto/concordium_p2p_rpc*.rs

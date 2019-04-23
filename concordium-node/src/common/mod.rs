@@ -49,18 +49,7 @@ impl fmt::Display for PeerType {
     }
 }
 
-#[derive(Debug, Clone, Builder)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[builder(build_fn(skip))]
-pub struct P2PPeer {
-    id: P2PNodeId,
-    pub addr: SocketAddr,
-    #[builder(setter(skip))]
-    last_seen: u64,
-    peer_type: PeerType,
-}
-
-// A represetation of different stages a remote peer goes through.
+// A representation of different stages a remote peer goes through.
 // When a new peer is connected to (be it either via `connect()` or
 // `accept()` it starts in `PreHandshake` mode, and at this point all
 // we have is a specified `PeerType`. When the handshake is then
@@ -117,6 +106,17 @@ impl RemotePeer {
             RemotePeer::PreHandshake(peer_type, ..) => *peer_type,
         }
     }
+}
+
+#[derive(Debug, Clone, Builder)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[builder(build_fn(skip))]
+pub struct P2PPeer {
+    id: P2PNodeId,
+    pub addr: SocketAddr,
+    #[builder(setter(skip))]
+    last_seen: u64,
+    peer_type: PeerType,
 }
 
 impl P2PPeerBuilder {
@@ -574,7 +574,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(UCursor::build_from_view(text_msg.clone()))
+            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
             .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
@@ -603,7 +603,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(UCursor::build_from_view(text_msg.clone()))
+            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
             .build_broadcast()?;
 
         let serialized = msg.serialize();

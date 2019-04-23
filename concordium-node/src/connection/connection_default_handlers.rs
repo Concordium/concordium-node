@@ -32,9 +32,9 @@ pub fn default_network_request_ping_handle(
 
     let pong_data = {
         let priv_conn_borrow = priv_conn.borrow();
-        if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-            safe_write!(prom)?.pkt_sent_inc()?
-        };
+        if let Some(ref service) = priv_conn_borrow.stats_export_service {
+            safe_write!(service)?.pkt_sent_inc();
+        }
 
         // Make `Pong` response and send
         let remote_peer = priv_conn_borrow
@@ -47,7 +47,7 @@ pub fn default_network_request_ping_handle(
     };
 
     Ok(serialize_bytes(
-        &mut priv_conn.borrow_mut().tls_session,
+        &mut *priv_conn.borrow_mut().tls_session,
         &pong_data,
     )?)
 }
@@ -80,7 +80,7 @@ pub fn default_network_request_find_node_handle(
         };
 
         Ok(serialize_bytes(
-            &mut priv_conn.borrow_mut().tls_session,
+            &mut *priv_conn.borrow_mut().tls_session,
             &response_data,
         )?)
     } else {
@@ -105,8 +105,8 @@ pub fn default_network_request_get_peers(
             let nodes =
                 safe_read!(priv_conn_borrow.buckets)?.get_all_nodes(Some(&sender), networks);
 
-            if let Some(ref prom) = priv_conn_borrow.prometheus_exporter {
-                safe_write!(prom)?.pkt_sent_inc()?;
+            if let Some(ref service) = priv_conn_borrow.stats_export_service {
+                safe_write!(service)?.pkt_sent_inc();
             };
 
             let remote_peer = priv_conn_borrow
@@ -118,7 +118,7 @@ pub fn default_network_request_get_peers(
         };
 
         Ok(serialize_bytes(
-            &mut priv_conn.borrow_mut().tls_session,
+            &mut *priv_conn.borrow_mut().tls_session,
             &peer_list_packet,
         )?)
     } else {
@@ -183,7 +183,7 @@ pub fn default_network_response_peer_list(
 /// In handshake:
 ///     - Add network
 ///     - Store target peer info and allocates buckets for this connection.
-///     - Statistics: Export to Prometheus
+///     - Statistics: Export to Stats Exporter Service
 ///     - Log: Join to network
 pub fn default_network_response_handshake(res: &NetworkResponse) -> FunctorResult {
     reject_handshake!(NetworkResponse, res)
@@ -246,6 +246,7 @@ pub fn default_network_request_handshake(req: &NetworkRequest) -> FunctorResult 
 }
 
 /// Unknown messages only updates statistic information.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
     debug!("Unknown message received!");
 
@@ -260,13 +261,14 @@ pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -
     // trace!("Contents were: {:?}",
     //        String::from_utf8(buf.to_vec()).unwrap());
 
-    if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        safe_write!(prom)?.unknown_pkts_received_inc()?;
+    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+        safe_write!(service)?.unknown_pkts_received_inc();
     }
     Ok(())
 }
 
 /// Invalid messages only updates statistic information.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();
@@ -278,8 +280,8 @@ pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -
     // trace!("Contents were: {:?}",
     //        String::from_utf8(buf.to_vec()).unwrap());
 
-    if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        safe_write!(prom)?.invalid_pkts_received_inc()?;
+    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+        safe_write!(service)?.invalid_pkts_received_inc();
     }
 
     Ok(())

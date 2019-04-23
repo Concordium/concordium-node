@@ -10,7 +10,7 @@ RUN pacman -Sy &&\
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm && \
     pacman -Scc --noconfirm && \
     ./init.build.env.sh && \
-    cargo build && \
+    cargo build --features=instrumentation && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/testrunner /build-project/ && \
     cargo clean &&\ 
     rm -rf ~/.cargo &&\

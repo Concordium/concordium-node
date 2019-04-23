@@ -3,37 +3,115 @@
 # Haskell binding needs proper library path to function
 export LD_LIBRARY_PATH=/usr/local/lib
 
-if [ "$MODE" == "tps_receiver" ]; then
-    # Create dirs
+ARGS=""
+
+# Determine what arguments to pass to the binary
+
+if [ -n "$ID" ];
+then
+    ARGS="$ARGS --id $ID"
+fi
+
+if [ -n "$LISTEN_PORT" ];
+then
+    ARGS="$ARGS --listen-port $LISTEN_PORT"
+fi
+
+if [ -n "$DESIRED_PEERS" ];
+then
+    ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
+fi
+
+if [ -n "$NUM_BAKERS" ];
+then
+    ARGS="$ARGS --num-bakers $NUM_BAKERS"
+fi
+
+if [ -n "$BAKER_ID" ];
+then
+    ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
+fi
+
+if [ -n "$PROMETHEUS_METRICS_SERVER" ];
+then
+    ARGS="$ARGS --prometheus-server $PROMETHEUS_METRICS_SERVER"
+fi
+
+if [ -n "$PROMETHEUS_METRICS_PORT" ];
+then
+    ARGS="$ARGS --prometheus-listen-port $PROMETHEUS_METRICS_PORT"
+fi
+
+if [ -n "$PROMETHEUS_METRICS_IP" ];
+then
+    ARGS="$ARGS --prometheus-listen-addr $PROMETHEUS_METRICS_IP"
+fi
+
+if [ -n "$CONFIG_DIR" ];
+then
+    ARGS="$ARGS --override-config-dir $CONFIG_DIR"
     mkdir -p $CONFIG_DIR
+fi
+
+if [ -n "$DATA_DIR" ];
+then
+    ARGS="$ARGS --override-data-dir $DATA_DIR"
     mkdir -p $DATA_DIR
-	
+    cd $DATA_DIR
+fi
+
+if [ -n "$BOOTSTRAP_FIRST_NODE" ];
+then
+    ARGS="$ARGS --bootstrap-node $BOOTSTRAP_FIRST_NODE"
+fi
+
+if [ -n "$BOOTSTRAP_SECOND_NODE" ];
+then
+    ARGS="$ARGS --bootstrap-node $BOOTSTRAP_SECOND_NODE"
+fi
+
+if [ -n "$RPC_SERVER_ADDR" ];
+then
+    ARGS="$ARGS --rpc-server-addr $RPC_SERVER_ADDR"
+fi
+
+if [ -n "$TPS_MESSAGE_COUNT" ];
+then
+    ARGS="$ARGS --tps-message-count $TPS_MESSAGE_COUNT"
+fi
+
+if [ -n "$TPS_RECEIVER_ID" ];
+then
+    ARGS="$ARGS --tps-test-recv-id $TPS_RECEIVER_ID"
+fi
+
+if [ -n "$MAX_NODES" ];
+then
+    ARGS="$ARGS --max-nodes $MAX_NODES"
+fi
+
+if [ -n "$LISTEN_HTTP_PORT" ];
+then
+    ARGS="$ARGS --listen-http-port $LISTEN_HTTP_PORT"
+fi
+
+if [ -n "$EXTRA_ARGS" ];
+then
+    ARGS="$ARGS $EXTRA_ARGS"
+fi
+
+
+if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     
-    cd $DATA_DIR
-    
     /build-project/p2p_client-cli \
-    --id $ID \
     --enable-tps-test-recv \
-    --listen-port $LISTEN_PORT \
-    --num-bakers $NUM_BAKERS \
-    --baker-id 0 \
-    --prometheus-server $PROMETHEUS_METRICS_SERVER \
-    --prometheus-listen-port $PROMETHEUS_METRICS_PORT \
-    --prometheus-listen-addr $PROMETHEUS_METRICS_IP \
-    --override-config-dir $CONFIG_DIR \
-    --override-data-dir $DATA_DIR \
     --external-ip 10.96.0.15 \
-    --tps-message-count $TPS_MESSAGE_COUNT \
-    --desired-nodes $DESIRED_PEERS \
-    $EXTRA_ARGS
+    $ARGS
 
 elif [ "$MODE" == "tps_sender" ]; then
 	echo "Sender!\n"
     
-    # Create dirs
-    mkdir -p $CONFIG_DIR
-    mkdir -p $DATA_DIR
     mkdir -p $DATA_DIR/tps_test
 
     echo "Generating data\n"
@@ -45,50 +123,20 @@ elif [ "$MODE" == "tps_sender" ]; then
 	    dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
     done
 
-    cd $DATA_DIR
-
     # Echo to cron file
 
     /build-project/p2p_client-cli \
-    --id $ID \
-    --tps-test-recv-id $TPS_RECEIVER_ID \
     --tps-test-data-dir $DATA_DIR/tps_test \
-    --listen-port $LISTEN_PORT \
-    --num-bakers $NUM_BAKERS \
     --baker-id 1 \
-    --prometheus-server $PROMETHEUS_METRICS_SERVER \
-    --prometheus-listen-port $PROMETHEUS_METRICS_PORT \
-    --prometheus-listen-addr $PROMETHEUS_METRICS_IP \
-    --override-config-dir $CONFIG_DIR \
-    --override-data-dir $DATA_DIR \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
-    --tps-message-count $TPS_MESSAGE_COUNT \
-    --desired-nodes $DESIRED_PEERS \
-    $EXTRA_ARGS
-    # cron -f
-elif [ "$MODE" == "basic" ]; then
-# Create dirs
-    mkdir -p $CONFIG_DIR
-    mkdir -p $DATA_DIR
-    
-    /build-project/p2p_client-cli --listen-port $LISTEN_PORT --desired-nodes $DESIRED_PEERS --num-bakers $NUM_BAKERS --baker-id $(echo $BAKER_ID | cut -d'-' -f2) --prometheus-server $PROMETHEUS_METRICS_SERVER --prometheus-listen-port $PROMETHEUS_METRICS_PORT --prometheus-listen-addr $PROMETHEUS_METRICS_IP --override-config-dir $CONFIG_DIR --override-data-dir $DATA_DIR --bootstrap-node $BOOTSTRAP_FIRST_NODE --bootstrap-node $BOOTSTRAP_SECOND_NODE --rpc-server-addr $RPC_SERVER_ADDR $EXTRA_ARGS
-
+    $ARGS
+elif [ "$MODE" == "basic" ]; then   
+    /build-project/p2p_client-cli $ARGS
 elif [ "$MODE" == "bootstrapper" ]; then
-
-    # Create dirs
-    mkdir -p $CONFIG_DIR
-    mkdir -p $DATA_DIR
-
-    /build-project/p2p_bootstrapper-cli --listen-port $LISTEN_PORT --external-ip $EIP --external-port $EXTERNAL_PORT --id $NODE_ID --max-nodes $MAX_NODES --prometheus-server $PROMETHEUS_METRICS_SERVER --prometheus-listen-port $PROMETHEUS_METRICS_PORT --prometheus-listen-addr $PROMETHEUS_METRICS_IP --override-config-dir $CONFIG_DIR --override-data-dir $DATA_DIR $EXTRA_ARGS
-
-elif [ "$MODE" == "testrunner" ]; then
-
-    # Create dirs
-    mkdir -p $CONFIG_DIR
-    mkdir -p $DATA_DIR
-    
-    /build-project/testrunner --listen-port $LISTEN_PORT --listen-http-port $LISTEN_HTTP_PORT --bootstrap-node $BOOTSTRAP_FIRST_NODE --bootstrap-node $BOOTSTRAP_SECOND_NODE $EXTRA_ARGS 
+    /build-project/p2p_bootstrapper-cli $ARGS
+elif [ "$MODE" == "testrunner" ]; then  
+    /build-project/testrunner $ARGS 
 
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
@@ -120,4 +168,6 @@ elif [ "$MODE" == "local_testrunner" ]; then
         --external-port $EXTERNAL_PORT \
         --bootstrap-node $BOOTSTRAP_NODE \
         $EXTRA_ARGS
+else
+    echo "No matching MODE was found. Please check!"
 fi
