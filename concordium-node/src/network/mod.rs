@@ -62,6 +62,9 @@ pub const PROTOCOL_MESSAGE_LENGTH: usize = PROTOCOL_HEADER_LENGTH
     + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH
     + PROTOCOL_MESSAGE_TYPE_LENGTH;
 
+pub const PROTOCOL_WHOLE_PACKET_SIZE: usize = 4;
+pub const PROTOCOL_MAX_MESSAGE_SIZE: usize = 268_435_456;
+
 #[cfg(test)]
 // panics with "attempt to subtract with overflow" when the assertion is broken
 const_assert!(protocol_message_length; PROTOCOL_MESSAGE_LENGTH == 130);
