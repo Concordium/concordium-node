@@ -1,4 +1,4 @@
-use failure::Fail;
+use failure::{Error, Fail};
 
 #[derive(Debug, Fail)]
 #[fail(display = "Peer not found")]
@@ -17,5 +17,12 @@ pub struct DuplicatePeerError;
 pub struct BannedNodeRequestedConnectionError;
 
 #[derive(Debug, Fail)]
+#[fail(display = "Missing fields in attempt to create a Tls Server")]
+pub struct MissingFieldsOnTlsServerBuilder;
+
+#[derive(Debug, Fail)]
 #[fail(display = "Thread join error")]
-pub struct JoinError;
+pub struct JoinError {
+    #[fail(cause)]
+    pub cause: Error,
+}

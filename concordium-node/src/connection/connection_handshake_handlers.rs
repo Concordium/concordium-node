@@ -26,8 +26,8 @@ pub fn handshake_response_handle(
             safe_write!(priv_conn.borrow().buckets)?
                 .insert_into_bucket(&bucket_sender, nets.clone());
         }
-        if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-            safe_write!(prom)?.peers_inc()?;
+        if let Some(ref service) = priv_conn.borrow().stats_export_service {
+            safe_write!(service)?.peers_inc();
         };
         Ok(())
     } else {

@@ -1,4 +1,4 @@
-use crate::{p2p::banned_nodes::BannedNode, prometheus_exporter::PrometheusServer, utils};
+use crate::{p2p::banned_nodes::BannedNode, utils};
 use chrono::prelude::*;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -36,16 +36,16 @@ use crate::{
         Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
-};
-
-use crate::p2p::{
-    fails,
-    no_certificate_verification::NoCertificateVerification,
-    p2p_node_handlers::{
-        forward_network_packet_message, forward_network_request, forward_network_response,
+    p2p::{
+        fails,
+        no_certificate_verification::NoCertificateVerification,
+        p2p_node_handlers::{
+            forward_network_packet_message, forward_network_request, forward_network_response,
+        },
+        peer_statistics::PeerStatistic,
+        tls_server::{TlsServer, TlsServerBuilder},
     },
-    peer_statistics::PeerStatistic,
-    tls_server::TlsServer,
+    stats_export_service::StatsExportService,
 };
 
 const SERVER: Token = Token(0);
@@ -71,22 +71,22 @@ pub struct P2PNodeThread {
 
 #[derive(Clone)]
 pub struct P2PNode {
-    tls_server:          Arc<RwLock<TlsServer>>,
-    poll:                Arc<RwLock<Poll>>,
-    id:                  P2PNodeId,
-    send_queue:          Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
-    pub internal_addr:   SocketAddr,
-    incoming_pkts:       Sender<Arc<NetworkMessage>>,
-    start_time:          DateTime<Utc>,
-    prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-    peer_type:           PeerType,
-    external_addr:       SocketAddr,
-    seen_messages:       SeenMessagesList,
-    thread:              Arc<RwLock<P2PNodeThread>>,
-    quit_tx:             Option<Sender<bool>>,
-    pub max_nodes:       Option<u16>,
-    pub print_peers:     bool,
-    config:              P2PNodeConfig,
+    tls_server:           Arc<RwLock<TlsServer>>,
+    poll:                 Arc<RwLock<Poll>>,
+    id:                   P2PNodeId,
+    send_queue:           Arc<RwLock<VecDeque<Arc<NetworkMessage>>>>,
+    pub internal_addr:    SocketAddr,
+    incoming_pkts:        Sender<Arc<NetworkMessage>>,
+    start_time:           DateTime<Utc>,
+    stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    peer_type:            PeerType,
+    external_addr:        SocketAddr,
+    seen_messages:        SeenMessagesList,
+    thread:               Arc<RwLock<P2PNodeThread>>,
+    quit_tx:              Option<Sender<bool>>,
+    pub max_nodes:        Option<u16>,
+    pub print_peers:      bool,
+    config:               P2PNodeConfig,
 }
 
 unsafe impl Send for P2PNode {}
@@ -98,7 +98,7 @@ impl P2PNode {
         pkt_queue: Sender<Arc<NetworkMessage>>,
         event_log: Option<Sender<P2PEvent>>,
         peer_type: PeerType,
-        prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
@@ -244,17 +244,18 @@ impl P2PNode {
             .cloned()
             .map(NetworkId::from)
             .collect();
-        let tlsserv = TlsServer::new(
-            server,
-            Arc::new(server_conf),
-            Arc::new(client_conf),
-            event_log,
-            self_peer,
-            prometheus_exporter.clone(),
-            networks,
-            Arc::new(RwLock::new(Buckets::new())),
-            conf.connection.no_trust_broadcasts,
-        );
+        let tlsserv = TlsServerBuilder::new()
+            .set_server(server)
+            .set_server_tls_config(Arc::new(server_conf))
+            .set_client_tls_config(Arc::new(client_conf))
+            .set_event_log(event_log)
+            .set_stats_export_service(stats_export_service.clone())
+            .set_blind_trusted_broadcast(conf.connection.no_trust_broadcasts)
+            .set_self_peer(self_peer)
+            .set_networks(networks)
+            .set_buckets(Arc::new(RwLock::new(Buckets::new())))
+            .build()
+            .unwrap();
 
         let config = P2PNodeConfig {
             no_net:                  conf.cli.no_network,
@@ -276,7 +277,7 @@ impl P2PNode {
             internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             incoming_pkts: pkt_queue,
             start_time: Utc::now(),
-            prometheus_exporter,
+            stats_export_service,
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
             peer_type,
             seen_messages,
@@ -318,7 +319,7 @@ impl P2PNode {
                 .expect("Couldn't lock the tls server")
                 .networks(),
         );
-        let prometheus_exporter = self.prometheus_exporter.clone();
+        let stats_export_service = self.stats_export_service.clone();
         let packet_queue = self.incoming_pkts.clone();
         let send_queue = Arc::clone(&self.send_queue);
         let trusted_broadcast = self.config.blind_trusted_broadcast;
@@ -326,7 +327,7 @@ impl P2PNode {
         make_atomic_callback!(move |pac: &NetworkPacket| {
             forward_network_packet_message(
                 &seen_messages,
-                &prometheus_exporter,
+                &stats_export_service,
                 &own_networks,
                 &send_queue,
                 &packet_queue,
@@ -499,14 +500,28 @@ impl P2PNode {
             if id != current_thread_id {
                 let join_handle_opt = safe_write!(self.thread)?.join_handle.take();
                 if let Some(join_handle) = join_handle_opt {
-                    return join_handle.join().map_err(|_| fails::JoinError)?;
+                    let join_ret = join_handle.join().map_err(|e| {
+                        let join_error = format!("{:?}", e);
+                        fails::JoinError {
+                            cause: err_msg(join_error),
+                        }
+                    })?;
+                    return join_ret;
+                } else {
+                    bail!(fails::JoinError {
+                        cause: err_msg("Event thread has already be joined"),
+                    });
                 }
             } else {
-                bail!(fails::JoinError);
+                bail!(fails::JoinError {
+                    cause: err_msg("It is called from inside event thread"),
+                });
             }
+        } else {
+            bail!(fails::JoinError {
+                cause: err_msg("Missing event thread id"),
+            });
         }
-
-        Ok(())
     }
 
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
@@ -627,9 +642,9 @@ impl P2PNode {
             let outer_pkt = send_q.pop_front();
             match outer_pkt {
                 Some(ref x) => {
-                    if let Some(ref prom) = &self.prometheus_exporter {
-                        let mut lock = safe_write!(prom)?;
-                        lock.queue_size_dec().unwrap_or_else(|e| error!("{}", e));
+                    if let Some(ref service) = &self.stats_export_service {
+                        let mut lock = safe_write!(service)?;
+                        lock.queue_size_dec();
                     };
                     trace!("Got message to process!");
                     let check_sent_status_fn = |conn: &Connection, status: Fallible<usize>| {
@@ -730,17 +745,13 @@ impl P2PNode {
                 }
                 _ => {
                     if !resend_queue.is_empty() {
-                        if let Some(ref prom) = &self.prometheus_exporter {
-                            match safe_write!(prom) {
+                        if let Some(ref service) = &self.stats_export_service {
+                            match safe_write!(service) {
                                 Ok(ref mut lock) => {
-                                    lock.queue_size_inc_by(resend_queue.len() as i64)
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
-                                    lock.queue_resent_inc_by(resend_queue.len() as i64)
-                                        .map_err(|e| error!("{}", e))
-                                        .ok();
+                                    lock.queue_size_inc_by(resend_queue.len() as i64);
+                                    lock.queue_resent_inc_by(resend_queue.len() as i64);
                                 }
-                                _ => error!("Couldn't lock prometheus instance"),
+                                _ => error!("Couldn't lock stats export service instance"),
                             }
                         };
                         send_q.append(&mut resend_queue);
@@ -754,24 +765,24 @@ impl P2PNode {
     }
 
     fn queue_size_inc(&self) -> Fallible<()> {
-        if let Some(ref prom) = &self.prometheus_exporter {
-            match safe_write!(prom) {
+        if let Some(ref service) = &self.stats_export_service {
+            match safe_write!(service) {
                 Ok(ref mut lock) => {
-                    lock.queue_size_inc().unwrap_or_else(|e| error!("{}", e));
+                    lock.queue_size_inc();
                 }
-                _ => error!("Couldn't lock prometheus instance"),
+                _ => error!("Couldn't lock stats export service instance"),
             }
         };
         Ok(())
     }
 
     fn pks_sent_inc(&self) -> Fallible<()> {
-        if let Some(ref prom) = &self.prometheus_exporter {
-            match safe_write!(prom) {
+        if let Some(ref service) = &self.stats_export_service {
+            match safe_write!(service) {
                 Ok(ref mut lock) => {
-                    lock.pkt_sent_inc().unwrap_or_else(|e| error!("{}", e));
+                    lock.pkt_sent_inc();
                 }
-                _ => error!("Couldn't lock prometheus instance"),
+                _ => error!("Couldn't lock stats export service instance"),
             }
         };
         Ok(())
@@ -806,7 +817,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(msg)
+                .message(Box::new(msg))
                 .build_broadcast()?
         } else {
             let receiver =
@@ -816,7 +827,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(msg)
+                .message(Box::new(msg))
                 .build_direct(receiver)?
         };
 
@@ -982,11 +993,8 @@ impl P2PNode {
                         .accept(&mut poll_ref, self.get_self_peer())
                         .map_err(|e| error!("{}", e))
                         .ok();
-                    if let Some(ref prom) = &self.prometheus_exporter {
-                        safe_write!(prom)?
-                            .conn_received_inc()
-                            .map_err(|e| error!("{}", e))
-                            .ok();
+                    if let Some(ref service) = &self.stats_export_service {
+                        safe_write!(service)?.conn_received_inc();
                     };
                 }
                 _ => {

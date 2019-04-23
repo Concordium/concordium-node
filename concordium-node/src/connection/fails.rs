@@ -1,6 +1,14 @@
 use failure::{Backtrace, Fail};
 
 #[derive(Debug, Fail)]
+#[fail(display = "Some field were missing when attempting to build a connection.")]
+pub struct MissingFieldsConnectionBuilder;
+
+#[derive(Debug, Fail)]
+#[fail(display = "Connection didn't even offer 4 bytes to read size")]
+pub struct NotEnoughBytesToRead;
+
+#[derive(Debug, Fail)]
 #[fail(display = "Message processing error: {}", message)]
 pub struct MessageProcessError {
     pub message:   &'static str,
@@ -20,8 +28,8 @@ pub struct LogError {
 }
 
 #[derive(Debug, Fail)]
-#[fail(display = "Prometheus error: {}", message)]
-pub struct PrometheusError {
+#[fail(display = "Stats Exporter error: {}", message)]
+pub struct StatsExporterError {
     pub message: &'static str,
 }
 

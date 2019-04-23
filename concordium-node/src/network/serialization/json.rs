@@ -13,20 +13,27 @@ pub fn s11n_network_message(input: &str) -> NetworkMessage {
 
 #[cfg(test)]
 mod unit_test {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::{
+        net::{IpAddr, Ipv4Addr, SocketAddr},
+        str::FromStr,
+    };
 
     use super::s11n_network_message;
 
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder, UCursor},
-        network::{NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+        network::{
+            NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+        },
     };
 
     fn localhost_peer() -> P2PPeer {
         P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
-            .ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-            .port(8888)
+            .peer_type(PeerType::Node)
+            .addr(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                8888,
+            ))
             .build()
             .unwrap()
     }
@@ -53,9 +60,9 @@ mod unit_test {
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
-                    .network_id(111)
+                    .network_id(NetworkId::from(100u16))
                     .message(direct_message_content)
-                    .build_direct(P2PNodeId::from_string("2A").unwrap())
+                    .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
                 None,
