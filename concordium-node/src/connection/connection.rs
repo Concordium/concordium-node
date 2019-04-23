@@ -30,7 +30,7 @@ use crate::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse, ProtocolMessageType,
         PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
     },
-    prometheus_exporter::PrometheusServer,
+    stats_export_service::StatsExportService,
 };
 
 use super::fails;
@@ -111,7 +111,7 @@ impl Connection {
         tls_client_session: Option<ClientSession>,
         self_peer: P2PPeer,
         remote_peer: RemotePeer,
-        prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
         event_log: Option<Sender<P2PEvent>>,
         own_networks: Arc<RwLock<HashSet<NetworkId>>>,
         buckets: Arc<RwLock<Buckets>>,
@@ -125,7 +125,7 @@ impl Connection {
             buckets,
             tls_server_session,
             tls_client_session,
-            prometheus_exporter,
+            stats_export_service,
             event_log,
             blind_trusted_broadcast,
         )));
@@ -489,11 +489,9 @@ impl Connection {
         ));
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        if let Some(ref prom) = &self.prometheus_exporter() {
-            if let Ok(mut plock) = safe_write!(prom) {
-                plock.pkt_received_inc().unwrap_or_else(|e| {
-                    error!("Prometheus cannot increment packet received counter: {}", e)
-                });
+        if let Some(ref service) = &self.stats_export_service() {
+            if let Ok(mut slock) = safe_write!(service) {
+                slock.pkt_received_inc();
             }
         };
 
@@ -668,8 +666,8 @@ impl Connection {
         }
     }
 
-    pub fn prometheus_exporter(&self) -> Option<Arc<RwLock<PrometheusServer>>> {
-        self.dptr.borrow().prometheus_exporter.clone()
+    pub fn stats_export_service(&self) -> Option<Arc<RwLock<StatsExportService>>> {
+        self.dptr.borrow().stats_export_service.clone()
     }
 
     pub fn local_peer_type(&self) -> PeerType { self.dptr.borrow().local_peer.peer_type() }

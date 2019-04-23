@@ -15,7 +15,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
     connection::{CommonSession, P2PEvent},
     network::{Buckets, NetworkId},
-    prometheus_exporter::PrometheusServer,
+    stats_export_service::StatsExportService,
 };
 
 /// It is just a helper struct to facilitate sharing information with
@@ -34,10 +34,10 @@ pub struct ConnectionPrivate {
     pub tls_session: Box<dyn CommonSession>,
 
     // Stats
-    last_seen:               AtomicU64,
-    pub failed_pkts:         u32,
-    pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
-    pub event_log:           Option<Sender<P2PEvent>>,
+    last_seen:                AtomicU64,
+    pub failed_pkts:          u32,
+    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    pub event_log:            Option<Sender<P2PEvent>>,
 
     // Time
     pub sent_handshake:        u64,
@@ -55,7 +55,7 @@ impl ConnectionPrivate {
         buckets: Arc<RwLock<Buckets>>,
         tls_server_session: Option<ServerSession>,
         tls_client_session: Option<ClientSession>,
-        prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
         event_log: Option<Sender<P2PEvent>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
@@ -77,7 +77,7 @@ impl ConnectionPrivate {
             tls_session,
             last_seen: AtomicU64::new(get_current_stamp()),
             failed_pkts: 0,
-            prometheus_exporter,
+            stats_export_service,
             event_log,
             sent_handshake: u64_max_value,
             sent_ping: u64_max_value,

@@ -23,14 +23,20 @@ use p2p_client::{
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    prometheus_exporter::{PrometheusMode, PrometheusServer},
-    safe_read, utils,
+    safe_read,
+    stats_export_service::{StatsExportService, StatsServiceMode},
+    utils,
 };
 use std::{
-    net::SocketAddr,
     sync::{mpsc, Arc, RwLock},
     thread,
 };
+
+#[cfg(feature = "instrumentation")]
+use failure::Fallible;
+
+#[cfg(feature = "instrumentation")]
+use p2p_client::common::P2PNodeId;
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
@@ -74,9 +80,11 @@ fn main() -> Result<(), Error> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    let prometheus = if conf.prometheus.prometheus_server {
+    #[cfg(feature = "instrumentation")]
+    let stats_export_service = if conf.prometheus.prometheus_server {
+        use std::net::SocketAddr;
         info!("Enabling prometheus server");
-        let mut srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
+        let mut srv = StatsExportService::new(StatsServiceMode::BootstrapperMode);
         srv.start_server(SocketAddr::new(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
@@ -86,13 +94,18 @@ fn main() -> Result<(), Error> {
         Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", gateway);
-        let srv = PrometheusServer::new(PrometheusMode::BootstrapperMode);
+        let srv = StatsExportService::new(StatsServiceMode::BootstrapperMode);
         Some(Arc::new(RwLock::new(srv)))
     } else {
         None
     };
 
-    let arc_prometheus = if let Some(ref p) = prometheus {
+    #[cfg(not(feature = "instrumentation"))]
+    let stats_export_service = Some(Arc::new(RwLock::new(StatsExportService::new(
+        StatsServiceMode::NodeMode,
+    ))));
+
+    let arc_stats_export_service = if let Some(ref p) = stats_export_service {
         Some(Arc::clone(p))
     } else {
         None
@@ -127,7 +140,7 @@ fn main() -> Result<(), Error> {
             pkt_in,
             Some(sender),
             PeerType::Bootstrapper,
-            arc_prometheus,
+            arc_stats_export_service,
         )))
     } else {
         Arc::new(RwLock::new(P2PNode::new(
@@ -136,7 +149,7 @@ fn main() -> Result<(), Error> {
             pkt_in,
             None,
             PeerType::Bootstrapper,
-            arc_prometheus,
+            arc_stats_export_service,
         )))
     };
 
@@ -176,27 +189,13 @@ fn main() -> Result<(), Error> {
         }
     ));
 
-    if let Some(ref prom) = prometheus {
-        if let Some(ref prom_push_addy) = conf.prometheus.prometheus_push_gateway {
-            let instance_name =
-                if let Some(ref instance_id) = conf.prometheus.prometheus_instance_name {
-                    instance_id.to_owned()
-                } else {
-                    safe_write!(node)?.id().to_string()
-                };
-            safe_read!(prom)?
-                .start_push_to_gateway(
-                    prom_push_addy.to_owned(),
-                    conf.prometheus.prometheus_push_interval,
-                    conf.prometheus.prometheus_job_name,
-                    instance_name,
-                    conf.prometheus.prometheus_push_username,
-                    conf.prometheus.prometheus_push_password,
-                )
-                .map_err(|e| error!("{}", e))
-                .ok();
-        }
-    }
+    #[cfg(feature = "instrumentation")]
+    // Start push gateway to prometheus
+    start_push_gateway(
+        &conf.prometheus,
+        &stats_export_service,
+        node.read().unwrap().id(),
+    )?;
 
     {
         let mut locked_node = safe_write!(node)?;
@@ -207,5 +206,31 @@ fn main() -> Result<(), Error> {
 
     safe_write!(node)?.join().expect("Node thread panicked!");
 
+    Ok(())
+}
+
+#[cfg(feature = "instrumentation")]
+fn start_push_gateway(
+    conf: &configuration::PrometheusConfig,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    id: P2PNodeId,
+) -> Fallible<()> {
+    if let Some(ref service) = stats_export_service {
+        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
+            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
+                instance_id.clone()
+            } else {
+                id.to_string()
+            };
+            safe_read!(service)?.start_push_to_gateway(
+                prom_push_addy.clone(),
+                conf.prometheus_push_interval,
+                conf.prometheus_job_name.clone(),
+                instance_name,
+                conf.prometheus_push_username.clone(),
+                conf.prometheus_push_password.clone(),
+            )?
+        }
+    }
     Ok(())
 }
