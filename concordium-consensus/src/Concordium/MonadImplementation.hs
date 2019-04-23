@@ -535,7 +535,7 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s) => SkovMonad (SimpleSkovMona
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
     storeBakedBlock = doStoreBakedBlock noopSkovListeners
-    receiveTransaction tr = doReceiveTransaction (makeHashed tr) 0
+    receiveTransaction tr = doReceiveTransaction tr 0
     finalizeBlock = doFinalizeBlock noopSkovListeners
     isFinalized = doIsFinalized
     lastFinalizedBlock = getLastFinalized
@@ -567,7 +567,7 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) =
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
     storeBakedBlock = doStoreBakedBlock sfsSkovListeners
-    receiveTransaction tr = doReceiveTransaction (makeHashed tr) 0
+    receiveTransaction tr = doReceiveTransaction tr 0
     finalizeBlock = doFinalizeBlock sfsSkovListeners
     isFinalized = doIsFinalized
     lastFinalizedBlock = getLastFinalized
@@ -607,91 +607,3 @@ runFSM (FinalizationSkovMonad a) fi fs = runRWST a fi fs
 
 evalSSM :: (Monad m) => SimpleSkovMonad s m a -> s -> m a
 evalSSM (SimpleSkovMonad a) st = evalStateT a st
-
-{-
-execSSM :: (Monad m) => SimpleSkovMonad (StateT SkovData m) -> SkovData -> 
--}
--- runFSM :: 
-
-{-
-
-
-
-doAddPendingTransaction :: (MonadState s m, SkovLenses s) => Transaction -> m ()
-doAddPendingTransaction tr@Transaction{..} = do
-    isFin <- Map.member transactionNonce <$> use transactionsFinalized
-    unless isFin $
-        transactionsPending %= Map.insert transactionNonce tr
-doGetPendingTransactionsAtBlock :: (MonadState s m, SkovLenses s) => BlockPointer -> m (Maybe (Map.Map TransactionNonce Transaction))
-doGetPendingTransactionsAtBlock bp = do
-    pts <- use transactionsPending
-    doGetTransactionsAtBlock bp >>= \case
-        Nothing -> return Nothing
-        Just bts -> return $ Just $ Map.difference pts bts
-doGetTransactionsAtBlock :: (MonadState s m, SkovLenses s) => BlockPointer -> m (Maybe (Map.Map TransactionNonce Transaction))
-doGetTransactionsAtBlock bp = do
-    lfp <- use (skov . to lastFinalized)
-    genp <- use genesisBlockPointer
-    let getTrans cbp
-            | cbp == lfp = use transactionsFinalized
-            | cbp == genp = return Map.empty
-            | otherwise = do
-                    bts <- MaybeT . pure $ toTransactions (blockData (bpBlock cbp))
-                    parentTrans <- getTrans (bpParent cbp)
-                    let upd tr@Transaction{..} s = if transactionNonce `Map.member` s then Nothing else Just (Map.insert transactionNonce tr s)
-                    MaybeT $ pure $ foldrM upd parentTrans bts
-    runMaybeT $ getTrans bp
-
-
-instance (TimeMonad m, LoggerMonad m) => PayloadMonad (StateT SkovData m) where
-    addPendingTransaction = doAddPendingTransaction
-    getPendingTransactionsAtBlock  = doGetPendingTransactionsAtBlock
-    getTransactionsAtBlock = doGetTransactionsAtBlock
-
-instance (TimeMonad m, LoggerMonad m) => KontrolMonad (StateT SkovData m)
-
-data SkovFinalizationState = SkovFinalizationState {
-    _sfsSkov :: SkovData,
-    _sfsFinalization :: FinalizationState
-}
-makeLenses ''SkovFinalizationState
-
-instance SkovLenses SkovFinalizationState where
-    skov = sfsSkov
-
-instance FinalizationStateLenses SkovFinalizationState where
-    finState = sfsFinalization
-
-initialSkovFinalizationState :: FinalizationInstance -> GenesisData -> SkovFinalizationState
-initialSkovFinalizationState finInst gen = SkovFinalizationState{..}
-    where
-        _sfsSkov = initialSkovData gen
-        _sfsFinalization = initialFinalizationState finInst (bpHash (_skovGenesisBlockPointer _sfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
-
-instance (TimeMonad m, LoggerMonad m) => SkovMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
-    {- # INLINE resolveBlock #-}
-    resolveBlock = doResolveBlock
-    storeBlock = doStoreBlock sfsSkovListeners
-    finalizeBlock = doFinalizeBlock sfsSkovListeners
-    isFinalized bp = preuse (blockTable . ix bp) >>= \case
-            Just (BlockFinalized _ _) -> return True
-            _ -> return False
-    lastFinalizedBlock = use (skov . to lastFinalized)
-    getGenesisData = use genesisData
-    genesisBlock = use genesisBlockPointer
-    getCurrentHeight = doGetCurrentHeight
-    branchesFromTop = doBranchesFromTop
-    getBlocksAtHeight = doGetBlocksAtHeight
-
-instance (TimeMonad m, LoggerMonad m) => FinalizationMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
-    broadcastFinalizationMessage = tell . Endo . (:) . BroadcastFinalizationMessage
-    broadcastFinalizationRecord = tell . Endo . (:) . BroadcastFinalizationRecord
-
-instance (TimeMonad m, LoggerMonad m) => PayloadMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m) where
-    addPendingTransaction = doAddPendingTransaction
-    getPendingTransactionsAtBlock  = doGetPendingTransactionsAtBlock
-    getTransactionsAtBlock = doGetTransactionsAtBlock
-
-instance (TimeMonad m, LoggerMonad m) => KontrolMonad (RWST FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m)
-
--}
