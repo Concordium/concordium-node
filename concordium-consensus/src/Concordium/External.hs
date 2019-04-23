@@ -193,7 +193,6 @@ receiveTransaction bptr tdata len = do
                    return 1
       Right tr -> do
         logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (trHeader tr)
-        -- NB: The hash is a temporary cludge. This will change once we have the transaction table.
         writeChan cin (MsgTransactionReceived tr) >> return 0
 
 
