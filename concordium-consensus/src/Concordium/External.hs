@@ -147,15 +147,18 @@ stopBaker bptr = do
     freeStablePtr bptr
     writeChan cin MsgShutdown
 
-receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 receiveBlock bptr cstr l = do
     BakerRunner cin _ _ logm <- deRefStablePtr bptr
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get blockBS of
-        Left _ -> logm External LLDebug $ "Block deserialization failed. Ignoring the block."
+        Left _ -> do
+          logm External LLDebug "Block deserialization failed. Ignoring the block."
+          return 1
         Right block -> do logm External LLInfo $ "Block deserialized. Sending to consensus."
                           writeChan cin $ MsgBlockReceived block
+                          return 0
 
 receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalization bptr cstr l = do
@@ -164,16 +167,19 @@ receiveFinalization bptr cstr l = do
     bs <- BS.packCStringLen (cstr, fromIntegral l)
     writeChan cin $ MsgFinalizationReceived bs
 
-receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 receiveFinalizationRecord bptr cstr l = do
     BakerRunner cin _ _ logm <- deRefStablePtr bptr
     logm External LLDebug $ "Received finalization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get finRecBS of
-        Left _ -> logm External LLDebug "Deserialization of finalization record failed."
+        Left _ -> do
+          logm External LLDebug "Deserialization of finalization record failed."
+          return 1
         Right finRec -> do
           logm External LLDebug "Finalization record deserialized."
           writeChan cin $ MsgFinalizationRecordReceived finRec
+          return 0
 
 printBlock :: CString -> Int64 -> IO ()
 printBlock cstr l = do
@@ -288,9 +294,9 @@ freeCStr = free
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
-foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 
