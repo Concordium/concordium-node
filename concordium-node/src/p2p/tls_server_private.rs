@@ -181,7 +181,7 @@ impl TlsServerPrivate {
     ) -> impl Iterator<Item = &Rc<RefCell<Connection>>> {
         self.connections
             .iter()
-            .filter(move |&conn| conn.borrow().remote_addr().ip() == ip)
+            .filter(move |&conn| conn.borrow().remote_peer().addr().ip() == ip)
     }
 
     fn remove_connection(&mut self, to_remove: Token) {

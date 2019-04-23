@@ -43,7 +43,7 @@ use crate::{
             forward_network_packet_message, forward_network_request, forward_network_response,
         },
         peer_statistics::PeerStatistic,
-        tls_server::TlsServer,
+        tls_server::{TlsServer, TlsServerBuilder},
     },
     stats_export_service::StatsExportService,
 };
@@ -244,17 +244,18 @@ impl P2PNode {
             .cloned()
             .map(NetworkId::from)
             .collect();
-        let tlsserv = TlsServer::new(
-            server,
-            Arc::new(server_conf),
-            Arc::new(client_conf),
-            event_log,
-            self_peer,
-            stats_export_service.clone(),
-            networks,
-            Arc::new(RwLock::new(Buckets::new())),
-            conf.connection.no_trust_broadcasts,
-        );
+        let tlsserv = TlsServerBuilder::new()
+            .set_server(server)
+            .set_server_tls_config(Arc::new(server_conf))
+            .set_client_tls_config(Arc::new(client_conf))
+            .set_event_log(event_log)
+            .set_stats_export_service(stats_export_service.clone())
+            .set_blind_trusted_broadcast(conf.connection.no_trust_broadcasts)
+            .set_self_peer(self_peer)
+            .set_networks(networks)
+            .set_buckets(Arc::new(RwLock::new(Buckets::new())))
+            .build()
+            .unwrap();
 
         let config = P2PNodeConfig {
             no_net:                  conf.cli.no_network,
@@ -816,7 +817,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(msg)
+                .message(Box::new(msg))
                 .build_broadcast()?
         } else {
             let receiver =
@@ -826,7 +827,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(msg)
+                .message(Box::new(msg))
                 .build_direct(receiver)?
         };
 

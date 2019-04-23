@@ -4,6 +4,8 @@ extern crate walkdir;
 #[cfg(feature = "s11n_capnp")]
 extern crate capnpc;
 
+use std::process::Command;
+
 fn main() {
     // Compile capnpc
     #[cfg(feature = "s11n_capnp")]
@@ -27,4 +29,29 @@ fn main() {
         &proto_root,
     )
     .expect("Failed to compile gRPC definitions!");
+
+    // Walk through the proto_root directory and replace the
+    // generated `allow(clippy)` directive with `allow(clippy::all)`
+    // which is the new syntax.
+    //
+    // This can not be directly implemented into protobuf, see:
+    // https://github.com/stepancheg/rust-protobuf/issues/331
+    #[cfg(target_family = "unix")]
+    {
+        let walker = walkdir::WalkDir::new(proto_root)
+            .into_iter()
+            .filter_map(Result::ok);
+        for entry in walker {
+            if !entry.file_type().is_dir() {
+                Command::new("sed")
+                    .args(&[
+                        "-i",
+                        "s/allow(clippy)/allow(clippy::all)/g",
+                        &format!("{}", entry.path().display()),
+                    ])
+                    .spawn()
+                    .expect("sed replacement command failed");
+            }
+        }
+    }
 }

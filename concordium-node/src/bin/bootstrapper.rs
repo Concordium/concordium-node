@@ -88,9 +88,7 @@ fn main() -> Result<(), Error> {
         srv.start_server(SocketAddr::new(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
-        ))
-        .map_err(|e| error!("{}", e))
-        .ok();
+        ));
         Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", gateway);
@@ -229,7 +227,7 @@ fn start_push_gateway(
                 instance_name,
                 conf.prometheus_push_username.clone(),
                 conf.prometheus_push_password.clone(),
-            )?
+            )
         }
     }
     Ok(())

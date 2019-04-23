@@ -47,7 +47,7 @@ pub fn default_network_request_ping_handle(
     };
 
     Ok(serialize_bytes(
-        &mut priv_conn.borrow_mut().tls_session,
+        &mut *priv_conn.borrow_mut().tls_session,
         &pong_data,
     )?)
 }
@@ -80,7 +80,7 @@ pub fn default_network_request_find_node_handle(
         };
 
         Ok(serialize_bytes(
-            &mut priv_conn.borrow_mut().tls_session,
+            &mut *priv_conn.borrow_mut().tls_session,
             &response_data,
         )?)
     } else {
@@ -118,7 +118,7 @@ pub fn default_network_request_get_peers(
         };
 
         Ok(serialize_bytes(
-            &mut priv_conn.borrow_mut().tls_session,
+            &mut *priv_conn.borrow_mut().tls_session,
             &peer_list_packet,
         )?)
     } else {
@@ -246,6 +246,7 @@ pub fn default_network_request_handshake(req: &NetworkRequest) -> FunctorResult 
 }
 
 /// Unknown messages only updates statistic information.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
     debug!("Unknown message received!");
 
@@ -267,6 +268,7 @@ pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -
 }
 
 /// Invalid messages only updates statistic information.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();

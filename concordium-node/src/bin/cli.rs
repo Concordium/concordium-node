@@ -45,10 +45,10 @@ use std::{
     thread,
 };
 
-fn main() -> Fallible<()> {
+fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     // Get config and app preferences
     let conf = configuration::parse_config();
-    let mut app_prefs = configuration::AppPreferences::new(
+    let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
     );
@@ -84,328 +84,14 @@ fn main() -> Fallible<()> {
         app_prefs.get_user_config_dir()
     );
 
-    // Retrieving bootstrap nodes
-    let dns_resolvers =
-        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-    for resolver in &dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-    let bootstrap_nodes = utils::get_bootstrap_nodes(
-        conf.connection.bootstrap_server.clone(),
-        &dns_resolvers,
-        conf.connection.no_dnssec,
-        &conf.connection.bootstrap_node,
-    );
+    (conf, app_prefs)
+}
 
-    // Create the database
-    let mut db_path = app_prefs.get_user_app_dir();
-    db_path.push("p2p.db");
-    let db = P2PDB::new(db_path.as_path());
-
-    #[cfg(feature = "instrumentation")]
-    // Instantiate stats export service
-    let stats_export_service = if conf.prometheus.prometheus_server {
-        info!("Enabling prometheus server");
-        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode);
-        srv.start_server(SocketAddr::new(
-            conf.prometheus.prometheus_listen_addr.parse()?,
-            conf.prometheus.prometheus_listen_port,
-        ))
-        .unwrap_or_else(|e| error!("{}", e));
-
-        Some(Arc::new(RwLock::new(srv)))
-    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
-        info!("Enabling prometheus push gateway at {}", push_gateway);
-        let srv = StatsExportService::new(StatsServiceMode::NodeMode);
-        Some(Arc::new(RwLock::new(srv)))
-    } else {
-        None
-    };
-    #[cfg(not(feature = "instrumentation"))]
-    let stats_export_service = Some(Arc::new(RwLock::new(StatsExportService::new(
-        StatsServiceMode::NodeMode,
-    ))));
-
-    info!("Debugging enabled: {}", conf.common.debug);
-
-    // Instantiate the p2p node
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
-    let node_id = conf.common.id.clone().map_or(
-        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
-        |id| {
-            if !app_prefs.set_config(
-                configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
-                Some(id.clone()),
-            ) {
-                error!("Failed to persist own node id");
-            };
-            Some(id)
-        },
-    );
-    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
-        Some(Arc::clone(service))
-    } else {
-        None
-    };
-
-    // Thread #1: Read P2PEvents from P2PNode
-    let mut node = if conf.common.debug {
-        let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
-            if let Ok(msg) = receiver.recv() {
-                info!("{}", msg);
-            }
-        });
-        P2PNode::new(
-            node_id,
-            &conf,
-            pkt_in,
-            Some(sender),
-            PeerType::Node,
-            arc_stats_export_service,
-        )
-    } else {
-        P2PNode::new(
-            node_id,
-            &conf,
-            pkt_in,
-            None,
-            PeerType::Node,
-            arc_stats_export_service,
-        )
-    };
-
-    // Banning nodes in database
-    match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n)?;
-            }
-        }
-        None => {
-            info!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist();
-        }
-    };
-
-    // Starting baker
-    let mut baker = start_baker(&conf.cli.baker, &app_prefs);
-
-    // Starting rpc server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
-        serv.start_server()?;
-        Some(serv)
-    } else {
-        None
-    };
-
-    // Connect outgoing messages to be forwarded into the baker
-    // or editing the db, or triggering new connections
-    //
-    // Thread #2: Read P2PNode output
-    {
-        let mut _node_self_clone = node.clone();
-
-        let _no_trust_bans = conf.common.no_trust_bans;
-        let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
-        let mut _rpc_clone = rpc_serv.clone();
-        let _desired_nodes_clone = conf.connection.desired_nodes;
-        let _test_runner_url = conf.cli.test_runner_url.clone();
-        let mut _baker_pkt_clone = baker.clone();
-        let _tps_test_enabled = conf.cli.tps.enable_tps_test;
-        let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
-        let mut _msg_count = 0;
-        let _tps_message_count = conf.cli.tps.tps_message_count;
-        let _guard_pkt = thread::spawn(move || {
-            fn send_msg_to_baker(
-                baker_ins: &mut Option<consensus::ConsensusContainer>,
-                mut msg: UCursor,
-            ) -> Fallible<()> {
-                if let Some(ref mut baker) = baker_ins {
-                    ensure!(
-                        msg.len() >= msg.position() + 2,
-                        "Message needs at least 2 bytes"
-                    );
-
-                    let consensus_type = msg.read_u16::<BigEndian>()?;
-                    let view = msg.read_all_into_view()?;
-                    let content = view.as_slice();
-
-                    match consensus_type {
-                        0 => match consensus::Block::deserialize(content) {
-                            Some(block) => {
-                                baker.send_block(&block);
-                                info!("Sent block from network to baker");
-                            }
-                            _ => error!(
-                                "Couldn't deserialize block, can't move forward with the message"
-                            ),
-                        },
-                        1 => {
-                            baker.send_transaction(content);
-                            info!("Sent transaction to baker");
-                        }
-                        2 => {
-                            baker.send_finalization(content);
-                            info!("Sent finalization package to consensus layer");
-                        }
-                        3 => {
-                            baker.send_finalization_record(content);
-                            info!("Sent finalization record to consensus layer");
-                        }
-                        _ => {
-                            error!("Couldn't read bytes properly for type");
-                        }
-                    }
-                }
-                Ok(())
-            }
-
-            loop {
-                if let Ok(full_msg) = pkt_out.recv() {
-                    match *full_msg {
-                        NetworkMessage::NetworkPacket(ref pac, ..) => {
-                            match pac.packet_type {
-                                NetworkPacketType::DirectMessage(..) => {
-                                    if _tps_test_enabled {
-                                        _stats_engine.add_stat(pac.message.len() as u64);
-                                        _msg_count += 1;
-
-                                        if _msg_count == _tps_message_count {
-                                            info!(
-                                                "TPS over {} messages is {}",
-                                                _tps_message_count,
-                                                _stats_engine.calculate_total_tps_average()
-                                            );
-                                            _msg_count = 0;
-                                            _stats_engine.clear();
-                                        }
-                                    }
-                                    if let Some(ref mut rpc) = _rpc_clone {
-                                        rpc.queue_message(&full_msg).unwrap_or_else(|e| {
-                                            error!("Couldn't queue message {}", e)
-                                        });
-                                    }
-                                    info!(
-                                        "DirectMessage/{}/{} with size {} received",
-                                        pac.network_id,
-                                        pac.message_id,
-                                        pac.message.len()
-                                    );
-                                }
-                                NetworkPacketType::BroadcastedMessage => {
-                                    if let Some(ref mut rpc) = _rpc_clone {
-                                        rpc.queue_message(&full_msg).unwrap_or_else(|e| {
-                                            error!("Couldn't queue message {}", e)
-                                        });
-                                    }
-                                    if let Some(ref testrunner_url) = _test_runner_url {
-                                        send_packet_to_testrunner(
-                                            &_node_self_clone,
-                                            testrunner_url,
-                                            pac,
-                                        );
-                                    };
-                                }
-                            };
-                            if let Err(e) =
-                                send_msg_to_baker(&mut _baker_pkt_clone, pac.message.clone())
-                            {
-                                error!("Send network message to baker has failed: {:?}", e);
-                            }
-                        }
-
-                        NetworkMessage::NetworkRequest(
-                            NetworkRequest::BanNode(ref peer, x),
-                            ..
-                        ) => {
-                            utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                        }
-                        NetworkMessage::NetworkRequest(
-                            NetworkRequest::UnbanNode(ref peer, x),
-                            ..
-                        ) => {
-                            utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                        }
-                        NetworkMessage::NetworkResponse(
-                            NetworkResponse::PeerList(ref peer, ref peers),
-                            ..
-                        ) => {
-                            info!(
-                                "Received PeerList response, attempting to satisfy desired peers"
-                            );
-                            let mut new_peers = 0;
-                            match _node_self_clone.get_peer_stats(&[]) {
-                                Ok(x) => {
-                                    for peer_node in peers {
-                                        debug!(
-                                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                                            peer.id(),
-                                            peer.ip(),
-                                            peer.port(),
-                                            peer_node.id(),
-                                            peer_node.ip(),
-                                            peer_node.port()
-                                        );
-                                        if _node_self_clone
-                                            .connect(
-                                                PeerType::Node,
-                                                peer_node.addr,
-                                                Some(peer_node.id()),
-                                            )
-                                            .map_err(|e| info!("{}", e))
-                                            .is_ok()
-                                        {
-                                            new_peers += 1;
-                                        }
-                                        if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                            break;
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    error!(
-                                        "Can't get nodes - so not trying to connect to new peers!"
-                                    );
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        });
-
-        info!(
-            "Concordium P2P layer. Network disabled: {}",
-            conf.cli.no_network
-        );
-    }
-
-    #[cfg(feature = "instrumentation")]
-    // Start push gateway to prometheus
-    start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
-
-    // Start the P2PNode
-    //
-    // Thread #3: P2P event loop
-    node.spawn()?;
-
-    // Connect to nodes (args and bootstrap)
-    if !conf.cli.no_network {
-        info!("Concordium P2P layer, Network disabled");
-        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
-        if !conf.connection.no_bootstrap_dns {
-            info!("Attempting to bootstrap");
-            bootstrap(&bootstrap_nodes, &mut node);
-        }
-    }
-
-    // Create listeners on baker output to forward to P2PNode
-    //
-    // Threads #4, #5, #6
+fn setup_baker_guards(
+    baker: &mut Option<consensus::ConsensusContainer>,
+    node: &P2PNode,
+    conf: &configuration::Config,
+) {
     if let Some(ref mut baker) = baker {
         let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
@@ -492,9 +178,85 @@ fn main() -> Fallible<()> {
             }
         });
     }
+}
 
-    // TPS test
+#[cfg(feature = "instrumentation")]
+fn instantiate_prometheus(
+    conf: &configuration::Config,
+) -> Fallible<Option<Arc<RwLock<StatsExportService>>>> {
+    let prom = if conf.prometheus.prometheus_server {
+        info!("Enabling prometheus server");
+        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode);
+        srv.start_server(SocketAddr::new(
+            conf.prometheus.prometheus_listen_addr.parse()?,
+            conf.prometheus.prometheus_listen_port,
+        ));
 
+        Some(Arc::new(RwLock::new(srv)))
+    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
+        info!("Enabling prometheus push gateway at {}", push_gateway);
+        let srv = StatsExportService::new(StatsServiceMode::NodeMode);
+        Some(Arc::new(RwLock::new(srv)))
+    } else {
+        None
+    };
+    Ok(prom)
+}
+
+fn instantiate_node(
+    conf: &configuration::Config,
+    app_prefs: &mut configuration::AppPreferences,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+) -> (P2PNode, mpsc::Receiver<Arc<NetworkMessage>>) {
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+    let node_id = conf.common.id.clone().map_or(
+        app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID),
+        |id| {
+            if !app_prefs.set_config(
+                configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
+                Some(id.clone()),
+            ) {
+                error!("Failed to persist own node id");
+            };
+            Some(id)
+        },
+    );
+    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
+        Some(Arc::clone(service))
+    } else {
+        None
+    };
+
+    // Thread #1: Read P2PEvents from P2PNode
+    let node = if conf.common.debug {
+        let (sender, receiver) = mpsc::channel();
+        let _guard = thread::spawn(move || loop {
+            if let Ok(msg) = receiver.recv() {
+                info!("{}", msg);
+            }
+        });
+        P2PNode::new(
+            node_id,
+            &conf,
+            pkt_in,
+            Some(sender),
+            PeerType::Node,
+            arc_stats_export_service,
+        )
+    } else {
+        P2PNode::new(
+            node_id,
+            &conf,
+            pkt_in,
+            None,
+            PeerType::Node,
+            arc_stats_export_service,
+        )
+    };
+    (node, pkt_out)
+}
+
+fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
     if let Some(ref tps_test_recv_id) = conf.cli.tps.tps_test_recv_id {
         let mut _id_clone = tps_test_recv_id.to_owned();
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
@@ -532,6 +294,274 @@ fn main() -> Fallible<()> {
             }
         });
     }
+}
+
+fn setup_process_output(
+    node: &P2PNode,
+    conf: &configuration::Config,
+    rpc_serv: &Option<RpcServerImpl>,
+    baker: &mut Option<consensus::ConsensusContainer>,
+    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    db: P2PDB,
+) {
+    let mut _node_self_clone = node.clone();
+
+    let _no_trust_bans = conf.common.no_trust_bans;
+    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
+    let mut _rpc_clone = rpc_serv.clone();
+    let _desired_nodes_clone = conf.connection.desired_nodes;
+    let _test_runner_url = conf.cli.test_runner_url.clone();
+    let mut _baker_pkt_clone = baker.clone();
+    let _tps_test_enabled = conf.cli.tps.enable_tps_test;
+    let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
+    let mut _msg_count = 0;
+    let _tps_message_count = conf.cli.tps.tps_message_count;
+    let _guard_pkt = thread::spawn(move || {
+        fn send_msg_to_baker(
+            baker_ins: &mut Option<consensus::ConsensusContainer>,
+            mut msg: UCursor,
+        ) -> Fallible<()> {
+            if let Some(ref mut baker) = baker_ins {
+                ensure!(
+                    msg.len() >= msg.position() + 2,
+                    "Message needs at least 2 bytes"
+                );
+
+                let consensus_type = msg.read_u16::<BigEndian>()?;
+                let view = msg.read_all_into_view()?;
+                let content = view.as_slice();
+
+                match consensus_type {
+                    0 => match consensus::Block::deserialize(content) {
+                        Some(block) => {
+                            baker.send_block(&block);
+                            info!("Sent block from network to baker");
+                        }
+                        _ => error!(
+                            "Couldn't deserialize block, can't move forward with the message"
+                        ),
+                    },
+                    1 => {
+                        baker.send_transaction(content);
+                        info!("Sent transaction to baker");
+                    }
+                    2 => {
+                        baker.send_finalization(content);
+                        info!("Sent finalization package to consensus layer");
+                    }
+                    3 => {
+                        baker.send_finalization_record(content);
+                        info!("Sent finalization record to consensus layer");
+                    }
+                    _ => {
+                        error!("Couldn't read bytes properly for type");
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        loop {
+            if let Ok(full_msg) = pkt_out.recv() {
+                match *full_msg {
+                    NetworkMessage::NetworkPacket(ref pac, ..) => {
+                        match pac.packet_type {
+                            NetworkPacketType::DirectMessage(..) => {
+                                if _tps_test_enabled {
+                                    _stats_engine.add_stat(pac.message.len() as u64);
+                                    _msg_count += 1;
+
+                                    if _msg_count == _tps_message_count {
+                                        info!(
+                                            "TPS over {} messages is {}",
+                                            _tps_message_count,
+                                            _stats_engine.calculate_total_tps_average()
+                                        );
+                                        _msg_count = 0;
+                                        _stats_engine.clear();
+                                    }
+                                }
+                                if let Some(ref mut rpc) = _rpc_clone {
+                                    rpc.queue_message(&full_msg)
+                                        .unwrap_or_else(|e| error!("Couldn't queue message {}", e));
+                                }
+                                info!(
+                                    "DirectMessage/{}/{} with size {} received",
+                                    pac.network_id,
+                                    pac.message_id,
+                                    pac.message.len()
+                                );
+                            }
+                            NetworkPacketType::BroadcastedMessage => {
+                                if let Some(ref mut rpc) = _rpc_clone {
+                                    rpc.queue_message(&full_msg)
+                                        .unwrap_or_else(|e| error!("Couldn't queue message {}", e));
+                                }
+                                if let Some(ref testrunner_url) = _test_runner_url {
+                                    send_packet_to_testrunner(
+                                        &_node_self_clone,
+                                        testrunner_url,
+                                        pac,
+                                    );
+                                };
+                            }
+                        };
+                        if let Err(e) =
+                            send_msg_to_baker(&mut _baker_pkt_clone, (*pac.message).clone())
+                        {
+                            error!("Send network message to baker has failed: {:?}", e);
+                        }
+                    }
+
+                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
+                        utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                    }
+                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
+                        utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                    }
+                    NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(ref peer, ref peers),
+                        ..
+                    ) => {
+                        info!("Received PeerList response, attempting to satisfy desired peers");
+                        let mut new_peers = 0;
+                        match _node_self_clone.get_peer_stats(&[]) {
+                            Ok(x) => {
+                                for peer_node in peers {
+                                    debug!(
+                                        "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                                        peer.id(),
+                                        peer.ip(),
+                                        peer.port(),
+                                        peer_node.id(),
+                                        peer_node.ip(),
+                                        peer_node.port()
+                                    );
+                                    if _node_self_clone
+                                        .connect(
+                                            PeerType::Node,
+                                            peer_node.addr,
+                                            Some(peer_node.id()),
+                                        )
+                                        .map_err(|e| info!("{}", e))
+                                        .is_ok()
+                                    {
+                                        new_peers += 1;
+                                    }
+                                    if new_peers + x.len() as u8 >= _desired_nodes_clone {
+                                        break;
+                                    }
+                                }
+                            }
+                            _ => {
+                                error!("Can't get nodes - so not trying to connect to new peers!");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    info!(
+        "Concordium P2P layer. Network disabled: {}",
+        conf.cli.no_network
+    );
+}
+
+fn main() -> Fallible<()> {
+    let (conf, mut app_prefs) = get_config_and_logging_setup();
+
+    // Retrieving bootstrap nodes
+    let dns_resolvers =
+        utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
+    for resolver in &dns_resolvers {
+        debug!("Using resolver: {}", resolver);
+    }
+    let bootstrap_nodes = utils::get_bootstrap_nodes(
+        conf.connection.bootstrap_server.clone(),
+        &dns_resolvers,
+        conf.connection.no_dnssec,
+        &conf.connection.bootstrap_node,
+    );
+
+    // Create the database
+    let mut db_path = app_prefs.get_user_app_dir();
+    db_path.push("p2p.db");
+    let db = P2PDB::new(db_path.as_path());
+
+    // Instantiate prometheus
+    #[cfg(feature = "instrumentation")]
+    let stats_export_service = instantiate_prometheus(&conf)?;
+    #[cfg(not(feature = "instrumentation"))]
+    let stats_export_service = Some(Arc::new(RwLock::new(StatsExportService::new(
+        StatsServiceMode::NodeMode,
+    ))));
+
+    info!("Debugging enabled: {}", conf.common.debug);
+
+    // Instantiate the p2p node
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+
+    // Banning nodes in database
+    match db.get_banlist() {
+        Some(nodes) => {
+            info!("Found existing banlist, loading up!");
+            for n in nodes {
+                node.ban_node(n)?;
+            }
+        }
+        None => {
+            info!("Couldn't find existing banlist. Creating new!");
+            db.create_banlist();
+        }
+    };
+
+    // Starting baker
+    let mut baker = start_baker(&conf.cli.baker, &app_prefs);
+
+    // Starting rpc server
+    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
+        serv.start_server()?;
+        Some(serv)
+    } else {
+        None
+    };
+
+    // Connect outgoing messages to be forwarded into the baker
+    // or editing the db, or triggering new connections
+    //
+    // Thread #2: Read P2PNode output
+    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out, db);
+
+    #[cfg(feature = "instrumentation")]
+    // Start push gateway to prometheus
+    start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+
+    // Start the P2PNode
+    //
+    // Thread #3: P2P event loop
+    node.spawn()?;
+
+    // Connect to nodes (args and bootstrap)
+    if !conf.cli.no_network {
+        info!("Concordium P2P layer, Network disabled");
+        create_connections_from_config(&conf.connection, &dns_resolvers, &mut node);
+        if !conf.connection.no_bootstrap_dns {
+            info!("Attempting to bootstrap");
+            bootstrap(&bootstrap_nodes, &mut node);
+        }
+    }
+
+    // Create listeners on baker output to forward to P2PNode
+    //
+    // Threads #4, #5, #6
+    setup_baker_guards(&mut baker, &node, &conf);
+
+    // TPS test
+    start_tps_test(&conf, &node);
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
@@ -619,7 +649,7 @@ fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &String, pac: &Net
 }
 
 #[cfg(not(feature = "instrumentation"))]
-fn send_packet_to_testrunner(_: &P2PNode, _: &String, _: &NetworkPacket) {}
+fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
 #[cfg(feature = "instrumentation")]
 fn start_push_gateway(
@@ -641,7 +671,7 @@ fn start_push_gateway(
                 instance_name,
                 conf.prometheus_push_username.clone(),
                 conf.prometheus_push_password.clone(),
-            )?
+            )
         }
     }
     Ok(())
