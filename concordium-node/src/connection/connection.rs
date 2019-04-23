@@ -49,22 +49,17 @@ macro_rules! handle_by_private {
 macro_rules! drop_conn_if_unwanted {
     ($process:expr, $self:ident) => {
         if let Err(e) = $process {
-            match e.downcast::<fails::UnwantedMessageError>() {
-                Ok(f) => {
-                    error!("Dropping connection: {}", f);
-                    $self.close();
-                }
-                Err(e) => {
-                    if let Ok(f) = e.downcast::<FunctorError>() {
-                        f.errors.iter().for_each(|x| {
-                            if x.to_string().contains("SendError(..)") {
-                                trace!("Send Error in incoming plaintext");
-                            } else {
-                                error!("Other drop_conn error: {}", x);
-                            }
-                        });
-                    }
-                }
+            if let Some(ref as_unwanted_message_err) =
+                e.downcast_ref::<fails::UnwantedMessageError>()
+            {
+                error!("Dropping connection: {}", as_unwanted_message_err);
+                $self.close();
+            } else if let Some(ref as_functor_err) = e.downcast_ref::<FunctorError>() {
+                as_functor_err.errors.iter().for_each(|step_functor_error| {
+                    error!("Functor error: {}", step_functor_error);
+                });
+            } else {
+                error!("Unexpected error: {}", e);
             }
         } else if $self.status == ConnectionStatus::Untrusted {
             $self.setup_message_handler();

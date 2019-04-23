@@ -145,7 +145,9 @@ mod tests {
 
             let mh = node.message_handler();
             safe_write!(mh)?.add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
-                into_err!(msg_wait_tx.send(m.clone()))
+                // It is safe to ignore error.
+                let _ = msg_wait_tx.send(m.clone());
+                Ok(())
             }));
 
             let _ = node.spawn();
@@ -631,7 +633,11 @@ mod tests {
                 utils::make_node_and_sync(test_port_added + (i as u16), vec![network_id], true)?;
             let mh = node.message_handler();
             safe_write!(mh)?.add_packet_callback(make_atomic_callback!(
-                move |pac: &NetworkPacket| { into_err!(tx_i.send(pac.clone())) }
+                move |pac: &NetworkPacket| {
+                    // It is safe to ignore error.
+                    let _ = tx_i.send(pac.clone());
+                    Ok(())
+                }
             ));
             nodes.push(RefCell::new(node));
             waiters.push(conn_waiter);
@@ -801,7 +807,9 @@ mod tests {
                 .unwrap()
                 .add_packet_callback(make_atomic_callback!(move |pac: &NetworkPacket| {
                     debug!("Root node is forwarding Packet to channel");
-                    into_err!(bcast_tx.send(pac.clone()))
+                    // It is safe to ignore error.
+                    let _ = bcast_tx.send(pac.clone());
+                    Ok(())
                 }));
         }
 
