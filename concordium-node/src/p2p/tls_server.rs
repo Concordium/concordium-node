@@ -18,18 +18,17 @@ use std::{
 use webpki::DNSNameRef;
 
 use crate::{
-    common::functor::afunctor::{AFunctor, AFunctorCW},
-    prometheus_exporter::PrometheusServer,
-};
-
-use crate::{
-    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer},
+    common::{
+        functor::afunctor::{AFunctor, AFunctorCW},
+        P2PNodeId, P2PPeer, PeerType, RemotePeer,
+    },
     connection::{Connection, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
-};
-
-use crate::p2p::{
-    banned_nodes::BannedNode, peer_statistics::PeerStatistic, tls_server_private::TlsServerPrivate,
+    p2p::{
+        banned_nodes::BannedNode, peer_statistics::PeerStatistic,
+        tls_server_private::TlsServerPrivate,
+    },
+    stats_export_service::StatsExportService,
 };
 
 pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
@@ -43,7 +42,7 @@ pub struct TlsServer {
     event_log:                Option<Sender<P2PEvent>>,
     self_peer:                P2PPeer,
     buckets:                  Arc<RwLock<Buckets>>,
-    prometheus_exporter:      Option<Arc<RwLock<PrometheusServer>>>,
+    stats_export_service:     Option<Arc<RwLock<StatsExportService>>>,
     message_handler:          Arc<RwLock<MessageHandler>>,
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
     blind_trusted_broadcast:  bool,
@@ -57,14 +56,14 @@ impl TlsServer {
         client_cfg: Arc<ClientConfig>,
         event_log: Option<Sender<P2PEvent>>,
         self_peer: P2PPeer,
-        prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
         networks: HashSet<NetworkId>,
         buckets: Arc<RwLock<Buckets>>,
         blind_trusted_broadcast: bool,
     ) -> Self {
         let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
             networks,
-            prometheus_exporter.clone(),
+            stats_export_service.clone(),
         )));
 
         let mut mself = TlsServer {
@@ -74,7 +73,7 @@ impl TlsServer {
             client_tls_config: client_cfg,
             event_log,
             self_peer,
-            prometheus_exporter,
+            stats_export_service,
             buckets,
             message_handler: Arc::new(RwLock::new(MessageHandler::new())),
             dptr: mdptr,
@@ -164,7 +163,7 @@ impl TlsServer {
             None,
             self_peer,
             RemotePeer::PreHandshake(PeerType::Node, addr),
-            self.prometheus_exporter.clone(),
+            self.stats_export_service.clone(),
             self.event_log.clone(),
             networks,
             Arc::clone(&self.buckets),
@@ -216,11 +215,8 @@ impl TlsServer {
 
         match TcpStream::connect(&addr) {
             Ok(socket) => {
-                if let Some(ref prom) = &self.prometheus_exporter {
-                    safe_write!(prom)?
-                        .conn_received_inc()
-                        .map_err(|e| error!("{}", e))
-                        .ok();
+                if let Some(ref service) = &self.stats_export_service {
+                    safe_write!(service)?.conn_received_inc();
                 };
                 let tls_session = ClientSession::new(
                     &self.client_tls_config,
@@ -238,7 +234,7 @@ impl TlsServer {
                     Some(tls_session),
                     self_peer.clone(),
                     RemotePeer::PreHandshake(peer_type, addr),
-                    self.prometheus_exporter.clone(),
+                    self.stats_export_service.clone(),
                     self.event_log.clone(),
                     Arc::clone(&networks),
                     Arc::clone(&self.buckets),

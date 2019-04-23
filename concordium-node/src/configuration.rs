@@ -17,6 +17,7 @@ const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
+#[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
 /// Flags related to Prometheus
 pub struct PrometheusConfig {
@@ -293,6 +294,7 @@ pub struct TestRunnerConfig {
 pub struct Config {
     #[structopt(flatten)]
     pub common: CommonConfig,
+    #[cfg(feature = "instrumentation")]
     #[structopt(flatten)]
     pub prometheus: PrometheusConfig,
     #[structopt(flatten)]
@@ -309,7 +311,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            common:       CommonConfig {
+            common: CommonConfig {
                 external_ip:      None,
                 external_port:    None,
                 id:               None,
@@ -324,7 +326,8 @@ impl Default for Config {
                 no_trust_bans:    false,
                 min_peers_bucket: 100,
             },
-            prometheus:   PrometheusConfig {
+            #[cfg(feature = "instrumentation")]
+            prometheus: PrometheusConfig {
                 prometheus_listen_addr:   "127.0.0.1".to_owned(),
                 prometheus_listen_port:   9090,
                 prometheus_server:        false,
@@ -335,7 +338,7 @@ impl Default for Config {
                 prometheus_push_password: None,
                 prometheus_push_interval: 2,
             },
-            connection:   ConnectionConfig {
+            connection: ConnectionConfig {
                 desired_nodes:       50,
                 no_bootstrap_dns:    false,
                 bootstrap_server:    "bootstrap.p2p.concordium.com".to_owned(),
@@ -346,7 +349,7 @@ impl Default for Config {
                 bootstrap_node:      vec![],
                 resolv_conf:         "/etc/resolv.conf".to_owned(),
             },
-            cli:          CliConfig {
+            cli: CliConfig {
                 no_network:      false,
                 test_runner_url: None,
                 baker:           BakerConfig {
@@ -369,7 +372,7 @@ impl Default for Config {
                 },
             },
             bootstrapper: BootstrapperConfig { max_nodes: 10000 },
-            testrunner:   TestRunnerConfig {
+            testrunner: TestRunnerConfig {
                 listen_http_port:    8950,
                 listen_http_address: "0.0.0.0".to_owned(),
             },

@@ -41,7 +41,7 @@ mod tests {
             connection::MessageManager,
             network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
             p2p::p2p_node::P2PNode,
-            prometheus_exporter::{PrometheusMode, PrometheusServer},
+            stats_export_service::{StatsExportService, StatsServiceMode},
         };
 
         static INIT: Once = ONCE_INIT;
@@ -133,14 +133,16 @@ mod tests {
             let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
             config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
-            let prometheus = Arc::new(RwLock::new(PrometheusServer::new(PrometheusMode::NodeMode)));
+            let export_service = Arc::new(RwLock::new(StatsExportService::new(
+                StatsServiceMode::NodeMode,
+            )));
             let mut node = P2PNode::new(
                 None,
                 &config,
                 net_tx,
                 None,
                 PeerType::Node,
-                Some(prometheus),
+                Some(export_service),
             );
 
             let mh = node.message_handler();
@@ -591,7 +593,6 @@ mod tests {
         islands_mesh_test(utils::next_port_offset(10) as usize, 3, 3)
     }
 
-    #[ignore]
     #[test]
     pub fn e2e_003_big_mesh_three_islands_net() -> Fallible<()> {
         islands_mesh_test(utils::next_port_offset(20) as usize, 5, 3)
