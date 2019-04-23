@@ -49,9 +49,9 @@ checkHeader meta = do
                      -- check they have enough funds to cover the deposit
                      unless (transactionGasAmount meta <= amnt) (throwError InsufficientFunds)
                      unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
-                     let sigCheck = verifyTransactionSignature (acc ^. accountCreationInformation & ID.aci_verifKey) -- the signature is correct.
-                                                               (transactionSerialized meta)
-                                                               (transactionSignature meta)
+                     let sigCheck = verifyTransactionSignature' (acc ^. accountCreationInformation & ID.aci_verifKey) -- the signature is correct.
+                                                                meta
+                                                                (transactionSignature meta)
                      unless sigCheck (throwError IncorrectSignature))
       -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
       -- but only for transactions for which this was done.

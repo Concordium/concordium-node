@@ -40,7 +40,7 @@ data BakerIdentity = BakerIdentity {
 
 instance Serialize BakerIdentity where
 
-processTransactions :: TreeStateMonad m => Slot -> BlockPointer -> BlockPointer -> m ([HashedTransaction], BlockState)
+processTransactions :: TreeStateMonad m => Slot -> BlockPointer -> BlockPointer -> m ([Transaction], BlockState)
 processTransactions slot bh finalizedP = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh

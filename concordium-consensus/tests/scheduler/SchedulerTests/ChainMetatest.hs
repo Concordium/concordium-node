@@ -6,11 +6,6 @@ module SchedulerTests.ChainMetatest where
 
 import Test.Hspec
 
-import qualified Concordium.ID.AccountHolder as AH
-import qualified Concordium.ID.Types as AH
-import qualified Concordium.Crypto.BlockSignature as S
-import System.Random
-
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -30,18 +25,10 @@ import qualified Data.Text.IO as TIO
 
 import Control.Monad.IO.Class
 
+import SchedulerTests.DummyData
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
-
-alesKP :: S.KeyPair
-alesKP = fst (S.randomKeyPair (mkStdGen 1))
-
-alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey alesKP)
-
-alesAccount :: Types.AccountAddress
-alesAccount = AH.accountAddress alesACI
-
 
 initialBlockState :: BlockState
 initialBlockState = 
@@ -58,7 +45,7 @@ chainMeta = Types.ChainMetadata{..}
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
-           , metadata = Types.TransactionHeader alesAccount 1 1000
+           , metadata = makeHeader alesKP 1 1000
            , keypair = alesKP
            }
     ,TJSON { payload = InitContract {amount = 100
@@ -66,7 +53,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = Types.TransactionHeader alesAccount 2 1000
+           , metadata = makeHeader alesKP 2 1000
            , keypair = alesKP
            }
     ]

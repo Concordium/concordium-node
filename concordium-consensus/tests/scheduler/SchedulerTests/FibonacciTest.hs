@@ -12,11 +12,6 @@ import Data.Int
 
 import qualified Acorn.Core as Core
 
-import qualified Concordium.ID.AccountHolder as AH
-import qualified Concordium.ID.Types as AH
-import qualified Concordium.Crypto.BlockSignature as S
-import System.Random
-
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -35,18 +30,10 @@ import Control.Monad.IO.Class
 
 import Lens.Micro.Platform
 
+import SchedulerTests.DummyData
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
-
-alesKP :: S.KeyPair
-alesKP = fst (S.randomKeyPair (mkStdGen 1))
-
-alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey alesKP)
-
-alesAccount :: Types.AccountAddress
-alesAccount = AH.accountAddress alesACI
-
 
 initialBlockState :: BlockState
 initialBlockState = 
@@ -57,7 +44,7 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = Types.TransactionHeader alesAccount 1 1000
+         , metadata = makeHeader alesKP 1 1000
          , keypair = alesKP
          }
 
@@ -66,7 +53,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = Types.TransactionHeader alesAccount 2 1000
+        , metadata = makeHeader alesKP 2 1000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -74,7 +61,7 @@ transactionsInput =
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractVersion = 0}
                             }
-        , metadata = Types.TransactionHeader alesAccount 3 100000
+        , metadata = makeHeader alesKP 3 100000
         , keypair = alesKP
         }
   ]

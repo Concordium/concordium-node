@@ -508,7 +508,7 @@ doGetBlocksAtHeight h = do
             | otherwise = findFrom (bpParent bp)
 
 
-doReceiveTransaction :: (TreeStateMonad m) => HashedTransaction -> Slot -> m ()
+doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m ()
 doReceiveTransaction tr slot = do
         added <- addCommitTransaction tr slot
         when added $ do

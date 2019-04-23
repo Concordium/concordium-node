@@ -6,11 +6,6 @@ module SchedulerTests.ContractCommSpec where
 
 import Test.Hspec
 
-import qualified Concordium.ID.AccountHolder as AH
-import qualified Concordium.ID.Types as AH
-import qualified Concordium.Crypto.BlockSignature as S
-import System.Random
-
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -28,17 +23,10 @@ import Lens.Micro.Platform
 
 import Control.Monad.IO.Class
 
+import SchedulerTests.DummyData
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
-
-alesACI :: AH.AccountCreationInformation
-alesACI = AH.createAccount (S.verifyKey alesKP)
-
-alesAccount :: Types.AccountAddress
-alesAccount = AH.accountAddress alesACI
-
-alesKP :: S.KeyPair
-alesKP = fst (S.randomKeyPair (mkStdGen 1))
 
 initialBlockState :: BlockState
 initialBlockState = 
@@ -49,7 +37,7 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "CommCounter"
-         , metadata = Types.TransactionHeader alesAccount 1 100000
+         , metadata = makeHeader alesKP 1 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -57,7 +45,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = Types.TransactionHeader alesAccount 2 100000
+         , metadata = makeHeader alesKP 2 100000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -65,7 +53,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Prod.Pair [Int64] [<address>] 0 <0, 0>"
                                   }
-         , metadata = Types.TransactionHeader alesAccount 3 100000
+         , metadata = makeHeader alesKP 3 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -73,7 +61,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
                             }
-         , metadata = Types.TransactionHeader alesAccount 4 100000
+         , metadata = makeHeader alesKP 4 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -81,7 +69,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = Types.TransactionHeader alesAccount 5 100000
+         , metadata = makeHeader alesKP 5 100000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -89,7 +77,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = Types.TransactionHeader alesAccount 6 120000
+         , metadata = makeHeader alesKP 6 120000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -97,7 +85,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 1"
                             }
-         , metadata = Types.TransactionHeader alesAccount 7 120000
+         , metadata = makeHeader alesKP 7 120000
          , keypair = alesKP
          }
   ]

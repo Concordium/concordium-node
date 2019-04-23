@@ -30,7 +30,7 @@ import Concordium.GlobalState.Block
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.Scheduler.Utils.Init.Example(makeTransaction,initialState)
+import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Types
 import Concordium.MonadImplementation
 import Concordium.Afgjort.Finalize
@@ -44,7 +44,7 @@ import Debug.Trace
 import Test.QuickCheck
 import Test.Hspec
 
-type Trs = HM.HashMap TransactionHash (HashedTransaction, Slot)
+type Trs = HM.HashMap TransactionHash (Transaction, Slot)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 invariantSkovData :: SkovData -> Either String ()
@@ -110,9 +110,9 @@ invariantSkovData SkovData{..} = do
             | otherwise = do
                 (trMap', anfts') <- walkTransactions src (bpParent dest) trMap anfts
                 foldM checkTransaction (trMap', anfts') (blockTransactions dest)
-        checkTransaction :: (Trs, ANFTS) -> HashedTransaction -> Either String (Trs, ANFTS)
+        checkTransaction :: (Trs, ANFTS) -> Transaction -> Either String (Trs, ANFTS)
         checkTransaction (trMap, anfts) tr = do
-            let updMap Nothing = Left $ "Transaction missing: " ++ show (unhashed tr)
+            let updMap Nothing = Left $ "Transaction missing: " ++ show tr
                 updMap (Just _) = Right Nothing
             trMap' <- (at (transactionHash tr)) updMap trMap
             let updNonce n = if n == transactionNonce tr then Right (n + 1) else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
@@ -250,7 +250,7 @@ genTransactions n = mapM gent (take n [minNonce..])
         gent nnce = do
             f <- arbitrary
             g <- arbitrary
-            return $ makeTransaction f (ContractAddress (fromIntegral $ g `mod` nAccounts) 0) nnce
+            return $ Example.makeTransaction f (ContractAddress (fromIntegral $ g `mod` nAccounts) 0) nnce
 
 
 initialEvents :: States -> EventPool
@@ -272,7 +272,7 @@ initialiseStates n = do
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
             gen = GenesisData 0 1 bps fps
-        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (initialState nAccounts)) | (_, (_, bid)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
+        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState nAccounts)) | (_, (_, bid)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
 
 withInitialStates :: Int -> (States -> EventPool -> Gen Property) -> Gen Property
 withInitialStates n run = do
