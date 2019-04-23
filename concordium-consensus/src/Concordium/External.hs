@@ -109,7 +109,6 @@ toLogMethod logCallbackPtr = le
         le src lvl msg = BS.useAsCString (BS.pack msg) $
                             logCallback (logSourceId src) (logLevelId lvl)
 
--- outLoop :: Chan OutMessage -> BlockCallback -> IO ()
 outLoop :: LogMethod IO -> Chan OutMessage -> BlockCallback -> IO ()
 outLoop logm chan cbk = do
     readChan chan >>= \case
@@ -118,11 +117,11 @@ outLoop logm chan cbk = do
             logm External LLDebug $ "Sending block data size = " ++ show (BS.length bbs)
             BS.useAsCStringLen bbs $ \(cstr, l) -> cbk 0 cstr (fromIntegral l)
         MsgFinalization finMsg -> do
-            logm External LLDebug $ "Sending serialization message size = " ++ show (BS.length finMsg)
+            logm External LLDebug $ "Sending finalization message size = " ++ show (BS.length finMsg)
             BS.useAsCStringLen finMsg $ \(cstr, l) -> cbk 1 cstr (fromIntegral l)
         MsgFinalizationRecord finRec -> do
             let bs = runPut (put finRec)
-            logm External LLDebug $ "Sending serialization record data size = " ++ show (BS.length bs)
+            logm External LLDebug $ "Sending finalization record data size = " ++ show (BS.length bs)
             BS.useAsCStringLen bs $ \(cstr, l) -> cbk 2 cstr (fromIntegral l)
     outLoop logm chan cbk
 
@@ -161,14 +160,14 @@ receiveBlock bptr cstr l = do
 receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalization bptr cstr l = do
     BakerRunner cin _ _ logm <- deRefStablePtr bptr
-    logm External LLDebug $ "Received serialization message size = " ++ show l
+    logm External LLDebug $ "Received finalization message size = " ++ show l
     bs <- BS.packCStringLen (cstr, fromIntegral l)
     writeChan cin $ MsgFinalizationReceived bs
 
 receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalizationRecord bptr cstr l = do
     BakerRunner cin _ _ logm <- deRefStablePtr bptr
-    logm External LLDebug $ "Received serialization record data size = " ++ show l ++ ". Decoding ..."
+    logm External LLDebug $ "Received finalization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get finRecBS of
         Left _ -> logm External LLDebug "Deserialization of finalization record failed."
