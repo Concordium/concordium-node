@@ -25,10 +25,7 @@ struct ConfigCli {
         default_value = "250"
     )]
     dns_record_length: usize,
-    #[structopt(
-        long = "print-config",
-        help = "Print out config struct"
-    )]
+    #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
 }
 
@@ -36,7 +33,7 @@ pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
 
     if conf.print_config {
-        //Print out the configuration
+        // Print out the configuration
         println!("{:?}", conf);
     }
 

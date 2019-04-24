@@ -40,9 +40,9 @@ use p2p_client::common::P2PNodeId;
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
-    
+
     if conf.common.print_config {
-        //Print out the configuration
+        // Print out the configuration
         info!("{:?}", conf);
     }
 

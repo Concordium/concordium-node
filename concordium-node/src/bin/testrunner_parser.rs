@@ -16,18 +16,15 @@ struct ConfigCli {
     pub to_analyze: String,
     #[structopt(help = "Print results as a CSV file", long = "csv")]
     pub csv: bool,
-    #[structopt(
-        long = "print-config",
-        help = "Print out config struct"
-    )]
+    #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
 }
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
-    
+
     if conf.print_config {
-        //Print out the configuration
+        // Print out the configuration
         info!("{:?}", conf);
     }
 

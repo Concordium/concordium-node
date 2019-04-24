@@ -476,7 +476,7 @@ fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup();
 
     if conf.common.print_config {
-        //Print out the configuration
+        // Print out the configuration
         info!("{:?}", conf);
     }
 
