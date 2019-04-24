@@ -34,9 +34,6 @@ use std::{
 #[cfg(feature = "instrumentation")]
 use failure::Fallible;
 
-//#[cfg(feature = "instrumentation")]
-// use p2p_client::common::P2PNodeId;
-
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
 
