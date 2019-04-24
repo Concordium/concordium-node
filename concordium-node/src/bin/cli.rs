@@ -590,7 +590,7 @@ fn start_baker(
         //Check for invalid configuration
         if x > conf.baker_num_bakers {
             //Baker ID is higher than amount of bakers in the network. Bail!
-            error!("Baker ID is higher than amount of bakers in the network! Disabing baking");
+            error!("Baker ID is higher than amount of bakers in the network! Disabling baking");
             return None
         }
         
