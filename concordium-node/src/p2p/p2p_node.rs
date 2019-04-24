@@ -366,8 +366,8 @@ impl P2PNode {
         handler
             .add_ban_node_callback(Arc::clone(&requeue_handler))
             .add_unban_node_callback(Arc::clone(&requeue_handler))
-            .add_handshake_callback(Arc::clone(&requeue_handler));
-
+            .add_handshake_callback(Arc::clone(&requeue_handler))
+            .add_retransmit_callback(Arc::clone(&requeue_handler));
         handler
     }
 
@@ -1067,10 +1067,8 @@ pub fn is_valid_connection_in_broadcast(
 ) -> bool {
     if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         if remote_peer.id() != sender.id() && remote_peer.peer_type() != PeerType::Bootstrapper {
-            let local_end_networks = conn.local_end_networks();
-            return safe_read!(local_end_networks)
-                .expect("Couldn't lock local-end networks")
-                .contains(&network_id);
+            let remote_end_networks = conn.remote_end_networks();
+            return remote_end_networks.contains(&network_id);
         }
     }
     false

@@ -284,6 +284,9 @@ mod tests {
                     NetworkRequest::LeaveNetwork(ref peer, ..) => {
                         format!("Request::LeaveNetwork({})", peer.id())
                     }
+                    NetworkRequest::Retransmit(ref peer, ..) => {
+                        format!("Request::Retransmit({})", peer.id())
+                    }
                 },
                 NetworkMessage::NetworkResponse(ref response, ..) => match response {
                     NetworkResponse::Pong(..) => "Response::Pong".to_owned(),

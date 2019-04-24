@@ -18,7 +18,8 @@ use consensus_sys::consensus;
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
-    common::{P2PNodeId, PeerType, UCursor},
+    client::utils as client_utils,
+    common::{get_current_stamp, P2PNodeId, PeerType, UCursor},
     configuration,
     db::P2PDB,
     network::{
@@ -45,7 +46,11 @@ use std::{
     thread,
 };
 
-const PAYLOAD_TYPE_LENGTH: usize = 2;
+const PAYLOAD_TYPE_LENGTH: u64 = 2;
+const PACKET_TYPE_CONSENSUS_BLOCK: u16 = 0;
+const PACKET_TYPE_CONSENSUS_TRANSACTION: u16 = 1;
+const PACKET_TYPE_CONSENSUS_FINALIZATION: u16 = 2;
+const PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD: u16 = 3;
 
 fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     // Get config and app preferences
@@ -103,17 +108,28 @@ fn setup_baker_guards(
                 Ok(x) => match x.serialize() {
                     Ok(bytes) => {
                         let mut out_bytes = vec![];
-                        match out_bytes.write_u16::<BigEndian>(0 as u16) {
+                        let msg_id = NetworkPacket::generate_message_id();
+                        match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
                             Ok(_) => {
-                                out_bytes.extend(bytes);
+                                out_bytes.extend(&bytes);
                                 match &_node_ref.send_message(
                                     None,
                                     _network_id,
-                                    None,
+                                    Some(msg_id.clone()),
                                     out_bytes,
                                     true,
                                 ) {
                                     Ok(_) => {
+                                        client_utils::add_transmission_to_seenlist(
+                                            client_utils::SeenTransmissionType::Block,
+                                            msg_id,
+                                            get_current_stamp(),
+                                            &bytes,
+                                        )
+                                        .map_err(|err| {
+                                            error!("Can't store block in transmission list {}", err)
+                                        })
+                                        .ok();
                                         info!("Broadcasted block {}/{}", x.slot_id(), x.baker_id())
                                     }
                                     Err(_) => error!("Couldn't broadcast block!"),
@@ -131,19 +147,37 @@ fn setup_baker_guards(
         let mut _node_ref_2 = node.clone();
         thread::spawn(move || loop {
             match _baker_clone_2.out_queue().recv_finalization() {
-                Ok(x) => {
+                Ok(bytes) => {
                     let mut out_bytes = vec![];
-                    match out_bytes.write_u16::<BigEndian>(2 as u16) {
+                    let msg_id = NetworkPacket::generate_message_id();
+                    match out_bytes
+                        .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION as u16)
+                    {
                         Ok(_) => {
-                            out_bytes.extend(x);
+                            out_bytes.extend(&bytes);
                             match &_node_ref_2.send_message(
                                 None,
                                 _network_id,
-                                None,
+                                Some(msg_id.clone()),
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => info!("Broadcasted finalization packet"),
+                                Ok(_) => {
+                                    client_utils::add_transmission_to_seenlist(
+                                        client_utils::SeenTransmissionType::Finalization,
+                                        msg_id,
+                                        get_current_stamp(),
+                                        &bytes,
+                                    )
+                                    .map_err(|err| {
+                                        error!(
+                                            "Can't store finalization in transmission list {}",
+                                            err
+                                        )
+                                    })
+                                    .ok();
+                                    info!("Broadcasted finalization packet");
+                                }
                                 Err(_) => error!("Couldn't broadcast finalization packet!"),
                             }
                         }
@@ -157,11 +191,14 @@ fn setup_baker_guards(
         let mut _node_ref_3 = node.clone();
         thread::spawn(move || loop {
             match _baker_clone_3.out_queue().recv_finalization_record() {
-                Ok(x) => {
+                Ok(bytes) => {
                     let mut out_bytes = vec![];
-                    match out_bytes.write_u16::<BigEndian>(3 as u16) {
+                    let msg_id = NetworkPacket::generate_message_id();
+                    match out_bytes
+                        .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD as u16)
+                    {
                         Ok(_) => {
-                            out_bytes.extend(x);
+                            out_bytes.extend(&bytes);
                             match &_node_ref_3.send_message(
                                 None,
                                 _network_id,
@@ -169,7 +206,23 @@ fn setup_baker_guards(
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => info!("Broadcasted finalization record"),
+                                Ok(_) => {
+                                    client_utils::add_transmission_to_seenlist(
+                                        client_utils::SeenTransmissionType::FinalizationRecord,
+                                        msg_id,
+                                        get_current_stamp(),
+                                        &bytes,
+                                    )
+                                    .map_err(|err| {
+                                        error!(
+                                            "Can't store finalization record in transmission list \
+                                             {}",
+                                            err
+                                        )
+                                    })
+                                    .ok();
+                                    info!("Broadcasted finalization record");
+                                }
                                 Err(_) => error!("Couldn't broadcast finalization record!"),
                             }
                         }
@@ -322,38 +375,77 @@ fn setup_process_output(
         fn send_msg_to_baker(
             baker_ins: &mut Option<consensus::ConsensusContainer>,
             mut msg: UCursor,
+            message_id: String,
         ) -> Fallible<()> {
             if let Some(ref mut baker) = baker_ins {
                 ensure!(
-                    msg.len() >= msg.position() + 2,
-                    "Message needs at least 2 bytes"
+                    msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
+                    "Message needs at least {} bytes",
+                    PAYLOAD_TYPE_LENGTH
                 );
 
                 let consensus_type = msg.read_u16::<BigEndian>()?;
                 let view = msg.read_all_into_view()?;
-                let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH..];
+                let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    0 => match consensus::Block::deserialize(content) {
+                    PACKET_TYPE_CONSENSUS_BLOCK => match consensus::Block::deserialize(content) {
                         Some(block) => {
-                            baker.send_block(&block);
-                            info!("Sent block from network to baker");
+                            match client_utils::add_transmission_to_seenlist(
+                                client_utils::SeenTransmissionType::Block,
+                                message_id,
+                                get_current_stamp(),
+                                &content,
+                            ) {
+                                Ok(_) => {
+                                    baker.send_block(&block);
+                                    info!("Sent block from network to baker");
+                                }
+                                Err(err) => {
+                                    error!("Can't store block in transmission list {}", err)
+                                }
+                            }
                         }
                         _ => error!(
                             "Couldn't deserialize block, can't move forward with the message"
                         ),
                     },
-                    1 => {
+                    PACKET_TYPE_CONSENSUS_TRANSACTION => {
                         baker.send_transaction(content);
                         info!("Sent transaction to baker");
                     }
-                    2 => {
-                        baker.send_finalization(content);
-                        info!("Sent finalization package to consensus layer");
+                    PACKET_TYPE_CONSENSUS_FINALIZATION => {
+                        match client_utils::add_transmission_to_seenlist(
+                            client_utils::SeenTransmissionType::Finalization,
+                            message_id,
+                            get_current_stamp(),
+                            &content,
+                        ) {
+                            Ok(_) => {
+                                baker.send_finalization(content);
+                                info!("Sent finalization package to consensus layer");
+                            }
+                            Err(err) => {
+                                error!("Can't store finalization in transmission list {}", err)
+                            }
+                        }
                     }
-                    3 => {
-                        baker.send_finalization_record(content);
-                        info!("Sent finalization record to consensus layer");
+                    PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => {
+                        match client_utils::add_transmission_to_seenlist(
+                            client_utils::SeenTransmissionType::FinalizationRecord,
+                            message_id,
+                            get_current_stamp(),
+                            &content,
+                        ) {
+                            Ok(_) => {
+                                baker.send_finalization_record(content);
+                                info!("Sent finalization record to consensus layer");
+                            }
+                            Err(err) => error!(
+                                "Can't store finalization record in transmission list {}",
+                                err
+                            ),
+                        };
                     }
                     _ => {
                         error!("Couldn't read bytes properly for type");
@@ -408,9 +500,11 @@ fn setup_process_output(
                                 };
                             }
                         };
-                        if let Err(e) =
-                            send_msg_to_baker(&mut _baker_pkt_clone, (*pac.message).clone())
-                        {
+                        if let Err(e) = send_msg_to_baker(
+                            &mut _baker_pkt_clone,
+                            (*pac.message).clone(),
+                            (*pac.message_id).to_string(),
+                        ) {
                             error!("Send network message to baker has failed: {:?}", e);
                         }
                     }
@@ -459,6 +553,65 @@ fn setup_process_output(
                                 error!("Can't get nodes - so not trying to connect to new peers!");
                             }
                         }
+                    }
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::Retransmit(ref peer, since_stamp, network_id),
+                        ..
+                    ) => {
+                        client_utils::get_transmissions_since_from_seenlist(
+                            client_utils::SeenTransmissionType::Block,
+                            since_stamp,
+                        )
+                        .map_err(|err| {
+                            error!("Can't get list of block packets to retransmit {}", err)
+                        })
+                        .unwrap()
+                        .iter()
+                        .for_each(|pkt| {
+                            send_retransmit_packet(
+                                &mut _node_self_clone,
+                                peer.id(),
+                                network_id,
+                                PACKET_TYPE_CONSENSUS_BLOCK,
+                                pkt,
+                            );
+                        });
+                        client_utils::get_transmissions_since_from_seenlist(
+                            client_utils::SeenTransmissionType::Finalization,
+                            since_stamp,
+                        )
+                        .map_err(|err| {
+                            error!("Can't get list of block packets to retransmit {}", err)
+                        })
+                        .unwrap()
+                        .iter()
+                        .for_each(|pkt| {
+                            send_retransmit_packet(
+                                &mut _node_self_clone,
+                                peer.id(),
+                                network_id,
+                                PACKET_TYPE_CONSENSUS_FINALIZATION,
+                                pkt,
+                            );
+                        });
+                        client_utils::get_transmissions_since_from_seenlist(
+                            client_utils::SeenTransmissionType::FinalizationRecord,
+                            since_stamp,
+                        )
+                        .map_err(|err| {
+                            error!("Can't get list of block packets to retransmit {}", err)
+                        })
+                        .unwrap()
+                        .iter()
+                        .for_each(|pkt| {
+                            send_retransmit_packet(
+                                &mut _node_self_clone,
+                                peer.id(),
+                                network_id,
+                                PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+                                pkt,
+                            );
+                        });
                     }
                     _ => {}
                 }
@@ -689,6 +842,26 @@ fn start_push_gateway(
         }
     }
     Ok(())
+}
+
+fn send_retransmit_packet(
+    node: &mut P2PNode,
+    receiver: P2PNodeId,
+    network_id: NetworkId,
+    payload_type: u16,
+    data: &[u8],
+) {
+    let mut out_bytes = vec![];
+    match out_bytes.write_u16::<BigEndian>(payload_type as u16) {
+        Ok(_) => {
+            out_bytes.extend(data);
+            match node.send_message(Some(receiver), network_id, None, out_bytes, false) {
+                Ok(_) => info!("Retransmitted packet of type {}", payload_type),
+                Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
+            }
+        }
+        Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
+    }
 }
 
 fn get_baker_data(
