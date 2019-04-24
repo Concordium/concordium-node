@@ -114,7 +114,7 @@ gsToString :: BlockState -> String
 gsToString gs = intercalate "\\l" . map show $ keys
     where
         ca n = ContractAddress (fromIntegral n) 0
-        keys = map (\n -> (n, imodel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nAccounts-1)
+        keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nAccounts-1)
 
 main :: IO ()
 main = do
