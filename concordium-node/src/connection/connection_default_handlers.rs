@@ -246,8 +246,7 @@ pub fn default_network_request_handshake(req: &NetworkRequest) -> FunctorResult 
 }
 
 /// Unknown messages only updates statistic information.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
+pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     debug!("Unknown message received!");
 
     {
@@ -268,8 +267,7 @@ pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -
 }
 
 /// Invalid messages only updates statistic information.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
+pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();
 
