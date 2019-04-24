@@ -475,8 +475,10 @@ fn setup_process_output(
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup();
 
-    //Print out the configuration
-    info!("{:?}", conf);
+    if conf.common.print_config {
+        //Print out the configuration
+        info!("{:?}", conf);
+    }
 
     // Retrieving bootstrap nodes
     let dns_resolvers =
