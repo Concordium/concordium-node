@@ -25,7 +25,7 @@ pub fn main() -> Fallible<()> {
 
     if conf.print_config {
         // Print out the configuration
-        info!("{:?}", conf);
+        println!("{:?}", conf);
     }
 
     p2p_client::setup_panics();
