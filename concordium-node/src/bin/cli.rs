@@ -587,13 +587,13 @@ fn start_baker(
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
     conf.baker_id.and_then(|baker_id| {
-        //Check for invalid configuration
+        // Check for invalid configuration
         if baker_id > conf.baker_num_bakers {
-            //Baker ID is higher than amount of bakers in the network. Bail!
+            // Baker ID is higher than amount of bakers in the network. Bail!
             error!("Baker ID is higher than amount of bakers in the network! Disabling baking");
-            return None
+            return None;
         }
-        
+
         info!("Starting up baker thread");
         consensus::ConsensusContainer::start_haskell();
         match get_baker_data(app_prefs, conf) {
