@@ -243,6 +243,8 @@ pub struct CommonConfig {
         default_value = "100"
     )]
     pub min_peers_bucket: usize,
+    #[structopt(long = "print-config", help = "Print out config struct")]
+    pub print_config: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -325,6 +327,7 @@ impl Default for Config {
                 no_log_timestamp: false,
                 no_trust_bans:    false,
                 min_peers_bucket: 100,
+                print_config:     false,
             },
             #[cfg(feature = "instrumentation")]
             prometheus: PrometheusConfig {

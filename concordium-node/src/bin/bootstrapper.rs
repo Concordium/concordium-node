@@ -13,11 +13,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use chrono::prelude::Utc;
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
-    common::PeerType,
+    common::{P2PNodeId, PeerType},
     configuration,
     connection::MessageManager,
     db::P2PDB,
@@ -35,11 +34,9 @@ use std::{
 #[cfg(feature = "instrumentation")]
 use failure::Fallible;
 
-#[cfg(feature = "instrumentation")]
-use p2p_client::common::P2PNodeId;
-
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
+
     let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
@@ -60,6 +57,11 @@ fn main() -> Result<(), Error> {
     log_builder.init();
 
     p2p_client::setup_panics();
+
+    if conf.common.print_config {
+        // Print out the configuration
+        info!("Config {:?}", conf);
+    }
 
     info!(
         "Starting up {}-bootstrapper version {}!",
@@ -113,14 +115,7 @@ fn main() -> Result<(), Error> {
 
     let id = match conf.common.id {
         Some(ref x) => x.to_owned(),
-        _ => {
-            let current_time = Utc::now();
-            base64::encode(&utils::sha256(&format!(
-                "{}.{}",
-                current_time.timestamp(),
-                current_time.timestamp_subsec_nanos()
-            )))
-        }
+        _ => format!("{}", P2PNodeId::default()),
     };
 
     let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();

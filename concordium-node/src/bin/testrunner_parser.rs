@@ -16,10 +16,18 @@ struct ConfigCli {
     pub to_analyze: String,
     #[structopt(help = "Print results as a CSV file", long = "csv")]
     pub csv: bool,
+    #[structopt(long = "print-config", help = "Print out config struct")]
+    pub print_config: bool,
 }
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
+
+    if conf.print_config {
+        // Print out the configuration
+        println!("{:?}", conf);
+    }
+
     p2p_client::setup_panics();
     let results =
         if conf.to_analyze.starts_with("https://") || conf.to_analyze.starts_with("http://") {
