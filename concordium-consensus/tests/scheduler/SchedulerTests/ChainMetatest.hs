@@ -85,8 +85,8 @@ checkChainMetaResult (suc, fails, instances) =
                            (_, Types.TxReject _) -> True
                     )
                         suc
-    checkLocalState (Types.Instance{..}) = do
-      case imodel of
+    checkLocalState inst = do
+      case Types.instanceModel inst of
         Types.VConstructor _ [Types.VLiteral (Core.Word64 8)  -- NB: These should match those in chainMeta
                              ,Types.VLiteral (Core.Word64 13)
                              ,Types.VLiteral (Core.Word64 10)] -> True

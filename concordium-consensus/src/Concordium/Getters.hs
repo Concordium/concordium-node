@@ -63,7 +63,7 @@ getLastFinalContractInfo sfsRef addr = do
   maybeAccount <- (HashMap.lookup addr . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just is -> return $ Just (InstanceInfo (imsgTy is) (imodel is) (iamount is))
+    Just is -> return $ Just (instanceInfo is)
 
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do

@@ -97,21 +97,11 @@ dispatch msg = do
               result <- evalLocalT (handleInit meta remainingAmount amount modref cname param energy)
               case result of
                 (Left reason, _) -> return $ TxValid (TxReject reason)
-                (Right (rmethod, iface, viface, msgty, model, initamount, impls), energy') -> do
+                (Right (contract, iface, viface, msgty, model, initamount), energy') -> do
                     refundEnergy (thSender meta) energy'
-                    addr <- firstFreeAddress -- NB: It is important that there is no other thread adding contracts
-                    let ins = let iaddress = addr
-                                  ireceiveFun = rmethod
-                                  iModuleIface = (iface, viface)
-                                  imsgTy = msgty
-                                  imodel = model
-                                  iamount = initamount
-                                  instanceImplements = impls
-                              in Ins.Instance{..}
-                    r <- putNewInstance ins
-                    if r then
-                      return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
-                    else error "dispatch: internal error: firstFreeAddress invariant broken."
+                    let ins = makeInstance modref cname contract msgty iface viface model initamount
+                    addr <- putNewInstance ins
+                    return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
       
             -- FIXME: This is only temporary for now.
             -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
@@ -188,7 +178,7 @@ handleInit
      -> Core.Expr Core.ModuleName
      -> Energy
      -> m (Either InvalidKind
-            (UpdateType, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount, Map.HashMap (Core.ModuleRef, Core.TyName) ImplementsValue),
+            (ContractValue, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount),
            Energy)
 handleInit meta senderAmount amount modref cname param energy = do
   if senderAmount >= amount then do
@@ -212,7 +202,7 @@ handleInit meta senderAmount amount modref cname param energy = do
                         Nothing -> do -- we ran out of energy
                           rejectWith OutOfEnergy 0
                         Just (v, energy') -> -- make new instance
-                          succeedWith ((updateMethod contract), iface, viface, (msgTy ciface), v, amount, (implements contract)) energy'
+                          succeedWith (contract, iface, viface, (msgTy ciface), v, amount) energy'
   else rejectWith (AmountTooLarge (AddressAccount (thSender meta)) amount) energy
 
 handleUpdate
@@ -231,8 +221,8 @@ handleUpdate meta accountamount amount cref msg energy = do
     Just i -> let rf = Ins.ireceiveFun i
                   msgType = Ins.imsgTy i
                   (iface, viface) = Ins.iModuleIface i
-                  model = Ins.imodel i
-                  contractamount = Ins.iamount i
+                  model = Ins.instanceModel i
+                  contractamount = Ins.instanceAmount i
                   -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
               in do qmsgExpE <- runExceptT (TC.checkTyInCtx iface msg msgType)
                     case qmsgExpE of
@@ -302,13 +292,13 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                 foldM (\res tx -> combineTx res $ do
                           -- we need to get the fresh amount each time since it might have changed for each execution
                           -- NB: fromJust is justified since at this point we know the sender contract exists
-                          senderamount'' <- (Ins.iamount . fromJust) <$> getCurrentContractInstance cref
+                          senderamount'' <- (Ins.instanceAmount . fromJust) <$> getCurrentContractInstance cref
                           case tx of
                             TSend cref' transferamount' message' -> do
                               -- the only way to send is to first check existence, so this must succeed
                               cinstance <- fromJust <$> getCurrentContractInstance cref' 
                               let receivefun' = Ins.ireceiveFun cinstance
-                              let model' = Ins.imodel cinstance
+                              let model' = Ins.instanceModel cinstance
                               return $ handleTransaction origin
                                                          cref'
                                                          receivefun'
@@ -322,7 +312,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                             TSimpleTransfer (AddressContract cref') transferamount' -> do
                               cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
                               let receivefun' = Ins.ireceiveFun cinstance
-                              let model' = Ins.imodel cinstance
+                              let model' = Ins.instanceModel cinstance
                               return $ handleTransaction origin
                                                          cref'
                                                          receivefun'
@@ -365,8 +355,8 @@ handleTransfer meta accountamount amount addr energy =
       case cinstance of
         Nothing -> rejectWith (InvalidContractAddress cref) energy
         Just i -> let rf = Ins.ireceiveFun i
-                      model = Ins.imodel i
-                      contractamount = Ins.iamount i
+                      model = Ins.instanceModel i
+                      contractamount = Ins.instanceAmount i
                   -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
                   in do 
                         let qmsgExpLinked = I.mkNothingE -- give Nothing as argument to the receive method

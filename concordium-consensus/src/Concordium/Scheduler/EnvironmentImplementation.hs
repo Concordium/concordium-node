@@ -51,9 +51,8 @@ instance SchedulerMonad SchedulerImplementation where
     -- INVARIANT: the invariant which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    let Ins.Instances is = s ^. blockInstances
-    let instances' = Ins.Instances $ Map.foldlWithKey' (\acc addr (amnt, val) -> Map.adjust (\i -> i { iamount = amnt, imodel = val }) addr acc)
-                                                       is
+    let instances' = Map.foldlWithKey' (\iis addr (amnt, val) -> Ins.updateInstanceAt addr amnt val iis)
+                                                       (s ^. blockInstances)
                                                        (cs ^. newContractStates)
     let accounts' = Map.foldl' (flip Acc.putAccount) (s ^. blockAccounts) (cs ^. newAccounts)
     blockInstances .= instances'
@@ -70,9 +69,9 @@ instance SchedulerMonad SchedulerImplementation where
   {-# INLINE putNewInstance #-}
   putNewInstance istance = do
     istances <- use blockInstances
-    case Ins.newInstance istance istances of
-      Nothing -> return False
-      Just is -> True <$ (blockInstances .= is)
+    let (ca, istances') = Ins.createInstance istance istances
+    blockInstances .= istances'
+    return ca
 
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce addr = do
@@ -97,7 +96,3 @@ instance SchedulerMonad SchedulerImplementation where
   {-# INLINE refundEnergy #-}
   refundEnergy addr amnt = do
     blockAccounts . ix addr . accountAmount += (energyToGtu amnt)
-
-
-  {-# INLINE firstFreeAddress #-}
-  firstFreeAddress = Ins.firstFreeContract <$> use blockInstances

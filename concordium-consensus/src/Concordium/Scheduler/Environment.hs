@@ -44,8 +44,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> m Bool
 
   -- |Create new instance in the global state.
-  -- If an instance with the given address already exists do nothing and return @False@.
-  putNewInstance :: Instance -> m Bool
+  -- The instance is parametrised by the address, and the return value is the
+  -- address assigned to the new instance.
+  putNewInstance :: (ContractAddress -> Instance) -> m ContractAddress
 
   -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
   increaseAccountNonce :: AccountAddress -> m ()
@@ -62,9 +63,6 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
 
   -- |Refund the remaining execution cost.
   refundEnergy :: AccountAddress -> Energy -> m ()
-
-  -- |Return a free address that can be assigned a new contract instance
-  firstFreeAddress :: m ContractAddress
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -161,7 +159,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT m) where
                 Nothing -> return Nothing
                 Just i -> case newStates ^. at addr of
                             Nothing -> return $ Just i
-                            Just (amnt, newmodel) -> return $ Just (i { iamount = amnt, imodel = newmodel })
+                            Just (amnt, newmodel) -> return $ Just (updateInstance amnt newmodel i)
 
   {-# INLINE getCurrentAccount #-}
   getCurrentAccount acc = do
@@ -180,6 +178,6 @@ instance SchedulerMonad m => InterpreterMonad (LocalT m) where
               case mistance of
                 Nothing -> return Nothing
                 Just i -> case newStates ^. at caddr of
-                            Nothing -> return $ Just (instanceImplements i, imodel i)
-                            Just (_, newmodel) -> return $ Just (instanceImplements i, newmodel)
+                            Nothing -> return $ Just (instanceImplements (instanceParameters i), instanceModel i)
+                            Just (_, newmodel) -> return $ Just (instanceImplements (instanceParameters i), newmodel)
 

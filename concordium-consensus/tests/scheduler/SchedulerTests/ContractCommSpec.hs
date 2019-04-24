@@ -57,7 +57,7 @@ transactionsInput =
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
+                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
                             }
@@ -65,7 +65,7 @@ transactionsInput =
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
+                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
@@ -73,7 +73,7 @@ transactionsInput =
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
+                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
@@ -81,7 +81,7 @@ transactionsInput =
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
-                            ,address = Types.ContractAddress {contractIndex = 1, contractVersion = 0}
+                            ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Dec 1"
                             }

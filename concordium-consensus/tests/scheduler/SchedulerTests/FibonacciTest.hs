@@ -59,7 +59,7 @@ transactionsInput =
   ,TJSON { payload = Update { amount = 0
                             , moduleName = "FibContract"
                             , message = "Fib 30"
-                            , address = Types.ContractAddress { contractIndex = 0, contractVersion = 0}
+                            , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
         , metadata = makeHeader alesKP 3 100000
         , keypair = alesKP
@@ -97,8 +97,8 @@ checkFibonacciResult (suc, fails, instances) =
                            (_, Types.TxReject _) -> True
                     )
                         suc
-    checkLocalState (Types.Instance{..}) = do
-      case imodel of
+    checkLocalState inst = do
+      case Types.instanceModel inst of
         Types.VDict mp ->
           let results = List.sort (mapMaybe (\case (Types.VLiteral (Core.Int64 i)) -> Just i
                                                    _ -> Nothing) (Map.elems mp))
