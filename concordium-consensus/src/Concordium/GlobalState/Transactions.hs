@@ -67,8 +67,7 @@ type TransactionHash = H.Hash
 data Transaction = Transaction {
   trSignature :: !TransactionSignature,
   trHeader :: !TransactionHeader,
-  trPayload :: EncodedPayload, -- NB: It is intendent that this field is lazy.
-                        -- This allows us to only deserialize on demand at execution time.
+  trPayload :: EncodedPayload,
 
   -- * The following fields are strictly redundant, but are here to avoid needless recomputation.
   -- In serialization we do not output them.
