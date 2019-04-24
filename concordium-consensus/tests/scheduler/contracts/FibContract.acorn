@@ -8,20 +8,22 @@ import Blockchain
 import Unit
 import Bool
 
+import IntMap
+
 data MsgFib = Fib [Int64]
 
-definition mkReturn = Prod.Pair [Prim.Dict Int64 Int64] [Prim.Transaction]
+definition mkReturn = Prod.Pair [IntMap.Map Int64] [Prim.Transaction]
 
-definition baseValues = Prim.insertDict [Int64] [Int64] 0 1 (Prim.insertDict [Int64] [Int64] 1 1 (Prim.emptyDict [Int64] [Int64]))
+definition baseValues = IntMap.insert [Int64] 0 1 (IntMap.insert [Int64] 1 1 (IntMap.Empty [Int64]))
 
-definition lookup = Prim.lookupDict [Int64] [Int64]
+definition lookup = IntMap.lookup [Int64]
 
 contract Fibonacci where
 
   init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
     baseValues
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Prim.Dict Int64 Int64) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgFib) =
+  receive (c :: Blockchain.ReceiveContext) (model :: IntMap.Map Int64) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgFib) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
       Maybe.Just msg' -> 
@@ -48,4 +50,4 @@ contract Fibonacci where
                                                                       (sendFibonacci i (Fib (Prim.minusInt64 n 2)) amount)
                                                                       (Prim.TxBatch (sendFibonacci i (Fib (Prim.minusInt64 n 1)) amount)
                                                                                     (sendFibonacci i (Fib n) amount)))
-                                   Maybe.Just u -> mkReturn (Prim.insertDict [Int64] [Int64] n (Prim.plusInt64 u v) amodel) Prim.TxNone
+                                   Maybe.Just u -> mkReturn (IntMap.insert [Int64] n (Prim.plusInt64 u v) amodel) Prim.TxNone

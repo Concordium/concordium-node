@@ -6,6 +6,7 @@ import Bool
 import Maybe
 import Prim
 import Blockchain
+import AccountAddressMap
 
 data MsgCnt = Inc [Int64] | Dec [Int64]
 
@@ -13,7 +14,7 @@ data ModelCnt = ModelCnt [Int64, <address>]
 
 data MsgRec = Note [{address}, Int64] | Withdraw [{address}, Int64]
 
-data ModelRec = ModelRec [Prim.Dict {address} Int64]
+data ModelRec = ModelRec [AccountAddressMap.Map Int64]
 
 constraint RecorderC where
   getters
@@ -40,8 +41,8 @@ definition addAmountModel (x :: Int64) (m :: ModelCnt) =
 definition decAmountModel (x :: Int64) (m :: ModelCnt) =
   ModelCnt (Prim.minusInt64 (balance m) x) (recorder m)
 
-definition lookupAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) =
-  case Prim.lookupDict [{address}] [Int64] addr dict of
+definition lookupAmount (addr :: {address}) (dict :: AccountAddressMap.Map Int64) =
+  case AccountAddressMap.lookup [Int64] addr dict of
     Maybe.Just x -> Maybe.Just [Int64] x
     Maybe.Nothing -> Maybe.Nothing [Int64]
 
@@ -49,17 +50,17 @@ definition accounts (m :: ModelRec) =
   case m of
     ModelRec x -> x
 
-definition addAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) (x :: Int64) =
+definition addAmount (addr :: {address}) (dict :: AccountAddressMap.Map Int64) (x :: Int64) =
   case lookupAmount addr dict of
-     Maybe.Just y -> Prim.insertDict [{address}] [Int64] addr (Prim.plusInt64 y x) dict
-     Maybe.Nothing -> Prim.insertDict [{address}] [Int64] addr x dict
+     Maybe.Just y -> AccountAddressMap.insert [Int64] addr (Prim.plusInt64 y x) dict
+     Maybe.Nothing -> AccountAddressMap.insert [Int64] addr x dict
 
-definition decAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) (x :: Int64) =
+definition decAmount (addr :: {address}) (dict :: AccountAddressMap.Map Int64) (x :: Int64) =
   case lookupAmount addr dict of
-     Maybe.Just y -> Prim.insertDict [{address}] [Int64] addr (Prim.minusInt64 y x) dict
-     Maybe.Nothing -> Prim.insertDict [{address}] [Int64] addr (Prim.minusInt64 0 x) dict
+     Maybe.Just y -> AccountAddressMap.insert [Int64] addr (Prim.minusInt64 y x) dict
+     Maybe.Nothing -> AccountAddressMap.insert [Int64] addr (Prim.minusInt64 0 x) dict
 
-definition checkAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) (x :: Int64) =
+definition checkAmount (addr :: {address}) (dict :: AccountAddressMap.Map Int64) (x :: Int64) =
   case lookupAmount addr dict of
     Maybe.Just y -> case Prim.leqInt64 x y of
                       Bool.True -> Maybe.Just [Int64] y
@@ -96,7 +97,7 @@ contract Counter where
 contract Recorder where
 
   init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
-      ModelRec (Prim.emptyDict [{address}] [Int64])
+      ModelRec (AccountAddressMap.Empty [Int64])
 
   receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgRec) =
       case msg of

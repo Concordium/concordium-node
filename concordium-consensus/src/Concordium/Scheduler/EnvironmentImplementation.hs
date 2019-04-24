@@ -44,7 +44,7 @@ instance SchedulerMonad SchedulerImplementation where
   getContractInstance addr = Ins.getInstance addr <$> use blockInstances
 
   {-# INLINE getAccount #-}
-  getAccount addr = (Acc.getAccount addr . _blockAccounts) <$> get
+  getAccount addr = Acc.getAccount addr <$> use blockAccounts
 
   commitStateAndAccountChanges cs = do
     s <- get
@@ -76,9 +76,6 @@ instance SchedulerMonad SchedulerImplementation where
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce addr = do
     blockAccounts . ix addr . accountNonce += 1
-    -- s <- get
-    -- let acc = Acc.unsafeGetAccount addr (blockAccounts s) -- NB: Relies on precondition.
-    -- put (s { blockAccounts = Acc.putAccount (acc & accountNonce +~ 1) (blockAccounts s) })
 
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do

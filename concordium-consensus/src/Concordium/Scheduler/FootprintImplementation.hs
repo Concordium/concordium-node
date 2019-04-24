@@ -33,7 +33,6 @@ tellAccount c = tell (Set.empty, Set.singleton c)
 newtype FootprintImplementation a = FootprintImplementation { _runScheduler :: RWS ChainMetadata Footprint BlockState a }
     deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState BlockState, MonadWriter Footprint)
 
--- runFI :: FootprintImplementation a -> ChainMetadata -> BlockState -> (a, BlockState)
 runFI :: FootprintImplementation a -> ChainMetadata -> BlockState -> (a, BlockState, Footprint)
 runFI sc cd gs = runRWS (_runScheduler sc) cd gs
 
