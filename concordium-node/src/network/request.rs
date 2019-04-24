@@ -16,6 +16,7 @@ pub enum NetworkRequest {
     UnbanNode(P2PPeer, BannedNode),
     JoinNetwork(P2PPeer, NetworkId),
     LeaveNetwork(P2PPeer, NetworkId),
+    Retransmit(P2PPeer, u64, NetworkId),
 }
 
 impl NetworkRequest {
@@ -60,6 +61,10 @@ impl NetworkRequest {
                 pkt.extend_from_slice(zk.as_slice());
                 pkt
             }
+            NetworkRequest::Retransmit(_, since_stamp, network_id) => serialize_message!(
+                ProtocolMessageType::RequestRetransmit,
+                format!("{:016x}{}", since_stamp, network_id)
+            ),
         }
     }
 }

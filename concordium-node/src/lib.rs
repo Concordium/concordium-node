@@ -68,6 +68,7 @@ pub mod configuration;
 pub mod connection;
 pub mod db;
 
+pub mod client;
 pub mod crypto;
 pub mod network;
 pub mod p2p;

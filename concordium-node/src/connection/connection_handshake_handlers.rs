@@ -29,6 +29,15 @@ pub fn handshake_response_handle(
         if let Some(ref service) = priv_conn.borrow().stats_export_service {
             safe_write!(service)?.peers_inc();
         };
+
+        // TODO - only issue when needed externally, after global state knows it needs
+        // to do this
+        if priv_conn.borrow().remote_peer.peer_type() != PeerType::Bootstrapper
+            && priv_conn.borrow().local_peer.peer_type() != PeerType::Bootstrapper
+        {
+            let one_net = priv_conn.borrow().remote_end_networks.clone();
+            send_retransmit_request(priv_conn, 0, *one_net.iter().next().unwrap())?;
+        }
         Ok(())
     } else {
         bail!(fails::UnwantedMessageError {
