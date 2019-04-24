@@ -4,16 +4,24 @@
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
-import Control.Monad.Trans.State
 
-import Concordium.Payload.Transaction
-import Concordium.Types as T
+-- import Concordium.Payload.Transaction
+--import Concordium.Types as T
 import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
 import Concordium.Logger
 
-import qualified Acorn.Types as AT
+import qualified Concordium.Scheduler.Types as AT
+import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.TreeState.Basic
+import Concordium.Types as T
+import Concordium.GlobalState.Information
+import Concordium.GlobalState.Block
+import Concordium.Types.HashableTo
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Account
 
 import Data.IORef
 import Text.Read hiding (get)
@@ -25,42 +33,42 @@ import Data.Aeson
 import Data.Word
 
 hsh :: BlockPointer -> String
-hsh = show . bpHash
+hsh = show . (getHash :: BlockPointer -> BlockHash)
 
-getBestBlockState :: IORef SkovFinalizationState -> IO GlobalState
+getBestBlockState :: IORef SkovFinalizationState -> IO BlockState
 getBestBlockState sfsRef = do
     sfs <- readIORef sfsRef
-    runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> bestBlock)
+    runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (bpState <$> bestBlock)
 
-getLastFinalState :: IORef SkovFinalizationState -> IO GlobalState
+getLastFinalState :: IORef SkovFinalizationState -> IO BlockState
 getLastFinalState sfsRef = do
     sfs <- readIORef sfsRef
-    runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
+    runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
 
-getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AT.AccountAddress]
-getLastFinalAccountList sfsRef = (HashMap.keys . AT.accounts) <$> getLastFinalState sfsRef
+getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AccountAddress]
+getLastFinalAccountList sfsRef = (Map.keys . accountMap . (^. blockAccounts)) <$> getLastFinalState sfsRef
 
-getLastFinalInstances :: IORef SkovFinalizationState -> IO [AT.ContractAddress]
-getLastFinalInstances sfsRef = (HashMap.keys . AT.instances) <$> getLastFinalState sfsRef
+getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
+getLastFinalInstances sfsRef = (HashMap.keys . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
 
-getLastFinalAccountInfo :: IORef SkovFinalizationState -> AT.AccountAddress -> IO (Maybe AT.AccountInfo)
+getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
 getLastFinalAccountInfo sfsRef addr = do
-  maybeAccount <- (HashMap.lookup addr . AT.accounts) <$> getLastFinalState sfsRef
+  maybeAccount <- (getAccount addr . (^. blockAccounts)) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just acc -> return $ Just (AT.AccountInfo (AT.anonce acc) (AT.aamount acc))
+    Just acc -> return $ Just (AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount))
 
-getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe AT.InstanceInfo)
+getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
-  maybeAccount <- (HashMap.lookup addr . AT.instances) <$> getLastFinalState sfsRef
+  maybeAccount <- (HashMap.lookup addr . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
-    Just is -> return $ Just (AT.InstanceInfo (AT.imsgTy is) (AT.lState is) (AT.iamount is))
+    Just is -> return $ Just (instanceInfo is)
 
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
     sfs <- readIORef sfsRef
-    runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $ do
+    runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
         return $ object [
@@ -94,7 +102,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> do
             sfs <- readIORef sfsRef
-            runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $
+            runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -110,7 +118,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockArriveTime" .= bpArriveTime bp,
                             "blockSlot" .= (fromIntegral slot :: Word64),
                             "blockSlotTime" .= slotTime,
-                            "blockBaker" .= if slot == 0 then Null else toJSON (T.blockBaker (bpBlock bp)),
+                            "blockBaker" .= if slot == 0 then Null else toJSON (blockBaker (bpBlock bp)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp
                             ]
@@ -120,7 +128,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> do
             sfs <- readIORef sfsRef
-            runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $
+            runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -130,7 +138,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
 getBranches :: IORef SkovFinalizationState -> IO Value
 getBranches sfsRef = do
         sfs <- readIORef sfsRef
-        runSilentLogger $ flip evalStateT (sfs ^. sfsSkov) $ do
+        runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $ do
             brs <- branchesFromTop
             let brt = foldl up Map.empty brs
             lastFin <- lastFinalizedBlock

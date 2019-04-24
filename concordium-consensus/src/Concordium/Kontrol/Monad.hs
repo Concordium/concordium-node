@@ -11,6 +11,7 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
+import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.TimeMonad
 

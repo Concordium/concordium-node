@@ -1,0 +1,117 @@
+module CommCounter where
+
+import Unit
+import Prod
+import Bool
+import Maybe
+import Prim
+import Blockchain
+
+data MsgCnt = Inc [Int64] | Dec [Int64]
+
+data ModelCnt = ModelCnt [Int64, <address>]
+
+data MsgRec = Note [{address}, Int64] | Withdraw [{address}, Int64]
+
+data ModelRec = ModelRec [Prim.Dict {address} Int64]
+
+constraint RecorderC where
+  getters
+    getAccounts :: ModelRec ::
+
+  senders
+    sendNote :: MsgRec ::
+
+definition mkReturnCounter = Prod.Pair [ModelCnt] [Prim.Transaction]
+
+definition mkReturnRecorder = Prod.Pair [ModelRec] [Prim.Transaction]
+
+definition recorder (m :: ModelCnt) =
+   case m of
+     ModelCnt _ d -> d
+
+definition balance (m :: ModelCnt) =
+   case m of
+     ModelCnt x _ -> x
+
+definition addAmountModel (x :: Int64) (m :: ModelCnt) =
+  ModelCnt (Prim.plusInt64 x (balance m)) (recorder m)
+
+definition decAmountModel (x :: Int64) (m :: ModelCnt) =
+  ModelCnt (Prim.minusInt64 (balance m) x) (recorder m)
+
+definition lookupAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) =
+  case Prim.lookupDict [{address}] [Int64] addr dict of
+    Maybe.Just x -> Maybe.Just [Int64] x
+    Maybe.Nothing -> Maybe.Nothing [Int64]
+
+definition accounts (m :: ModelRec) =
+  case m of
+    ModelRec x -> x
+
+definition addAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) (x :: Int64) =
+  case lookupAmount addr dict of
+     Maybe.Just y -> Prim.insertDict [{address}] [Int64] addr (Prim.plusInt64 y x) dict
+     Maybe.Nothing -> Prim.insertDict [{address}] [Int64] addr x dict
+
+definition decAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) (x :: Int64) =
+  case lookupAmount addr dict of
+     Maybe.Just y -> Prim.insertDict [{address}] [Int64] addr (Prim.minusInt64 y x) dict
+     Maybe.Nothing -> Prim.insertDict [{address}] [Int64] addr (Prim.minusInt64 0 x) dict
+
+definition checkAmount (addr :: {address}) (dict :: Prim.Dict {address} Int64) (x :: Int64) =
+  case lookupAmount addr dict of
+    Maybe.Just y -> case Prim.leqInt64 x y of
+                      Bool.True -> Maybe.Just [Int64] y
+                      Bool.False -> Maybe.Nothing [Int64]
+    Maybe.Nothing -> Maybe.Nothing [Int64]
+
+contract Counter where
+
+  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+    ModelCnt (Prod.fst [Int64] [<address>] ia) (Prod.snd [Int64] [<address>] ia)
+
+  receive (c :: Blockchain.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgCnt) =
+    case msg of
+      Maybe.Nothing -> mkReturnCounter model Prim.TxNone
+      Maybe.Just msg' ->
+        case callerOr of
+          Blockchain.CallerAccount caller -> 
+            case msg' of
+                Inc n -> let inst = recorder model
+                         in case castRecorderC inst of
+                              Maybe.Just i -> mkReturnCounter (addAmountModel n model) (sendNote i (Note caller n) amount )
+                              Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+                Dec n -> let inst = recorder model
+                         in case castRecorderC inst of
+                              Maybe.Just i -> let d = accounts (getAccounts i)
+                                              in case checkAmount caller d n of
+                                                   Maybe.Just y -> mkReturnCounter (decAmountModel n model) (sendNote i (Withdraw caller n) amount)
+                                                   Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+                              Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+
+          Blockchain.CallerContract _ -> mkReturnCounter model Prim.TxReject
+
+
+contract Recorder where
+
+  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+      ModelRec (Prim.emptyDict [{address}] [Int64])
+
+  receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe MsgRec) =
+      case msg of
+        Maybe.Nothing -> mkReturnRecorder model Prim.TxReject
+        Maybe.Just msg ->
+          case caller of
+            Blockchain.CallerAccount _ -> mkReturnRecorder model Prim.TxReject
+            Blockchain.CallerContract _ ->
+               case msg of
+                 Note addr x -> mkReturnRecorder (ModelRec (addAmount addr (accounts model) x)) Prim.TxNone
+                 Withdraw addr x -> mkReturnRecorder (ModelRec (decAmount addr (accounts model) x)) Prim.TxNone
+
+  implements RecorderC where
+    getters
+      getAccounts (r :: ModelRec) = r
+
+    senders
+      sendNote (r :: MsgRec) = r

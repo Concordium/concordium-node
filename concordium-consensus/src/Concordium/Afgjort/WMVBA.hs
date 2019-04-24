@@ -93,14 +93,14 @@ getWMVBAMessage getVal getParty = getWord8 >>= \case
         10 -> WMVBAWitnessCreatorMessage <$> getVal
         _ -> fail "Incorrect message type"
 
-data OutcomeState val = OSAwaiting | OSFrozen val | OSABBASuccess | OSDone
+data OutcomeState val = OSAwaiting | OSFrozen val | OSABBASuccess | OSDone deriving (Show)
 
 data WMVBAState val party sig = WMVBAState {
     _freezeState :: FreezeState val party,
     _abbaState :: ABBAState party,
     _justifiedDecision :: OutcomeState val,
     _justifications :: Map val (Int, Map party sig)
-}
+} deriving (Show)
 makeLenses ''WMVBAState
 
 initialWMVBAState :: WMVBAState val party sig

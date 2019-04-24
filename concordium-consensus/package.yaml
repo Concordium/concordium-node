@@ -38,7 +38,8 @@ dependencies:
 - base16-bytestring
 - aeson >= 1.3
 - text >= 1.2
-- acorn
+- scheduler
+- globalstate-types
 - globalstate
 
 library:
@@ -100,22 +101,6 @@ executables:
     dependencies:
     - Concordium
     - network-simple
-
-  Concordium-genesis:
-    main:                Main.hs
-    source-dirs:         startup
-    ghc-options:
-    - -rtsopts
-    - -Wall
-    - -Wcompat
-    when: 
-      - condition: os(windows)
-        then:
-          ghc-options: -static
-        else:
-          ghc-options: -dynamic
-    dependencies:
-    - Concordium
 
 tests:
   Concordium-test:

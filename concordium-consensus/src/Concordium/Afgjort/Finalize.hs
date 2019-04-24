@@ -16,9 +16,12 @@ import Control.Monad.State.Class
 import Control.Monad.Reader.Class
 import Control.Monad
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
 import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
@@ -105,6 +108,9 @@ data FinalizationMessage = FinalizationMessage {
     msgBody :: WMVBAMessage BlockHash Party,
     msgSignature :: Sig.Signature
 }
+
+instance Show FinalizationMessage where
+    show FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = "[" ++ show msgFinalizationIndex ++ ":" ++ show msgDelta ++ "] " ++ show msgSenderIndex ++ "-> " ++ show msgBody
 
 toParty :: FinalizationCommittee -> Word32 -> Maybe Party
 toParty com p = parties com Vec.!? fromIntegral p
@@ -245,14 +251,17 @@ newRound newDelta me = do
             msgDelta = newDelta,
             msgSenderIndex = src
         }
-        liftWMVBA $ do
-            -- Justify the blocks
-            forM_ justifiedInputs $ justifyWMVBAInput . bpHash
-            -- Receive the pending messages
-            forM_ pmsgs $ \(src0, pmsg) -> 
-                forM_ (toParty committee src0) $ \src ->
-                    forM_ (decodeCheckMessage committee (msgHdr src0) pmsg) $ \msg ->
-                        receiveWMVBAMessage src (msgSignature msg) (msgBody msg)
+        --liftWMVBA $ do
+        -- Justify the blocks
+        forM_ justifiedInputs $ \i -> do
+            logEvent Afgjort LLDebug $ "Justified input at " ++ show finIx ++ ": " ++ show i
+            liftWMVBA $ justifyWMVBAInput $ bpHash i
+        -- Receive the pending messages
+        forM_ pmsgs $ \(src0, pmsg) -> 
+            forM_ (toParty committee src0) $ \src ->
+                forM_ (decodeCheckMessage committee (msgHdr src0) pmsg) $ \msg -> do
+                    logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
+                    liftWMVBA $ receiveWMVBAMessage src (msgSignature msg) (msgBody msg)
         tryNominateBlock
 
 
@@ -304,6 +313,7 @@ liftWMVBA a = do
                 inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) partyWeight partyVRFKey roundMe finMyVRFKey
                 (r, newState, evs) = runWMVBA a inst roundWMVBA
             finCurrentRound ?= fr {roundWMVBA = newState}
+            logEvent Afgjort LLDebug $ "New WMVBA state: " ++ show newState
             handleWMVBAOutputEvents evs
             return r
 
@@ -324,7 +334,8 @@ receiveFinalizationMessage msg0 = case runGetState getFinalizationMessageHeader 
                                 LT -> return ()
                                 GT -> finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, bodyBS) :)
                                 EQ -> forM_ (decodeCheckMessage _finsCommittee hdr bodyBS) $ \msg ->
-                                    forM_ (toParty _finsCommittee msgSenderIndex) $ \src ->
+                                    forM_ (toParty _finsCommittee msgSenderIndex) $ \src -> do
+                                        logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
                                         liftWMVBA (receiveWMVBAMessage src (msgSignature msg) (msgBody msg))
 
 -- |Called to notify the finalization routine when a new block arrives.
@@ -332,7 +343,8 @@ notifyBlockArrival :: (MonadState s m, FinalizationStateLenses s, MonadReader Fi
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
-        when (bpHeight b == _finsHeight + roundDelta) $
+        when (bpHeight b == _finsHeight + roundDelta) $ do
+            logEvent Afgjort LLDebug $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash (ancestorAtHeight _finsHeight b))
             liftWMVBA $ justifyWMVBAInput (bpHash (ancestorAtHeight _finsHeight b))
         tryNominateBlock
 

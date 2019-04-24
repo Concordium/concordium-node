@@ -7,6 +7,8 @@ module Concordium.Kontrol.BestBlock(
 import Data.Foldable
 
 import Concordium.Types
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 -- import Concordium.Kontrol.VerifyBlock

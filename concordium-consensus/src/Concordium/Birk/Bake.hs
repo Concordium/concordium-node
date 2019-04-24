@@ -1,8 +1,6 @@
 {-# LANGUAGE RecordWildCards, DeriveGeneric #-}
 module Concordium.Birk.Bake where
 
-import qualified Data.Map.Strict as Map
-
 import GHC.Generics
 import Control.Monad.Trans.Maybe
 import Lens.Micro.Platform
@@ -10,16 +8,27 @@ import Control.Monad
 
 import Data.Serialize
 
-import Concordium.GlobalState.Types
-
 import Concordium.Types
+
+import Concordium.GlobalState.Parameters
+import Concordium.Types.HashableTo
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Transactions
+
 import Concordium.Skov.Monad
 import Concordium.Kontrol.Monad
-import Concordium.Payload.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
-import Concordium.Payload.Transaction
+
+import Concordium.MonadImplementation(updateFocusBlockTo, blockArrive)
+
+import Concordium.Scheduler.TreeStateEnvironment(constructBlock)
+
 import Concordium.Logger
+import Concordium.TimeMonad
+
 
 data BakerIdentity = BakerIdentity {
     bakerId :: BakerId,
@@ -31,20 +40,18 @@ data BakerIdentity = BakerIdentity {
 
 instance Serialize BakerIdentity where
 
-processInputs :: (PayloadMonad m) => Slot -> BlockPointer -> BlockPointer -> m (Maybe BlockData)
-processInputs slot bh finalizedP = do
-  -- find transactions to add to block
-  -- execute block from initial state in block pointer
-  pending <- fmap (map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
-  case pending of
-    Nothing -> return Nothing
-    -- FIXME: The next line will silently drop transactions which have failed (second argument of the return)
-    Just pendingts -> let (ts, _, _) = makeBlock pendingts (makeChainMeta slot bh finalizedP) (bpState bh)
-                      in return . Just . fromTransactions . fmap fst $ ts
-      
-    -- fmap (fromTransactions . map snd . Map.toList) <$> getPendingTransactionsAtBlock bh
+processTransactions :: TreeStateMonad m => Slot -> BlockPointer -> BlockPointer -> m ([Transaction], BlockState)
+processTransactions slot bh finalizedP = do
+  -- update the focus block to the parent block (establish invariant needed by constructBlock)
+  updateFocusBlockTo bh
+  -- at this point we can contruct the block. The function 'constructBlock' also
+  -- updates the pending table and purges any transactions deemed invalid
+  constructBlock slot bh finalizedP
+  -- NB: what remains is to update the focus block to the newly constructed one.
+  -- This is done in the method below once a block pointer is constructed.
 
-bakeForSlot :: (KontrolMonad m, PayloadMonad m) => BakerIdentity -> Slot -> m (Maybe Block)
+
+bakeForSlot :: (KontrolMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe BlockPointer)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
@@ -55,9 +62,17 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot
     let nonce = computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    payload <- MaybeT $ processInputs slot bb lastFinal
-    let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) payload
+    (transactions, newState) <- processTransactions slot bb lastFinal
+    let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions
     logEvent Baker LLInfo $ "Baked block"
-    _ <- storeBlock block
-    return block
-    
+    pbReceiveTime <- currentTime
+    newbp <- storeBakedBlock (PendingBlock { pbHash = getHash block
+                                       , pbBlock = block
+                                       ,..})
+                         bb
+                         lastFinal
+                         newState
+    -- update the current focus block to the newly created block to maintain invariants.
+    putFocusBlock newbp
+    logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
+    return newbp

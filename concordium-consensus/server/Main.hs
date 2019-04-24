@@ -14,7 +14,7 @@ import System.IO
 
 import Data.String
 
-import qualified Concordium.Crypto.Signature as Sig
+import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Birk.Bake
@@ -30,9 +30,12 @@ import qualified Data.HashMap.Strict as HashMap
 
 import Data.List(intercalate)
 
-import Acorn.Utils.Init.Example(update, initialState)
-import Acorn.Types(lState, instances, instances)
-import Concordium.GlobalState.Types
+import Concordium.Scheduler.Utils.Init.Example(makeTransaction, initialState)
+-- import Concordium.Scheduler.Types(lState, instances, instances)
+import Concordium.Types
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.Finalization
 
 import Data.Maybe(fromJust)
 
@@ -43,6 +46,11 @@ import Network.Simple.TCP
 import Concordium.Getters as G
 
 import Debug.Trace
+
+main :: IO ()
+main = return ()
+
+{-
 
 nAccounts = 2
 
@@ -191,3 +199,4 @@ main = do
                     loop gsMap
     loop Map.empty
 
+-}

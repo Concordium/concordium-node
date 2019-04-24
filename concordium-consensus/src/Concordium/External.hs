@@ -16,9 +16,12 @@ import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
 
 
-import Concordium.Types
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Transactions
+
+import Concordium.Scheduler.Utils.Init.Example (initialState)
+
 import Concordium.Birk.Bake
-import Concordium.Payload.Transaction
 import Concordium.Runner
 import Concordium.Show
 import Concordium.MonadImplementation (SkovFinalizationState)
@@ -26,8 +29,6 @@ import Concordium.Logger
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
-
-import Concordium.Crypto.SHA256(hash)
 
 data BakerRunner = BakerRunner {
     bakerInChan :: Chan InMessage,
@@ -108,18 +109,21 @@ toLogMethod logCallbackPtr = le
         le src lvl msg = BS.useAsCString (BS.pack msg) $
                             logCallback (logSourceId src) (logLevelId lvl)
 
-outLoop :: Chan OutMessage -> BlockCallback -> IO ()
-outLoop chan cbk = do
+outLoop :: LogMethod IO -> Chan OutMessage -> BlockCallback -> IO ()
+outLoop logm chan cbk = do
     readChan chan >>= \case
         MsgNewBlock block -> do
-            let bbs = runPut (serializeBlock block)
+            let bbs = runPut (put block)
+            logm External LLDebug $ "Sending block data size = " ++ show (BS.length bbs)
             BS.useAsCStringLen bbs $ \(cstr, l) -> cbk 0 cstr (fromIntegral l)
         MsgFinalization finMsg -> do
+            logm External LLDebug $ "Sending finalization message size = " ++ show (BS.length finMsg)
             BS.useAsCStringLen finMsg $ \(cstr, l) -> cbk 1 cstr (fromIntegral l)
         MsgFinalizationRecord finRec -> do
             let bs = runPut (put finRec)
+            logm External LLDebug $ "Sending finalization record data size = " ++ show (BS.length bs)
             BS.useAsCStringLen bs $ \(cstr, l) -> cbk 2 cstr (fromIntegral l)
-    outLoop chan cbk
+    outLoop logm chan cbk
 
 startBaker ::
            CString -> Int64 -- ^Serialized genesis data (c string + len)
@@ -130,8 +134,8 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk = do
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                (cin, cout, out) <- makeRunner logM bid genData
-                _ <- forkIO $ outLoop cout (callBlockCallback bcbk)
+                (cin, cout, out) <- makeRunner logM bid genData (initialState 2)
+                _ <- forkIO $ outLoop logM cout (callBlockCallback bcbk)
                 newStablePtr (BakerRunner cin cout out logM)
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -143,32 +147,44 @@ stopBaker bptr = do
     freeStablePtr bptr
     writeChan cin MsgShutdown
 
-receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 receiveBlock bptr cstr l = do
-    BakerRunner cin _ _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
-    case runGet deserializeBlock blockBS of
-        Left _ -> return ()
-        Right block -> writeChan cin $ MsgBlockReceived block
+    case runGet get blockBS of
+        Left _ -> do
+          logm External LLDebug "Block deserialization failed. Ignoring the block."
+          return 1
+        Right block -> do logm External LLInfo $ "Block deserialized. Sending to consensus."
+                          writeChan cin $ MsgBlockReceived block
+                          return 0
 
 receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalization bptr cstr l = do
-    BakerRunner cin _ _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLDebug $ "Received finalization message size = " ++ show l
     bs <- BS.packCStringLen (cstr, fromIntegral l)
     writeChan cin $ MsgFinalizationReceived bs
 
-receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 receiveFinalizationRecord bptr cstr l = do
-    BakerRunner cin _ _ _ <- deRefStablePtr bptr
+    BakerRunner cin _ _ logm <- deRefStablePtr bptr
+    logm External LLDebug $ "Received finalization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
     case runGet get finRecBS of
-        Left _ -> return ()
-        Right finRec -> writeChan cin $ MsgFinalizationRecordReceived finRec
+        Left _ -> do
+          logm External LLDebug "Deserialization of finalization record failed."
+          return 1
+        Right finRec -> do
+          logm External LLDebug "Finalization record deserialized."
+          writeChan cin $ MsgFinalizationRecordReceived finRec
+          return 0
 
 printBlock :: CString -> Int64 -> IO ()
 printBlock cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
-    case runGet deserializeBlock blockBS of
+    case runGet get blockBS of
         Left _ -> putStrLn "<Bad Block>"
         Right block -> putStrLn $ showsBlock block ""
 
@@ -177,15 +193,12 @@ receiveTransaction bptr tdata len = do
     BakerRunner cin _ _ logm <- deRefStablePtr bptr
     logm External LLInfo $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
-    case runGet (do h <- get
-                    b <- get
-                    return (h, b)) tbs of
+    case runGet get tbs of
       Left _ -> do logm External LLDebug "Could not decode transaction into header + body."
                    return 1
-      Right (h, b) -> do
-        logm External LLInfo $ "Transaction decoded. Its header is: " ++ show h
-        -- NB: The hash is a temporary cludge. This will change once we have the transaction table.
-        writeChan cin (MsgTransactionReceived (Transaction (TransactionNonce (hash tbs)) h b)) >> return 0
+      Right tr -> do
+        logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (trHeader tr)
+        writeChan cin (MsgTransactionReceived tr) >> return 0
 
 
 -- |Returns a null-terminated string with a JSON representation of the current status of Consensus.
@@ -281,9 +294,9 @@ freeCStr = free
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+foreign export ccall receiveBlock :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
-foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
+foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
 

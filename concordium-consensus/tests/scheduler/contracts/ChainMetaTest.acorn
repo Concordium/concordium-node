@@ -1,0 +1,19 @@
+module ChainMetaTest where
+
+import Prod
+import Maybe
+import Prim
+import Blockchain
+import Unit
+
+data Model = Model [Word64, Word64, Word64]
+
+contract Simple where
+
+  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Prim.Amount) =
+    Model (Blockchain.slotNumber (Blockchain.initChain c)) 
+          (Blockchain.blockHeight (Blockchain.initChain c))
+          (Blockchain.finalizedHeight (Blockchain.initChain c))
+
+  receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Prim.Amount) (msg :: Maybe.Maybe Unit.Unit) =
+    Prod.Pair [Model] [Prim.Transaction] model Prim.TxNone
