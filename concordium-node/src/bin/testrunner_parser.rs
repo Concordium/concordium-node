@@ -20,6 +20,10 @@ struct ConfigCli {
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
+    
+    //Print out the configuration
+    info!("{:?}", conf);
+
     p2p_client::setup_panics();
     let results =
         if conf.to_analyze.starts_with("https://") || conf.to_analyze.starts_with("http://") {

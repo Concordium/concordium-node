@@ -22,6 +22,10 @@ struct ConfigCli {
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
+
+    //Print out the configuration
+    println!("{:?}", conf);
+
     p2p_client::setup_panics();
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {
         match OpenOptions::new()

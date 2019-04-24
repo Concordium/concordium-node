@@ -40,6 +40,10 @@ use p2p_client::common::P2PNodeId;
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
+    
+    //Print out the configuration
+    info!("{:?}", conf);
+
     let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),

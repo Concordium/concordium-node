@@ -29,6 +29,10 @@ struct ConfigCli {
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
+
+    //Print out the configuration
+    println!("{:?}", conf);
+
     if !std::path::Path::new(&conf.keyfile).exists() {
         println!(
             "Key {} doesn't exist, please specify valid file",
