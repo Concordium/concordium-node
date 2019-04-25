@@ -121,13 +121,16 @@ pub fn generate_certificate(id: &str) -> Fallible<Cert> {
     builder.set_pubkey(&kp_as_pk)?;
     builder.set_version(2)?;
 
-    builder.set_not_before(&Asn1Time::days_from_now(0).unwrap())?;
+    let not_before = Asn1Time::days_from_now(0)?;
+    builder.set_not_before(&not_before)?;
 
-    builder.set_not_after(&Asn1Time::days_from_now(365).unwrap())?;
+    let not_after = Asn1Time::days_from_now(365)?;
+    builder.set_not_after(&not_after)?;
 
     let mut serial = BigNum::new()?;
     serial.rand(128, MsbOption::MAYBE_ZERO, false)?;
-    builder.set_serial_number(&serial.to_asn1_integer().unwrap())?;
+    let serial_number_as1 = serial.to_asn1_integer()?;
+    builder.set_serial_number(&serial_number_as1)?;
 
     let subject_alternative_name = SubjectAlternativeName::new()
         .dns(&format!("{}.node.concordium.com", id))
@@ -343,9 +346,9 @@ pub fn generate_bootstrap_dns(
     let mut ret = String::new();
 
     let mut return_size = vec![];
-    return_size
+    assert!(return_size
         .write_u16::<NetworkEndian>(return_buffer.len() as u16)
-        .unwrap();
+        .is_ok());
     ret.push_str(&base64::encode(&return_size));
     ret.push_str(&return_buffer);
 
@@ -353,10 +356,14 @@ pub fn generate_bootstrap_dns(
     Ok(ret
         .as_bytes()
         .chunks(record_length)
-        .map(|buf| {
-            let ret = format!("{:02} {}", element, str::from_utf8(&buf).unwrap());
-            element += 1;
-            ret
+        .filter_map(|buf| {
+            if let Ok(val) = str::from_utf8(&buf) {
+                let ret = format!("{:02} {}", element, val);
+                element += 1;
+                Some(ret)
+            } else {
+                None
+            }
         })
         .collect())
 }
@@ -558,8 +565,8 @@ pub fn ban_node(
 
     let to_db = to_ban.to_db_repr();
     match to_ban {
-        BannedNode::ById(_) => db.insert_ban_id(&to_db.0.unwrap()),
-        _ => db.insert_ban_addr(&to_db.1.unwrap()),
+        BannedNode::ById(_) => to_db.0.map(|ref id| db.insert_ban_id(id)),
+        _ => to_db.1.map(|ref addr| db.insert_ban_addr(addr)),
     };
     if !no_trust_bans {
         node.send_ban(to_ban);
@@ -578,8 +585,8 @@ pub fn unban_node(
 
     let to_db = to_unban.to_db_repr();
     match to_unban {
-        BannedNode::ById(_) => db.delete_ban_id(&to_db.0.unwrap()),
-        _ => db.delete_ban_addr(&to_db.1.unwrap()),
+        BannedNode::ById(_) => to_db.0.map(|ref id| db.delete_ban_id(id)),
+        _ => to_db.1.map(|ref addr| db.delete_ban_addr(addr)),
     };
     if !no_trust_bans {
         node.send_unban(to_unban);

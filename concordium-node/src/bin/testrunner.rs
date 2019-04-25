@@ -17,9 +17,10 @@ use p2p_client::{
     common::{self, PeerType},
     configuration,
     db::P2PDB,
+    lock_or_die,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    utils,
+    safe_lock, utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
 use router::Router;
@@ -145,16 +146,13 @@ impl TestRunner {
         if !self.test_running.load(Ordering::Relaxed) {
             self.test_running.store(true, Ordering::Relaxed);
             info!("Started test");
-            *self.test_start.lock().expect("Couldn't lock test_start") =
-                Some(common::get_current_stamp());
-            *self.packet_size.lock().expect("Couldn't lock packet size") = Some(packet_size);
+            *lock_or_die!(self.test_start) = Some(common::get_current_stamp());
+            *lock_or_die!(self.packet_size) = Some(packet_size);
             let random_pkt: Vec<u8> = thread_rng()
                 .sample_iter(&Standard)
                 .take(packet_size)
                 .collect();
-            self.node
-                .lock()
-                .expect("Couldn't lock node")
+            lock_or_die!(self.node)
                 .send_message(None, self.nid, None, random_pkt, true)
                 .map_err(|e| error!("{}", e))
                 .ok();
@@ -197,8 +195,8 @@ impl TestRunner {
                 }
             }
             self.test_running.store(false, Ordering::Relaxed);
-            *self.test_start.lock().expect("Couldn't lock test_start") = None;
-            *self.packet_size.lock().expect("Couldn't lock packet size") = None;
+            *lock_or_die!(self.test_start) = None;
+            *lock_or_die!(self.packet_size) = None;
             info!("Testing reset on runner");
             Ok(Response::with((
                 status::Ok,
@@ -228,7 +226,7 @@ impl TestRunner {
                             "service_version": p2p_client::VERSION,
                             "measurements": *inner_vals,
                             "test_start_time": *test_start_time,
-                            "packet_size": *self.packet_size.lock().expect("Couldn't lock packet size") ,
+                            "packet_size": *lock_or_die!(self.packet_size) ,
                         });
                         let mut resp = Response::with((status::Ok, return_json.to_string()));
                         resp.headers.set(ContentType::json());

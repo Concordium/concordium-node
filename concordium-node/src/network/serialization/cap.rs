@@ -405,7 +405,7 @@ pub fn save_network_message(nm: &mut NetworkMessage) -> Vec<u8> {
         s11n::write_network_message(&mut builder, nm);
     }
     let mut buffer = vec![];
-    capnp::serialize::write_message(&mut buffer, &message).unwrap();
+    assert!(capnp::serialize::write_message(&mut buffer, &message).is_ok());
 
     buffer
 }
