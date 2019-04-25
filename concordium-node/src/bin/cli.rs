@@ -388,10 +388,14 @@ fn setup_process_output(
                                 get_current_stamp(),
                                 &content,
                             ) {
-                                Ok(_) => {
-                                    baker.send_block(&block);
-                                    info!("Sent block from network to baker");
-                                }
+                                Ok(_) => match baker.send_block(&block) {
+                                    0i64 => info!("Sent block from network to baker"),
+                                    x => error!(
+                                        "Can't send block from network to baker due to error code \
+                                         #{}",
+                                        x
+                                    ),
+                                },
                                 Err(err) => {
                                     error!("Can't store block in transmission list {}", err)
                                 }
@@ -428,10 +432,14 @@ fn setup_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => {
-                                baker.send_finalization_record(content);
-                                info!("Sent finalization record to consensus layer");
-                            }
+                            Ok(_) => match baker.send_finalization_record(content) {
+                                0i64 => info!("Sent finalization record from network to baker"),
+                                x => error!(
+                                    "Can't send finalization record from network to baker due to \
+                                     error code #{}",
+                                    x
+                                ),
+                            },
                             Err(err) => error!(
                                 "Can't store finalization record in transmission list {}",
                                 err
