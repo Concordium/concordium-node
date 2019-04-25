@@ -149,9 +149,9 @@ fn main() -> Result<(), Error> {
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
-            let mut locked_node = safe_write!(node)?;
+            let mut locked_node = write_or_die!(node);
             for n in nodes {
-                locked_node.ban_node(n)?;
+                locked_node.ban_node(n);
             }
         }
         None => {
@@ -164,16 +164,16 @@ fn main() -> Result<(), Error> {
     let _no_trust_bans = conf.common.no_trust_bans;
 
     // Register handles for ban & unban requests.
-    let message_handler = safe_read!(node)?.message_handler();
+    let message_handler = read_or_die!(node).message_handler();
     safe_write!(message_handler)?.add_request_callback(make_atomic_callback!(
         move |msg: &NetworkRequest| {
             match msg {
                 NetworkRequest::BanNode(ref peer, x) => {
-                    let mut locked_cloned_node = safe_write!(cloned_node)?;
+                    let mut locked_cloned_node = write_or_die!(cloned_node);
                     utils::ban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
                 }
                 NetworkRequest::UnbanNode(ref peer, x) => {
-                    let mut locked_cloned_node = safe_write!(cloned_node)?;
+                    let mut locked_cloned_node = write_or_die!(cloned_node);
                     utils::unban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
                 }
                 _ => {}
@@ -187,17 +187,17 @@ fn main() -> Result<(), Error> {
     start_push_gateway(
         &conf.prometheus,
         &stats_export_service,
-        node.read().unwrap().id(),
+        safe_read!(node)?.id(),
     )?;
 
     {
         let mut locked_node = safe_write!(node)?;
         locked_node.max_nodes = Some(conf.bootstrapper.max_nodes);
         locked_node.print_peers = true;
-        locked_node.spawn()?;
+        locked_node.spawn();
     }
 
-    safe_write!(node)?.join().expect("Node thread panicked!");
+    write_or_die!(node).join().expect("Node thread panicked!");
 
     Ok(())
 }

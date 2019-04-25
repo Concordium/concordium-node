@@ -1,8 +1,8 @@
 #![recursion_limit = "1024"]
 
-use failure::{err_msg, Error, Fallible};
-use serde_json::{json, Value};
-use std::{cmp::Ordering, fs::File, io::prelude::*};
+use failure::{err_msg, Fallible};
+use serde_json::Value;
+use std::{fs::File, io::prelude::*};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -18,6 +18,57 @@ struct ConfigCli {
     pub csv: bool,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
+}
+
+fn get_measurements(
+    start_time: u64,
+    measurements: &[serde_json::Value],
+) -> Option<Vec<(String, u64, u64)>> {
+    let mut res = vec![];
+    for measurement in measurements {
+        let m = measurement["node_id"].as_str().and_then(|node_id| {
+            measurement["received_time"]
+                .as_u64()
+                .and_then(|received_time| {
+                    Some((
+                        node_id.to_string(),
+                        received_time - start_time,
+                        received_time,
+                    ))
+                })
+        });
+        if let Some(m) = m {
+            res.push(m);
+        } else {
+            return None;
+        }
+    }
+    Some(res)
+}
+
+fn process_measurement(
+    start_time: u64,
+    packet_size: u64,
+    csv: bool,
+    mut measurements: Vec<(String, u64, u64)>,
+) {
+    measurements.sort_by_key(|x| x.1);
+    if csv {
+        for ele in measurements {
+            println!("{},{},{}", ele.0, ele.2, ele.1);
+        }
+    } else {
+        println!("Analyzed output from test runner");
+        println!("Start of test: {}", start_time);
+        println!("Measurements count: {}", measurements.len());
+        println!("Packet size used: {}", packet_size);
+        for ele in measurements {
+            println!(
+                "- {} got it at {} with a transmission time of {}",
+                ele.0, ele.2, ele.1
+            );
+        }
+    }
 }
 
 pub fn main() -> Fallible<()> {
@@ -38,7 +89,7 @@ pub fn main() -> Fallible<()> {
                 _ => panic!("Can't read file from URL"),
             }
         } else {
-            match File::open(conf.to_analyze) {
+            match File::open(conf.to_analyze.clone()) {
                 Ok(mut file) => {
                     let mut contents = String::new();
                     match file.read_to_string(&mut contents) {
@@ -50,55 +101,27 @@ pub fn main() -> Fallible<()> {
             }
         };
     let json_value: Value = serde_json::from_str(&results)?;
-    if json_value["service_name"] != json!(null)
-        && json_value["service_version"] != json!(null)
-        && json_value["service_name"].as_str().unwrap() == "TestRunner"
-        && json_value.get("service_version").unwrap().as_str().unwrap() == p2p_client::VERSION
+    if json_value["service_name"]
+        .as_str()
+        .map_or(false, |val| val == "TestRunner")
+        && json_value["service_version"]
+            .as_str()
+            .map_or(false, |val| val == p2p_client::VERSION)
     {
-        if json_value["test_start_time"] != json!(null)
-            && json_value["packet_size"] != json!(null)
-            && json_value["measurements"] != json!(null)
-        {
-            let start_time = json_value["test_start_time"].as_u64().unwrap();
-            let packet_size = json_value["packet_size"].as_u64().unwrap();
-            let mut measurements = json_value["measurements"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|ref v| {
-                    if v["node_id"] != json!(null) && v["received_time"] != json!(null) {
-                        Ok((
-                            v["node_id"].as_str().unwrap().to_string(),
-                            v["received_time"].as_u64().unwrap() - start_time,
-                            v["received_time"].as_u64().unwrap(),
-                        ))
-                    } else {
-                        Err(err_msg("invalid JSON format"))
-                    }
+        if json_value["test_start_time"]
+            .as_u64()
+            .and_then(|start_time| {
+                json_value["packet_size"].as_u64().and_then(|packet_size| {
+                    json_value["measurements"]
+                        .as_array()
+                        .and_then(|m| get_measurements(start_time, m))
+                        .map(|m| process_measurement(start_time, packet_size, conf.csv, m))
                 })
-                .collect::<Result<Vec<(String, u64, u64)>, Error>>()?;
-            measurements.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-            if conf.csv {
-                for ele in measurements {
-                    println!("{},{},{}", ele.0, ele.2, ele.1);
-                }
-            } else {
-                println!("Analyzed output from test runner");
-                println!("Start of test: {}", start_time);
-                println!("Measurements count: {}", measurements.len());
-                println!("Packet size used: {}", packet_size);
-                for ele in measurements {
-                    println!(
-                        "- {} got it at {} with a transmission time of {}",
-                        ele.0, ele.2, ele.1
-                    );
-                }
-            }
-            Ok(())
-        } else {
-            Err(err_msg("invalid JSON format"))
+            })
+            .is_some()
+        {
+            return Ok(());
         }
-    } else {
-        Err(err_msg("invalid JSON format"))
-    }
+    };
+    Err(err_msg("invalid JSON format"))
 }

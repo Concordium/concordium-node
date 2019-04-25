@@ -554,16 +554,15 @@ pub fn ban_node(
     no_trust_bans: bool,
 ) {
     info!("Ban node request for {:?} from {:?}", to_ban, peer);
-    let ban = node.ban_node(to_ban).map_err(|e| error!("{}", e));
-    if ban.is_ok() {
-        let to_db = to_ban.to_db_repr();
-        match to_ban {
-            BannedNode::ById(_) => db.insert_ban_id(&to_db.0.unwrap()),
-            _ => db.insert_ban_addr(&to_db.1.unwrap()),
-        };
-        if !no_trust_bans {
-            node.send_ban(to_ban).map_err(|e| error!("{}", e)).ok();
-        }
+    node.ban_node(to_ban);
+
+    let to_db = to_ban.to_db_repr();
+    match to_ban {
+        BannedNode::ById(_) => db.insert_ban_id(&to_db.0.unwrap()),
+        _ => db.insert_ban_addr(&to_db.1.unwrap()),
+    };
+    if !no_trust_bans {
+        node.send_ban(to_ban);
     }
 }
 
@@ -575,16 +574,15 @@ pub fn unban_node(
     no_trust_bans: bool,
 ) {
     info!("Unban node request for {:?} from {:?}", to_unban, peer);
-    let req = node.unban_node(to_unban).map_err(|e| error!("{}", e));
-    if req.is_ok() {
-        let to_db = to_unban.to_db_repr();
-        match to_unban {
-            BannedNode::ById(_) => db.delete_ban_id(&to_db.0.unwrap()),
-            _ => db.delete_ban_addr(&to_db.1.unwrap()),
-        };
-        if !no_trust_bans {
-            node.send_unban(to_unban).map_err(|e| error!("{}", e)).ok();
-        }
+    node.unban_node(to_unban);
+
+    let to_db = to_unban.to_db_repr();
+    match to_unban {
+        BannedNode::ById(_) => db.delete_ban_id(&to_db.0.unwrap()),
+        _ => db.delete_ban_addr(&to_db.1.unwrap()),
+    };
+    if !no_trust_bans {
+        node.send_unban(to_unban);
     }
 }
 

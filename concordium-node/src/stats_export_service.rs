@@ -312,18 +312,13 @@ impl StatsExportService {
     ) {
         let metrics_families = self.registry.gather();
         let _mode = self.mode.to_string();
-
         let _th = thread::spawn(move || loop {
-            let username_pass =
-                if prometheus_push_username.is_some() && prometheus_push_password.is_some() {
-                    Some(prometheus::BasicAuthentication {
-                        username: prometheus_push_username.clone().unwrap(),
-                        password: prometheus_push_username.clone().unwrap(),
-                    })
-                } else {
-                    None
-                };
             debug!("Pushing data to push gateway");
+            let username_pass = prometheus_push_username.clone().and_then(|username| {
+                prometheus_push_password.clone().and_then(|password| {
+                    Some(prometheus::BasicAuthentication { username, password })
+                })
+            });
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(
                 &prometheus_job_name,

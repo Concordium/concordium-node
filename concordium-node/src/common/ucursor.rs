@@ -217,10 +217,10 @@ impl UCursor {
             data_opt = Some(data);
         };
 
-        if data_opt.is_some() {
-            let mut other = UCursor::build_from_view(ContainerView::from(data_opt.unwrap()));
+        if let Some(data_opt) = data_opt {
+            let mut other = UCursor::build_from_view(ContainerView::from(data_opt));
             std::mem::swap(self, &mut other);
-        }
+        };
         Ok(())
     }
 }

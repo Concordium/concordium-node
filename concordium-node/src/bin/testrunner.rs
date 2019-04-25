@@ -281,8 +281,7 @@ impl TestRunner {
             move |req: &mut Request<'_, '_>| match req
                 .extensions
                 .get::<Router>()
-                .unwrap()
-                .find("test_packet_size")
+                .and_then(|router| router.find("test_packet_size"))
             {
                 Some(size_str) => match size_str.parse::<usize>() {
                     Ok(size) => Arc::clone(&_self_clone_3).start_test(size),
@@ -317,7 +316,7 @@ impl TestRunner {
         );
         let addr = format!("{}:{}", listen_ip, port);
         thread::spawn(move || {
-            Iron::new(router).http(addr).unwrap();
+            Iron::new(router).http(addr).ok();
         })
     }
 }
@@ -443,23 +442,18 @@ fn setup_process_output(
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    match _node_self_clone.get_peer_stats(&[]) {
-                        Ok(x) => {
-                            for peer_node in peers {
-                                if _node_self_clone
-                                    .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                                    .map_err(|e| error!("{}", e))
-                                    .is_ok()
-                                {
-                                    new_peers += 1;
-                                }
-                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                    break;
-                                }
-                            }
+                    let stats = _node_self_clone.get_peer_stats(&[]);
+
+                    for peer_node in peers {
+                        if _node_self_clone
+                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                            .map_err(|e| error!("{}", e))
+                            .is_ok()
+                        {
+                            new_peers += 1;
                         }
-                        _ => {
-                            error!("Can't get nodes - so not trying to connect to new peers!");
+                        if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                            break;
                         }
                     }
                 }
@@ -500,13 +494,13 @@ fn main() -> Fallible<()> {
 
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs);
 
-    node.spawn()?;
+    node.spawn();
 
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n)?;
+                node.ban_node(n);
             }
         }
         None => {
@@ -552,10 +546,7 @@ fn main() -> Fallible<()> {
         };
     }
 
-    let mut testrunner = TestRunner::new(
-        node.clone(),
-        NetworkId::from(*conf.common.network_ids.first().unwrap()),
-    );
+    let mut testrunner = TestRunner::new(node.clone(), NetworkId::from(conf.common.network_ids[0]));
 
     let _th = testrunner.start_server(
         &conf.testrunner.listen_http_address,
