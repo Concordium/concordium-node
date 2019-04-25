@@ -38,9 +38,7 @@ fn get_measurements(
                 })
         });
         if let Some(m) = m {
-            res.push(m);
-        } else {
-            return None;
+            res.push(m)
         }
     }
     Some(res)
