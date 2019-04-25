@@ -20,7 +20,10 @@ pub fn resolve_dns_txt_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    debug!("Attempting to resolve TXT record {} using DNS server {:?}", entry, dns_servers);
+    debug!(
+        "Attempting to resolve TXT record {} using DNS server {:?}",
+        entry, dns_servers
+    );
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXT)
 }
 
@@ -29,7 +32,10 @@ pub fn resolve_dns_a_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    debug!("Attempting to resolve A record {} using DNS server {:?}", entry, dns_servers);
+    debug!(
+        "Attempting to resolve A record {} using DNS server {:?}",
+        entry, dns_servers
+    );
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::A)
 }
 
@@ -38,7 +44,10 @@ pub fn resolve_dns_aaaa_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    debug!("Attempting to resolve AAAA record {} using DNS server {:?}", entry, dns_servers);
+    debug!(
+        "Attempting to resolve AAAA record {} using DNS server {:?}",
+        entry, dns_servers
+    );
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAA)
 }
 
