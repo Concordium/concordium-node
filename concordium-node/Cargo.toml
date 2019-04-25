@@ -91,6 +91,7 @@ optional = true
 
 [build-dependencies]
 walkdir = "2"
+regex = "1"
 protoc-grpcio = "0.2.0"
 capnpc = { version = "^0.9", optional = true }
 
