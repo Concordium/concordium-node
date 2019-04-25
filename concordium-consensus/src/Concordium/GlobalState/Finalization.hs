@@ -8,7 +8,6 @@ import Data.Word
 import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.Types
-import Concordium.GlobalState.Block
 
 newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 

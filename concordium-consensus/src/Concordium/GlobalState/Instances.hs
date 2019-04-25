@@ -1,5 +1,22 @@
-{-# LANGUAGE RecordWildCards, MultiParamTypeClasses #-}
-module Concordium.GlobalState.Instances where
+{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
+module Concordium.GlobalState.Instances(
+    InstanceParameters(..),
+    Instance(..),
+    instanceInfo,
+    makeInstance,
+    iaddress,
+    ireceiveFun,
+    imsgTy,
+    iModuleIface,
+    Instances,
+    emptyInstances,
+    getInstance,
+    updateInstance,
+    updateInstanceAt,
+    createInstance,
+    deleteInstance,
+    foldInstances
+) where
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -7,88 +24,13 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Information (InstanceInfo(InstanceInfo))
+import Concordium.GlobalState.Instances.Internal
 
 import Lens.Micro.Platform
-import Data.HashMap.Strict(HashMap)
-import qualified Data.HashMap.Strict as Map
-import Data.Serialize
 
-{-
-data Instance = Instance
-    {iaddress :: !ContractAddress
-    ,ireceiveFun :: !Expr                         -- ^Pointer to its receive function.
-    ,iModuleIface :: !(Interface, ValueInterface) -- ^Pointers to the module interfaces of the module this contract belongs to.
-    ,imsgTy :: !(Core.Type Core.ModuleRef)        -- ^The type of messages its receive function supports.
-    ,imodel :: !Value                     -- ^The current local state of the instance.
-    ,iamount :: !Amount                   -- ^And the amount of GTUs it currently owns.
-    ,instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) ImplementsValue)  
-    -- ^Implementation of the given class sender method. This can also be looked
-    -- up through the contract, and we should probably do that, but having it
-    -- here simplifies things.
-    } deriving(Show)
--}
-
--- |The fixed parameters associated with a smart contract instance
-data InstanceParameters = InstanceParameters {
-    -- |Address of the instance
-    instanceAddress :: !ContractAddress,
-    -- |The module that the contract is defined in
-    instanceContractModule :: !Core.ModuleRef,
-    -- |The name of the contract
-    instanceContract :: !Core.TyName,
-    -- |The contract's receive function
-    instanceReceiveFun :: !Expr,
-    -- |The interface of 'instanceContractModule'
-    instanceModuleInterface :: !Interface,
-    -- |The value interface of 'instanceContractModule'
-    instanceModuleValueInterface :: !ValueInterface,
-    -- |The type of messages the contract receive function supports
-    instanceMessageType :: !(Core.Type Core.ModuleRef),
-    -- |Implementation of the given class sender method. This can also be looked
-    -- up through the contract, and we should probably do that, but having it here
-    -- simplifies things.
-    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) ImplementsValue),
-    -- |Hash of the fixed parameters
-    instanceParameterHash :: !H.Hash
-}
-
-instance Show InstanceParameters where
-    show InstanceParameters{..} = show instanceAddress ++ " :: " ++ show instanceContractModule ++ "." ++ show instanceContract
-
-instance HashableTo H.Hash InstanceParameters where
-    getHash = instanceParameterHash
-
-data Instance = Instance {
-    -- |The fixed parameters of the instance
-    instanceParameters :: InstanceParameters,
-    -- |The current local state of the instance
-    instanceModel :: !Value,
-    -- |The current amount of GTU owned by the instance
-    instanceAmount :: !Amount,
-    -- |Hash of the smart contract instance
-    instanceHash :: !H.Hash
-}
-
-instance Show Instance where
-    show Instance{..} = show instanceParameters ++ " {balance=" ++ show instanceAmount ++ ", model=" ++ show instanceModel ++ "}"
-
-instance HashableTo H.Hash Instance where
-    getHash = instanceHash
-
+-- |Get the 'InstanceInfo' summary of an 'Instance'.
 instanceInfo :: Instance -> InstanceInfo
 instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters) instanceModel instanceAmount
-
-makeInstanceParameterHash :: ContractAddress -> Core.ModuleRef -> Core.TyName -> H.Hash
-makeInstanceParameterHash ca modRef conName = H.hashLazy $ runPutLazy $ do
-        put ca
-        put modRef
-        put conName
-
-makeInstanceHash :: InstanceParameters -> Value -> Amount -> H.Hash
-makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
-        put (instanceParameterHash params)
-        putStorable v
-        put a
 
 makeInstance :: 
     -- |Module of the contract
@@ -119,31 +61,41 @@ makeInstance instanceContractModule instanceContract conVal instanceMessageType 
         instanceParameters = InstanceParameters {..}
         instanceHash = makeInstanceHash instanceParameters instanceModel instanceAmount
 
+-- |The address of a smart contract instance.
 iaddress :: Instance -> ContractAddress
 iaddress = instanceAddress . instanceParameters
 
+-- |The receive method of a smart contract instance.
 ireceiveFun :: Instance -> Expr
 ireceiveFun = instanceReceiveFun . instanceParameters
 
+-- |The message type of a smart contract instance.
 imsgTy :: Instance -> Core.Type Core.ModuleRef
 imsgTy = instanceMessageType . instanceParameters
 
+-- |The module interfaces of a smart contract instance.
 iModuleIface :: Instance -> (Interface, ValueInterface)
 iModuleIface i = (instanceModuleInterface, instanceModuleValueInterface)
     where
         InstanceParameters{..} = instanceParameters i
 
-
+-- |A collection of smart contract instances.
 newtype Instances = Instances {
-  _instances :: HashMap ContractAddress Instance
+  _instances :: InstanceTable
   }
 
+instance HashableTo H.Hash Instances where
+    getHash = getHash . _instances
+
+-- |The empty set of smart contract instances.
 emptyInstances :: Instances
-emptyInstances = Instances Map.empty
+emptyInstances = Instances Empty
 
+-- |Get the smart contract instance at the given address, if it exists.
 getInstance :: ContractAddress -> Instances -> Maybe Instance
-getInstance m (Instances is) = Map.lookup m is
+getInstance addr (Instances iss) = iss ^? ix addr
 
+-- |Update a given smart contract instance.
 updateInstance :: Amount -> Value -> Instance -> Instance
 updateInstance amt val i =  i {
                                 instanceModel = val,
@@ -156,30 +108,16 @@ updateInstance amt val i =  i {
 updateInstanceAt :: ContractAddress -> Amount -> Value -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
+-- |Create a new smart contract instance.
 createInstance :: (ContractAddress -> Instance) -> Instances -> (ContractAddress, Instances)
-createInstance mkInst (Instances instances) = (ca, Instances (Map.insert ca inst instances))
-    where
-        ca = ContractAddress (fromIntegral (length instances)) 0
-        inst = mkInst ca
+createInstance mkInst (Instances iss) = Instances <$> (iss & newContractInstance <<%~ mkInst)
 
--- |Insert or replace an instance on a given address.
-putInstance :: Instance -> Instances -> Instances
-putInstance is (Instances iss) =
-  let addr = iaddress is in Instances (Map.insert addr is iss)
+-- |Delete the instance with the given address.  Does nothing
+-- if there is no such instance.
+deleteInstance :: ContractAddress -> Instances -> Instances
+deleteInstance ca (Instances i) = Instances (deleteContractInstanceExact ca i)
 
--- |Create a new instance. If an instance with the given address already exists
--- do nothing and return @Nothing@.
-newInstance :: Instance -> Instances -> Maybe Instances
-newInstance is (Instances iss) =
-    if addr `Map.member` iss then Nothing
-    else Just (Instances (Map.insert addr is iss))
-  where addr = iaddress is
-
--- |FIXME (when we have the ability to remove contracts)
--- Get the first contract available contract address.
-firstFreeContract :: Instances -> ContractAddress
-firstFreeContract (Instances instances) = 
-  ContractAddress (fromIntegral (length instances)) 0 
-
-toList :: Instances -> [(ContractAddress, Instance)]
-toList = Map.toList . _instances
+-- |A fold over smart contract instances.
+foldInstances :: SimpleFold Instances Instance
+foldInstances _ is@(Instances Empty) = is <$ mempty
+foldInstances f is@(Instances (Tree t)) = is <$ (foldIT . _Right) f t

@@ -144,6 +144,9 @@ instance BlockData PendingBlock where
     blockTransactions = blockTransactions . pbBlock
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
 
+instance Show PendingBlock where
+    show = show . pbHash
+
 data BlockPointer = BlockPointer {
     -- |Hash of the block
     bpHash :: !BlockHash,
