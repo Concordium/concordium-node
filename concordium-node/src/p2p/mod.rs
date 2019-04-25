@@ -88,45 +88,45 @@ mod tests {
             )
         };
         // Empty on init
-        let reply = node.get_banlist().expect("lock err");
+        let reply = node.get_banlist();
         assert!(reply.is_empty());
 
         let to_ban1 = BannedNode::ById(P2PNodeId::from_str("0000000000000022")?);
 
         // Insertion by id
-        node.ban_node(to_ban1)?;
-        let reply = node.get_banlist().expect("lock err");
+        node.ban_node(to_ban1);
+        let reply = node.get_banlist();
         assert!(reply.len() == 1);
         assert_eq!(reply[0], to_ban1);
 
         // Duplicates check
-        node.ban_node(to_ban1)?;
-        let reply = node.get_banlist().expect("lock err");
+        node.ban_node(to_ban1);
+        let reply = node.get_banlist();
         assert!(reply.len() == 1);
         assert_eq!(reply[0], to_ban1);
 
         // Deletion by id
-        node.unban_node(to_ban1)?;
-        let reply = node.get_banlist().expect("lock err");
+        node.unban_node(to_ban1);
+        let reply = node.get_banlist();
         assert!(reply.is_empty());
 
         let to_ban2 = BannedNode::ByAddr("127.0.0.1".parse()?);
 
         // Insertion by ip
-        node.ban_node(to_ban2)?;
-        let reply = node.get_banlist().expect("lock err");
+        node.ban_node(to_ban2);
+        let reply = node.get_banlist();
         assert!(reply.len() == 1);
         assert_eq!(reply[0], to_ban2);
 
         // Duplicates check
-        node.ban_node(to_ban2)?;
-        let reply = node.get_banlist().expect("lock err");
+        node.ban_node(to_ban2);
+        let reply = node.get_banlist();
         assert!(reply.len() == 1);
         assert_eq!(reply[0], to_ban2);
 
         // Deletion by ip
-        node.unban_node(to_ban2)?;
-        let reply = node.get_banlist().expect("lock err");
+        node.unban_node(to_ban2);
+        let reply = node.get_banlist();
         assert!(reply.is_empty());
 
         Ok(())

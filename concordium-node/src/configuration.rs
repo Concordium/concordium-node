@@ -243,6 +243,8 @@ pub struct CommonConfig {
         default_value = "100"
     )]
     pub min_peers_bucket: usize,
+    #[structopt(long = "print-config", help = "Print out config struct")]
+    pub print_config: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -325,6 +327,7 @@ impl Default for Config {
                 no_log_timestamp: false,
                 no_trust_bans:    false,
                 min_peers_bucket: 100,
+                print_config:     false,
             },
             #[cfg(feature = "instrumentation")]
             prometheus: PrometheusConfig {
@@ -413,8 +416,7 @@ impl AppPreferences {
             Ok(file) => {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                if load_result.is_ok() {
-                    let mut prefs = load_result.unwrap();
+                if let Ok(mut prefs) = load_result {
                     let entry = prefs
                         .entry(APP_PREFERENCES_KEY_VERSION.to_string())
                         .or_insert_with(|| super::VERSION.to_string());
@@ -424,18 +426,19 @@ impl AppPreferences {
                         {
                             match Version::parse(vers_str) {
                                 Ok(vers) => {
-                                    let int_vers = Version::parse(super::VERSION).unwrap();
-                                    if int_vers.major != vers.major {
-                                        panic!(
-                                            "Major versions do not match {} != {}",
-                                            int_vers.major, vers.major
-                                        );
-                                    } else if vers.minor > int_vers.minor {
-                                        panic!(
-                                            "Version file too new {} > {}",
-                                            vers.to_string(),
-                                            int_vers.to_string()
-                                        );
+                                    if let Ok(int_vers) = Version::parse(super::VERSION) {
+                                        if int_vers.major != vers.major {
+                                            panic!(
+                                                "Major versions do not match {} != {}",
+                                                int_vers.major, vers.major
+                                            );
+                                        } else if vers.minor > int_vers.minor {
+                                            panic!(
+                                                "Version file too new {} > {}",
+                                                vers.to_string(),
+                                                int_vers.to_string()
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => panic!("Can't parse version in config file '{}'", e),
@@ -491,14 +494,18 @@ impl AppPreferences {
     fn calculate_config_path(override_path: &Option<String>) -> PathBuf {
         match override_path {
             Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserConfig, &APP_INFO).unwrap(),
+            None => app_root(AppDataType::UserConfig, &APP_INFO)
+                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
+                .unwrap(),
         }
     }
 
     fn calculate_data_path(override_path: &Option<String>) -> PathBuf {
         match override_path {
             Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserData, &APP_INFO).unwrap(),
+            None => app_root(AppDataType::UserData, &APP_INFO)
+                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
+                .unwrap(),
         }
     }
 

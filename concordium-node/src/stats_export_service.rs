@@ -1,14 +1,15 @@
-#[cfg(feature = "instrumentation")]
-use iron::{headers::ContentType, prelude::*, status};
-#[cfg(feature = "instrumentation")]
-use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-#[cfg(feature = "instrumentation")]
-use router::Router;
-#[cfg(not(feature = "instrumentation"))]
-use std::sync::atomic::{AtomicUsize, Ordering};
+cfg_if! {
+    if #[cfg(feature = "instrumentation")] {
+        use failure::Fallible;
+        use iron::{headers::ContentType, prelude::*, status};
+        use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
+        use router::Router;
+        use std::{net::SocketAddr, thread, time};
+    } else {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+    }
+}
 use std::{fmt, sync::Arc};
-#[cfg(feature = "instrumentation")]
-use std::{net::SocketAddr, thread, time};
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum StatsServiceMode {
@@ -58,60 +59,60 @@ pub struct StatsExportService {
 
 impl StatsExportService {
     #[cfg(feature = "instrumentation")]
-    pub fn new(mode: StatsServiceMode) -> Self {
+    pub fn new(mode: StatsServiceMode) -> Fallible<Self> {
         let registry = Registry::new();
         let pg_opts = Opts::new("peer_number", "current peers connected");
-        let pg = IntGauge::with_opts(pg_opts).unwrap();
+        let pg = IntGauge::with_opts(pg_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(pg.clone())).unwrap();
+            registry.register(Box::new(pg.clone()))?;
         }
 
         let qs_opts = Opts::new("queue_size", "current queue size");
-        let qs = IntGauge::with_opts(qs_opts).unwrap();
+        let qs = IntGauge::with_opts(qs_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(qs.clone())).unwrap();
+            registry.register(Box::new(qs.clone()))?;
         }
 
         let cr_opts = Opts::new("conn_received", "connections received");
-        let cr = IntCounter::with_opts(cr_opts).unwrap();
-        registry.register(Box::new(cr.clone())).unwrap();
+        let cr = IntCounter::with_opts(cr_opts)?;
+        registry.register(Box::new(cr.clone()))?;
 
         let prc_opts = Opts::new("packets_received", "packets received");
-        let prc = IntCounter::with_opts(prc_opts).unwrap();
-        registry.register(Box::new(prc.clone())).unwrap();
+        let prc = IntCounter::with_opts(prc_opts)?;
+        registry.register(Box::new(prc.clone()))?;
 
         let psc_opts = Opts::new("packets_sent", "packets sent");
-        let psc = IntCounter::with_opts(psc_opts).unwrap();
-        registry.register(Box::new(psc.clone())).unwrap();
+        let psc = IntCounter::with_opts(psc_opts)?;
+        registry.register(Box::new(psc.clone()))?;
 
         let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
-        let ipr = IntCounter::with_opts(ipr_opts).unwrap();
+        let ipr = IntCounter::with_opts(ipr_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(ipr.clone())).unwrap();
+            registry.register(Box::new(ipr.clone()))?;
         }
 
         let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
-        let upr = IntCounter::with_opts(upr_opts).unwrap();
+        let upr = IntCounter::with_opts(upr_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(upr.clone())).unwrap();
+            registry.register(Box::new(upr.clone()))?;
         }
 
         let inpr_opts = Opts::new(
             "invalid_network_packets_received",
             "invalid network packets received",
         );
-        let inpr = IntCounter::with_opts(inpr_opts).unwrap();
+        let inpr = IntCounter::with_opts(inpr_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(inpr.clone())).unwrap();
+            registry.register(Box::new(inpr.clone()))?;
         }
 
         let qrs_opts = Opts::new("queue_resent", "items in queue that needed to be resent");
-        let qrs = IntCounter::with_opts(qrs_opts).unwrap();
+        let qrs = IntCounter::with_opts(qrs_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(qrs.clone())).unwrap();
+            registry.register(Box::new(qrs.clone()))?;
         }
 
-        StatsExportService {
+        Ok(StatsExportService {
             mode,
             registry,
             pkts_received_counter: prc,
@@ -123,7 +124,7 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             queue_resent: qrs,
-        }
+        })
     }
 
     #[cfg(not(feature = "instrumentation"))]
@@ -265,8 +266,12 @@ impl StatsExportService {
         let encoder = TextEncoder::new();
         let metric_familys = self.registry.gather();
         let mut buffer = vec![];
-        encoder.encode(&metric_familys, &mut buffer).unwrap();
-        let mut resp = Response::with((status::Ok, String::from_utf8(buffer).unwrap()));
+        assert!(encoder.encode(&metric_familys, &mut buffer).is_ok());
+        let mut resp = if let Ok(buffer) = String::from_utf8(buffer) {
+            Response::with((status::Ok, buffer))
+        } else {
+            Response::with((status::InternalServerError, vec![]))
+        };
         resp.headers.set(ContentType::plaintext());
         Ok(resp)
     }
@@ -312,18 +317,13 @@ impl StatsExportService {
     ) {
         let metrics_families = self.registry.gather();
         let _mode = self.mode.to_string();
-
         let _th = thread::spawn(move || loop {
-            let username_pass =
-                if prometheus_push_username.is_some() && prometheus_push_password.is_some() {
-                    Some(prometheus::BasicAuthentication {
-                        username: prometheus_push_username.clone().unwrap(),
-                        password: prometheus_push_username.clone().unwrap(),
-                    })
-                } else {
-                    None
-                };
             debug!("Pushing data to push gateway");
+            let username_pass = prometheus_push_username.clone().and_then(|username| {
+                prometheus_push_password.clone().and_then(|password| {
+                    Some(prometheus::BasicAuthentication { username, password })
+                })
+            });
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(
                 &prometheus_job_name,

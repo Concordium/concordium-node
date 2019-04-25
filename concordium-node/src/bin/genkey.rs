@@ -18,10 +18,18 @@ struct ConfigCli {
         help = "Force overwrite if file already exists"
     )]
     force_overwrite: bool,
+    #[structopt(long = "print-config", help = "Print out config struct")]
+    pub print_config: bool,
 }
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
+
+    if conf.print_config {
+        // Print out the configuration
+        println!("{:?}", conf);
+    }
+
     p2p_client::setup_panics();
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {
         match OpenOptions::new()

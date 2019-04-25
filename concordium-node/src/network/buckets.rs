@@ -108,12 +108,12 @@ impl Buckets {
         amount: usize,
         networks: &HashSet<NetworkId>,
     ) -> Vec<P2PPeer> {
-        match safe_write!(RNG) {
-            Ok(ref mut rng) => self
-                .get_all_nodes(Some(sender), networks)
+        if let Ok(ref mut rng) = safe_write!(RNG) {
+            self.get_all_nodes(Some(sender), networks)
                 .into_iter()
-                .choose_multiple(&mut **rng, amount),
-            _ => vec![],
+                .choose_multiple(&mut **rng, amount)
+        } else {
+            vec![]
         }
     }
 }

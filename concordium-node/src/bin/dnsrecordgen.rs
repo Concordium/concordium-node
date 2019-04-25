@@ -25,10 +25,18 @@ struct ConfigCli {
         default_value = "250"
     )]
     dns_record_length: usize,
+    #[structopt(long = "print-config", help = "Print out config struct")]
+    pub print_config: bool,
 }
 
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
+
+    if conf.print_config {
+        // Print out the configuration
+        println!("{:?}", conf);
+    }
+
     if !std::path::Path::new(&conf.keyfile).exists() {
         println!(
             "Key {} doesn't exist, please specify valid file",
