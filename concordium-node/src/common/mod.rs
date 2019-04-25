@@ -124,11 +124,16 @@ impl P2PPeerBuilder {
         let id = self.id.unwrap_or_else(P2PNodeId::default);
         self.id(id);
 
-        if self.peer_type.is_some() && self.id.is_some() && self.addr.is_some() {
+        if let Some((peer_type, (id, addr))) = self
+            .peer_type
+            .iter()
+            .zip(self.id.iter().zip(self.addr.iter()))
+            .next()
+        {
             Ok(P2PPeer {
-                peer_type: self.peer_type.unwrap(),
-                addr: self.addr.unwrap(),
-                id,
+                peer_type: *peer_type,
+                addr:      *addr,
+                id:        *id,
                 last_seen: get_current_stamp(),
             })
         } else {
@@ -320,11 +325,11 @@ impl Hash for P2PPeer {
 }
 
 impl Ord for P2PPeer {
-    fn cmp(&self, other: &P2PPeer) -> Ordering { self.partial_cmp(other).unwrap() }
+    fn cmp(&self, other: &P2PPeer) -> Ordering { self.id.cmp(&other.id()) }
 }
 
 impl PartialOrd for P2PPeer {
-    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.id.cmp(&other.id())) }
+    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -102,7 +102,7 @@ fn setup_baker_guards(
     if let Some(ref mut baker) = baker {
         let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = NetworkId::from(conf.common.network_ids.first().unwrap().to_owned()); // defaulted so there's always first()
+        let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
         thread::spawn(move || loop {
             match _baker_clone.out_queue().recv_block() {
                 Ok(x) => match x.serialize() {
@@ -316,35 +316,26 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
         let mut _id_clone = tps_test_recv_id.to_owned();
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
         let mut _node_ref = node.clone();
-        let _network_id = NetworkId::from(conf.common.network_ids.first().unwrap().to_owned());
+        let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
         thread::spawn(move || {
             let mut done = false;
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
-                if let Ok(node_list) = _node_ref.get_peer_stats(&[_network_id]) {
-                    if !node_list.is_empty() {
-                        let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
-                        for message in test_messages {
-                            let mut out_bytes = vec![];
-                            out_bytes.extend(message);
-                            let out_bytes_len = out_bytes.len();
-                            let to_send = P2PNodeId::from_str(&_id_clone).ok();
-                            match _node_ref.send_message(
-                                to_send,
-                                _network_id,
-                                None,
-                                out_bytes,
-                                false,
-                            ) {
-                                Ok(_) => {
-                                    info!("Sent TPS test bytes of len {}", out_bytes_len);
-                                }
-                                Err(_) => error!("Couldn't send TPS test message!"),
+                let node_list = _node_ref.get_peer_stats(&[_network_id]);
+                if !node_list.is_empty() {
+                    let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
+                    for message in test_messages {
+                        let out_bytes_len = message.len();
+                        let to_send = P2PNodeId::from_str(&_id_clone).ok();
+                        match _node_ref.send_message(to_send, _network_id, None, message, false) {
+                            Ok(_) => {
+                                info!("Sent TPS test bytes of len {}", out_bytes_len);
                             }
+                            Err(_) => error!("Couldn't send TPS test message!"),
                         }
-
-                        done = true;
                     }
+
+                    done = true;
                 }
             }
         });
@@ -521,36 +512,26 @@ fn setup_process_output(
                     ) => {
                         info!("Received PeerList response, attempting to satisfy desired peers");
                         let mut new_peers = 0;
-                        match _node_self_clone.get_peer_stats(&[]) {
-                            Ok(x) => {
-                                for peer_node in peers {
-                                    debug!(
-                                        "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                                        peer.id(),
-                                        peer.ip(),
-                                        peer.port(),
-                                        peer_node.id(),
-                                        peer_node.ip(),
-                                        peer_node.port()
-                                    );
-                                    if _node_self_clone
-                                        .connect(
-                                            PeerType::Node,
-                                            peer_node.addr,
-                                            Some(peer_node.id()),
-                                        )
-                                        .map_err(|e| info!("{}", e))
-                                        .is_ok()
-                                    {
-                                        new_peers += 1;
-                                    }
-                                    if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                        break;
-                                    }
-                                }
+                        let stats = _node_self_clone.get_peer_stats(&[]);
+                        for peer_node in peers {
+                            debug!(
+                                "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                                peer.id(),
+                                peer.ip(),
+                                peer.port(),
+                                peer_node.id(),
+                                peer_node.ip(),
+                                peer_node.port()
+                            );
+                            if _node_self_clone
+                                .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                                .map_err(|e| info!("{}", e))
+                                .is_ok()
+                            {
+                                new_peers += 1;
                             }
-                            _ => {
-                                error!("Can't get nodes - so not trying to connect to new peers!");
+                            if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                                break;
                             }
                         }
                     }
@@ -669,7 +650,7 @@ fn main() -> Fallible<()> {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n)?;
+                node.ban_node(n);
             }
         }
         None => {
@@ -703,7 +684,7 @@ fn main() -> Fallible<()> {
     // Start the P2PNode
     //
     // Thread #3: P2P event loop
-    node.spawn()?;
+    node.spawn();
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -733,7 +714,9 @@ fn main() -> Fallible<()> {
 
     // Close baker if present
     if let Some(ref mut baker_ref) = baker {
-        baker_ref.stop_baker(conf.cli.baker.baker_id.unwrap()); // only reached if not None, so it's safe
+        if let Some(baker_id) = conf.cli.baker.baker_id {
+            baker_ref.stop_baker(baker_id)
+        };
         consensus::ConsensusContainer::stop_haskell();
     }
 
@@ -871,7 +854,9 @@ fn get_baker_data(
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push("genesis.dat");
     let mut private_loc = app_prefs.get_user_app_dir();
-    private_loc.push(format!("baker_private_{}.dat", conf.baker_id.unwrap())); // only reached if not None
+    if let Some(baker_id) = conf.baker_id {
+        private_loc.push(format!("baker_private_{}.dat", baker_id))
+    };
     let (generated_genesis, generated_private_data) = if !genesis_loc.exists()
         || !private_loc.exists()
     {
@@ -918,15 +903,13 @@ fn get_baker_data(
             .open(&private_loc)
         {
             Ok(mut file) => {
-                match file.write_all(generated_private_data.get(&(conf.baker_id.unwrap() as i64))
-                                                           .unwrap()) // safe to assume it is set
-                {
-                    Ok(_) => {
-                        generated_private_data.get(&(conf.baker_id.unwrap() as i64))
-                                              .unwrap()
-                                              .to_owned()
+                if let Some(baker_id) = conf.baker_id {
+                    match file.write_all(&generated_private_data[&(baker_id as i64)]) {
+                        Ok(_) => generated_private_data[&(baker_id as i64)].to_owned(),
+                        Err(_) => return Err("Couldn't write out private baker data"),
                     }
-                    Err(_) => return Err("Couldn't write out private baker data"),
+                } else {
+                    return Err("Couldn't write out private baker data");
                 }
             }
             Err(_) => return Err("Couldn't open up private baker file for writing"),

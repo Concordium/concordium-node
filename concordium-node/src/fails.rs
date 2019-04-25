@@ -41,7 +41,6 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 ///     Ok(())
 /// }
 /// ```
-
 #[macro_export]
 macro_rules! safe_lock {
     ($e:expr) => {
@@ -94,5 +93,41 @@ macro_rules! safe_write {
 macro_rules! into_err {
     ($e:expr) => {
         $e.map_err(|x| failure::Error::from_boxed_compat(Box::new(x)))
+    };
+}
+
+/// Acquire a resource for writing or panic
+///
+/// Equivalent to `safe_write` but panicking on error
+#[macro_export]
+macro_rules! write_or_die {
+    ($v:expr) => {
+        safe_write!($v).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
+    };
+}
+
+/// Acquire a resource for reading of panic
+///
+/// Equivalent to `safe_read` but panicking on error
+#[macro_export]
+macro_rules! read_or_die {
+    ($v:expr) => {
+        safe_read!($v).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
+    };
+}
+
+/// Lock a resource or panic
+///
+/// Equivalent to `safe_lock` but panicking on error
+#[macro_export]
+macro_rules! lock_or_die {
+    ($v:expr) => {
+        safe_lock!($v).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
     };
 }
