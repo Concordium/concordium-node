@@ -363,7 +363,8 @@ impl Connection {
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
         let cloned_message_handler = Rc::clone(&self.common_message_handler);
-
+        let dptr_1 = Rc::clone(&self.dptr);
+        let dptr_2 = Rc::clone(&self.dptr);
         self.message_handler = MessageHandler::new();
         self.message_handler
             .add_callback(make_atomic_callback!(move |msg: &NetworkMessage| {
@@ -380,8 +381,8 @@ impl Connection {
             }))
             .add_response_callback(last_seen_response_handler)
             .add_packet_callback(last_seen_packet_handler)
-            .add_unknown_callback(handle_by_private!(self.dptr, &(), default_unknown_message))
-            .add_invalid_callback(handle_by_private!(self.dptr, &(), default_invalid_message));
+            .set_unknown_handler(Rc::new(move || default_unknown_message(&dptr_1)))
+            .set_invalid_handler(Rc::new(move || default_invalid_message(&dptr_2)));
     }
 
     // =============================

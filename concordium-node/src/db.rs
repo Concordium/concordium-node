@@ -41,7 +41,14 @@ impl P2PDB {
                     .and_then(|mut x| {
                         match x.query_map(&[] as &[&dyn ToSql], |row| {
                             let s1: String = row.get(0)?;
-                            Ok(BannedNode::ById(P2PNodeId::from_str(&s1).unwrap()))
+                            if let Ok(id) = P2PNodeId::from_str(&s1) {
+                                Ok(BannedNode::ById(id))
+                            } else {
+                                Err(rusqlite::Error::InvalidColumnType(
+                                    s1.len(),
+                                    rusqlite::types::Type::Text,
+                                ))
+                            }
                         }) {
                             Ok(rows) => {
                                 let mut list = vec![];

@@ -1,4 +1,6 @@
 deps/** linguist-vendored
+scripts/CMakeLists.txt linguist-detectable=false
+scripts/CXXFeatureCheck.cmake linguist-detectable=false
 *.dll filter=lfs diff=lfs merge=lfs -text linguist-vendored
 *.dll.a filter=lfs diff=lfs merge=lfs -text linguist-vendored
 *.a filter=lfs diff=lfs merge=lfs -text linguist-vendored

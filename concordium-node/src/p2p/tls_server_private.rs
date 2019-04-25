@@ -111,15 +111,13 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other
     /// instances.
-    pub fn remove_network(&mut self, network_id: NetworkId) -> Fallible<()> {
-        safe_write!(self.networks)?.retain(|x| *x == network_id);
-        Ok(())
+    pub fn remove_network(&mut self, network_id: NetworkId) {
+        write_or_die!(self.networks).retain(|x| *x != network_id);
     }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: NetworkId) -> Fallible<()> {
-        safe_write!(self.networks)?.insert(network_id);
-        Ok(())
+    pub fn add_network(&mut self, network_id: NetworkId) {
+        write_or_die!(self.networks).insert(network_id);
     }
 
     /// It generates a peer statistic list for each connected peer which belongs
@@ -227,15 +225,13 @@ impl TlsServerPrivate {
                 .iter()
                 .filter_map(|rc_conn| {
                     let rc_conn_borrowed = rc_conn.borrow();
-                    if rc_conn_borrowed.remote_id().is_some() {
+                    rc_conn_borrowed.remote_id().and_then(|remote_id| {
                         Some((
-                            rc_conn_borrowed.remote_id().unwrap(),
+                            remote_id,
                             rc_conn_borrowed.token(),
                             rc_conn_borrowed.last_seen(),
                         ))
-                    } else {
-                        None
-                    }
+                    })
                 })
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));

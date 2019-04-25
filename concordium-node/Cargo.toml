@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.1.31"
+version = "0.1.32"
 description = "Concordium P2P library"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -91,6 +91,7 @@ optional = true
 
 [build-dependencies]
 walkdir = "2"
+regex = "1"
 protoc-grpcio = "0.2.0"
 capnpc = { version = "^0.9", optional = true }
 

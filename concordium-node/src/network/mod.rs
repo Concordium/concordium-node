@@ -50,6 +50,7 @@ pub const PROTOCOL_VERSION: &str = "001";
 pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
 pub const PROTOCOL_HEADER_LENGTH: usize = 13 + 3 + PROTOCOL_SENT_TIMESTAMP_LENGTH;
 pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
+pub const PROTOCOL_SINCE_TIMESTAMP_LENGTH: usize = 16;
 pub const PROTOCOL_PORT_LENGTH: usize = 5;
 pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 64;
 pub const PROTOCOL_NETWORK_ID_LENGTH: usize = 5;

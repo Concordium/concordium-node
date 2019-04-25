@@ -29,7 +29,7 @@ extern "C" {
         log_callback: extern "C" fn(c_char, c_char, *const u8),
     ) -> *mut baker_runner;
     pub fn printBlock(block_data: *const u8, data_length: i64);
-    pub fn receiveBlock(baker: *mut baker_runner, block_data: *const u8, data_length: i64);
+    pub fn receiveBlock(baker: *mut baker_runner, block_data: *const u8, data_length: i64) -> i64;
     pub fn receiveFinalization(
         baker: *mut baker_runner,
         finalization_data: *const u8,
@@ -39,7 +39,7 @@ extern "C" {
         baker: *mut baker_runner,
         finalization_data: *const u8,
         data_length: i64,
-    );
+    ) -> i64;
     pub fn receiveTransaction(baker: *mut baker_runner, tx: *const u8, data_length: i64) -> i64;
     pub fn stopBaker(baker: *mut baker_runner);
     pub fn makeGenesisData(
@@ -98,12 +98,12 @@ macro_rules! wrap_send_data_to_c {
         let baker = $self.runner.load(Ordering::SeqCst);
         let len = $data.len();
         unsafe {
-            $c_call(
+            return $c_call(
                 baker,
                 CString::from_vec_unchecked($data).as_ptr() as *const u8,
                 len as i64,
             );
-        }
+        };
     }};
 }
 
@@ -154,16 +154,16 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, data: &Block) {
-        wrap_send_data_to_c!(self, data.serialize().unwrap(), receiveBlock);
+    pub fn send_block(&self, data: &Block) -> i64 {
+        wrap_send_data_to_c!(self, data.serialize().unwrap(), receiveBlock)
     }
 
     pub fn send_finalization(&self, data: Vec<u8>) {
         wrap_send_data_to_c!(self, data, receiveFinalization);
     }
 
-    pub fn send_finalization_record(&self, data: Vec<u8>) {
-        wrap_send_data_to_c!(self, data, receiveFinalizationRecord);
+    pub fn send_finalization_record(&self, data: Vec<u8>) -> i64 {
+        wrap_send_data_to_c!(self, data, receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
@@ -391,28 +391,31 @@ impl ConsensusContainer {
 
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
-    pub fn send_block(&self, block: &Block) {
+    pub fn send_block(&self, block: &Block) -> i64 {
         for (id, baker) in self.bakers.read().unwrap().iter() {
             if block.baker_id != *id {
-                baker.send_block(&block);
+                return baker.send_block(&block);
             }
         }
+        1
     }
 
-    pub fn send_finalization(&self, pkt: &[u8]) {
-        for (_, baker) in self.bakers.read().unwrap().iter() {
+    pub fn send_finalization(&self, pkt: &[u8]) -> i64 {
+        if let Some((_, baker)) = self.bakers.read().unwrap().iter().next() {
             baker.send_finalization(pkt.to_vec());
         }
+        -1
     }
 
-    pub fn send_finalization_record(&self, pkt: &[u8]) {
-        for (_, baker) in self.bakers.read().unwrap().iter() {
-            baker.send_finalization_record(pkt.to_vec());
+    pub fn send_finalization_record(&self, pkt: &[u8]) -> i64 {
+        if let Some((_, baker)) = self.bakers.read().unwrap().iter().next() {
+            return baker.send_finalization_record(pkt.to_vec());
         }
+        0
     }
 
     pub fn send_transaction(&self, tx: &[u8]) -> i64 {
-        if let Some(baker) = self.bakers.write().unwrap().values().next() {
+        if let Some((_, baker)) = self.bakers.read().unwrap().iter().next() {
             return baker.send_transaction(tx.to_vec());
         }
         -1

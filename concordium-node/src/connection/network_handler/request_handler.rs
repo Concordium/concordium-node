@@ -12,6 +12,7 @@ pub struct RequestHandler {
     pub get_peers_handler:     AFunctor<NRequest>,
     pub join_network_handler:  AFunctor<NRequest>,
     pub leave_network_handler: AFunctor<NRequest>,
+    pub retransmit_handler:    AFunctor<NRequest>,
 }
 
 impl Default for RequestHandler {
@@ -29,6 +30,7 @@ impl RequestHandler {
             get_peers_handler:     AFunctor::new("Network::Request::GetPeers"),
             join_network_handler:  AFunctor::new("Network::Request::JoinNetwork"),
             leave_network_handler: AFunctor::new("Network::Request::LeaveNetwork"),
+            retransmit_handler:    AFunctor::new("Network::Request::Retransmit"),
         }
     }
 
@@ -72,32 +74,40 @@ impl RequestHandler {
         self
     }
 
+    pub fn add_retransmit_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+        self.retransmit_handler.add_callback(callback);
+        self
+    }
+
     pub fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
         match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
                 self.ping_handler.run_callbacks(ping_inner_pkt)
             }
-            ref find_inner_pkt @ NetworkRequest::FindNode(_, _) => {
+            ref find_inner_pkt @ NetworkRequest::FindNode(..) => {
                 self.find_node_handler.run_callbacks(find_inner_pkt)
             }
-            ref ban_inner_pkt @ NetworkRequest::BanNode(_, _) => {
+            ref ban_inner_pkt @ NetworkRequest::BanNode(..) => {
                 self.ban_node_handler.run_callbacks(ban_inner_pkt)
             }
-            ref unban_inner_pkt @ NetworkRequest::UnbanNode(_, _) => {
+            ref unban_inner_pkt @ NetworkRequest::UnbanNode(..) => {
                 self.unban_node_handler.run_callbacks(unban_inner_pkt)
             }
-            ref handshake_inner_pkt @ NetworkRequest::Handshake(_, _, _) => {
+            ref handshake_inner_pkt @ NetworkRequest::Handshake(..) => {
                 self.handshake_handler.run_callbacks(handshake_inner_pkt)
             }
-            ref get_peers_inner_pkt @ NetworkRequest::GetPeers(_, _) => {
+            ref get_peers_inner_pkt @ NetworkRequest::GetPeers(..) => {
                 self.get_peers_handler.run_callbacks(get_peers_inner_pkt)
             }
-            ref join_network_inner_pkt @ NetworkRequest::JoinNetwork(_, _) => self
+            ref join_network_inner_pkt @ NetworkRequest::JoinNetwork(..) => self
                 .join_network_handler
                 .run_callbacks(join_network_inner_pkt),
-            ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(_, _) => self
+            ref leave_network_inner_pkt @ NetworkRequest::LeaveNetwork(..) => self
                 .leave_network_handler
                 .run_callbacks(leave_network_inner_pkt),
+            ref retransmit_inner_pkt @ NetworkRequest::Retransmit(..) => {
+                self.retransmit_handler.run_callbacks(retransmit_inner_pkt)
+            }
         }
     }
 }

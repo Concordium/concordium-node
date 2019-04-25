@@ -2,7 +2,10 @@ use crate::{
     common::functor::{AFunctor, AFunctorCW, FunctorResult},
     network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
 };
-use std::sync::{Arc, RwLock};
+use std::{
+    rc::Rc,
+    sync::{Arc, RwLock},
+};
 
 pub type NetworkMessageCW = AFunctorCW<NetworkMessage>;
 pub type NetworkRequestCW = AFunctorCW<NetworkRequest>;
@@ -16,8 +19,8 @@ pub struct MessageHandler {
     request_parser:  AFunctor<NetworkRequest>,
     response_parser: AFunctor<NetworkResponse>,
     packet_parser:   AFunctor<NetworkPacket>,
-    unknown_parser:  AFunctor<()>,
-    invalid_parser:  AFunctor<()>,
+    invalid_handler: Rc<(Fn() -> FunctorResult)>,
+    unknown_handler: Rc<(Fn() -> FunctorResult)>,
 
     general_parser: AFunctor<NetworkMessage>,
 }
@@ -32,9 +35,9 @@ impl MessageHandler {
             request_parser:  AFunctor::<NetworkRequest>::new("Network::Request"),
             response_parser: AFunctor::<NetworkResponse>::new("Network::Response"),
             packet_parser:   AFunctor::<NetworkPacket>::new("Network::Package"),
-            unknown_parser:  AFunctor::new("Network::Unknown"),
-            invalid_parser:  AFunctor::new("Network::Invalid"),
             general_parser:  AFunctor::<NetworkMessage>::new("General NetworkMessage"),
+            invalid_handler: Rc::new(|| Ok(())),
+            unknown_handler: Rc::new(|| Ok(())),
         }
     }
 
@@ -53,18 +56,18 @@ impl MessageHandler {
         self
     }
 
-    pub fn add_unknown_callback(&mut self, callback: EmptyCW) -> &mut Self {
-        self.unknown_parser.add_callback(callback);
-        self
-    }
-
-    pub fn add_invalid_callback(&mut self, callback: EmptyCW) -> &mut Self {
-        self.invalid_parser.add_callback(callback);
-        self
-    }
-
     pub fn add_callback(&mut self, callback: NetworkMessageCW) -> &mut Self {
         self.general_parser.add_callback(callback);
+        self
+    }
+
+    pub fn set_invalid_handler(&mut self, func: Rc<(Fn() -> FunctorResult)>) -> &mut Self {
+        self.invalid_handler = func;
+        self
+    }
+
+    pub fn set_unknown_handler(&mut self, func: Rc<(Fn() -> FunctorResult)>) -> &mut Self {
+        self.unknown_handler = func;
         self
     }
 
@@ -86,13 +89,6 @@ impl MessageHandler {
             self.add_request_callback(Arc::clone(&cb));
         }
 
-        for cb in other.unknown_parser.callbacks().iter() {
-            self.add_unknown_callback(Arc::clone(&cb));
-        }
-
-        for cb in other.invalid_parser.callbacks().iter() {
-            self.add_invalid_callback(Arc::clone(&cb));
-        }
         self
     }
 
@@ -105,8 +101,8 @@ impl MessageHandler {
             NetworkMessage::NetworkRequest(ref nr, _, _) => self.request_parser.run_callbacks(nr),
             NetworkMessage::NetworkResponse(ref nr, _, _) => self.response_parser.run_callbacks(nr),
             NetworkMessage::NetworkPacket(ref np, _, _) => self.packet_parser.run_callbacks(np),
-            NetworkMessage::UnknownMessage => self.unknown_parser.run_callbacks(&()),
-            NetworkMessage::InvalidMessage => self.invalid_parser.run_callbacks(&()),
+            NetworkMessage::UnknownMessage => (self.unknown_handler)(),
+            NetworkMessage::InvalidMessage => (self.invalid_handler)(),
         };
 
         general_status.and(specific_status)

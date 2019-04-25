@@ -1,10 +1,12 @@
 extern crate protoc_grpcio;
+extern crate regex;
 extern crate walkdir;
 
 #[cfg(feature = "s11n_capnp")]
 extern crate capnpc;
 
-use std::process::Command;
+use regex::Regex;
+use std::{fs, io::Write};
 
 fn main() {
     // Compile capnpc
@@ -36,22 +38,18 @@ fn main() {
     //
     // This can not be directly implemented into protobuf, see:
     // https://github.com/stepancheg/rust-protobuf/issues/331
-    #[cfg(target_family = "unix")]
-    {
-        let walker = walkdir::WalkDir::new(proto_root)
-            .into_iter()
-            .filter_map(Result::ok);
-        for entry in walker {
-            if !entry.file_type().is_dir() {
-                Command::new("sed")
-                    .args(&[
-                        "-i",
-                        "s/allow(clippy)/allow(clippy::all)/g",
-                        &format!("{}", entry.path().display()),
-                    ])
-                    .spawn()
-                    .expect("sed replacement command failed");
-            }
+    let walker = walkdir::WalkDir::new(proto_root)
+        .into_iter()
+        .filter_map(Result::ok);
+    for entry in walker {
+        if !entry.file_type().is_dir() {
+            let contents =
+                fs::read_to_string(entry.path()).expect("Something went wrong reading the file");
+            let re = Regex::new(r"allow\(clippy\)").unwrap();
+            let new_contents = re.replace(&contents, "allow(clippy::all)");
+
+            let mut file = fs::File::create(&entry.path()).unwrap();
+            file.write_all(new_contents.as_bytes()).unwrap();
         }
     }
 }

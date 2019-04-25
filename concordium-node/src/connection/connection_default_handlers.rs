@@ -68,10 +68,7 @@ pub fn default_network_request_find_node_handle(
                 .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
-            let nodes = safe_read!(priv_conn_borrow.buckets)?
-                .buckets
-                .get(0)
-                .unwrap() // the Buckets object is never empty
+            let nodes = safe_read!(priv_conn_borrow.buckets)?.buckets[0] // The Buckets object is never empty
                 .clone()
                 .into_iter()
                 .map(|node| node.peer)
@@ -246,8 +243,7 @@ pub fn default_network_request_handshake(req: &NetworkRequest) -> FunctorResult 
 }
 
 /// Unknown messages only updates statistic information.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
+pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     debug!("Unknown message received!");
 
     {
@@ -268,8 +264,7 @@ pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -
 }
 
 /// Invalid messages only updates statistic information.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>, _: &()) -> FunctorResult {
+pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();
 

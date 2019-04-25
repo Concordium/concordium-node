@@ -17,9 +17,10 @@ use p2p_client::{
     common::{self, PeerType},
     configuration,
     db::P2PDB,
+    lock_or_die,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    utils,
+    safe_lock, utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
 use router::Router;
@@ -145,16 +146,13 @@ impl TestRunner {
         if !self.test_running.load(Ordering::Relaxed) {
             self.test_running.store(true, Ordering::Relaxed);
             info!("Started test");
-            *self.test_start.lock().expect("Couldn't lock test_start") =
-                Some(common::get_current_stamp());
-            *self.packet_size.lock().expect("Couldn't lock packet size") = Some(packet_size);
+            *lock_or_die!(self.test_start) = Some(common::get_current_stamp());
+            *lock_or_die!(self.packet_size) = Some(packet_size);
             let random_pkt: Vec<u8> = thread_rng()
                 .sample_iter(&Standard)
                 .take(packet_size)
                 .collect();
-            self.node
-                .lock()
-                .expect("Couldn't lock node")
+            lock_or_die!(self.node)
                 .send_message(None, self.nid, None, random_pkt, true)
                 .map_err(|e| error!("{}", e))
                 .ok();
@@ -197,8 +195,8 @@ impl TestRunner {
                 }
             }
             self.test_running.store(false, Ordering::Relaxed);
-            *self.test_start.lock().expect("Couldn't lock test_start") = None;
-            *self.packet_size.lock().expect("Couldn't lock packet size") = None;
+            *lock_or_die!(self.test_start) = None;
+            *lock_or_die!(self.packet_size) = None;
             info!("Testing reset on runner");
             Ok(Response::with((
                 status::Ok,
@@ -228,7 +226,7 @@ impl TestRunner {
                             "service_version": p2p_client::VERSION,
                             "measurements": *inner_vals,
                             "test_start_time": *test_start_time,
-                            "packet_size": *self.packet_size.lock().expect("Couldn't lock packet size") ,
+                            "packet_size": *lock_or_die!(self.packet_size) ,
                         });
                         let mut resp = Response::with((status::Ok, return_json.to_string()));
                         resp.headers.set(ContentType::json());
@@ -281,8 +279,7 @@ impl TestRunner {
             move |req: &mut Request<'_, '_>| match req
                 .extensions
                 .get::<Router>()
-                .unwrap()
-                .find("test_packet_size")
+                .and_then(|router| router.find("test_packet_size"))
             {
                 Some(size_str) => match size_str.parse::<usize>() {
                     Ok(size) => Arc::clone(&_self_clone_3).start_test(size),
@@ -317,7 +314,7 @@ impl TestRunner {
         );
         let addr = format!("{}:{}", listen_ip, port);
         thread::spawn(move || {
-            Iron::new(router).http(addr).unwrap();
+            Iron::new(router).http(addr).ok();
         })
     }
 }
@@ -443,23 +440,18 @@ fn setup_process_output(
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    match _node_self_clone.get_peer_stats(&[]) {
-                        Ok(x) => {
-                            for peer_node in peers {
-                                if _node_self_clone
-                                    .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                                    .map_err(|e| error!("{}", e))
-                                    .is_ok()
-                                {
-                                    new_peers += 1;
-                                }
-                                if new_peers + x.len() as u8 >= _desired_nodes_clone {
-                                    break;
-                                }
-                            }
+                    let stats = _node_self_clone.get_peer_stats(&[]);
+
+                    for peer_node in peers {
+                        if _node_self_clone
+                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                            .map_err(|e| error!("{}", e))
+                            .is_ok()
+                        {
+                            new_peers += 1;
                         }
-                        _ => {
-                            error!("Can't get nodes - so not trying to connect to new peers!");
+                        if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                            break;
                         }
                     }
                 }
@@ -471,6 +463,11 @@ fn setup_process_output(
 
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup();
+
+    if conf.common.print_config {
+        // Print out the configuration
+        info!("{:?}", conf);
+    }
 
     let mut db_path = app_prefs.get_user_app_dir();
     db_path.push("p2p.db");
@@ -495,13 +492,13 @@ fn main() -> Fallible<()> {
 
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs);
 
-    node.spawn()?;
+    node.spawn();
 
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                node.ban_node(n)?;
+                node.ban_node(n);
             }
         }
         None => {
@@ -547,10 +544,7 @@ fn main() -> Fallible<()> {
         };
     }
 
-    let mut testrunner = TestRunner::new(
-        node.clone(),
-        NetworkId::from(*conf.common.network_ids.first().unwrap()),
-    );
+    let mut testrunner = TestRunner::new(node.clone(), NetworkId::from(conf.common.network_ids[0]));
 
     let _th = testrunner.start_server(
         &conf.testrunner.listen_http_address,

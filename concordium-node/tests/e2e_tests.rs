@@ -284,6 +284,9 @@ mod tests {
                     NetworkRequest::LeaveNetwork(ref peer, ..) => {
                         format!("Request::LeaveNetwork({})", peer.id())
                     }
+                    NetworkRequest::Retransmit(ref peer, ..) => {
+                        format!("Request::Retransmit({})", peer.id())
+                    }
                 },
                 NetworkMessage::NetworkResponse(ref response, ..) => match response {
                     NetworkResponse::Pong(..) => "Response::Pong".to_owned(),
@@ -1042,12 +1045,12 @@ mod tests {
 
         let to_ban = BannedNode::ById(node_2.id());
 
-        node_1.ban_node(to_ban)?;
-        let mut reply = node_1.get_peer_stats(&vec![])?;
+        node_1.ban_node(to_ban);
+        let mut reply = node_1.get_peer_stats(&vec![]);
 
         let t1 = time::Instant::now();
         while reply.len() == 1 {
-            reply = node_1.get_peer_stats(&vec![])?;
+            reply = node_1.get_peer_stats(&vec![]);
             if time::Instant::now().duration_since(t1).as_secs() > 30 {
                 bail!("timeout");
             }
