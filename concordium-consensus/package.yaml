@@ -102,25 +102,6 @@ executables:
     - Concordium
     - network-simple
 
-  sandboxtest:
-    main:             Main.hs
-    source-dirs:      sandboxtest
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    - -Wall
-    - -Wcompat
-    - -fno-ignore-asserts
-    when: 
-      - condition: os(windows)
-        then:
-          ghc-options: -static
-        else:
-          ghc-options: -dynamic
-    dependencies:
-    - Concordium
-
 tests:
   Concordium-test:
     main:                Spec.hs
