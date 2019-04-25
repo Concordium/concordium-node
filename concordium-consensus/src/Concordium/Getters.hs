@@ -26,7 +26,6 @@ import Concordium.GlobalState.Account
 import Data.IORef
 import Text.Read hiding (get)
 import qualified Data.Map as Map
-import qualified Data.HashMap.Strict as HashMap
 
 import Data.Aeson
 
@@ -49,7 +48,7 @@ getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AccountAddress]
 getLastFinalAccountList sfsRef = (Map.keys . accountMap . (^. blockAccounts)) <$> getLastFinalState sfsRef
 
 getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
-getLastFinalInstances sfsRef = (HashMap.keys . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
+getLastFinalInstances sfsRef = (fmap iaddress . (^.. blockInstances . foldInstances)) <$> getLastFinalState sfsRef
 
 getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
 getLastFinalAccountInfo sfsRef addr = do
@@ -60,7 +59,7 @@ getLastFinalAccountInfo sfsRef addr = do
 
 getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = do
-  maybeAccount <- (HashMap.lookup addr . _instances . (^. blockInstances)) <$> getLastFinalState sfsRef
+  maybeAccount <- (getInstance addr . (^. blockInstances)) <$> getLastFinalState sfsRef
   case maybeAccount of
     Nothing -> return Nothing
     Just is -> return $ Just (instanceInfo is)

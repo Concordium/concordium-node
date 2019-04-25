@@ -22,7 +22,7 @@ import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 
-import Concordium.MonadImplementation(updateFocusBlockTo, blockArrive)
+import Concordium.MonadImplementation(updateFocusBlockTo)
 
 import Concordium.Scheduler.TreeStateEnvironment(constructBlock)
 

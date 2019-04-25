@@ -72,7 +72,7 @@ testChainMeta = do
     let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
                                          chainMeta
                                          initialBlockState
-    return (suc, fails, Ins.toList (gs ^. blockInstances))
+    return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
 checkChainMetaResult (suc, fails, instances) =
