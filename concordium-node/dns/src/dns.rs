@@ -20,6 +20,7 @@ pub fn resolve_dns_txt_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
+    debug!("Attempting to resolve TXT record {} using DNS server {:?}", entry, dns_servers);
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXT)
 }
 
@@ -28,6 +29,7 @@ pub fn resolve_dns_a_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
+    debug!("Attempting to resolve A record {} using DNS server {:?}", entry, dns_servers);
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::A)
 }
 
@@ -36,6 +38,7 @@ pub fn resolve_dns_aaaa_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
+    debug!("Attempting to resolve AAAA record {} using DNS server {:?}", entry, dns_servers);
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAA)
 }
 
@@ -66,6 +69,7 @@ fn resolve_dns_record(
 
     // Add forward resolvers
     for ip in dns_servers {
+        debug!("Using DNS resolver: {}", ip);
         if let Err(err) = ctx.set_fwd(ip) {
             error!("error adding forwarder: {}", err);
             return Err("Error adding forwarder!".to_string());
@@ -110,6 +114,8 @@ fn resolve_dns_record(
         }
     }
 
+    debug!("The following records were found: {:?}", res);
+
     Ok(res)
 }
 
@@ -118,7 +124,11 @@ fn data_to_ipv4(data: &[u8]) -> Ipv4Addr {
     let mut octets = [0; 4];
     octets.copy_from_slice(data);
 
-    Ipv4Addr::from(octets)
+    let ip = Ipv4Addr::from(octets);
+
+    debug!("Got the following IPv4 address: {}", ip);
+
+    ip
 }
 
 fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
@@ -126,7 +136,11 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
     let mut octets = [0; 16];
     octets.copy_from_slice(data);
 
-    Ipv6Addr::from(octets)
+    let ip = Ipv6Addr::from(octets);
+
+    debug!("Got the following IPv6 address: {}", ip);
+
+    ip
 }
 
 #[cfg(test)]
