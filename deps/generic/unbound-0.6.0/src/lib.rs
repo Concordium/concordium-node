@@ -221,6 +221,7 @@ pub struct Context {
     protected: Mutex<ContextProtected>,
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(Default)]
 struct ContextProtected {
     callbacks: HashMap<AsyncID, Box<Fn(AsyncID, Result<Answer>) + 'static>>,
@@ -282,9 +283,9 @@ impl Context {
     /// Stub a zone to a host.
     #[cfg(ub_ctx_set_stub)]
     pub fn set_stub<T: Borrow<net::IpAddr>>(&self, zone: &str, ip: T, prime: bool) -> Result<()> {
-        match ip.borrow() {
-            &net::IpAddr::V4(ref ip) => self.set_stub4(zone, ip, prime),
-            &net::IpAddr::V6(ref ip) => self.set_stub6(zone, ip, prime),
+        match *ip.borrow() {
+            net::IpAddr::V4(ref ip) => self.set_stub4(zone, ip, prime),
+            net::IpAddr::V6(ref ip) => self.set_stub6(zone, ip, prime),
         }
     }
     /// Stub a zone to an IPv4 host.
@@ -314,9 +315,9 @@ impl Context {
     }
     /// Forward queries to host.
     pub fn set_fwd<T: Borrow<net::IpAddr>>(&self, ip: T) -> Result<()> {
-        match ip.borrow() {
-            &net::IpAddr::V4(ref ip) => self.set_fwd4(ip),
-            &net::IpAddr::V6(ref ip) => self.set_fwd6(ip),
+        match *ip.borrow() {
+            net::IpAddr::V4(ref ip) => self.set_fwd4(ip),
+            net::IpAddr::V6(ref ip) => self.set_fwd6(ip),
         }
     }
     /// Forward queries to an IPv4 host.
@@ -432,8 +433,8 @@ impl Context {
         unsafe {
             into_result!(sys::ub_resolve(self.ub_ctx,
                                          name.as_ptr(),
-                                         rrtype as c_int,
-                                         class as c_int,
+                                         i32::from(rrtype),
+                                         i32::from(class),
                                          &mut result),
                          Answer(result))
         }
