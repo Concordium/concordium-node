@@ -241,7 +241,7 @@ fn instantiate_prometheus(
 ) -> Fallible<Option<Arc<RwLock<StatsExportService>>>> {
     let prom = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
-        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode);
+        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode)?;
         srv.start_server(SocketAddr::new(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
@@ -250,7 +250,7 @@ fn instantiate_prometheus(
         Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
-        let srv = StatsExportService::new(StatsServiceMode::NodeMode);
+        let srv = StatsExportService::new(StatsServiceMode::NodeMode)?;
         Some(Arc::new(RwLock::new(srv)))
     } else {
         None
@@ -539,60 +539,60 @@ fn setup_process_output(
                         NetworkRequest::Retransmit(ref peer, since_stamp, network_id),
                         ..
                     ) => {
-                        client_utils::get_transmissions_since_from_seenlist(
+                        if let Ok(res) = client_utils::get_transmissions_since_from_seenlist(
                             client_utils::SeenTransmissionType::Block,
                             since_stamp,
                         )
                         .map_err(|err| {
                             error!("Can't get list of block packets to retransmit {}", err)
-                        })
-                        .unwrap()
-                        .iter()
-                        .for_each(|pkt| {
-                            send_retransmit_packet(
-                                &mut _node_self_clone,
-                                peer.id(),
-                                network_id,
-                                PACKET_TYPE_CONSENSUS_BLOCK,
-                                pkt,
-                            );
-                        });
-                        client_utils::get_transmissions_since_from_seenlist(
+                        }) {
+                            res.iter().for_each(|pkt| {
+                                send_retransmit_packet(
+                                    &mut _node_self_clone,
+                                    peer.id(),
+                                    network_id,
+                                    PACKET_TYPE_CONSENSUS_BLOCK,
+                                    pkt,
+                                );
+                            })
+                        };
+                        if let Ok(res) = client_utils::get_transmissions_since_from_seenlist(
                             client_utils::SeenTransmissionType::Finalization,
                             since_stamp,
                         )
                         .map_err(|err| {
-                            error!("Can't get list of block packets to retransmit {}", err)
-                        })
-                        .unwrap()
-                        .iter()
-                        .for_each(|pkt| {
-                            send_retransmit_packet(
-                                &mut _node_self_clone,
-                                peer.id(),
-                                network_id,
-                                PACKET_TYPE_CONSENSUS_FINALIZATION,
-                                pkt,
-                            );
-                        });
-                        client_utils::get_transmissions_since_from_seenlist(
+                            error!("Can't get list of finalizations to retransmit {}", err)
+                        }) {
+                            res.iter().for_each(|pkt| {
+                                send_retransmit_packet(
+                                    &mut _node_self_clone,
+                                    peer.id(),
+                                    network_id,
+                                    PACKET_TYPE_CONSENSUS_FINALIZATION,
+                                    pkt,
+                                );
+                            })
+                        };
+                        if let Ok(res) = client_utils::get_transmissions_since_from_seenlist(
                             client_utils::SeenTransmissionType::FinalizationRecord,
                             since_stamp,
                         )
                         .map_err(|err| {
-                            error!("Can't get list of block packets to retransmit {}", err)
-                        })
-                        .unwrap()
-                        .iter()
-                        .for_each(|pkt| {
-                            send_retransmit_packet(
-                                &mut _node_self_clone,
-                                peer.id(),
-                                network_id,
-                                PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
-                                pkt,
-                            );
-                        });
+                            error!(
+                                "Can't get list of finalization records to retransmit {}",
+                                err
+                            )
+                        }) {
+                            res.iter().for_each(|pkt| {
+                                send_retransmit_packet(
+                                    &mut _node_self_clone,
+                                    peer.id(),
+                                    network_id,
+                                    PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+                                    pkt,
+                                );
+                            })
+                        };
                     }
                     _ => {}
                 }
@@ -633,11 +633,20 @@ fn main() -> Fallible<()> {
 
     // Instantiate prometheus
     #[cfg(feature = "instrumentation")]
-    let stats_export_service = instantiate_prometheus(&conf)?;
+    let stats_export_service = instantiate_prometheus(&conf);
     #[cfg(not(feature = "instrumentation"))]
-    let stats_export_service = Some(Arc::new(RwLock::new(StatsExportService::new(
-        StatsServiceMode::NodeMode,
-    ))));
+    let stats_export_service: Fallible<Option<Arc<RwLock<StatsExportService>>>> =
+        Ok(Some(Arc::new(RwLock::new(StatsExportService::new(
+            StatsServiceMode::NodeMode,
+        )))));
+
+    let stats_export_service = stats_export_service.unwrap_or_else(|e| {
+        error!(
+            "I was not able to instantiate an stats export service: {}",
+            e
+        );
+        None
+    });
 
     info!("Debugging enabled: {}", conf.common.debug);
 

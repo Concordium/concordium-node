@@ -415,10 +415,7 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let mh = &self
-            .message_handler
-            .read()
-            .expect("Couldn't read when registering message handlers");
+        let mh = &read_or_die!(self.message_handler);
         Rc::clone(&conn.common_message_handler)
             .borrow_mut()
             .merge(mh);

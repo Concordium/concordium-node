@@ -36,7 +36,9 @@ pub fn handshake_response_handle(
             && priv_conn.borrow().local_peer.peer_type() != PeerType::Bootstrapper
         {
             let one_net = priv_conn.borrow().remote_end_networks.clone();
-            send_retransmit_request(priv_conn, 0, *one_net.iter().next().unwrap())?;
+            if let Some(one_net) = one_net.iter().next() {
+                send_retransmit_request(priv_conn, 0, *one_net)?
+            };
         }
         Ok(())
     } else {

@@ -86,7 +86,7 @@ fn main() -> Result<(), Error> {
     let stats_export_service = if conf.prometheus.prometheus_server {
         use std::net::SocketAddr;
         info!("Enabling prometheus server");
-        let mut srv = StatsExportService::new(StatsServiceMode::BootstrapperMode);
+        let mut srv = StatsExportService::new(StatsServiceMode::BootstrapperMode)?;
         srv.start_server(SocketAddr::new(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
@@ -94,7 +94,7 @@ fn main() -> Result<(), Error> {
         Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", gateway);
-        let srv = StatsExportService::new(StatsServiceMode::BootstrapperMode);
+        let srv = StatsExportService::new(StatsServiceMode::BootstrapperMode)?;
         Some(Arc::new(RwLock::new(srv)))
     } else {
         None

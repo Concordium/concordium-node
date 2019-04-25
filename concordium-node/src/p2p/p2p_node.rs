@@ -107,12 +107,12 @@ impl P2PNode {
                     warn!("Supplied listen address coulnd't be parsed");
                     format!("0.0.0.0:{}", conf.common.listen_port)
                         .parse()
-                        .unwrap()
+                        .expect("Port not properly formatted. Crashing.")
                 })
         } else {
             format!("0.0.0.0:{}", conf.common.listen_port)
                 .parse()
-                .unwrap()
+                .expect("Port not properly formatted. Crashing.")
         };
 
         trace!("Creating new P2PNode");
@@ -255,7 +255,7 @@ impl P2PNode {
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
             .build()
-            .unwrap();
+            .expect("P2P Node creation couldn't create a Tls Server");
 
         let config = P2PNodeConfig {
             no_net:                  conf.cli.no_network,
@@ -530,13 +530,7 @@ impl P2PNode {
 
     pub fn peer_type(&self) -> PeerType { self.peer_type }
 
-    fn log_event(&self, event: P2PEvent) {
-        if let Ok(locked_tls) = self.tls_server.read() {
-            locked_tls.log_event(event);
-        } else {
-            error!("Couldn't lock tls server for reading")
-        }
-    }
+    fn log_event(&self, event: P2PEvent) { read_or_die!(self.tls_server).log_event(event); }
 
     pub fn get_uptime(&self) -> i64 {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
@@ -859,23 +853,13 @@ impl P2PNode {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
         let mut ip: IpAddr = localhost;
 
-        for adapter in get_if_addrs::get_if_addrs().unwrap() {
-            match adapter.addr.ip() {
-                V4(x) => {
-                    if !x.is_loopback()
-                        && !x.is_link_local()
-                        && !x.is_multicast()
-                        && !x.is_broadcast()
-                    {
-                        ip = IpAddr::V4(x);
-                    }
+        if let Ok(addresses) = get_if_addrs::get_if_addrs() {
+            for adapter in addresses {
+                if let Some(addr) = get_ip_if_suitable(&adapter.addr.ip()) {
+                    ip = addr
                 }
-                V6(_) => {
-                    // Ignore for now
-                }
-            };
+            }
         }
-
         if ip == localhost {
             None
         } else {
@@ -888,22 +872,13 @@ impl P2PNode {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
         let mut ip: IpAddr = localhost;
 
-        for adapter in ipconfig::get_adapters().unwrap() {
-            for ip_new in adapter.ip_addresses() {
-                match ip_new {
-                    V4(x) => {
-                        if !x.is_loopback()
-                            && !x.is_link_local()
-                            && !x.is_multicast()
-                            && !x.is_broadcast()
-                        {
-                            ip = IpAddr::V4(*x);
-                        }
+        if let Ok(adapters) = ipconfig::get_adapters() {
+            for adapter in adapters {
+                for ip_new in adapter.ip_addresses() {
+                    if let Some(addr) = get_ip_if_suitable(ip_new) {
+                        ip = addr
                     }
-                    V6(_) => {
-                        // Ignore for now
-                    }
-                };
+                }
             }
         }
 
@@ -1020,3 +995,16 @@ pub fn is_valid_connection_in_broadcast(
 
 /// Connection is valid to send over as it has completed the handshake
 pub fn is_valid_connection_post_handshake(conn: &Connection) -> bool { conn.is_post_handshake() }
+
+fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
+    match addr {
+        V4(x) => {
+            if !x.is_loopback() && !x.is_link_local() && !x.is_multicast() && !x.is_broadcast() {
+                Some(IpAddr::V4(*x))
+            } else {
+                None
+            }
+        }
+        V6(_) => None,
+    }
+}
