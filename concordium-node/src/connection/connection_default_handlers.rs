@@ -68,10 +68,7 @@ pub fn default_network_request_find_node_handle(
                 .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
-            let nodes = safe_read!(priv_conn_borrow.buckets)?
-                .buckets
-                .get(0)
-                .unwrap() // the Buckets object is never empty
+            let nodes = safe_read!(priv_conn_borrow.buckets)?.buckets[0] // The Buckets object is never empty
                 .clone()
                 .into_iter()
                 .map(|node| node.peer)

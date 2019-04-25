@@ -436,7 +436,7 @@ fn setup_process_output(
                                 "Can't store finalization record in transmission list {}",
                                 err
                             ),
-                        };
+                        }
                     }
                     _ => {
                         error!("Couldn't read bytes properly for type");
@@ -608,7 +608,6 @@ fn setup_process_output(
 
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup();
-
     if conf.common.print_config {
         // Print out the configuration
         info!("{:?}", conf);
