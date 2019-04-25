@@ -78,7 +78,7 @@ testFibonacci = do
     let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
                                          Types.dummyChainMeta
                                          initialBlockState
-    return (suc, fails, Ins.toList (gs ^. blockInstances))
+    return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 fib :: [Int64]
 fib = 1:1:zipWith (+) fib (tail fib)

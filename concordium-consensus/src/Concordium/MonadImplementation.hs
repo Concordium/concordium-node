@@ -50,7 +50,7 @@ isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         EQ -> b1 == b2
         LT -> isAncestorOf b1 (bpParent b2)
 
-updateFocusBlockTo :: (HasCallStack, TreeStateMonad m) => BlockPointer -> m ()
+updateFocusBlockTo :: (TreeStateMonad m) => BlockPointer -> m ()
 updateFocusBlockTo newBB = do
         oldBB <- getFocusBlock
         pts <- getPendingTransactions
@@ -320,7 +320,7 @@ addBlock sl@SkovListeners{..} pb = do
 -- 3. The operation succeeds returning @Just bp@, in which the block is added, marked alive and represented by
 --    block pointer bp.
 tryAddBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m) => PendingBlock -> MaybeT m (Maybe BlockPointer)
-tryAddBlock block@(PendingBlock cbp _ recTime) = do
+tryAddBlock block = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
         guard $ lfs < blockSlot block
@@ -328,7 +328,7 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
         case parentStatus of
             Nothing -> do
                 addPendingBlock block
-                logEvent Skov LLDebug $ "Block " ++ show cbp ++ " is pending its parent (" ++ show parent ++ ")"
+                logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
                 return Nothing
             Just BlockDead -> mzero
             Just (BlockAlive parentP) -> tryAddLiveParent parentP `mplus` invalidBlock
@@ -340,7 +340,7 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
     where
         parent = blockPointer block
         invalidBlock = do
-            logEvent Skov LLWarning $ "Block is not valid: " ++ show cbp
+            logEvent Skov LLWarning $ "Block is not valid: " ++ show block
             mzero
         tryAddLiveParent :: BlockPointer -> MaybeT m (Maybe BlockPointer)
         tryAddLiveParent parentP = do -- Alive or finalized
@@ -353,7 +353,7 @@ tryAddBlock block@(PendingBlock cbp _ recTime) = do
                 -- add this block to the queue at the appropriate point
                 Just (BlockAlive lfBlockP) -> do
                     addAwaitingLastFinalized (bpHeight lfBlockP) block
-                    logEvent Skov LLDebug $ "Block " ++ show cbp ++ " is pending finalization of block " ++ show (bpHash lfBlockP) ++ " at height " ++ show (theBlockHeight $ bpHeight lfBlockP)
+                    logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending finalization of block " ++ show (bpHash lfBlockP) ++ " at height " ++ show (theBlockHeight $ bpHeight lfBlockP)
                     return Nothing
                 -- If the block's last finalized block is finalized, we can proceed with validation.
                 -- Together with the fact that the parent is alive, we know that the new node

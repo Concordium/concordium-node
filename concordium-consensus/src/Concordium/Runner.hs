@@ -19,11 +19,9 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.MonadImplementation
-import Concordium.Payload.Transaction
 import Concordium.Birk.Bake
 import Concordium.Kontrol.Monad
 import Concordium.Skov.Monad()
-import Concordium.Payload.Monad
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 

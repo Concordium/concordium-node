@@ -18,7 +18,6 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Birk.Bake
-import Concordium.Payload.Transaction
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Show

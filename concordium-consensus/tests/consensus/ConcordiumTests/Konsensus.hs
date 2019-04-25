@@ -8,13 +8,9 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.RWS hiding (get)
-import Data.Functor.Identity
 import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 import Data.Monoid
-import GHC.Stack
 import Data.Time.Clock.POSIX
 import qualified Data.PQueue.Prio.Min as MPQ
 
@@ -29,17 +25,13 @@ import Concordium.GlobalState.Block
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
-import Concordium.Types
 import Concordium.MonadImplementation
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.Skov.Monad
 import Concordium.TimeMonad
-
-import Debug.Trace
 
 import Test.QuickCheck
 import Test.Hspec
@@ -135,12 +127,6 @@ instance Applicative DummyM where
 instance Monad DummyM where
     -- Bind is slightly stricter than identity monad
     (DummyM m) >>= k = k m
-
-{-
-instance MonadIO DummyM where
-    liftIO :: HasCallStack => IO a -> DummyM a
-    liftIO = return (error "Dummy IO")
--}
 
 instance TimeMonad DummyM where
     currentTime = return (posixSecondsToUTCTime 1)
