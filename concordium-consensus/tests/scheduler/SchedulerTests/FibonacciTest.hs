@@ -6,7 +6,6 @@ module SchedulerTests.FibonacciTest where
 
 import Test.Hspec
 
-import qualified Data.HashMap.Strict as Map
 import Data.List as List
 import Data.Int
 
@@ -25,7 +24,6 @@ import Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Modules as Mod
 
 import qualified Data.Text.IO as TIO
-import Data.Maybe
 import Control.Monad.IO.Class
 
 import Lens.Micro.Platform
@@ -97,13 +95,14 @@ checkFibonacciResult (suc, fails, instances) =
                            (_, Types.TxReject _) -> True
                     )
                         suc
-    checkLocalState inst = do
-      case Types.instanceModel inst of
-        Types.VDict mp ->
-          let results = List.sort (mapMaybe (\case (Types.VLiteral (Core.Int64 i)) -> Just i
-                                                   _ -> Nothing) (Map.elems mp))
-          in results == take 31 fib
-        _ -> False
+    checkLocalState inst = 
+      let results = List.sort . map snd $ (extractMap (Types.instanceModel inst))
+      in results == take 31 fib
+    extractMap (Types.VConstructor _ [Types.VLiteral (Core.Int64 k),
+                                      Types.VLiteral (Core.Int64 v),
+                                      l,
+                                      r]) = (k, v) : extractMap l ++ extractMap r
+    extractMap _ = []
 
 tests :: Spec
 tests =
