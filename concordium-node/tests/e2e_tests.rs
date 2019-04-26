@@ -440,6 +440,7 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     pub fn e2e_002_small_mesh_net() -> Fallible<()> {
         const MESH_NODE_COUNT: usize = 15;
