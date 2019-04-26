@@ -9,4 +9,8 @@ extern crate log;
 
 #[macro_use]
 mod fails;
+pub mod block;
+pub mod common;
 pub mod consensus;
+pub mod parameters;
+pub mod transaction;

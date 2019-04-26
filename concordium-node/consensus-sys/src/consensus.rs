@@ -1,3 +1,5 @@
+use crate::block::*;
+
 use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::{
@@ -384,7 +386,7 @@ impl ConsensusContainer {
 
     pub fn send_block(&self, block: &Block) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
-            if block.baker_id != *id {
+            if block.baker_id() != *id {
                 return baker.send_block(&block);
             }
         }
@@ -593,41 +595,6 @@ pub struct Nonce {
 
 impl Nonce {
     pub fn new(hash: Vec<u8>, proof: Vec<u8>) -> Self { Nonce { hash, proof } }
-}
-
-#[derive(Debug)]
-pub struct Block {
-    slot_id:  u64,
-    baker_id: u64,
-    data:     Vec<u8>,
-}
-
-impl Block {
-    pub fn deserialize(data: &[u8]) -> Option<Self> {
-        let mut curr_pos = 0;
-        let mut slot_id_bytes = Cursor::new(&data[curr_pos..][..8]);
-        let slot_id = match slot_id_bytes.read_u64::<NetworkEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8 + 32;
-        let mut baker_id_bytes = Cursor::new(&data[curr_pos..][..8]);
-        let baker_id = match baker_id_bytes.read_u64::<NetworkEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        Some(Block {
-            slot_id,
-            baker_id,
-            data: data.to_owned(),
-        })
-    }
-
-    pub fn serialize(&self) -> Result<Vec<u8>, &'static str> { Ok(self.data.to_owned()) }
-
-    pub fn slot_id(&self) -> u64 { self.slot_id }
-
-    pub fn baker_id(&self) -> u64 { self.baker_id }
 }
 
 #[cfg(test)]
