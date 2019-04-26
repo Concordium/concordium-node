@@ -19,7 +19,7 @@
 #####
 
 export CONCORDIUM_GHC_VERSION=$(stack ghc -- --version --short | awk '{ print $NF }')
-export LD_LIBRARY_PATH=/usr/local/lib:~/.stack/programs/x86_64-linux/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:~/.stack/programs/x86_64-linux/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
 
 #####
 # Start up a testnet bootstrapper of instance id 1.
