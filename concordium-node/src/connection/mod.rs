@@ -479,7 +479,6 @@ impl Connection {
         ))
     }
 
-    #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     pub fn is_closed(&self) -> bool { self.closed }
