@@ -1,11 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Modules where
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
+import Concordium.Types.HashableTo
 
+import Data.Maybe
 import Data.Word
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as Map
@@ -23,15 +26,27 @@ data Module = Module {
     moduleIndex :: !ModuleIndex
 }
 
+-- |A collection of modules.
 data Modules = Modules {
     _modules :: HashMap Core.ModuleRef Module,
     _nextModuleIndex :: !ModuleIndex,
     _runningHash :: !H.Hash
 }
 
+instance HashableTo H.Hash Modules where
+    getHash = _runningHash
+
+-- |The empty collection of modules
 emptyModules :: Modules
 emptyModules = Modules Map.empty 0 (H.hash "")
 
+-- |Create a collection of modules from a list in reverse order of creation.
+fromModuleList :: [(Core.ModuleRef, Interface, ValueInterface)] -> Modules
+fromModuleList = foldr safePut emptyModules
+    where
+        safePut (mref, iface, viface) m = fromMaybe m $ putInterfaces mref iface viface m
+
+-- |Get the interfaces for a given module by 'Core.ModuleRef'.
 getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface, ValueInterface)
 getInterfaces mref m = do
         Module {..} <- Map.lookup mref (_modules m)
