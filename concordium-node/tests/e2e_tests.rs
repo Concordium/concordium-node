@@ -230,7 +230,6 @@ mod tests {
             payload.map(|e| *e)
         }
 
-        #[allow(dead_code)]
         pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
             let max_wait_time = time::Duration::from_millis(250);
             loop {
