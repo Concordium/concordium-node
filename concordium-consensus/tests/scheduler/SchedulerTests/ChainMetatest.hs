@@ -34,7 +34,7 @@ initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState &
     (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 100000 alesACI) Acc.emptyAccounts) . 
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.Modules gs))
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
