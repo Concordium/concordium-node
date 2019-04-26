@@ -1,24 +1,50 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Modules where
 
+import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 
+import Data.Word
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as Map
+import Data.Serialize
 
-type Module = (Interface, ValueInterface)
+type ModuleIndex = Word64
 
-newtype Modules = Modules { _modules :: HashMap Core.ModuleRef Module }
+-- |Module for storage in block state.
+-- TODO: in future, we should probably also store the module source, which can
+-- be used to recover the interfaces, and should be what is sent over the
+-- network.
+data Module = Module {
+    moduleInterface :: !Interface,
+    moduleValueInterface :: !ValueInterface,
+    moduleIndex :: !ModuleIndex
+}
+
+data Modules = Modules {
+    _modules :: HashMap Core.ModuleRef Module,
+    _nextModuleIndex :: !ModuleIndex,
+    _runningHash :: !H.Hash
+}
 
 emptyModules :: Modules
-emptyModules = Modules Map.empty
+emptyModules = Modules Map.empty 0 (H.hash "")
 
 getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface, ValueInterface)
-getInterfaces mref (Modules m) = Map.lookup mref m
+getInterfaces mref m = do
+        Module {..} <- Map.lookup mref (_modules m)
+        return (moduleInterface, moduleValueInterface)
+       
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
 putInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Modules -> Maybe Modules
-putInterfaces mref iface viface (Modules m) =
-  if Map.member mref m then Nothing
-  else Just (Modules (Map.insert mref (iface, viface) m))
+putInterfaces mref iface viface m =
+  if Map.member mref (_modules m) then Nothing
+  else Just (Modules {
+                _modules = Map.insert mref (Module iface viface (_nextModuleIndex m)) (_modules m),
+                _nextModuleIndex = 1 + _nextModuleIndex m,
+                _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
+            })
