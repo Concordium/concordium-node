@@ -1,10 +1,17 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use failure::Fallible;
-        use iron::{headers::ContentType, prelude::*, status};
         use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use router::Router;
-        use std::{net::SocketAddr, thread, time};
+        use std::{net::SocketAddr, thread, time, sync::Mutex};
+        use gotham::{
+            handler::IntoResponse,
+            helpers::http::response::create_response,
+            middleware::state::StateMiddleware,
+            pipeline::{single::single_pipeline, single_middleware},
+            router::{builder::*, Router},
+            state::{FromState, State},
+        };
+        use hyper::{Body, Response, StatusCode};
     } else {
         use std::sync::atomic::{AtomicUsize, Ordering};
     }
@@ -26,20 +33,44 @@ impl fmt::Display for StatsServiceMode {
     }
 }
 
-#[cfg(feature = "instrumentation")]
-#[derive(Clone)]
-pub struct StatsExportService {
-    mode: StatsServiceMode,
-    registry: Registry,
-    pkts_received_counter: IntCounter,
-    pkts_sent_counter: IntCounter,
-    peers_gauge: IntGauge,
-    connections_received: IntCounter,
-    invalid_packets_received: IntCounter,
-    unknown_packets_received: IntCounter,
-    invalid_network_packets_received: IntCounter,
-    queue_size: IntGauge,
-    queue_resent: IntCounter,
+cfg_if! {
+    if #[cfg(feature = "instrumentation")] {
+        struct HTMLStringResponse(pub String);
+
+        impl IntoResponse for HTMLStringResponse {
+            fn into_response(self, state: &State) -> Response<Body> {
+                create_response(state, StatusCode::OK, mime::TEXT_HTML, self.0)
+            }
+        }
+
+        #[derive(Clone, StateData)]
+        struct PrometheusStateData {
+            registry: Arc<Mutex<Registry>>,
+        }
+
+        impl PrometheusStateData {
+            fn new(registry: Registry) -> Self {
+                Self {
+                    registry: Arc::new(Mutex::new(registry)),
+                }
+            }
+        }
+
+        #[derive(Clone)]
+        pub struct StatsExportService {
+            mode: StatsServiceMode,
+            registry: Registry,
+            pkts_received_counter: IntCounter,
+            pkts_sent_counter: IntCounter,
+            peers_gauge: IntGauge,
+            connections_received: IntCounter,
+            invalid_packets_received: IntCounter,
+            unknown_packets_received: IntCounter,
+            invalid_network_packets_received: IntCounter,
+            queue_size: IntGauge,
+            queue_resent: IntCounter,
+        }
+    }
 }
 
 #[cfg(not(feature = "instrumentation"))]
@@ -248,61 +279,43 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    fn index(&self) -> IronResult<Response> {
-        let mut resp = Response::with((
-            status::Ok,
-            format!(
-                "<html><body><h1>Prometheus for {} v{}</h1>Operational!</p></body></html>",
-                super::APPNAME,
-                super::VERSION
-            ),
-        ));
-        resp.headers.set(ContentType::html());
-        Ok(resp)
+    fn metrics(state: State) -> (State, String) {
+        let state_data = PrometheusStateData::borrow_from(&state);
+        let encoder = TextEncoder::new();
+        let metric_familys = lock_or_die!(state_data.registry).gather();
+        let mut buffer = vec![];
+        assert!(encoder.encode(&metric_familys, &mut buffer).is_ok());
+        match String::from_utf8(buffer) {
+            Ok(buf) => (state, buf),
+            Err(_) => (state, "".to_string()),
+        }
     }
 
     #[cfg(feature = "instrumentation")]
-    fn metrics(&self) -> IronResult<Response> {
-        let encoder = TextEncoder::new();
-        let metric_familys = self.registry.gather();
-        let mut buffer = vec![];
-        assert!(encoder.encode(&metric_familys, &mut buffer).is_ok());
-        let mut resp = if let Ok(buffer) = String::from_utf8(buffer) {
-            Response::with((status::Ok, buffer))
-        } else {
-            Response::with((status::InternalServerError, vec![]))
-        };
-        resp.headers.set(ContentType::plaintext());
-        Ok(resp)
+    fn index(state: State) -> (State, HTMLStringResponse) {
+        let message = HTMLStringResponse(format!(
+            "<html><body><h1>Prometheus for {} v{}</h1>Operational!</p></body></html>",
+            super::APPNAME,
+            super::VERSION
+        ));
+        (state, message)
+    }
+
+    #[cfg(feature = "instrumentation")]
+    fn router(&self) -> Router {
+        let state_data = PrometheusStateData::new(self.registry.clone());
+        let middleware = StateMiddleware::new(state_data);
+        let pipeline = single_middleware(middleware);
+        let (chain, pipelines) = single_pipeline(pipeline);
+        build_router(chain, pipelines, |route| {
+            route.get("/").to(Self::index);
+            route.get("/metrics").to(Self::metrics);
+        })
     }
 
     #[cfg(feature = "instrumentation")]
     pub fn start_server(&mut self, listen_addr: SocketAddr) {
-        let mut router = Router::new();
-        let _self_clone = Arc::new(self.clone());
-        let _self_clone_2 = Arc::clone(&_self_clone);
-        router.get(
-            "/",
-            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone).index(),
-            "index",
-        );
-        router.get(
-            "/metrics",
-            move |_: &mut Request<'_, '_>| Arc::clone(&_self_clone_2).metrics(),
-            "metrics",
-        );
-        let addr = listen_addr.to_string();
-        let _th = thread::spawn(move || {
-            Iron::new(router)
-                .http(addr)
-                .map_err(|err| {
-                    error!(
-                        "Can't start listener for HTTP endpoint for Prometheus {}",
-                        err
-                    )
-                })
-                .ok();
-        });
+        gotham::start(listen_addr, self.router());
     }
 
     #[cfg(feature = "instrumentation")]
