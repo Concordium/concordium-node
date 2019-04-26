@@ -109,6 +109,6 @@ initialState n =
         initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts
         gs = BlockState.emptyBlockState &
                (BlockState.blockAccounts .~ initAccount) .
-               (BlockState.blockModules .~ Mod.Modules mods)
+               (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods))
         gs' = Types.execSI (execTransactions (initialTrans n)) Types.dummyChainMeta gs
     in gs' & BlockState.blockAccounts .~ initAccount

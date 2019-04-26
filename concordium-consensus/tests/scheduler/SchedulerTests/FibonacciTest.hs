@@ -37,7 +37,7 @@ initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState &
     (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 1000000000 alesACI) Acc.emptyAccounts) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.Modules gs))
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
