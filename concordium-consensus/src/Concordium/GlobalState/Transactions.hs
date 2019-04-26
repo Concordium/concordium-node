@@ -29,20 +29,27 @@ instance S.Serialize TransactionSignature where
   put TransactionSignature{..} = S.put tsSignature
   get = TransactionSignature <$> S.get
 
--- INVARIANT: First byte of 'thSender' matches the signature 'thScheme' field, and
--- @thSender = AH.accountAddress' thSenderKey thScheme@.
+-- | Data common to all transaction types.
+--
+--    * INVARIANT: First byte of 'thSender' matches the signature 'thScheme' field,
+--    and @thSender = AH.accountAddress' thSenderKey thScheme@.
+--    * The last field is strictly redundant, but is here to avoid needless recomputation. In
+--    serialization we do not output it, and when deserializing we compute it from other data.
 data TransactionHeader = TransactionHeader {
-    thScheme :: !SchemeId,  -- |Signature scheme used by the account.
-    thSenderKey :: !IDTypes.AccountVerificationKey,  -- |Verification key of the sender.
-    thNonce :: !Nonce,  -- |Per account nonce, strictly increasing, no gaps.
-    thGasAmount :: !Amount,  -- |Amount dedicated for the execution of this transaction.
-    thFinalizedPointer :: !BlockHash,   -- |Pointer to a finalized block. If this
-                                       -- is too out of date at the time of
-                                       -- execution the transaction is dropped.
+    -- |Signature scheme used by the account.
+    thScheme :: !SchemeId,
+    -- |Verification key of the sender.
+    thSenderKey :: !IDTypes.AccountVerificationKey,
+    -- |Per account nonce, strictly increasing, no gaps.
+    thNonce :: !Nonce,
+    -- |Amount dedicated for the execution of this transaction.
+    thGasAmount :: !Amount,
+    -- |Pointer to a finalized block. If this is too out of date at the time of
+    -- execution the transaction is dropped.
+    thFinalizedPointer :: !BlockHash,
 
-    -- *The following fields are strictly redundant, but are here to avoid needless recomputation.
-    -- In serialization we do not output them.
-    thSender :: AccountAddress  -- | Sender account. Derived from the sender key as specified.
+    -- |Sender account. Derived from the sender key as specified.
+    thSender :: AccountAddress
     } deriving (Eq, Show)
 
 -- |NB: Relies on the verify key serialization being defined as specified on the wiki.
@@ -64,14 +71,15 @@ instance S.Serialize TransactionHeader where
 
 type TransactionHash = H.Hash
 
+
+-- |The last field is strictly redundant, but is here to avoid needless
+-- recomputation. In serialization we do not output it.
 data Transaction = Transaction {
   trSignature :: !TransactionSignature,
   trHeader :: !TransactionHeader,
   trPayload :: EncodedPayload,
 
-  -- * The following fields are strictly redundant, but are here to avoid needless recomputation.
-  -- In serialization we do not output them.
-  trHash :: TransactionHash  -- | Hash of the transaction. Derived from the previous three fields.
+  trHash :: TransactionHash  -- ^Hash of the transaction. Derived from the previous three fields.
   } deriving(Show) -- show is needed in testing
 
 -- |NOTE: Eq and Ord instances based on hash comparison!

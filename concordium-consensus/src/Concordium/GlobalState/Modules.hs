@@ -63,3 +63,15 @@ putInterfaces mref iface viface m =
                 _nextModuleIndex = 1 + _nextModuleIndex m,
                 _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
             })
+
+
+-- |Same as 'putInterfaces', but do not check for existence of a module. Hence
+-- the precondition of this method is that a module with the same hash is not in
+-- the table already
+unsafePutInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Modules -> Modules
+unsafePutInterfaces mref iface viface m =
+    Modules {
+             _modules = Map.insert mref (Module iface viface (_nextModuleIndex m)) (_modules m),
+             _nextModuleIndex = 1 + _nextModuleIndex m,
+             _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
+            }

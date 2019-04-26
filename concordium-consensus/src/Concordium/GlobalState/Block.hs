@@ -2,12 +2,10 @@
 
 module Concordium.GlobalState.Block where
 
-import Control.Exception
 import Data.Serialize.Put
 import Data.Serialize
 import Data.Time.Clock
-import Data.Time.Clock.POSIX
-import Data.Hashable hiding (unhashed, hashed)
+
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -16,7 +14,6 @@ import Concordium.GlobalState.Parameters
 import Concordium.Types
 import Concordium.GlobalState.Transactions
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.BlockState
 
 newtype BlockTransactions = BlockTransactions {transactionList :: [Transaction]}
 
@@ -147,85 +144,5 @@ instance BlockData PendingBlock where
 instance Show PendingBlock where
     show = show . pbHash
 
-data BlockPointer = BlockPointer {
-    -- |Hash of the block
-    bpHash :: !BlockHash,
-    -- |The block itself
-    bpBlock :: !Block,
-    -- |Pointer to the parent (circular reference for genesis block)
-    bpParent :: BlockPointer,
-    -- |Pointer to the last finalized block (circular for genesis)
-    bpLastFinalized :: BlockPointer,
-    -- |Height of the block in the tree
-    bpHeight :: !BlockHeight,
-    -- |The state (of accounts etc.) after execution of the block
-    bpState :: !BlockState,
-    -- |Time at which the block was first received
-    bpReceiveTime :: UTCTime,
-    -- |Time at which the block was first considered part of the tree (validated)
-    bpArriveTime :: UTCTime,
-    -- |Number of transactions in a block
-    bpTransactionCount :: Int
-}
-
-instance Eq BlockPointer where
-    bp1 == bp2 = bpHash bp1 == bpHash bp2
-
-instance Ord BlockPointer where
-    compare bp1 bp2 = compare (bpHash bp1) (bpHash bp2)
-
-instance Hashable BlockPointer where
-    hashWithSalt s = hashWithSalt s . bpHash
-    hash = hash . bpHash
-
-instance Show BlockPointer where
-    show = show . bpHash
-
-instance HashableTo Hash.Hash BlockPointer where
-    getHash = bpHash
-
-instance BlockData BlockPointer where
-    blockSlot = blockSlot . bpBlock
-    blockPointer = blockPointer . bpBlock
-    blockBaker = blockBaker . bpBlock
-    blockProof = blockProof . bpBlock
-    blockNonce = blockNonce . bpBlock
-    blockLastFinalized = blockLastFinalized . bpBlock
-    blockTransactions = blockTransactions . bpBlock
-    verifyBlockSignature key = verifyBlockSignature key . bpBlock
-
--- |Make a 'BlockPointer' from a 'PendingBlock'.
--- The parent and last finalized block pointers must match the block data.
-makeBlockPointer ::
-    PendingBlock        -- ^Pending block
-    -> BlockPointer     -- ^Parent block pointer
-    -> BlockPointer     -- ^Last finalized block pointer
-    -> BlockState       -- ^Block state
-    -> UTCTime          -- ^Block arrival time
-    -> BlockPointer
-makeBlockPointer pb@PendingBlock{..} bpParent bpLastFinalized bpState bpArriveTime
-        = assert (getHash bpParent == blockPointer pb) $
-            assert (getHash bpLastFinalized == blockLastFinalized pb) $
-                BlockPointer {
-                    bpHash = getHash pb,
-                    bpBlock = pbBlock,
-                    bpHeight = bpHeight bpParent + 1,
-                    bpReceiveTime = pbReceiveTime,
-                    bpTransactionCount = length (blockTransactions pb),
-                    ..}
-
 makeGenesisBlock :: GenesisData -> Block
 makeGenesisBlock genData = GenesisBlock 0 genData
-
-makeGenesisBlockPointer :: GenesisData -> BlockState -> BlockPointer
-makeGenesisBlockPointer genData bpState = theBlockPointer
-    where
-        theBlockPointer = BlockPointer {..}
-        bpBlock = makeGenesisBlock genData
-        bpHash = getHash bpBlock
-        bpParent = theBlockPointer
-        bpLastFinalized = theBlockPointer
-        bpHeight = 0
-        bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
-        bpArriveTime = bpReceiveTime
-        bpTransactionCount = 0

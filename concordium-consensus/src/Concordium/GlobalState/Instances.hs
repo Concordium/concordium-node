@@ -33,24 +33,15 @@ instanceInfo :: Instance -> InstanceInfo
 instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters) instanceModel instanceAmount
 
 makeInstance :: 
-    -- |Module of the contract
-    Core.ModuleRef
-    -- |Contract name
-    -> Core.TyName
-    -- |The contract value
-    -> ContractValue
-    -- |Message type
-    -> Core.Type Core.ModuleRef
-    -- |Module interface
-    -> Interface
-    -- |Module value interface
-    -> ValueInterface
-    -- |Initial state
-    -> Value
-    -- |Initial balance
-    -> Amount
-    -- |Address for the instance
-    -> ContractAddress
+    Core.ModuleRef     -- ^Module of the contract
+    -> Core.TyName     -- ^Contract name
+    -> ContractValue   -- ^The contract value
+    -> Core.Type Core.ModuleRef     -- ^Message type
+    -> Interface                    -- ^Module interface
+    -> ValueInterface               -- ^Module value interface
+    -> Value                        -- ^Initial state
+    -> Amount                       -- ^Initial balance
+    -> ContractAddress              -- ^Address for the instance
     -> Instance
 makeInstance instanceContractModule instanceContract conVal instanceMessageType instanceModuleInterface instanceModuleValueInterface instanceModel instanceAmount instanceAddress
         = Instance {..}

@@ -1,3 +1,7 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 module Concordium.GlobalState.TreeState where
@@ -13,12 +17,16 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
 
+import Concordium.Types.Acorn.Core(ModuleRef)
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
+import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Modules
+import Concordium.Types.Acorn.Interfaces
 
 
 data ConsensusStatistics = ConsensusStatistics {
@@ -70,13 +78,13 @@ initialConsensusStatistics = ConsensusStatistics {
     _finalizationPeriodEMVar = Nothing
 }
 
-
-data BlockStatus =
-    BlockAlive !BlockPointer
+data BlockStatus bp =
+    BlockAlive !bp
     | BlockDead
-    | BlockFinalized !BlockPointer !FinalizationRecord
-    deriving (Eq)
-instance Show BlockStatus where
+    | BlockFinalized !bp !FinalizationRecord
+  deriving(Eq)
+
+instance Show (BlockStatus m) where
     show (BlockAlive _) = "Alive"
     show (BlockDead) = "Dead"
     show (BlockFinalized _ _) = "Finalized"
@@ -86,24 +94,100 @@ instance Show BlockStatus where
 -- be exactly the live blocks.  If a block is in the branches, then either it is at
 -- the lowest level and its parent is the last finalized block, or its parent is also
 -- in the branches at the level below.
-type Branches = Seq.Seq [BlockPointer]
+type Branches m = Seq.Seq [BlockPointer m]
+
+class (Eq bp, Show bp) => BlockPointerData bp where
+    type BlockState' bp :: *
+    -- |Hash of the block
+    bpHash :: bp -> BlockHash
+    -- |The block itself
+    bpBlock :: bp -> Block
+    -- |Pointer to the parent (circular reference for genesis block)
+    bpParent :: bp -> bp
+    -- |Pointer to the last finalized block (circular for genesis)
+    bpLastFinalized :: bp -> bp
+    -- |Height of the block in the tree
+    bpHeight :: bp -> BlockHeight
+    -- |The handle for accessing the state (of accounts, contracts, etc.) at the end of the block.
+    bpState :: bp -> BlockState' bp
+    -- |Time at which the block was first received
+    bpReceiveTime :: bp -> UTCTime
+    -- |Time at which the block was first considered part of the tree (validated)
+    bpArriveTime :: bp -> UTCTime
+    -- |Number of transactions in a block
+    bpTransactionCount :: bp -> Int
+
+type BlockState (m :: * -> *) = BlockState' (BlockPointer m)
+
+
+-- |The block query methods can query block state. They are needed by
+-- consensus itself to compute stake, get a list of and information about
+-- bakers, finalization committee, etc.
+class Monad m => BlockStateQuery m where
+    -- |Get the module from the module table of the state instance.
+    getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
+    -- |Get the account state from the account table of the state instance.
+    getAccount :: BlockState m -> AccountAddress -> m (Maybe Account)
+    -- |Get the contract state from the contract table of the state instance.
+    getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
+
+    -- |Get the module from the module table of the state instance.
+    getModuleList :: BlockState m -> m [ModuleRef]
+    -- |Get the account state from the account table of the state instance.
+    getAccountList :: BlockState m -> m [AccountAddress]
+    -- |Get the contract state from the contract table of the state instance.
+    getContractInstanceList :: BlockState m -> m [Instance]
+
+
+-- |Block state update operations parametrized by a monad. The operations which
+-- mutate the state all also return an 'UpdatableBlockState' handle. This is to
+-- support different implementations, from pure ones to stateful ones.
+class BlockStateQuery m => BlockStateOperations m where
+  type UpdatableBlockState m :: *
+  -- |Get the module from the module table of the state instance.
+  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
+  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe Account)
+  -- |Get the contract state from the contract table of the state instance.
+  bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
+
+  -- |Try to add a new account to the state. If an account with the address already exists
+  -- return @False@, and if the account was successfully added return @True@.
+  bsoPutNewAccount :: UpdatableBlockState m -> Account -> m (Bool, UpdatableBlockState m)
+  bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
+  -- |Add the module to the global state. If a module with the given address
+  -- already exists return @False@.
+  bsoPutNewModule :: UpdatableBlockState m -> ModuleRef -> Interface -> ValueInterface -> m (Bool, UpdatableBlockState m)
+
+  -- |Replace the account with given data (which includes the address of the account).
+  bsoModifyAccount :: UpdatableBlockState m -> Account -> m (UpdatableBlockState m)
+  -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
+  bsoModifyInstance :: UpdatableBlockState m -> ContractAddress -> Amount -> Value -> m (UpdatableBlockState m)
+
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
-class Monad m => TreeStateMonad m where
+class (Eq (BlockPointer m),
+       HashableTo BlockHash (BlockPointer m),
+       BlockData (BlockPointer m),
+       BlockPointerData (BlockPointer m),
+       BlockStateOperations m,
+       Monad m)
+      => TreeStateMonad m where
+    type BlockPointer m :: *
+
     -- * Operations on the block table
     -- |Get the current status of a block.
-    getBlockStatus :: BlockHash -> m (Maybe BlockStatus)
+    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointer m)))
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
     makeLiveBlock ::
-        PendingBlock        -- ^Block to make live
-        -> BlockPointer     -- ^Parent block pointer
-        -> BlockPointer     -- ^Last finalized block pointer
-        -> BlockState       -- ^Block state
-        -> UTCTime          -- ^Block arrival time
-        -> m BlockPointer
+        PendingBlock                         -- ^Block to make live
+        -> BlockPointer m                    -- ^Parent block pointer
+        -> BlockPointer m                    -- ^Last finalized block pointer
+        -> BlockState m                      -- ^Block state
+        -> UTCTime                           -- ^Block arrival time
+        -> m (BlockPointer m)
     -- |Mark a block as dead.
     markDead :: BlockHash -> m ()
     -- |Mark a block as finalized (by a particular 'FinalizationRecord').
@@ -112,12 +196,12 @@ class Monad m => TreeStateMonad m where
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
-    getGenesisBlockPointer :: m BlockPointer
+    getGenesisBlockPointer :: m (BlockPointer m)
     -- |Get the 'GenesisData'.
     getGenesisData :: m GenesisData
     -- * Operations on the finalization list
     -- |Get the last finalized block.
-    getLastFinalized :: m BlockPointer
+    getLastFinalized :: m (BlockPointer m)
     -- |Get the slot number of the last finalized block
     getLastFinalizedSlot :: m Slot
     getLastFinalizedSlot = blockSlot <$> getLastFinalized
@@ -129,12 +213,12 @@ class Monad m => TreeStateMonad m where
     -- |Add a block and finalization record to the finalization list.
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
-    addFinalization :: BlockPointer -> FinalizationRecord -> m ()
+    addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
     -- * Operations on branches
     -- |Get the branches.
-    getBranches :: m Branches
+    getBranches :: m (Branches m)
     -- |Set the branches.
-    putBranches :: Branches -> m ()
+    putBranches :: Branches m -> m ()
     -- * Operations on blocks that are pending the arrival of other blocks
     --
     -- $pendingBlocks
@@ -188,9 +272,9 @@ class Monad m => TreeStateMonad m where
     -- the focus block.  (Ideally, this should be the best block, however, it 
     -- shouldn't be a problem if it's not.)
     -- |Return the focus block.
-    getFocusBlock :: m BlockPointer
+    getFocusBlock :: m (BlockPointer m)
     -- |Update the focus block.
-    putFocusBlock :: BlockPointer -> m ()
+    putFocusBlock :: BlockPointer m -> m ()
     -- |Get the pending transactions after execution of the focus block.
     getPendingTransactions :: m PendingTransactionTable
     -- |Set the pending transactions after execution of the focus block.
@@ -227,13 +311,62 @@ class Monad m => TreeStateMonad m where
     -- (A transaction that has been committed to a finalized block should not be purged.)
     -- Returns @True@ if the transaction is purged.
     purgeTransaction :: Transaction -> m Bool
+
+    -- * Operations on block state
+
+    -- |Derive a mutable state instance from a block state instance. The mutable
+    -- state instance supports all the operations needed by the scheduler for
+    -- block execution. Semantically the 'UpdatableBlockState' must be a copy,
+    -- changes to it must not affect 'BlockState', but an efficient
+    -- implementation should expect that only a small subset of the state will
+    -- change, and thus a variant of copy-on-write should be used.
+    thawBlockState :: BlockState m -> m (UpdatableBlockState m)
+
+    -- |Freeze a mutable block state instance. The mutable state instance will
+    -- not be used afterwards and the implementation can thus avoid copying
+    -- data.
+    freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
+
+    -- |Mark the given state instance as no longer needed and eventually
+    -- discharge it. This can happen, for instance, when a block becomes dead
+    -- due to finalization. The block state instance will not be accessed after
+    -- this method is called.
+    purgeBlockState :: BlockState m -> m ()
+
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
     -- |Set the consensus statistics.
     putConsensusStatistics :: ConsensusStatistics -> m ()
 
+
+instance BlockStateQuery m => BlockStateQuery (MaybeT m) where
+
+  getModule s = lift . getModule s
+  getAccount s = lift . getAccount s
+  getContractInstance s = lift . getContractInstance s
+
+  getModuleList = lift . getModuleList
+  getAccountList = lift . getAccountList
+  getContractInstanceList = lift . getContractInstanceList
+
+instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
+  type UpdatableBlockState (MaybeT m) = UpdatableBlockState m
+  -- |Get the module from the module table of the state instance.
+  bsoGetModule s = lift . bsoGetModule s
+  bsoGetAccount s = lift . bsoGetAccount s
+  bsoGetInstance s = lift . bsoGetInstance s
+
+  bsoPutNewAccount s = bsoPutNewAccount s
+  bsoPutNewInstance s = bsoPutNewInstance s
+  bsoPutNewModule s mref iface viface = lift (bsoPutNewModule s mref iface viface)
+
+  bsoModifyAccount s = lift . bsoModifyAccount s
+  bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
+
 instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
+    type BlockPointer (MaybeT m) = BlockPointer m
+
     getBlockStatus  = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
@@ -265,10 +398,42 @@ instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
     commitTransaction slot tr = lift $ commitTransaction slot tr
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
+
+    thawBlockState = lift . thawBlockState
+    freezeBlockState = lift . freezeBlockState
+    purgeBlockState = lift . purgeBlockState
+
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
 
+
+instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
+
+  getModule s = lift . getModule s
+  getAccount s = lift . getAccount s
+  getContractInstance s = lift . getContractInstance s
+
+  getModuleList = lift . getModuleList
+  getAccountList = lift . getAccountList
+  getContractInstanceList = lift . getContractInstanceList
+
+instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m) where
+  type UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
+  -- |Get the module from the module table of the state instance.
+  bsoGetModule s = lift . bsoGetModule s
+  bsoGetAccount s = lift . bsoGetAccount s
+  bsoGetInstance s = lift . bsoGetInstance s
+
+  bsoPutNewAccount s = bsoPutNewAccount s
+  bsoPutNewInstance s = bsoPutNewInstance s
+  bsoPutNewModule s mref iface viface = lift (bsoPutNewModule s mref iface viface)
+
+  bsoModifyAccount s = lift . bsoModifyAccount s
+  bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
+
 instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
+    type BlockPointer (RWST r w s m) = BlockPointer m
+
     getBlockStatus  = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
@@ -300,5 +465,10 @@ instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
     commitTransaction slot tr = lift $ commitTransaction slot tr
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
+
+    thawBlockState = lift . thawBlockState
+    freezeBlockState = lift . freezeBlockState
+    purgeBlockState = lift . purgeBlockState
+
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
