@@ -925,7 +925,7 @@ impl P2PNode {
                 _ => {
                     trace!("Got data!");
                     tls_ref
-                        .conn_event(&mut poll_ref, &event, &self.queue_to_super)
+                        .conn_event(&event)
                         .map_err(|e| error!("Error occurred while parsing event: {}", e))
                         .ok();
                 }
