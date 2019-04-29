@@ -19,7 +19,7 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{get_current_stamp, P2PNodeId, PeerType, UCursor},
+    common::{functor::AFunctor, get_current_stamp, P2PNodeId, PeerType, UCursor},
     configuration,
     db::P2PDB,
     network::{
@@ -282,6 +282,8 @@ fn instantiate_node(
         None
     };
 
+    let broadcasting_checks = Arc::new(AFunctor::new("Broadcasting_checks"));
+
     // Thread #1: Read P2PEvents from P2PNode
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
@@ -297,6 +299,7 @@ fn instantiate_node(
             Some(sender),
             PeerType::Node,
             arc_stats_export_service,
+            Arc::clone(&broadcasting_checks),
         )
     } else {
         P2PNode::new(
@@ -306,6 +309,7 @@ fn instantiate_node(
             None,
             PeerType::Node,
             arc_stats_export_service,
+            Arc::clone(&broadcasting_checks),
         )
     };
     (node, pkt_out)

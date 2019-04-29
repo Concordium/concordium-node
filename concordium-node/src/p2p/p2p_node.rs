@@ -26,7 +26,8 @@ use std::{
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::AFunctor, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer, UCursor,
     },
     configuration,
     connection::{
@@ -89,6 +90,7 @@ pub struct P2PNode {
     pub max_nodes:        Option<u16>,
     pub print_peers:      bool,
     config:               P2PNodeConfig,
+    broadcasting_checks:  Arc<AFunctor<NetworkPacket>>,
 }
 
 unsafe impl Send for P2PNode {}
@@ -101,6 +103,7 @@ impl P2PNode {
         event_log: Option<Sender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+        broadcasting_checks: Arc<AFunctor<NetworkPacket>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
@@ -291,6 +294,7 @@ impl P2PNode {
             max_nodes: None,
             print_peers: true,
             config,
+            broadcasting_checks,
         };
         mself.add_default_message_handlers();
         mself
@@ -320,17 +324,24 @@ impl P2PNode {
         let packet_queue = self.queue_to_super.clone();
         let send_queue = Arc::clone(&self.send_queue_in);
         let trusted_broadcast = self.config.blind_trusted_broadcast;
+        let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
-            forward_network_packet_message(
-                &seen_messages,
-                &stats_export_service,
-                &own_networks,
-                &send_queue,
-                &packet_queue,
-                pac,
-                trusted_broadcast,
-            )
+            if pac.packet_type == NetworkPacketType::BroadcastedMessage
+                && broadcasting_checks.run_callbacks(pac).is_ok()
+            {
+                forward_network_packet_message(
+                    &seen_messages,
+                    &stats_export_service,
+                    &own_networks,
+                    &send_queue,
+                    &packet_queue,
+                    pac,
+                    trusted_broadcast,
+                )
+            } else {
+                Ok(())
+            }
         })
     }
 
