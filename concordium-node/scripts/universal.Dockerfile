@@ -19,8 +19,8 @@ RUN pacman -Sy && \
     rustup install nightly-2019-03-22 && \
     rustup default nightly-2019-03-22 && \
     rustup component add rust-src --toolchain nightly-2019-03-22-x86_64-unknown-linux-gnu && \
-    RUSTFLAGS="-Z sanitizer=address" cargo build --target x86_64-unknown-linux-gnu && \
-    RUSTFLAGS="-Z sanitizer=address" cargo test --no-run --target x86_64-unknown-linux-gnu && \
+    RUSTFLAGS="-Z sanitizer=address" cargo build --target x86_64-unknown-linux-gnu --features=instrumentation && \
+    RUSTFLAGS="-Z sanitizer=address" cargo test --no-run --target x86_64-unknown-linux-gnu --features=instrumentation && \
     mkdir -p sanitized && \
     mv target/x86_64-unknown-linux-gnu/debug/p2p_client-cli sanitized/ && \
     mv target/x86_64-unknown-linux-gnu/debug/p2p_bootstrapper-cli sanitized/ && \
