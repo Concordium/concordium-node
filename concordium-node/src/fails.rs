@@ -131,3 +131,31 @@ macro_rules! lock_or_die {
         })
     };
 }
+
+/// Send struct into a channel and panic on error
+///
+/// Useful for consuming the `Result` returned by a Send
+/// to cover all the branches but an error would
+/// mean that the program must crash.
+///
+/// `std::sync::mpsc::SendError` is only issued when the
+/// corresponding receiver has been freed before the `send`
+/// was done.
+///
+/// In the case of the `send_queue` of a `P2PNode`,
+/// the `Receiver` would only be freed when the node is deallocated
+/// and getting an error when sending to the `Sender` from inside
+/// the node would mean that things have gone really wrong.
+#[macro_export]
+macro_rules! send_or_die {
+    ($s:expr, $v:expr) => {
+        $s.send($v)
+            .map_err(|e| {
+                panic!(
+                    "Corresponding channel receiver has been deallocated too early. Error: {}",
+                    e
+                );
+            })
+            .ok()
+    };
+}

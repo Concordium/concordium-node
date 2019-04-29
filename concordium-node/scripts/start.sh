@@ -34,7 +34,7 @@ fi
 
 if [ -n "$PROMETHEUS_METRICS_SERVER" ];
 then
-    ARGS="$ARGS --prometheus-server $PROMETHEUS_METRICS_SERVER"
+    ARGS="$ARGS --prometheus-server"
 fi
 
 if [ -n "$PROMETHEUS_METRICS_PORT" ];

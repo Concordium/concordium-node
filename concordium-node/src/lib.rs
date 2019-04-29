@@ -10,9 +10,17 @@ extern crate get_if_addrs;
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
-#[cfg(feature = "instrumentation")]
-#[macro_use]
-extern crate prometheus;
+cfg_if! {
+    if #[cfg(feature = "instrumentation")] {
+    #[macro_use]
+    extern crate prometheus;
+    #[macro_use]
+    extern crate gotham_derive;
+    extern crate hyper;
+    extern crate mime;
+    }
+}
+
 #[macro_use]
 extern crate lazy_static;
 #[cfg(not(debug_assertions))]
