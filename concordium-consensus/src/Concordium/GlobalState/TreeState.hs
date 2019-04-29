@@ -131,11 +131,11 @@ class Monad m => BlockStateQuery m where
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
 
-    -- |Get the module from the module table of the state instance.
+    -- |Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
-    -- |Get the account state from the account table of the state instance.
+    -- |Get the list of account addresses existing in the given block state.
     getAccountList :: BlockState m -> m [AccountAddress]
-    -- |Get the contract state from the contract table of the state instance.
+    -- |Get the list of contract instances existing in the given block state.
     getContractInstanceList :: BlockState m -> m [Instance]
 
 
