@@ -13,6 +13,23 @@
 # For further examples simply use the functions without
 # any arguments.
 #
+# When included by zsh this file also exports local
+# LD_LIBRARY_PATH overrides.
+#
+#####
+
+export CONCORDIUM_GHC_VERSION=$(stack ghc -- --version --short | awk '{ print $NF }')
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:~/.stack/programs/x86_64-linux/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
+
+#####
+# Start up a testnet bootstrapper of instance id 1.
+#
+# testnet_bootstrap 1
+#
+# or for a debug edition
+#
+# testnet_bootstrap 1 --debug
+#
 #####
 function testnet_bootstrap() {
   if (( $# < 1 ))
@@ -30,6 +47,17 @@ function testnet_bootstrap() {
   )
 }
 
+#####
+# Start up a testnet node of instance id 1 connection
+# to 1 bootstrappers in the network.
+#
+# testnet_node 1 1
+#
+# or for a debug edition
+#
+# testnet_node 1 1 --debug
+#
+#####
 function testnet_node() {
   if (( $# < 2 ))
   then

@@ -6,7 +6,7 @@ use crate::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
-        PROTOCOL_VERSION,
+        PROTOCOL_SINCE_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
     },
     p2p::banned_nodes::BannedNode,
 };
@@ -88,7 +88,7 @@ fn deserialize_direct_message(
         .peer(peer)
         .message_id(msgid)
         .network_id(network_id)
-        .message(content_cursor)
+        .message(Box::new(content_cursor))
         .build_direct(receiver_id)?;
 
     Ok(NetworkMessage::NetworkPacket(
@@ -136,7 +136,7 @@ fn deserialize_broadcast_message(
             .peer(peer)
             .message_id(message_id)
             .network_id(network_id)
-            .message(pkt.sub(pkt.position())?)
+            .message(Box::new(pkt.sub(pkt.position())?))
             .build_broadcast()?,
         Some(timestamp),
         Some(get_current_stamp()),
@@ -394,6 +394,35 @@ fn deserialize_request_handshake(
     ))
 }
 
+fn deserialize_request_retransmit(
+    peer: P2PPeer,
+    timestamp: u64,
+    pkt: &mut UCursor,
+) -> Fallible<NetworkMessage> {
+    let min_packet_size = PROTOCOL_SINCE_TIMESTAMP_LENGTH + PROTOCOL_NETWORK_ID_LENGTH;
+    ensure!(
+        pkt.len() >= pkt.position() + min_packet_size as u64,
+        "Retransmit Request needs {} bytes",
+        min_packet_size
+    );
+
+    let view = pkt.read_into_view(min_packet_size)?;
+    let buf = view.as_slice();
+
+    let since_stamp =
+        u64::from_str_radix(str::from_utf8(&buf[..PROTOCOL_SINCE_TIMESTAMP_LENGTH])?, 16)?;
+    let nid = NetworkId::from(
+        str::from_utf8(&buf[PROTOCOL_SINCE_TIMESTAMP_LENGTH..][..PROTOCOL_NETWORK_ID_LENGTH])?
+            .parse::<u16>()?,
+    );
+
+    Ok(NetworkMessage::NetworkRequest(
+        NetworkRequest::Retransmit(peer, since_stamp, nid),
+        Some(timestamp),
+        Some(get_current_stamp()),
+    ))
+}
+
 impl NetworkMessage {
     #[cfg(feature = "s11n_nom")]
     pub fn deserialize_nom(bytes: &[u8]) -> NetworkMessage {
@@ -557,6 +586,13 @@ impl NetworkMessage {
                 timestamp,
                 &mut pkt,
             ),
+            ProtocolMessageType::RequestRetransmit => deserialize_request_retransmit(
+                peer.post_handshake_peer_or_else(|| {
+                    err_msg("Request Retransmit requires a handshake to be completed first")
+                })?,
+                timestamp,
+                &mut pkt,
+            ),
         }
     }
 
@@ -638,7 +674,7 @@ mod unit_test {
                 ))
                 .message_id(NetworkPacket::generate_message_id())
                 .network_id(NetworkId::from(111))
-                .message(UCursor::from(vec![]))
+                .message(Box::new(UCursor::from(vec![])))
                 .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
             let mut h = pkt.serialize();

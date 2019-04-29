@@ -2,12 +2,9 @@
 name = "dns"
 version = "0.0.1"
 description = "dns module"
-authors = ["Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
-exclude = [
-    ".gitignore",
-    ".gitlab-ci.yml",
-    "test/**/*"
-]
+build = "build.rs"
+authors = ["Concordium AG <info@concordium.com>"]
+exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]
 publish = false
 edition = "2018"
 
@@ -16,5 +13,11 @@ default = []
 valgrind = []
 
 [dependencies]
-unbound = { path = "../deps/generic/unbound-0.6.0" }
 log = "0.4"
+openssl = "0.10"
+libc = "0.2"
+failure = "0.1.5"
+
+[build-dependencies]
+tempdir = "0.3.7"
+cc = "1.0.35"

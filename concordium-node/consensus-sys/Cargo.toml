@@ -2,12 +2,8 @@
 name = "consensus-sys"
 version = "0.0.1"
 description = "consensus prototype wrapper"
-authors = [ "Ian Johannesen <ij@concordium.com>", "Martin Karlsen Jensen <mkj@concordium.com>"]
-exclude = [
-    ".gitignore",
-    ".gitlab-ci.yml",
-    "test/**/*"
-]
+authors = ["Concordium AG <info@concordium.com>"]
+exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]
 publish = false
 build = "build.rs"
 edition = "2018"
@@ -22,12 +18,17 @@ log = "0.4"
 lazy_static = "1.1.0"
 byteorder = "1"
 env_logger = "0.6"
+failure = "0.1.5"
 
 [target.'cfg(windows)'.dependencies]
-curryrswin = { path = "../deps/windows/curryrs", features = ["threaded"], package = "curryrs" }
+curryrswin = { path = "../deps/windows/curryrs", features = [
+  "threaded"
+], package = "curryrs" }
 
 [target.'cfg(unix)'.dependencies]
-curryrsunix = { version = "^0.2.0", features = ["threaded"], package  = "curryrs" }
+curryrsunix = { version = "^0.2.0", features = [
+  "threaded"
+], package = "curryrs" }
 
 [build-dependencies]
 bindgen = "0.49"

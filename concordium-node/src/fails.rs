@@ -41,7 +41,6 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 ///     Ok(())
 /// }
 /// ```
-
 #[macro_export]
 macro_rules! safe_lock {
     ($e:expr) => {
@@ -94,5 +93,69 @@ macro_rules! safe_write {
 macro_rules! into_err {
     ($e:expr) => {
         $e.map_err(|x| failure::Error::from_boxed_compat(Box::new(x)))
+    };
+}
+
+/// Acquire a resource for writing or panic
+///
+/// Equivalent to `safe_write` but panicking on error
+#[macro_export]
+macro_rules! write_or_die {
+    ($v:expr) => {
+        safe_write!($v).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
+    };
+}
+
+/// Acquire a resource for reading of panic
+///
+/// Equivalent to `safe_read` but panicking on error
+#[macro_export]
+macro_rules! read_or_die {
+    ($v:expr) => {
+        safe_read!($v).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
+    };
+}
+
+/// Lock a resource or panic
+///
+/// Equivalent to `safe_lock` but panicking on error
+#[macro_export]
+macro_rules! lock_or_die {
+    ($v:expr) => {
+        safe_lock!($v).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
+    };
+}
+
+/// Send struct into a channel and panic on error
+///
+/// Useful for consuming the `Result` returned by a Send
+/// to cover all the branches but an error would
+/// mean that the program must crash.
+///
+/// `std::sync::mpsc::SendError` is only issued when the
+/// corresponding receiver has been freed before the `send`
+/// was done.
+///
+/// In the case of the `send_queue` of a `P2PNode`,
+/// the `Receiver` would only be freed when the node is deallocated
+/// and getting an error when sending to the `Sender` from inside
+/// the node would mean that things have gone really wrong.
+#[macro_export]
+macro_rules! send_or_die {
+    ($s:expr, $v:expr) => {
+        $s.send($v)
+            .map_err(|e| {
+                panic!(
+                    "Corresponding channel receiver has been deallocated too early. Error: {}",
+                    e
+                );
+            })
+            .ok()
     };
 }

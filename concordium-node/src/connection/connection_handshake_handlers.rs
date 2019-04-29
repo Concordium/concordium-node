@@ -26,9 +26,20 @@ pub fn handshake_response_handle(
             safe_write!(priv_conn.borrow().buckets)?
                 .insert_into_bucket(&bucket_sender, nets.clone());
         }
-        if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-            safe_write!(prom)?.peers_inc()?;
+        if let Some(ref service) = priv_conn.borrow().stats_export_service {
+            safe_write!(service)?.peers_inc();
         };
+
+        // TODO - only issue when needed externally, after global state knows it needs
+        // to do this
+        if priv_conn.borrow().remote_peer.peer_type() != PeerType::Bootstrapper
+            && priv_conn.borrow().local_peer.peer_type() != PeerType::Bootstrapper
+        {
+            let one_net = priv_conn.borrow().remote_end_networks.clone();
+            if let Some(one_net) = one_net.iter().next() {
+                send_retransmit_request(priv_conn, 0, *one_net)?
+            };
+        }
         Ok(())
     } else {
         bail!(fails::UnwantedMessageError {

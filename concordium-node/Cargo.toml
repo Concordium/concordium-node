@@ -1,13 +1,9 @@
 [package]
 name = "p2p_client"
-version = "0.1.30"
+version = "0.1.32"
 description = "Concordium P2P library"
-authors = [ "Concordium AG <info@concordium.com>"]
-exclude = [
-    ".gitignore",
-    ".gitlab-ci.yml",
-    "test/**/*"
-]
+authors = ["Concordium AG <info@concordium.com>"]
+exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
 publish = false
 build = "build.rs"
 autobins = false
@@ -16,14 +12,20 @@ edition = "2018"
 [features]
 default = []
 valgrind = []
-
-s11n_capnp = ["capnp", "capnpc" ]
-s11n_serde = [ "s11n_serde_cbor", "s11n_serde_json" ]
-s11n_serde_json = []
-s11n_serde_cbor = ["serde_cbor"]
+s11n_capnp = ["capnp", "capnpc"]
+s11n_serde = ["s11n_serde_cbor", "s11n_serde_json"]
+s11n_serde_json = ["serde", "serde_derive", "serde_json"]
+s11n_serde_cbor = ["serde_cbor", "serde", "serde_derive"]
 s11n_nom = ["nom"]
+instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json", "gotham", "gotham_derive", "hyper", "mime"]
 
 [dependencies]
+# Internal dependencies
+consensus-sys = { path = "consensus-sys" }
+dns = { path = "dns" }
+ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
+eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+# External dependencies
 libc = "0.2"
 structopt = "0.2"
 rand = "^0.6"
@@ -32,62 +34,68 @@ mio = "0.6"
 bytes = "0.4"
 log = "0.4"
 env_logger = "0.6"
-rustls = {version = "0.15", features = [ "dangerous_configuration"]}
-webpki = "0.19"
 byteorder = "1"
-openssl = "0.10"
-protobuf        = "2.0.6"
-futures         = "0.1"
 preferences = "^1.1.0"
 app_dirs2 = "^2.0"
-rusqlite = {version = "0.17", features = ["bundled"]}
 chrono = "0.4"
 failure = "0.1.5"
-iron = "*"
-router = "*"
 lazy_static = "1.2"
 human-panic = "1.0"
 cfg-if = "0.1"
-dns = { path = "dns" }
-consensus-sys = { path = "consensus-sys" }
-serde_json = "1.0"
-reqwest = { version = "^0.9", default-features = false }
 semver = "0.9"
-serde = "1.0"
-serde_derive = "1.0"
 vecio = "0.1"
 derive_builder = "0.7.1"
 tempfile = "^3.0.7"
 base64 = "0.10.1"
 sha2 = "0"
 base58 = "^0.1"
-ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
-eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
-
-# Serialization packets are enable as `features`
+# RusTLS needed dependencies
+rustls = { version = "0.15", features = ["dangerous_configuration"] }
+webpki = "0.19"
+openssl = "0.10"
+# Database dependencies
+rusqlite = { version = "0.17", features = ["bundled"] }
+# gRPC dependencies
+protobuf = "2.0.6"
+futures = "0.1"
+# Feature gated dependencies
+serde = { version = "1.0", optional = true }
+serde_json = { version = "1.0", optional = true }
+serde_derive = { version = "1.0", optional = true }
 capnp = { version = "^0.9", optional = true }
 serde_cbor = { version = "0.9.0", optional = true }
 nom = { version = "4.2.0", optional = true }
+gotham = { version = "0.3", optional = true }
+gotham_derive = { version = "0.3", optional = true }
+reqwest = { version = "^0.9", default-features = false, optional = true }
+hyper = { version = "0.12", optional = true }
+mime = { version = "0.3", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
-grpciowin          = { package = 'grpcio', version = "0.4.0", default-features = false, features = ["protobuf-codec"], path = "deps/windows/grpc-rs-0.4.0" }
-grpc            = "0.5.0"
+grpciowin = { package = 'grpcio', version = "0.4.0", default-features = false, features = [
+  "protobuf-codec"
+], path = "deps/windows/grpc-rs-0.4.0" }
+grpc = "0.6.1"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-grpciounix         = { package = 'grpcio', version = "0.4.0", default-features = false, features = ["protobuf-codec"] }
-grpc            = "0.5.0"
+grpciounix = { package = 'grpcio', version = "0.4.4", default-features = false, features = [
+  "protobuf-codec"
+] }
+grpc = "0.6.1"
 
 [dependencies.prometheus]
 git = "https://github.com/pingcap/rust-prometheus.git"
 default-features = false
 features = ["gen", "push", "protobuf"]
+optional = true
 
 [build-dependencies]
-walkdir         = "2"
-protoc-grpcio   = "0.2.0"
-capnpc          = { version = "^0.9", optional = true }
+walkdir = "2"
+regex = "1"
+protoc-grpcio = "0.2.0"
+capnpc = { version = "^0.9", optional = true }
 
 [dev-dependencies]
 criterion = "0.2"
@@ -116,10 +124,12 @@ name = "dns_key_generator"
 [[bin]]
 path = "src/bin/testrunner.rs"
 name = "testrunner"
+required-features = ["instrumentation"]
 
 [[bin]]
 path = "src/bin/testrunner_parser.rs"
 name = "testrunner_parser"
+required-features = ["instrumentation"]
 
 [[bin]]
 path = "src/bin/generate-new-keypair.rs"

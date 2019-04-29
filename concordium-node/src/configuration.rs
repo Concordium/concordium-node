@@ -17,6 +17,7 @@ const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
+#[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
 /// Flags related to Prometheus
 pub struct PrometheusConfig {
@@ -242,6 +243,8 @@ pub struct CommonConfig {
         default_value = "100"
     )]
     pub min_peers_bucket: usize,
+    #[structopt(long = "print-config", help = "Print out config struct")]
+    pub print_config: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -293,6 +296,7 @@ pub struct TestRunnerConfig {
 pub struct Config {
     #[structopt(flatten)]
     pub common: CommonConfig,
+    #[cfg(feature = "instrumentation")]
     #[structopt(flatten)]
     pub prometheus: PrometheusConfig,
     #[structopt(flatten)]
@@ -309,7 +313,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            common:       CommonConfig {
+            common: CommonConfig {
                 external_ip:      None,
                 external_port:    None,
                 id:               None,
@@ -323,8 +327,10 @@ impl Default for Config {
                 no_log_timestamp: false,
                 no_trust_bans:    false,
                 min_peers_bucket: 100,
+                print_config:     false,
             },
-            prometheus:   PrometheusConfig {
+            #[cfg(feature = "instrumentation")]
+            prometheus: PrometheusConfig {
                 prometheus_listen_addr:   "127.0.0.1".to_owned(),
                 prometheus_listen_port:   9090,
                 prometheus_server:        false,
@@ -335,7 +341,7 @@ impl Default for Config {
                 prometheus_push_password: None,
                 prometheus_push_interval: 2,
             },
-            connection:   ConnectionConfig {
+            connection: ConnectionConfig {
                 desired_nodes:       50,
                 no_bootstrap_dns:    false,
                 bootstrap_server:    "bootstrap.p2p.concordium.com".to_owned(),
@@ -346,7 +352,7 @@ impl Default for Config {
                 bootstrap_node:      vec![],
                 resolv_conf:         "/etc/resolv.conf".to_owned(),
             },
-            cli:          CliConfig {
+            cli: CliConfig {
                 no_network:      false,
                 test_runner_url: None,
                 baker:           BakerConfig {
@@ -369,7 +375,7 @@ impl Default for Config {
                 },
             },
             bootstrapper: BootstrapperConfig { max_nodes: 10000 },
-            testrunner:   TestRunnerConfig {
+            testrunner: TestRunnerConfig {
                 listen_http_port:    8950,
                 listen_http_address: "0.0.0.0".to_owned(),
             },
@@ -410,8 +416,7 @@ impl AppPreferences {
             Ok(file) => {
                 let mut reader = BufReader::new(&file);
                 let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                if load_result.is_ok() {
-                    let mut prefs = load_result.unwrap();
+                if let Ok(mut prefs) = load_result {
                     let entry = prefs
                         .entry(APP_PREFERENCES_KEY_VERSION.to_string())
                         .or_insert_with(|| super::VERSION.to_string());
@@ -421,18 +426,19 @@ impl AppPreferences {
                         {
                             match Version::parse(vers_str) {
                                 Ok(vers) => {
-                                    let int_vers = Version::parse(super::VERSION).unwrap();
-                                    if int_vers.major != vers.major {
-                                        panic!(
-                                            "Major versions do not match {} != {}",
-                                            int_vers.major, vers.major
-                                        );
-                                    } else if vers.minor > int_vers.minor {
-                                        panic!(
-                                            "Version file too new {} > {}",
-                                            vers.to_string(),
-                                            int_vers.to_string()
-                                        );
+                                    if let Ok(int_vers) = Version::parse(super::VERSION) {
+                                        if int_vers.major != vers.major {
+                                            panic!(
+                                                "Major versions do not match {} != {}",
+                                                int_vers.major, vers.major
+                                            );
+                                        } else if vers.minor > int_vers.minor {
+                                            panic!(
+                                                "Version file too new {} > {}",
+                                                vers.to_string(),
+                                                int_vers.to_string()
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => panic!("Can't parse version in config file '{}'", e),
@@ -488,14 +494,18 @@ impl AppPreferences {
     fn calculate_config_path(override_path: &Option<String>) -> PathBuf {
         match override_path {
             Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserConfig, &APP_INFO).unwrap(),
+            None => app_root(AppDataType::UserConfig, &APP_INFO)
+                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
+                .unwrap(),
         }
     }
 
     fn calculate_data_path(override_path: &Option<String>) -> PathBuf {
         match override_path {
             Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserData, &APP_INFO).unwrap(),
+            None => app_root(AppDataType::UserData, &APP_INFO)
+                .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
+                .unwrap(),
         }
     }
 

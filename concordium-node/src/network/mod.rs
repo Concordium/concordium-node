@@ -23,6 +23,7 @@ pub mod response;
 pub mod serialization;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkId {
     pub id: u16,
 }
@@ -49,6 +50,7 @@ pub const PROTOCOL_VERSION: &str = "001";
 pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
 pub const PROTOCOL_HEADER_LENGTH: usize = 13 + 3 + PROTOCOL_SENT_TIMESTAMP_LENGTH;
 pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
+pub const PROTOCOL_SINCE_TIMESTAMP_LENGTH: usize = 16;
 pub const PROTOCOL_PORT_LENGTH: usize = 5;
 pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 64;
 pub const PROTOCOL_NETWORK_ID_LENGTH: usize = 5;
@@ -60,6 +62,9 @@ pub const PROTOCOL_MESSAGE_LENGTH: usize = PROTOCOL_HEADER_LENGTH
     + PROTOCOL_NETWORK_ID_LENGTH
     + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH
     + PROTOCOL_MESSAGE_TYPE_LENGTH;
+
+pub const PROTOCOL_WHOLE_PACKET_SIZE: usize = 4;
+pub const PROTOCOL_MAX_MESSAGE_SIZE: usize = 268_435_456;
 
 #[cfg(test)]
 // panics with "attempt to subtract with overflow" when the assertion is broken

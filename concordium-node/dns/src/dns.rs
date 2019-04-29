@@ -1,18 +1,15 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
+use crate::sys::*;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use unbound;
 
-const DNS_ANCHOR_1: &'static str = ". IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=";
-const DNS_ANCHOR_2: &'static str = ". IN DNSKEY 256 3 8 AwEAAYvxrQOOujKdZz+37P+oL4l7e35/0diH/mZITGjlp4f81ZGQK42HNxSfkiSahinPR3t0YQhjC393NX4TorSiTJy76TBWddNOkC/IaGqcb4erU+nQ75k2Lf0oIpA7qTCk3UkzYBqhKDHHAr2UditE7uFLDcoX4nBLCoaH5FtfxhUqyTlRu0RBXAEuKO+rORTFP0XgA5vlzVmXtwCkb9G8GknHuO1jVAwu3syPRVHErIbaXs1+jahvWWL+Do4wd+lA+TL3+pUk+zKTD2ncq7ZbJBZddo9T7PZjvntWJUzIHIMWZRFAjpi+V7pgh0o1KYXZgDUbiA1s9oLAL1KLSdmoIYM=";
-const DNS_ANCHOR_3: &'static str = ". IN DNSKEY 257 3 8 AwEAAagAIKlVZrpC6Ia7gEzahOR+9W29euxhJhVVLOyQbSEW0O8gcCjFFVQUTf6v58fLjwBd0YI0EzrAcQqBGCzh/RStIoO8g0NfnfL2MTJRkxoXbfDaUeVPQuYEhg37NZWAJQ9VnMVDxP/VHL496M/QZxkjf5/Efucp2gaDX6RS6CXpoY68LsvPVjR0ZSwzz1apAzvN9dlzEheX7ICJBBtuA6G3LQpzW5hOA2hzCTMjJPJ8LbqF6dsV6DoBQzgul0sGIcGOYl7OyQdXfZ57relSQageu+ipAdTTJ25AsRTAoub8ONGcLmqrAmRLKBP1dfwhYB4N7knNnulqQxA+Uk1ihz0=";
+const DNS_ANCHOR_1: &str = ". IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=";
+const DNS_ANCHOR_2: &str = ". IN DNSKEY 256 3 8 AwEAAYvxrQOOujKdZz+37P+oL4l7e35/0diH/mZITGjlp4f81ZGQK42HNxSfkiSahinPR3t0YQhjC393NX4TorSiTJy76TBWddNOkC/IaGqcb4erU+nQ75k2Lf0oIpA7qTCk3UkzYBqhKDHHAr2UditE7uFLDcoX4nBLCoaH5FtfxhUqyTlRu0RBXAEuKO+rORTFP0XgA5vlzVmXtwCkb9G8GknHuO1jVAwu3syPRVHErIbaXs1+jahvWWL+Do4wd+lA+TL3+pUk+zKTD2ncq7ZbJBZddo9T7PZjvntWJUzIHIMWZRFAjpi+V7pgh0o1KYXZgDUbiA1s9oLAL1KLSdmoIYM=";
+const DNS_ANCHOR_3: &str = ". IN DNSKEY 257 3 8 AwEAAagAIKlVZrpC6Ia7gEzahOR+9W29euxhJhVVLOyQbSEW0O8gcCjFFVQUTf6v58fLjwBd0YI0EzrAcQqBGCzh/RStIoO8g0NfnfL2MTJRkxoXbfDaUeVPQuYEhg37NZWAJQ9VnMVDxP/VHL496M/QZxkjf5/Efucp2gaDX6RS6CXpoY68LsvPVjR0ZSwzz1apAzvN9dlzEheX7ICJBBtuA6G3LQpzW5hOA2hzCTMjJPJ8LbqF6dsV6DoBQzgul0sGIcGOYl7OyQdXfZ57relSQageu+ipAdTTJ25AsRTAoub8ONGcLmqrAmRLKBP1dfwhYB4N7knNnulqQxA+Uk1ihz0=";
 
 #[derive(Copy, Clone, Debug)]
 enum LookupType {
-    ARecord    = 1,
-    AAAARecord = 28,
-    TXTRecord  = 16,
+    A    = 1,
+    AAAA = 28,
+    TXT  = 16,
 }
 
 pub fn resolve_dns_txt_record(
@@ -20,7 +17,11 @@ pub fn resolve_dns_txt_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXTRecord)
+    debug!(
+        "Attempting to resolve TXT record {} using DNS server {:?}",
+        entry, dns_servers
+    );
+    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXT)
 }
 
 pub fn resolve_dns_a_record(
@@ -28,7 +29,11 @@ pub fn resolve_dns_a_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::ARecord)
+    debug!(
+        "Attempting to resolve A record {} using DNS server {:?}",
+        entry, dns_servers
+    );
+    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::A)
 }
 
 pub fn resolve_dns_aaaa_record(
@@ -36,7 +41,11 @@ pub fn resolve_dns_aaaa_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAARecord)
+    debug!(
+        "Attempting to resolve AAAA record {} using DNS server {:?}",
+        entry, dns_servers
+    );
+    resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAA)
 }
 
 fn resolve_dns_record(
@@ -47,7 +56,7 @@ fn resolve_dns_record(
 ) -> Result<Vec<String>, String> {
     let mut res = vec![];
 
-    let ctx = unbound::Context::new().unwrap();
+    let ctx = Context::new().unwrap();
 
     if let Err(err) = ctx.add_ta(DNS_ANCHOR_1) {
         error!("error adding key 1: {}", err);
@@ -66,6 +75,7 @@ fn resolve_dns_record(
 
     // Add forward resolvers
     for ip in dns_servers {
+        debug!("Using DNS resolver: {}", ip);
         if let Err(err) = ctx.set_fwd(ip) {
             error!("error adding forwarder: {}", err);
             return Err("Error adding forwarder!".to_string());
@@ -80,21 +90,21 @@ fn resolve_dns_record(
             }
 
             match record_type {
-                LookupType::ARecord => {
+                LookupType::A => {
                     res.extend(
                         ans.data()
                             .map(|data| data_to_ipv4(data).to_string())
                             .inspect(|ip| debug!("The address is {}", ip)),
                     );
                 }
-                LookupType::AAAARecord => {
+                LookupType::AAAA => {
                     res.extend(
                         ans.data()
                             .map(|data| data_to_ipv6(data).to_string())
                             .inspect(|ip| debug!("The address is {}", ip)),
                     );
                 }
-                LookupType::TXTRecord => {
+                LookupType::TXT => {
                     for data in ans.data() {
                         match String::from_utf8(data[1..].to_vec()) {
                             Ok(read_s) => res.push(read_s),
@@ -110,6 +120,8 @@ fn resolve_dns_record(
         }
     }
 
+    debug!("The following records were found: {:?}", res);
+
     Ok(res)
 }
 
@@ -118,7 +130,11 @@ fn data_to_ipv4(data: &[u8]) -> Ipv4Addr {
     let mut octets = [0; 4];
     octets.copy_from_slice(data);
 
-    Ipv4Addr::from(octets)
+    let ip = Ipv4Addr::from(octets);
+
+    debug!("Got the following IPv4 address: {}", ip);
+
+    ip
 }
 
 fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
@@ -126,7 +142,11 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
     let mut octets = [0; 16];
     octets.copy_from_slice(data);
 
-    Ipv6Addr::from(octets)
+    let ip = Ipv6Addr::from(octets);
+
+    debug!("Got the following IPv6 address: {}", ip);
+
+    ip
 }
 
 #[cfg(test)]

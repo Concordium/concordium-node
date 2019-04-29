@@ -49,18 +49,7 @@ impl fmt::Display for PeerType {
     }
 }
 
-#[derive(Debug, Clone, Builder)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[builder(build_fn(skip))]
-pub struct P2PPeer {
-    id: P2PNodeId,
-    pub addr: SocketAddr,
-    #[builder(setter(skip))]
-    last_seen: u64,
-    peer_type: PeerType,
-}
-
-// A represetation of different stages a remote peer goes through.
+// A representation of different stages a remote peer goes through.
 // When a new peer is connected to (be it either via `connect()` or
 // `accept()` it starts in `PreHandshake` mode, and at this point all
 // we have is a specified `PeerType`. When the handshake is then
@@ -119,16 +108,32 @@ impl RemotePeer {
     }
 }
 
+#[derive(Debug, Clone, Builder)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[builder(build_fn(skip))]
+pub struct P2PPeer {
+    id: P2PNodeId,
+    pub addr: SocketAddr,
+    #[builder(setter(skip))]
+    last_seen: u64,
+    peer_type: PeerType,
+}
+
 impl P2PPeerBuilder {
     pub fn build(&mut self) -> Fallible<P2PPeer> {
         let id = self.id.unwrap_or_else(P2PNodeId::default);
         self.id(id);
 
-        if self.peer_type.is_some() && self.id.is_some() && self.addr.is_some() {
+        if let Some((peer_type, (id, addr))) = self
+            .peer_type
+            .iter()
+            .zip(self.id.iter().zip(self.addr.iter()))
+            .next()
+        {
             Ok(P2PPeer {
-                peer_type: self.peer_type.unwrap(),
-                addr: self.addr.unwrap(),
-                id,
+                peer_type: *peer_type,
+                addr:      *addr,
+                id:        *id,
                 last_seen: get_current_stamp(),
             })
         } else {
@@ -320,11 +325,11 @@ impl Hash for P2PPeer {
 }
 
 impl Ord for P2PPeer {
-    fn cmp(&self, other: &P2PPeer) -> Ordering { self.partial_cmp(other).unwrap() }
+    fn cmp(&self, other: &P2PPeer) -> Ordering { self.id.cmp(&other.id()) }
 }
 
 impl PartialOrd for P2PPeer {
-    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.id.cmp(&other.id())) }
+    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -574,7 +579,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(UCursor::build_from_view(text_msg.clone()))
+            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
             .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
@@ -603,7 +608,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(UCursor::build_from_view(text_msg.clone()))
+            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
             .build_broadcast()?;
 
         let serialized = msg.serialize();

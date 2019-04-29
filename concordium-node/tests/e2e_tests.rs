@@ -41,7 +41,7 @@ mod tests {
             connection::MessageManager,
             network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
             p2p::p2p_node::P2PNode,
-            prometheus_exporter::{PrometheusMode, PrometheusServer},
+            stats_export_service::{StatsExportService, StatsServiceMode},
         };
 
         static INIT: Once = ONCE_INIT;
@@ -133,14 +133,16 @@ mod tests {
             let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
             config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
-            let prometheus = Arc::new(RwLock::new(PrometheusServer::new(PrometheusMode::NodeMode)));
+            let export_service = Arc::new(RwLock::new(StatsExportService::new(
+                StatsServiceMode::NodeMode,
+            )));
             let mut node = P2PNode::new(
                 None,
                 &config,
                 net_tx,
                 None,
                 PeerType::Node,
-                Some(prometheus),
+                Some(export_service),
             );
 
             let mh = node.message_handler();
@@ -188,7 +190,7 @@ mod tests {
                 }
             }
 
-            Ok(payload)
+            Ok(*payload)
         }
 
         pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
@@ -203,7 +205,7 @@ mod tests {
                 }
             }
 
-            Ok(payload)
+            Ok(*payload)
         }
 
         pub fn wait_direct_message_timeout(
@@ -225,10 +227,9 @@ mod tests {
                 }
             }
 
-            payload
+            payload.map(|e| *e)
         }
 
-        #[allow(dead_code)]
         pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
             let max_wait_time = time::Duration::from_millis(250);
             loop {
@@ -281,6 +282,9 @@ mod tests {
                     }
                     NetworkRequest::LeaveNetwork(ref peer, ..) => {
                         format!("Request::LeaveNetwork({})", peer.id())
+                    }
+                    NetworkRequest::Retransmit(ref peer, ..) => {
+                        format!("Request::Retransmit({})", peer.id())
                     }
                 },
                 NetworkMessage::NetworkResponse(ref response, ..) => match response {
@@ -435,11 +439,11 @@ mod tests {
         Ok(())
     }
 
+    #[ignore]
     #[test]
     pub fn e2e_002_small_mesh_net() -> Fallible<()> {
         const MESH_NODE_COUNT: usize = 15;
         utils::setup();
-
         let port_base: u16 = utils::next_port_offset(MESH_NODE_COUNT);
         let message_counter = Counter::new(0);
         let mut peers: Vec<(P2PNode, _)> = Vec::with_capacity(MESH_NODE_COUNT);
@@ -591,7 +595,6 @@ mod tests {
         islands_mesh_test(utils::next_port_offset(10) as usize, 3, 3)
     }
 
-    #[ignore]
     #[test]
     pub fn e2e_003_big_mesh_three_islands_net() -> Fallible<()> {
         islands_mesh_test(utils::next_port_offset(20) as usize, 5, 3)
@@ -1041,12 +1044,12 @@ mod tests {
 
         let to_ban = BannedNode::ById(node_2.id());
 
-        node_1.ban_node(to_ban)?;
-        let mut reply = node_1.get_peer_stats(&vec![])?;
+        node_1.ban_node(to_ban);
+        let mut reply = node_1.get_peer_stats(&vec![]);
 
         let t1 = time::Instant::now();
         while reply.len() == 1 {
-            reply = node_1.get_peer_stats(&vec![])?;
+            reply = node_1.get_peer_stats(&vec![]);
             if time::Instant::now().duration_since(t1).as_secs() > 30 {
                 bail!("timeout");
             }

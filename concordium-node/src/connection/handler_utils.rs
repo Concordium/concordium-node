@@ -31,13 +31,7 @@ pub fn make_log_error(e: &'static str) -> FunctorError {
     FunctorError::new(vec![Error::from(fails::LogError { message: e })])
 }
 
-pub fn make_fn_error_prometheus() -> FunctorError {
-    FunctorError::new(vec![Error::from(fails::PrometheusError {
-        message: "Prometheus failed",
-    })])
-}
-
-pub fn serialize_bytes(session: &mut Box<dyn CommonSession>, pkt: &[u8]) -> FunctorResult {
+pub fn serialize_bytes(session: &mut dyn CommonSession, pkt: &[u8]) -> FunctorResult {
     // Write size of pkt into 4 bytes vector.
     let mut size_vec = Vec::with_capacity(4);
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
@@ -85,7 +79,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
         (remote_end_networks, local_peer)
     };
 
-    let session = &mut priv_conn.borrow_mut().tls_session;
+    let session = &mut *priv_conn.borrow_mut().tls_session;
     serialize_bytes(
         session,
         &NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize(),
@@ -120,17 +114,38 @@ pub fn send_peer_list(
         NetworkResponse::PeerList(local_peer.to_owned(), random_nodes).serialize()
     };
 
-    serialize_bytes(&mut priv_conn.borrow_mut().tls_session, &data)?;
+    serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
 
-    if let Some(ref prom) = priv_conn.borrow().prometheus_exporter {
-        let mut writable_prom = safe_write!(prom)?;
-        writable_prom
-            .pkt_sent_inc()
-            .map_err(|_| make_fn_error_prometheus())?;
+    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+        let mut writable_service = safe_write!(service)?;
+        writable_service.pkt_sent_inc();
     };
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
+    Ok(())
+}
+
+/// It sends a retransmit request.
+pub fn send_retransmit_request(
+    priv_conn: &RefCell<ConnectionPrivate>,
+    since_stamp: u64,
+    network_id: NetworkId,
+) -> FunctorResult {
+    let data = NetworkRequest::Retransmit(
+        priv_conn.borrow().local_peer.to_owned(),
+        since_stamp,
+        network_id,
+    )
+    .serialize();
+
+    serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
+
+    if let Some(ref service) = priv_conn.borrow().stats_export_service {
+        let mut writable_service = safe_write!(service)?;
+        writable_service.pkt_sent_inc();
+    };
+    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
     Ok(())
 }
 
@@ -144,15 +159,11 @@ pub fn update_buckets(
 
     safe_write!(buckets)?.insert_into_bucket(sender, nets);
 
-    let prometheus_exporter = &priv_conn_borrow.prometheus_exporter;
-    if let Some(ref prom) = prometheus_exporter {
-        let mut writable_prom = safe_write!(prom)?;
-        writable_prom
-            .peers_inc()
-            .map_err(|_| make_fn_error_prometheus())?;
-        writable_prom
-            .pkt_sent_inc_by(2)
-            .map_err(|_| make_fn_error_prometheus())?;
+    let stats_export_service = &priv_conn_borrow.stats_export_service;
+    if let Some(ref service) = stats_export_service {
+        let mut writable_service = safe_write!(service)?;
+        writable_service.peers_inc();
+        writable_service.pkt_sent_inc_by(2);
     };
 
     Ok(())

@@ -1,26 +1,24 @@
 mod s11n {
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeer, UCursor},
+        common::{P2PNodeId, P2PPeer, PeerType, UCursor},
         network::{
-            NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkRequest,
-            NetworkResponse,
+            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+            NetworkRequest, NetworkResponse,
         },
         p2p_capnp,
     };
 
     use ::capnp::serialize;
-    use num_bigint::BigUint;
     use std::{
         io::Cursor,
-        net::{IpAddr, Ipv4Addr, Ipv6Addr},
+        net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     };
 
     #[inline(always)]
     fn load_p2p_node_id(
         p2p_node_id: &p2p_capnp::p2_p_node_id::Reader,
     ) -> ::capnp::Result<P2PNodeId> {
-        let id = BigUint::from_bytes_le(p2p_node_id.get_id()?);
-        Ok(P2PNodeId { id })
+        Ok(P2PNodeId(p2p_node_id.get_id()))
     }
 
     #[inline(always)]
@@ -52,20 +50,19 @@ mod s11n {
     }
 
     #[inline(always)]
-    fn load_connection_type(conn_type: &p2p_capnp::ConnectionType) -> ConnectionType {
-        match conn_type {
-            p2p_capnp::ConnectionType::Node => ConnectionType::Node,
-            p2p_capnp::ConnectionType::Bootstrapper => ConnectionType::Bootstrapper,
+    fn load_peer_type(peer_type: &p2p_capnp::PeerType) -> PeerType {
+        match peer_type {
+            p2p_capnp::PeerType::Node => PeerType::Node,
+            p2p_capnp::PeerType::Bootstrapper => PeerType::Bootstrapper,
         }
     }
 
     #[inline(always)]
     fn load_p2p_peer(p2p_peer: &p2p_capnp::p2_p_peer::Reader) -> ::capnp::Result<P2PPeer> {
         Ok(P2PPeer::from(
-            load_connection_type(&p2p_peer.get_connection_type()?),
+            load_peer_type(&p2p_peer.get_peer_type()?),
             load_p2p_node_id(&p2p_peer.get_id()?)?,
-            load_ip_addr(&p2p_peer.get_ip()?)?,
-            p2p_peer.get_port(),
+            SocketAddr::new(load_ip_addr(&p2p_peer.get_ip()?)?, p2p_peer.get_port()),
         ))
     }
 
@@ -83,7 +80,7 @@ mod s11n {
         let packet = NetworkPacketBuilder::default()
             .peer(peer.to_owned())
             .message_id(msg_id.to_string())
-            .network_id(network_id)
+            .network_id(NetworkId::from(network_id))
             .message(UCursor::from(msg.to_vec()))
             .build_direct(receiver_id)
             .map_err(|err| ::capnp::Error::failed(err.to_string()))?;
@@ -197,15 +194,14 @@ mod s11n {
         node_id_builder: &mut p2p_capnp::p2_p_node_id::Builder,
         p2p_node_id: &P2PNodeId,
     ) {
-        let id: Vec<u8> = p2p_node_id.id.to_bytes_le();
-        node_id_builder.set_id(id.as_slice());
+        node_id_builder.set_id(p2p_node_id.0);
     }
 
     #[inline(always)]
-    fn write_connection_type(conn_type: ConnectionType) -> p2p_capnp::ConnectionType {
-        match conn_type {
-            ConnectionType::Node => p2p_capnp::ConnectionType::Node,
-            ConnectionType::Bootstrapper => p2p_capnp::ConnectionType::Bootstrapper,
+    fn write_peer_type(peer_type: PeerType) -> p2p_capnp::PeerType {
+        match peer_type {
+            PeerType::Node => p2p_capnp::PeerType::Node,
+            PeerType::Bootstrapper => p2p_capnp::PeerType::Bootstrapper,
         }
     }
 
@@ -265,7 +261,7 @@ mod s11n {
             let id = peer.id();
             write_p2p_node_id(&mut builder_id, &id);
         }
-        builder.set_connection_type(write_connection_type(peer.connection_type()));
+        builder.set_peer_type(write_peer_type(peer.peer_type()));
     }
 
     #[inline(always)]
@@ -311,7 +307,7 @@ mod s11n {
                     &np.peer,
                     &np.message_id,
                     receiver,
-                    np.network_id,
+                    np.network_id.id,
                     view.as_slice(),
                 );
             }
@@ -409,27 +405,33 @@ pub fn save_network_message(nm: &mut NetworkMessage) -> Vec<u8> {
         s11n::write_network_message(&mut builder, nm);
     }
     let mut buffer = vec![];
-    capnp::serialize::write_message(&mut buffer, &message).unwrap();
+    assert!(capnp::serialize::write_message(&mut buffer, &message).is_ok());
 
     buffer
 }
 
 #[cfg(test)]
 mod unit_test {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use super::{deserialize, save_network_message};
 
+    use std::str::FromStr;
+
     use crate::{
-        common::{ConnectionType, P2PNodeId, P2PPeer, P2PPeerBuilder, UCursor},
-        network::{NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+        network::{
+            NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+        },
     };
 
     fn localhost_peer() -> P2PPeer {
         P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
-            .ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-            .port(8888)
+            .peer_type(PeerType::Node)
+            .addr(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                8888,
+            ))
             .build()
             .unwrap()
     }
@@ -456,9 +458,9 @@ mod unit_test {
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
-                    .network_id(111)
+                    .network_id(NetworkId::from(111u16))
                     .message(UCursor::from(direct_message_content))
-                    .build_direct(P2PNodeId::from_string("2A").unwrap())
+                    .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
                 None,
@@ -468,19 +470,18 @@ mod unit_test {
         let mut messages_data: Vec<(Vec<u8>, NetworkMessage)> = vec![];
         for mut message in &mut messages {
             let data: Vec<u8> = save_network_message(&mut message);
-            messages_data.push((data, message));
+            messages_data.push((data, message.clone()));
         }
 
         messages_data
     }
 
     #[test]
-    fn ut_s11n_001() {
+    fn ut_s11n_capnp_001() {
         let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let local_peer = P2PPeerBuilder::default()
-            .connection_type(ConnectionType::Node)
-            .ip(local_ip)
-            .port(8888)
+            .peer_type(PeerType::Node)
+            .addr(SocketAddr::new(local_ip, 8888))
             .build()
             .unwrap();
 

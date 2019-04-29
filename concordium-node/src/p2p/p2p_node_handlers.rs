@@ -1,18 +1,17 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     sync::{mpsc::Sender, Arc, RwLock},
 };
 
 use crate::{
-    common::functor::{FunctorError, FunctorResult},
+    common::functor::FunctorResult,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
         NetworkResponse,
     },
-    prometheus_exporter::PrometheusServer,
+    stats_export_service::StatsExportService,
 };
-use failure::err_msg;
 
 /// It forwards network response message into `queue`.
 pub fn forward_network_response(
@@ -49,85 +48,38 @@ pub fn forward_network_request(
 /// been already seen and its `network id` belong to `own_networks`.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
-    prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
+    send_queue: &Arc<Sender<Arc<NetworkMessage>>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FunctorResult {
-    match pac.packet_type {
-        NetworkPacketType::DirectMessage(..) => forward_network_packet_message_common(
+    let drop_msg = match pac.packet_type {
+        NetworkPacketType::DirectMessage(..) => "Dropping duplicate direct packet",
+        NetworkPacketType::BroadcastedMessage => "Dropping duplicate broadcast packet",
+    };
+    if !is_message_already_seen(seen_messages, pac, drop_msg) {
+        forward_network_packet_message_common(
             seen_messages,
-            prometheus_exporter,
+            stats_export_service,
             own_networks,
             send_queue,
             packet_queue,
             pac,
-            "Dropping duplicate direct packet",
             blind_trust_broadcast,
-        ),
-        NetworkPacketType::BroadcastedMessage => forward_network_packet_message_common(
-            seen_messages,
-            prometheus_exporter,
-            own_networks,
-            send_queue,
-            packet_queue,
-            pac,
-            "Dropping duplicate broadcast packet",
-            blind_trust_broadcast,
-        ),
+        )
+    } else {
+        Ok(())
     }
 }
 
-/// It returns a `FunctorRunningError` with the specific message.
-fn make_fn_err(e: &'static str) -> FunctorError { FunctorError::new(vec![err_msg(e)]) }
-
-fn make_fn_error_prometheus() -> FunctorError { make_fn_err("Prometheus has failed") }
-
-/// # TODO
-/// Avoid to create a new packet instead of reusing it.
-fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
+fn is_message_already_seen(
     seen_messages: &SeenMessagesList,
-    prometheus_exporter: &Option<Arc<RwLock<PrometheusServer>>>,
-    own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
-    packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
     drop_message: &str,
-    blind_trust_broadcast: bool,
-) -> FunctorResult {
-    debug!("### Forward Broadcast Message: msgid: {}", pac.message_id);
-    if !seen_messages.contains(&pac.message_id) {
-        if safe_read!(own_networks)?.contains(&pac.network_id) {
-            debug!("Received direct message of size {}", pac.message.len());
-            let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
-
-            seen_messages.append(&pac.message_id);
-            if blind_trust_broadcast {
-                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                    safe_write!(send_queue)?.push_back(Arc::clone(&outer));
-                    if let Some(ref prom) = prometheus_exporter {
-                        safe_write!(prom)?
-                            .queue_size_inc()
-                            .map_err(|_| make_fn_error_prometheus())?;
-                    };
-                }
-            }
-
-            if let Err(e) = packet_queue.send(outer) {
-                warn!(
-                    "Forward network packet cannot be sent by incoming_pkts: {}",
-                    e.to_string()
-                );
-            }
-        } else if let Some(ref prom) = prometheus_exporter {
-            safe_write!(prom)?
-                .invalid_network_pkts_received_inc()
-                .map_err(|e| error!("{}", e))
-                .ok();
-        }
-    } else {
+) -> bool {
+    if seen_messages.contains(&pac.message_id) {
         info!(
             "{} {}/{}/{}",
             drop_message,
@@ -135,7 +87,46 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
             pac.network_id,
             pac.message_id
         );
+        true
+    } else {
+        false
     }
+}
 
+/// # TODO
+/// Avoid to create a new packet instead of reusing it.
+fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
+    seen_messages: &SeenMessagesList,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
+    own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
+    send_queue: &Arc<Sender<Arc<NetworkMessage>>>,
+    packet_queue: &Sender<Arc<NetworkMessage>>,
+    pac: &NetworkPacket,
+    blind_trust_broadcast: bool,
+) -> FunctorResult {
+    debug!("### Forward Broadcast Message: msgid: {}", pac.message_id);
+    if safe_read!(own_networks)?.contains(&pac.network_id) {
+        debug!("Received direct message of size {}", pac.message.len());
+        let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
+
+        seen_messages.append(&pac.message_id);
+        if blind_trust_broadcast {
+            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                send_or_die!(send_queue, Arc::clone(&outer));
+                if let Some(ref service) = stats_export_service {
+                    safe_write!(service)?.queue_size_inc();
+                };
+            }
+        }
+
+        if let Err(e) = packet_queue.send(outer) {
+            warn!(
+                "Forward network packet cannot be sent by incoming_pkts: {}",
+                e.to_string()
+            );
+        }
+    } else if let Some(ref service) = stats_export_service {
+        safe_write!(service)?.invalid_network_pkts_received_inc();
+    }
     Ok(())
 }

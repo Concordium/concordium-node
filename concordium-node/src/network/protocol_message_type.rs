@@ -22,6 +22,7 @@ pub enum ProtocolMessageType {
     ResponseHandshake,
     DirectMessage,
     BroadcastedMessage,
+    RequestRetransmit,
 }
 
 static PROTOCOL_MESSAGE_FROM_INT: &[ProtocolMessageType] = &[
@@ -39,6 +40,7 @@ static PROTOCOL_MESSAGE_FROM_INT: &[ProtocolMessageType] = &[
     ProtocolMessageType::ResponseHandshake,
     ProtocolMessageType::DirectMessage,
     ProtocolMessageType::BroadcastedMessage,
+    ProtocolMessageType::RequestRetransmit,
 ];
 
 impl TryFrom<u8> for ProtocolMessageType {
@@ -89,8 +91,8 @@ mod test {
             ProtocolMessageType::try_from(13).unwrap(),
             ProtocolMessageType::BroadcastedMessage
         );
-        assert_eq!(ProtocolMessageType::try_from(14).is_err(), true);
         assert_eq!(ProtocolMessageType::try_from(15).is_err(), true);
+        assert_eq!(ProtocolMessageType::try_from(16).is_err(), true);
     }
 
     #[test]
@@ -110,6 +112,7 @@ mod test {
             ProtocolMessageType::ResponseHandshake,
             ProtocolMessageType::DirectMessage,
             ProtocolMessageType::BroadcastedMessage,
+            ProtocolMessageType::RequestRetransmit,
         ];
 
         for value in &values {

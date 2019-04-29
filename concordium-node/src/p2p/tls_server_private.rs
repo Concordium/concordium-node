@@ -12,13 +12,12 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     connection::Connection,
     network::{NetworkId, NetworkMessage, NetworkRequest},
-    prometheus_exporter::PrometheusServer,
-};
-
-use crate::p2p::{
-    banned_nodes::{BannedNode, BannedNodes},
-    peer_statistics::PeerStatistic,
-    unreachable_nodes::UnreachableNodes,
+    p2p::{
+        banned_nodes::{BannedNode, BannedNodes},
+        peer_statistics::PeerStatistic,
+        unreachable_nodes::UnreachableNodes,
+    },
+    stats_export_service::StatsExportService,
 };
 
 use super::fails;
@@ -36,18 +35,18 @@ const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 /// Connections are stored in RC in two `hashmap`s in order to improve
 /// performance access for specific look-ups.
 pub struct TlsServerPrivate {
-    connections:             Vec<Rc<RefCell<Connection>>>,
-    pub to_disconnect:       Rc<RefCell<VecDeque<P2PNodeId>>>,
-    pub unreachable_nodes:   UnreachableNodes,
-    pub banned_peers:        Rc<RefCell<BannedNodes>>,
-    pub networks:            Arc<RwLock<HashSet<NetworkId>>>,
-    pub prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+    connections:              Vec<Rc<RefCell<Connection>>>,
+    pub to_disconnect:        Rc<RefCell<VecDeque<P2PNodeId>>>,
+    pub unreachable_nodes:    UnreachableNodes,
+    pub banned_peers:         Rc<RefCell<BannedNodes>>,
+    pub networks:             Arc<RwLock<HashSet<NetworkId>>>,
+    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
 }
 
 impl TlsServerPrivate {
     pub fn new(
         networks: HashSet<NetworkId>,
-        prometheus_exporter: Option<Arc<RwLock<PrometheusServer>>>,
+        stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
         TlsServerPrivate {
             connections: Vec::new(),
@@ -55,7 +54,7 @@ impl TlsServerPrivate {
             unreachable_nodes: UnreachableNodes::new(),
             banned_peers: Rc::new(RefCell::new(BannedNodes::new())),
             networks: Arc::new(RwLock::new(networks)),
-            prometheus_exporter,
+            stats_export_service,
         }
     }
 
@@ -112,15 +111,13 @@ impl TlsServerPrivate {
     /// It removes this server from `network_id` network.
     /// *Note:* Network list is shared, and this will updated all other
     /// instances.
-    pub fn remove_network(&mut self, network_id: NetworkId) -> Fallible<()> {
-        safe_write!(self.networks)?.retain(|x| *x == network_id);
-        Ok(())
+    pub fn remove_network(&mut self, network_id: NetworkId) {
+        write_or_die!(self.networks).retain(|x| *x != network_id);
     }
 
     /// It adds this server to `network_id` network.
-    pub fn add_network(&mut self, network_id: NetworkId) -> Fallible<()> {
-        safe_write!(self.networks)?.insert(network_id);
-        Ok(())
+    pub fn add_network(&mut self, network_id: NetworkId) {
+        write_or_die!(self.networks).insert(network_id);
     }
 
     /// It generates a peer statistic list for each connected peer which belongs
@@ -182,7 +179,7 @@ impl TlsServerPrivate {
     ) -> impl Iterator<Item = &Rc<RefCell<Connection>>> {
         self.connections
             .iter()
-            .filter(move |&conn| conn.borrow().remote_addr().ip() == ip)
+            .filter(move |&conn| conn.borrow().remote_peer().addr().ip() == ip)
     }
 
     fn remove_connection(&mut self, to_remove: Token) {
@@ -228,15 +225,13 @@ impl TlsServerPrivate {
                 .iter()
                 .filter_map(|rc_conn| {
                     let rc_conn_borrowed = rc_conn.borrow();
-                    if rc_conn_borrowed.remote_id().is_some() {
+                    rc_conn_borrowed.remote_id().and_then(|remote_id| {
                         Some((
-                            rc_conn_borrowed.remote_id().unwrap(),
+                            remote_id,
                             rc_conn_borrowed.token(),
                             rc_conn_borrowed.last_seen(),
                         ))
-                    } else {
-                        None
-                    }
+                    })
                 })
                 .collect();
             connection_map.sort_by_key(|p| std::cmp::Reverse((p.0, p.2)));
@@ -292,11 +287,11 @@ impl TlsServerPrivate {
                 let mut conn = rc_conn.borrow_mut();
                 wrap_connection_already_gone_as_non_fatal(conn.token(),into_err!(poll.deregister(&conn.socket)))?;
                 wrap_connection_already_gone_as_non_fatal(conn.token(), conn.shutdown())?;
-                // Report number of peers to prometheus
-                if let Some(ref prom) = &self.prometheus_exporter {
+                // Report number of peers to stats export engine
+                if let Some(ref service) = &self.stats_export_service {
                     if conn.is_post_handshake() {
-                        if let Ok(mut p) = safe_write!(prom) {
-                            p.peers_dec_by(1)?;
+                        if let Ok(mut p) = safe_write!(service) {
+                            p.peers_dec();
                         }
                     }
                 }
