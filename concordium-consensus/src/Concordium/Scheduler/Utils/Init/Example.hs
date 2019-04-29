@@ -19,7 +19,7 @@ import qualified Concordium.ID.Types as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 
-import qualified Concordium.GlobalState.BlockState as BlockState
+import qualified Concordium.GlobalState.TreeState.Basic as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import qualified Concordium.Scheduler.Runner as Runner

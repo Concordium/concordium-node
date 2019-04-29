@@ -14,7 +14,7 @@ import Control.Monad.Reader
 import Control.Monad.RWS.Strict
 
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.TreeState.Basic
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import qualified Concordium.GlobalState.Instances as Ins

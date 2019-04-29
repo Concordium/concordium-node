@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Concordium.Skov.Monad where
 
 import Control.Monad.Trans.Class
@@ -8,16 +9,17 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Concordium.Types
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
+-- import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
+import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData, BlockState)
 import Concordium.Logger
 import Concordium.TimeMonad
 
-class (Monad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
+class (Monad m, TimeMonad m, LoggerMonad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m)) => SkovMonad m where
     -- |Look up a block in the table given its hash
-    resolveBlock :: BlockHash -> m (Maybe BlockPointer)
+    resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: Block -> m BlockHash
@@ -26,10 +28,10 @@ class (Monad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- pending for it (children or finalization).
     storeBakedBlock ::
         PendingBlock        -- ^The block to add
-        -> BlockPointer     -- ^Parent pointer
-        -> BlockPointer     -- ^Last finalized pointer
-        -> BlockState       -- ^State
-        -> m BlockPointer
+        -> BlockPointer m     -- ^Parent pointer
+        -> BlockPointer m     -- ^Last finalized pointer
+        -> BlockState m       -- ^State
+        -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m ()
     -- |Add a finalization record.  This should (eventually) result
@@ -38,20 +40,20 @@ class (Monad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Determine if a block has been finalized.
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
-    lastFinalizedBlock :: m BlockPointer
+    lastFinalizedBlock :: m (BlockPointer m)
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
-    genesisBlock :: m BlockPointer
+    genesisBlock :: m (BlockPointer m)
     -- |Get the height of the highest blocks in the tree.
     -- Note: the genesis block has height 0
     getCurrentHeight :: m BlockHeight
     -- |Get the blocks in the branches of the tree grouped by descending height.
     -- That is the first element of the list is all of the blocks at 'getCurrentHeight',
     -- the next is those at @getCurrentHeight - 1@, etc.
-    branchesFromTop :: m [[BlockPointer]]
+    branchesFromTop :: m [[BlockPointer m]]
     -- |Get a list of all the blocks at a given height in the tree.
-    getBlocksAtHeight :: BlockHeight -> m [BlockPointer]
+    getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
 
 instance SkovMonad m => SkovMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock

@@ -26,6 +26,8 @@ import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
 
+import Control.Exception(assert)
+
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
@@ -52,7 +54,8 @@ checkHeader meta = do
                      let sigCheck = verifyTransactionSignature' (acc ^. accountCreationInformation & ID.aci_verifKey) -- the signature is correct.
                                                                 meta
                                                                 (transactionSignature meta)
-                     unless sigCheck (throwError IncorrectSignature))
+                     assert sigCheck (return ())) -- only use assert because we rely on the signature being valid in the transaction table
+                     -- unless sigCheck (throwError IncorrectSignature))
       -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
       -- but only for transactions for which this was done.
       -- One issue is that if we don't include the public key with the transaction then we cannot do this, which is especially problematic for transactions

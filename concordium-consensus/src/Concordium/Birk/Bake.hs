@@ -13,7 +13,6 @@ import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Transactions
 
@@ -40,7 +39,7 @@ data BakerIdentity = BakerIdentity {
 
 instance Serialize BakerIdentity where
 
-processTransactions :: TreeStateMonad m => Slot -> BlockPointer -> BlockPointer -> m ([Transaction], BlockState)
+processTransactions :: TreeStateMonad m => Slot -> BlockPointer m -> BlockPointer m -> m ([Transaction], BlockState m)
 processTransactions slot bh finalizedP = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
@@ -51,7 +50,7 @@ processTransactions slot bh finalizedP = do
   -- This is done in the method below once a block pointer is constructed.
 
 
-bakeForSlot :: (KontrolMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe BlockPointer)
+bakeForSlot :: (KontrolMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
