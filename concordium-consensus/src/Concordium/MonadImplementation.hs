@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns, ScopedTypeVariables, GeneralizedNewtypeDeriving, DerivingStrategies, DerivingVia, StandaloneDeriving, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, TemplateHaskell, LambdaCase, RecordWildCards, ViewPatterns, ScopedTypeVariables, GeneralizedNewtypeDeriving, DerivingStrategies, DerivingVia, StandaloneDeriving, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
 
 module Concordium.MonadImplementation where
 
@@ -15,24 +15,16 @@ import Data.Time.Clock.POSIX
 
 import GHC.Stack
 
-{-
-import qualified Data.Map.Strict as Map
-import qualified Data.HashMap.Strict as HM
-import qualified Data.PQueue.Prio.Min as MPQ
--}
-
 import qualified Data.Sequence as Seq
 
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.TreeState.Basic
+import qualified Concordium.GlobalState.TreeState.Basic as Basic
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Account
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
@@ -44,13 +36,13 @@ import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.TimeMonad
 
-isAncestorOf :: BlockPointer -> BlockPointer -> Bool
+isAncestorOf :: BlockPointerData bp => bp -> bp -> Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         GT -> False
         EQ -> b1 == b2
         LT -> isAncestorOf b1 (bpParent b2)
 
-updateFocusBlockTo :: (TreeStateMonad m) => BlockPointer -> m ()
+updateFocusBlockTo :: (TreeStateMonad m) => BlockPointer m -> m ()
 updateFocusBlockTo newBB = do
         oldBB <- getFocusBlock
         pts <- getPendingTransactions
@@ -71,7 +63,7 @@ emaWeight = 0.1
 
 
 -- | Called when a block is fully validated (arrives) to update the statistics.
-updateArriveStatistics :: forall m. (LoggerMonad m, TreeStateMonad m, SkovMonad m) => BlockPointer -> m ()
+updateArriveStatistics :: forall m. (LoggerMonad m, TreeStateMonad m, SkovMonad m) => BlockPointer m -> m ()
 updateArriveStatistics bp = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksVerifiedCount +~ 1
@@ -183,8 +175,8 @@ updateFinalizationStatistics = do
             " finalizationPeriodEMSD=" ++ show (sqrt <$> s ^. finalizationPeriodEMVar)
 
 data SkovListeners m = SkovListeners {
-    onBlock :: BlockPointer -> m (),
-    onFinalize :: FinalizationRecord -> BlockPointer -> m ()
+    onBlock :: BlockPointer m -> m (),
+    onFinalize :: FinalizationRecord -> BlockPointer m -> m ()
 }
 
 -- |Handle a block arriving that is dead.  That is, the block has never
@@ -259,7 +251,7 @@ processFinalizationPool sl@SkovListeners{..} = do
                     oldBranches <- getBranches
                     let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
                     let
-                        pruneTrunk :: BlockPointer -> Branches -> m ()
+                        pruneTrunk :: BlockPointer m -> Branches m -> m ()
                         pruneTrunk _ Seq.Empty = return ()
                         pruneTrunk keeper (brs Seq.:|> l) = do
                             forM_ l $ \bp -> if bp == keeper then do
@@ -319,7 +311,7 @@ addBlock sl@SkovListeners{..} pb = do
 --    of the block, and it has been added to the appropriate wait pool.
 -- 3. The operation succeeds returning @Just bp@, in which the block is added, marked alive and represented by
 --    block pointer bp.
-tryAddBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m) => PendingBlock -> MaybeT m (Maybe BlockPointer)
+tryAddBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m) => PendingBlock -> MaybeT m (Maybe (BlockPointer m))
 tryAddBlock block = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
@@ -342,7 +334,7 @@ tryAddBlock block = do
         invalidBlock = do
             logEvent Skov LLWarning $ "Block is not valid: " ++ show block
             mzero
-        tryAddLiveParent :: BlockPointer -> MaybeT m (Maybe BlockPointer)
+        tryAddLiveParent :: BlockPointer m -> MaybeT m (Maybe (BlockPointer m))
         tryAddLiveParent parentP = do -- Alive or finalized
             let lf = blockLastFinalized block
             -- Check that the blockSlot is beyond the parent slot
@@ -387,7 +379,7 @@ tryAddBlock block = do
                     -- And the block signature
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
                     let ts = blockTransactions block
-                    case executeFrom (blockSlot block) parentP lfBlockP ts of
+                    executeFrom (blockSlot block) parentP lfBlockP ts >>= \case
                         Left err -> do
                             logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                             mzero
@@ -399,10 +391,10 @@ tryAddBlock block = do
 
 blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m) 
         => PendingBlock     -- ^Block to add
-        -> BlockPointer     -- ^Parent pointer
-        -> BlockPointer     -- ^Last finalized pointer
-        -> BlockState       -- ^State
-        -> m BlockPointer
+        -> BlockPointer m     -- ^Parent pointer
+        -> BlockPointer m    -- ^Last finalized pointer
+        -> BlockState m      -- ^State
+        -> m (BlockPointer m)
 blockArrive block parentP lfBlockP gs = do
         let height = bpHeight parentP + 1
         curTime <- currentTime
@@ -429,7 +421,7 @@ blockArrive block parentP lfBlockP gs = do
                 error errMsg
         return blockP
 
-doResolveBlock :: (TreeStateMonad m) => BlockHash -> m (Maybe BlockPointer)
+doResolveBlock :: (TreeStateMonad m) => BlockHash -> m (Maybe (BlockPointer m))
 {-# INLINE doResolveBlock #-}
 doResolveBlock cbp = getBlockStatus cbp <&> \case
         Just (BlockAlive bp) -> Just bp
@@ -453,10 +445,10 @@ doStoreBlock sl block0 = do
 
 doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m) => SkovListeners m 
         -> PendingBlock     -- ^Block to add
-        -> BlockPointer     -- ^Parent pointer
-        -> BlockPointer     -- ^Last finalized pointer
-        -> BlockState       -- ^State
-        -> m BlockPointer
+        -> BlockPointer m    -- ^Parent pointer
+        -> BlockPointer m     -- ^Last finalized pointer
+        -> BlockState m      -- ^State
+        -> m (BlockPointer m)
 doStoreBakedBlock SkovListeners{..} pb parent lastFin st = do
         bp <- blockArrive pb parent lastFin st
         onBlock bp
@@ -485,13 +477,13 @@ doGetCurrentHeight = do
         branchLen <- fromIntegral . Seq.length <$> getBranches
         return $ lfHeight + branchLen
 
-doBranchesFromTop :: (TreeStateMonad m) => m [[BlockPointer]]
+doBranchesFromTop :: (TreeStateMonad m) => m [[BlockPointer m]]
 doBranchesFromTop = revSeqToList <$> getBranches
     where
         revSeqToList Seq.Empty = []
         revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
-doGetBlocksAtHeight :: (TreeStateMonad m) => BlockHeight -> m [BlockPointer]
+doGetBlocksAtHeight :: (TreeStateMonad m) => BlockHeight -> m [BlockPointer m]
 doGetBlocksAtHeight h = do
         lastFin <- getLastFinalized
         case compare h (bpHeight lastFin) of
@@ -514,8 +506,8 @@ doReceiveTransaction tr slot = do
         when added $ do
             ptrs <- getPendingTransactions
             focus <- getFocusBlock
-            let macct = getAccount (transactionSender tr) (bpState focus ^. blockAccounts)
-                nextNonce = maybe minNonce _accountNonce macct
+            macct <- getAccount (bpState focus) (transactionSender tr)
+            let nextNonce = maybe minNonce _accountNonce macct
             putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
 
 noopSkovListeners :: Monad m => SkovListeners m
@@ -524,13 +516,17 @@ noopSkovListeners = SkovListeners {
     onFinalize = \_ _ -> return ()
 }
 
+-- NOTE: Deriving via needs undecidable instances. If we could specify type instances concretely
+-- in this mechanism those would not be needed, but unfortunately this is not possible.
 newtype SimpleSkovMonad s m a = SimpleSkovMonad {runSimpleSkovMonad :: StateT s m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState s)
-    deriving (TreeStateMonad) via (SkovTreeState s (StateT s m))
+    deriving BlockStateQuery via (Basic.SkovTreeState s (StateT s m))
+    deriving BlockStateOperations via (Basic.SkovTreeState s (StateT s m))
+    deriving TreeStateMonad via (Basic.SkovTreeState s (StateT s m))
 
 -- TODO: Possibly for SimpleSkovMonad, storeBlock and finalizeBlock should be unsupported.
 -- This instance is largely to support queries on the state (for Getters).
-instance (TimeMonad m, LoggerMonad m, SkovLenses s) => SkovMonad (SimpleSkovMonad s m) where
+instance (TimeMonad m, LoggerMonad m, Basic.SkovLenses s) => SkovMonad (SimpleSkovMonad s m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock noopSkovListeners
@@ -545,24 +541,25 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s) => SkovMonad (SimpleSkovMona
     branchesFromTop = doBranchesFromTop
     getBlocksAtHeight = doGetBlocksAtHeight
 
-instance (TimeMonad m, LoggerMonad m, SkovLenses s) => KontrolMonad (SimpleSkovMonad s m)
+instance (TimeMonad m, LoggerMonad m, Basic.SkovLenses s) => KontrolMonad (SimpleSkovMonad s m)
 
 newtype FinalizationSkovMonad r w s m a = FinalizationSkovMonad {runFinalizationSkovMonad :: RWST r w s m a}
     deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState s, MonadReader r, MonadWriter w, MonadIO)
-    deriving (TreeStateMonad) via (SkovTreeState s (RWST r w s m))
-
+    deriving BlockStateQuery via (Basic.SkovTreeState s (RWST r w s m))
+    deriving BlockStateOperations via (Basic.SkovTreeState s (RWST r w s m))
+    deriving TreeStateMonad via (Basic.SkovTreeState s (RWST r w s m))
 
 sfsSkovListeners :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => SkovListeners m
 sfsSkovListeners = SkovListeners {
     onBlock = notifyBlockArrival,
     onFinalize = notifyBlockFinalized
 }
-instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) => FinalizationMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
+instance (TimeMonad m, LoggerMonad m, Basic.SkovLenses s, FinalizationStateLenses s) => FinalizationMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
     broadcastFinalizationMessage = tell . Endo . (:) . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . Endo . (:) . BroadcastFinalizationRecord
 
 
-instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) => SkovMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
+instance (TimeMonad m, LoggerMonad m, Basic.SkovLenses s, FinalizationStateLenses s) => SkovMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m) where
     {-# INLINE resolveBlock #-}
     resolveBlock = doResolveBlock
     storeBlock = doStoreBlock sfsSkovListeners
@@ -577,31 +574,33 @@ instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) =
     branchesFromTop = doBranchesFromTop
     getBlocksAtHeight = doGetBlocksAtHeight
 
-instance (TimeMonad m, LoggerMonad m, SkovLenses s, FinalizationStateLenses s) => KontrolMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m)
+instance (TimeMonad m, LoggerMonad m, Basic.SkovLenses s, FinalizationStateLenses s) => KontrolMonad (FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) s m)
 
 data SkovFinalizationState = SkovFinalizationState {
-    _sfsSkov :: SkovData,
+    _sfsSkov :: Basic.SkovData,
     _sfsFinalization :: FinalizationState
 }
 makeLenses ''SkovFinalizationState
 
-instance SkovLenses SkovFinalizationState where
+instance Basic.SkovLenses SkovFinalizationState where
     skov = sfsSkov
 
 instance FinalizationStateLenses SkovFinalizationState where
     finState = sfsFinalization
 
-initialSkovFinalizationState :: FinalizationInstance -> GenesisData -> BlockState -> SkovFinalizationState
+type FSM m = FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m
+
+initialSkovFinalizationState :: FinalizationInstance -> GenesisData -> BlockState (FSM m) -> SkovFinalizationState
 initialSkovFinalizationState finInst gen initBS = SkovFinalizationState{..}
     where
-        _sfsSkov = initialSkovData gen initBS
-        _sfsFinalization = initialFinalizationState finInst (bpHash (_skovGenesisBlockPointer _sfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
+        _sfsSkov = Basic.initialSkovData gen initBS
+        _sfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
 
 
-execFSM :: (Monad m) => FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m a -> FinalizationInstance -> GenesisData -> BlockState -> m a
+execFSM :: (Monad m) => FSM m a -> FinalizationInstance -> GenesisData -> BlockState (FSM m) -> m a
 execFSM (FinalizationSkovMonad a) fi gd bs0 = fst <$> evalRWST a fi (initialSkovFinalizationState fi gd bs0)
 
-runFSM :: FinalizationSkovMonad FinalizationInstance (Endo [FinalizationOutputEvent]) SkovFinalizationState m a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [FinalizationOutputEvent])
+runFSM :: FSM m a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [FinalizationOutputEvent])
 runFSM (FinalizationSkovMonad a) fi fs = runRWST a fi fs
 
 

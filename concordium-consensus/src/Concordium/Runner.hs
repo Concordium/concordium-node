@@ -15,7 +15,7 @@ import Data.Monoid
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.TreeState(BlockPointerData(..), BlockState)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.MonadImplementation
@@ -38,7 +38,7 @@ data OutMessage =
     | MsgFinalization BS.ByteString
     | MsgFinalizationRecord FinalizationRecord
 
-makeRunner :: LogMethod IO -> BakerIdentity -> GenesisData -> BlockState -> IO (Chan InMessage, Chan OutMessage, IORef SkovFinalizationState)
+makeRunner :: LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (FSM m) -> IO (Chan InMessage, Chan OutMessage, IORef SkovFinalizationState)
 makeRunner logm bkr gen initBS = do
         logm Runner LLInfo "Starting baker"
         inChan <- newChan

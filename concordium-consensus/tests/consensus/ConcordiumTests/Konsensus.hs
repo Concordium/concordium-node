@@ -16,7 +16,8 @@ import qualified Data.PQueue.Prio.Min as MPQ
 
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import qualified Concordium.GlobalState.TreeState as TreeState
 import Concordium.GlobalState.TreeState.Basic
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
@@ -78,14 +79,14 @@ invariantSkovData SkovData{..} = do
             let overAncestors a m
                     | a == lastFin = return m
                     | a == _skovGenesisBlockPointer = Left $ "Finalized block" ++ show bp ++ "does not descend from previous finalized block " ++ show lastFin
-                    | otherwise = overAncestors (bpParent a) (HM.insert (bpHash a) (BlockFinalized a fr) m)
-            finMap' <- overAncestors (bpParent bp) (HM.insert (bpHash bp) (BlockFinalized bp fr) finMap)
+                    | otherwise = overAncestors (bpParent a) (HM.insert (bpHash a) (TreeState.BlockFinalized a fr) m)
+            finMap' <- overAncestors (bpParent bp) (HM.insert (bpHash bp) (TreeState.BlockFinalized bp fr) finMap)
             return (finMap', bp, i+1)
         checkLive (liveMap, parents) l = do
             forM_ l $ \b -> do
                 unless (bpParent b `elem` parents) $ Left $ "Block in branches with invalid parent: " ++ show b
                 checkBinary (==) (bpHeight b) (bpHeight (bpParent b) + 1) "==" "block height" "1 + parent height"
-            let liveMap' = foldr (\b -> HM.insert (bpHash b) (BlockAlive b)) liveMap l
+            let liveMap' = foldr (\b -> HM.insert (bpHash b) (TreeState.BlockAlive b)) liveMap l
             return (liveMap', l)
         checkPending lfSlot queue (parent, children) = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
@@ -112,7 +113,7 @@ invariantSkovData SkovData{..} = do
             return (trMap', anfts')
         finSes = FinalizationSessionId (bpHash _skovGenesisBlockPointer) 0
         finCom = makeFinalizationCommittee (genesisFinalizationParameters _skovGenesisData)
-        notDead BlockDead = False
+        notDead TreeState.BlockDead = False
         notDead _ = True
 
 data DummyM a = DummyM {runDummy :: a}

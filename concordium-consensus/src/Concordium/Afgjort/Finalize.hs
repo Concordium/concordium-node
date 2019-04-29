@@ -19,9 +19,9 @@ import Control.Monad
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.TreeState(BlockPointerData(..))
 import Concordium.Kontrol.Monad
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
@@ -146,7 +146,7 @@ decodeCheckMessage com hdr bs = do
     return msg
 
 
-ancestorAtHeight :: BlockHeight -> BlockPointer -> BlockPointer
+ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
 ancestorAtHeight h bp
     | h == bpHeight bp = bp
     | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
@@ -339,7 +339,7 @@ receiveFinalizationMessage msg0 = case runGetState getFinalizationMessageHeader 
                                         liftWMVBA (receiveWMVBAMessage src (msgSignature msg) (msgBody msg))
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => BlockPointer -> m ()
+notifyBlockArrival :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m, BlockPointerData bp) => bp -> m ()
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -361,7 +361,7 @@ getMyParty = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => FinalizationRecord -> BlockPointer -> m ()
+notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1

@@ -20,9 +20,10 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
+import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.TreeState.Basic
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
