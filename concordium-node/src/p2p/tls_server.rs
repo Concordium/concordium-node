@@ -23,7 +23,7 @@ use crate::{
         P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
-    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
+    network::{Buckets, NetworkId, NetworkRequest},
     p2p::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
         tls_server_private::TlsServerPrivate,
@@ -358,13 +358,9 @@ impl TlsServer {
         }
     }
 
-    pub fn conn_event(
-        &mut self,
-        poll: &mut Poll,
-        event: &Event,
-        packet_queue: &Sender<Arc<NetworkMessage>>,
-    ) -> Fallible<()> {
-        write_or_die!(self.dptr).conn_event(poll, event, packet_queue)
+    #[inline]
+    pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
+        write_or_die!(self.dptr).conn_event(event)
     }
 
     pub fn cleanup_connections(&self, poll: &mut Poll) -> Fallible<()> {

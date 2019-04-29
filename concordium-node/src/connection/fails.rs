@@ -5,10 +5,6 @@ use failure::{Backtrace, Fail};
 pub struct MissingFieldsConnectionBuilder;
 
 #[derive(Debug, Fail)]
-#[fail(display = "Connection didn't even offer 4 bytes to read size")]
-pub struct NotEnoughBytesToRead;
-
-#[derive(Debug, Fail)]
 #[fail(display = "Message processing error: {}", message)]
 pub struct MessageProcessError {
     pub message:   &'static str,
