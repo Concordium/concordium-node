@@ -133,9 +133,9 @@ mod tests {
             let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
             config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
-            let export_service = Arc::new(RwLock::new(StatsExportService::new(
-                StatsServiceMode::NodeMode,
-            )));
+            let export_service = Arc::new(RwLock::new(
+                StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
+            ));
             let mut node = P2PNode::new(
                 None,
                 &config,

@@ -314,8 +314,11 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn start_server(&mut self, listen_addr: SocketAddr) {
-        gotham::start(listen_addr, self.router());
+    pub fn start_server(&mut self, listen_addr: SocketAddr) -> thread::JoinHandle<()> {
+        let self_clone = self.clone();
+        thread::spawn(move || {
+            gotham::start(listen_addr, self_clone.router());
+        })
     }
 
     #[cfg(feature = "instrumentation")]

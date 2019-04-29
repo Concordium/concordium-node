@@ -34,7 +34,7 @@ stages:
     - stack exec -- ghc --print-libdir
     - ( cd dns && cargo test --all --verbose --color=always)
     - ( cd consensus-sys && cargo test --all --verbose --color=always)
-    - cargo test --all --verbose --color=always
+    - cargo test --all --verbose --color=always --features=instrumentation
     - cp -rf /root/.stack/* stack/
 
 .generic-lint:
