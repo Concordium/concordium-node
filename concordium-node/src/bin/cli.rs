@@ -246,7 +246,6 @@ fn instantiate_prometheus(
             conf.prometheus.prometheus_listen_addr.parse()?,
             conf.prometheus.prometheus_listen_port,
         ));
-
         Some(Arc::new(RwLock::new(srv)))
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);

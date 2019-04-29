@@ -33,14 +33,16 @@ use p2p_client::{
     lock_or_die,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    safe_lock, utils,
+    safe_lock,
+    stats_export_service::StatsExportService,
+    utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
 use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc, Arc, Mutex, RwLock,
     },
     thread,
 };
@@ -303,6 +305,7 @@ fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppP
 fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
+    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> (P2PNode, mpsc::Receiver<Arc<NetworkMessage>>) {
     let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
@@ -310,6 +313,12 @@ fn instantiate_node(
         conf.common.id.clone()
     } else {
         app_prefs.get_config(configuration::APP_PREFERENCES_PERSISTED_NODE_ID)
+    };
+
+    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
+        Some(Arc::clone(service))
+    } else {
+        None
     };
 
     let node_sender = if conf.common.debug {
@@ -332,10 +341,11 @@ fn instantiate_node(
         pkt_in,
         node_sender,
         PeerType::Node,
-        None.broadcasting_checks,
+        arc_stats_export_service,
+        Arc::clone(&broadcasting_checks),
     );
 
-    (node, pkt_out, broadcasting_checks)
+    (node, pkt_out)
 }
 
 fn setup_process_output(
@@ -441,7 +451,7 @@ fn main() -> Fallible<()> {
         &conf.connection.bootstrap_node,
     );
 
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs);
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &None);
 
     node.spawn();
 
