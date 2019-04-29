@@ -7,7 +7,7 @@ extern crate log;
 mod tests {
     use failure::{bail, Fallible};
     use p2p_client::{
-        common::{PeerType, UCursor},
+        common::{functor::AFunctor, PeerType, UCursor},
         configuration::Config,
         connection::MessageManager,
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
@@ -36,7 +36,7 @@ mod tests {
         };
 
         use p2p_client::{
-            common::{PeerType, UCursor},
+            common::{functor::AFunctor, PeerType, UCursor},
             configuration::Config,
             connection::MessageManager,
             network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
@@ -143,6 +143,7 @@ mod tests {
                 None,
                 PeerType::Node,
                 Some(export_service),
+                Arc::new(AFunctor::new("Broadcasting_checks")),
             );
 
             let mh = node.message_handler();
@@ -967,7 +968,15 @@ mod tests {
 
         let (net_tx, _) = std::sync::mpsc::channel();
         let config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
-        let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
+        let mut node = P2PNode::new(
+            None,
+            &config,
+            net_tx,
+            None,
+            PeerType::Node,
+            None,
+            Arc::new(AFunctor::new("Broadcasting_checks")),
+        );
 
         assert_eq!(true, node.close_and_join().is_err());
         assert_eq!(true, node.close_and_join().is_err());

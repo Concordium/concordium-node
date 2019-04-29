@@ -16,7 +16,7 @@ static A: System = System;
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
-    common::{P2PNodeId, PeerType},
+    common::{functor::AFunctor, P2PNodeId, PeerType},
     configuration,
     connection::MessageManager,
     db::P2PDB,
@@ -120,6 +120,8 @@ fn main() -> Result<(), Error> {
 
     let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
+    let broadcasting_checks = Arc::new(AFunctor::new("Broadcasting_checks"));
+
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = thread::spawn(move || loop {
@@ -134,6 +136,7 @@ fn main() -> Result<(), Error> {
             Some(sender),
             PeerType::Bootstrapper,
             arc_stats_export_service,
+            Arc::clone(&broadcasting_checks),
         )))
     } else {
         Arc::new(RwLock::new(P2PNode::new(
@@ -143,6 +146,7 @@ fn main() -> Result<(), Error> {
             None,
             PeerType::Bootstrapper,
             arc_stats_export_service,
+            Arc::clone(&broadcasting_checks),
         )))
     };
 
