@@ -2,9 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::block::BakerId;
 use crate::common::*;
-
-pub type BakerId = u64;
 
 pub type LeadershipElectionNonce = Box<[u8]>;
 pub type BakerSignVerifyKey = Encoded;
@@ -42,15 +41,3 @@ pub struct VoterInfo {
 }
 
 pub type FinalizationParameters = Box<[VoterInfo]>;
-
-pub type Timestamp = u64;
-
-pub type Duration = u64;
-
-#[derive(Debug)]
-pub struct GenesisData {
-    creation_time: Timestamp,
-    slot_duration: Duration,
-    birk_parameters: BirkParameters,
-    finalization_parameters: FinalizationParameters,
-}

@@ -28,10 +28,10 @@ pub struct Nonce(NonZeroU64);
 
 pub type Slot = u64;
 
-pub type EncodedPayload = Box<[u8]>;
-
 // a type used for objects we only need to store, but not handle
 pub type Encoded = Box<[u8]>;
 
 // temporary type placeholders
 pub type AccountAddress = usize;
+pub type FinalizationMessage = usize;
+pub type FinalizationRecord = usize;
