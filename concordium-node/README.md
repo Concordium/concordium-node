@@ -11,7 +11,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/)
 * libclang >= 6.0
 * [HACL*](https://github.com/mitls/hacl-c)
-* Stack (GHC-8.4.4)
+* Stack (GHC-8.6.4)
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features

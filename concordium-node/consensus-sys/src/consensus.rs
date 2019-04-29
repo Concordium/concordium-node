@@ -254,63 +254,57 @@ impl Default for ConsensusOutQueue {
 
 impl ConsensusOutQueue {
     pub fn send_block(self, data: Block) -> Result<(), mpsc::SendError<Block>> {
-        self.sender_block.lock().unwrap().send(data)
+        safe_lock!(self.sender_block).send(data)
     }
 
     pub fn recv_block(self) -> Result<Block, mpsc::RecvError> {
-        self.receiver_block.lock().unwrap().recv()
+        safe_lock!(self.receiver_block).recv()
     }
 
     pub fn recv_timeout_block(self, timeout: Duration) -> Result<Block, mpsc::RecvTimeoutError> {
-        self.receiver_block.lock().unwrap().recv_timeout(timeout)
+        safe_lock!(self.receiver_block).recv_timeout(timeout)
     }
 
     pub fn try_recv_block(self) -> Result<Block, mpsc::TryRecvError> {
-        self.receiver_block.lock().unwrap().try_recv()
+        safe_lock!(self.receiver_block).try_recv()
     }
 
     pub fn send_finalization(self, data: Vec<u8>) -> Result<(), mpsc::SendError<Vec<u8>>> {
-        self.sender_finalization.lock().unwrap().send(data)
+        safe_lock!(self.sender_finalization).send(data)
     }
 
     pub fn recv_finalization(self) -> Result<Vec<u8>, mpsc::RecvError> {
-        self.receiver_finalization.lock().unwrap().recv()
+        safe_lock!(self.receiver_finalization).recv()
     }
 
     pub fn recv_timeout_finalization(
         self,
         timeout: Duration,
     ) -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
-        self.receiver_finalization
-            .lock()
-            .unwrap()
-            .recv_timeout(timeout)
+        safe_lock!(self.receiver_finalization).recv_timeout(timeout)
     }
 
     pub fn try_recv_finalization(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
-        self.receiver_finalization.lock().unwrap().try_recv()
+        safe_lock!(self.receiver_finalization).try_recv()
     }
 
     pub fn send_finalization_record(self, data: Vec<u8>) -> Result<(), mpsc::SendError<Vec<u8>>> {
-        self.sender_finalization_record.lock().unwrap().send(data)
+        safe_lock!(self.sender_finalization_record).send(data)
     }
 
     pub fn recv_finalization_record(self) -> Result<Vec<u8>, mpsc::RecvError> {
-        self.receiver_finalization_record.lock().unwrap().recv()
+        safe_lock!(self.receiver_finalization_record).recv()
     }
 
     pub fn recv_timeout_finalization_record(
         self,
         timeout: Duration,
     ) -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
-        self.receiver_finalization_record
-            .lock()
-            .unwrap()
-            .recv_timeout(timeout)
+        safe_lock!(self.receiver_finalization_record).recv_timeout(timeout)
     }
 
     pub fn try_recv_finalization_record(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
-        self.receiver_finalization_record.lock().unwrap().try_recv()
+        safe_lock!(self.receiver_finalization_record).try_recv()
     }
 
     pub fn clear(&self) {
@@ -368,31 +362,28 @@ impl ConsensusContainer {
     }
 
     pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
-        self.bakers.write().unwrap().insert(
+        safe_write!(self.bakers).insert(
             baker_id,
             ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data),
         );
     }
 
     pub fn stop_baker(&mut self, baker_id: u64) {
-        if let Ok(ref mut bakers) = self.bakers.write() {
-            match bakers.get_mut(&baker_id) {
-                Some(baker) => baker.stop(),
-                None => error!("Can't find baker"),
-            }
-            bakers.remove(&baker_id);
-            if bakers.is_empty() {
-                CALLBACK_QUEUE.clear();
-            }
-        } else {
-            panic!("Can't obtain lock on consensus container bakers");
+        let bakers = &mut safe_write!(self.bakers);
+        match bakers.get_mut(&baker_id) {
+            Some(baker) => baker.stop(),
+            None => error!("Can't find baker"),
+        }
+        bakers.remove(&baker_id);
+        if bakers.is_empty() {
+            CALLBACK_QUEUE.clear();
         }
     }
 
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
     pub fn send_block(&self, block: &Block) -> i64 {
-        for (id, baker) in self.bakers.read().unwrap().iter() {
+        for (id, baker) in safe_read!(self.bakers).iter() {
             if block.baker_id != *id {
                 return baker.send_block(&block);
             }
@@ -401,21 +392,21 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization(&self, pkt: &[u8]) -> i64 {
-        if let Some((_, baker)) = self.bakers.read().unwrap().iter().next() {
+        if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             baker.send_finalization(pkt.to_vec());
         }
         -1
     }
 
     pub fn send_finalization_record(&self, pkt: &[u8]) -> i64 {
-        if let Some((_, baker)) = self.bakers.read().unwrap().iter().next() {
+        if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             return baker.send_finalization_record(pkt.to_vec());
         }
         0
     }
 
     pub fn send_transaction(&self, tx: &[u8]) -> i64 {
-        if let Some((_, baker)) = self.bakers.read().unwrap().iter().next() {
+        if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             return baker.send_transaction(tx.to_vec());
         }
         -1
@@ -440,8 +431,8 @@ impl ConsensusContainer {
             );
         }
         for _ in 0..num_bakers {
-            if !GENERATED_GENESIS_DATA.read().unwrap().is_some()
-                || GENERATED_PRIVATE_DATA.read().unwrap().len() < num_bakers as usize
+            if !safe_read!(GENERATED_GENESIS_DATA).is_some()
+                || safe_read!(GENERATED_PRIVATE_DATA).len() < num_bakers as usize
             {
                 thread::sleep(time::Duration::from_millis(200));
             }
@@ -462,72 +453,56 @@ impl ConsensusContainer {
     }
 
     pub fn get_consensus_status(&self) -> Option<String> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(ConsensusBaker::get_consensus_status)
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> Option<String> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(|baker| baker.get_block_info(block_hash))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> Option<String> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(|baker| baker.get_ancestors(block_hash, amount))
     }
 
     pub fn get_branches(&self) -> Option<String> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(ConsensusBaker::get_branches)
     }
 
     pub fn get_last_final_account_list(&self) -> Option<Vec<u8>> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(ConsensusBaker::get_last_final_account_list)
     }
 
     pub fn get_last_final_instance_info(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(|baker| baker.get_last_final_instance_info(block_hash))
     }
 
     pub fn get_last_final_account_info(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(|baker| baker.get_last_final_account_info(block_hash))
     }
 
     pub fn get_last_final_instances(&self) -> Option<Vec<u8>> {
-        self.bakers
-            .read()
-            .unwrap()
+        safe_read!(self.bakers)
             .values()
             .next()
             .map(ConsensusBaker::get_last_final_instances)
@@ -537,17 +512,14 @@ impl ConsensusContainer {
 extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
     unsafe {
         let s = slice::from_raw_parts(genesis_data as *const u8, data_length as usize);
-        *GENERATED_GENESIS_DATA.write().unwrap() = Some(s.to_owned());
+        *safe_write!(GENERATED_GENESIS_DATA) = Some(s.to_owned());
     }
 }
 
 extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, data_length: i64) {
     unsafe {
         let s = slice::from_raw_parts(private_data as *const u8, data_length as usize);
-        GENERATED_PRIVATE_DATA
-            .write()
-            .unwrap()
-            .insert(baker_id, s.to_owned());
+        safe_write!(GENERATED_PRIVATE_DATA).insert(baker_id, s.to_owned());
     }
 }
 

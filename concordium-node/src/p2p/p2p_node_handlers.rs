@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     sync::{mpsc::Sender, Arc, RwLock},
 };
 
@@ -50,7 +50,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
+    send_queue: &Sender<Arc<NetworkMessage>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
@@ -99,7 +99,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &RwLock<VecDeque<Arc<NetworkMessage>>>,
+    send_queue: &Sender<Arc<NetworkMessage>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
@@ -112,7 +112,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
         seen_messages.append(&pac.message_id);
         if blind_trust_broadcast {
             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                safe_write!(send_queue)?.push_back(Arc::clone(&outer));
+                send_or_die!(send_queue, Arc::clone(&outer));
                 if let Some(ref service) = stats_export_service {
                     safe_write!(service)?.queue_size_inc();
                 };
