@@ -35,6 +35,7 @@ import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Transactions
 
 import Data.Maybe(fromJust)
 
@@ -70,8 +71,9 @@ sendTransaction chan st = do
 makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
-        sk@(Sig.KeyPair _ spk) <- Sig.newKeyPair
-        return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
+        sk                     <- Sig.newKeyPair
+        let spk = Sig.verifyKey sk in 
+            return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
 relay :: Chan OutMessage -> Chan (Either Block FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp monitor outps = loop
@@ -183,7 +185,7 @@ main = do
                     let bh = hashBlock block
                     let (Just ts) = (toTransactions (blockData block))
                     when (length ts > 0) $ do
-                        print (Concordium.Types.blockBaker block)
+                        print (blockBaker block)
                         print bh
                       
                     -- let gs = Map.findWithDefault iState (blockPointer block) gsMap
@@ -197,5 +199,4 @@ main = do
                   -- putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop gsMap
     loop Map.empty
-
 -}

@@ -4,7 +4,6 @@ module Main where
 
 import GHC.Stack
 import Control.Concurrent
-import Control.Concurrent.Chan
 import Control.Monad
 import System.Random
 import qualified Data.ByteString.Char8 as BS
@@ -12,9 +11,7 @@ import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 import System.IO
 import Data.IORef
-import Data.String
 import Lens.Micro.Platform
-import Data.Maybe
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -29,19 +26,13 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
-import Concordium.Show
 import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.MonadImplementation
 
-import qualified Data.HashMap.Strict as HashMap
-
 import Data.List(intercalate)
 
 import Concordium.Scheduler.Utils.Init.Example as Example
-import Concordium.Types
-
-import Concordium.Crypto.SHA256
 
 nAccounts :: Int
 nAccounts = 2
@@ -51,6 +42,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nAccounts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
+        trs _ _ = error "Ran out of transaction data"
 
 sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
@@ -58,6 +50,7 @@ sendTransactions chan (t : ts) = do
         -- r <- randomRIO (5000, 15000)
         threadDelay 50000
         sendTransactions chan ts
+sendTransactions _ _ = return ()
 
 makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
 makeBaker bid lot = do
@@ -81,7 +74,7 @@ relay inp sfsRef monitor outps = loop
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
                         let factor = 1 :: Double
-                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgBlockReceived block)
@@ -89,7 +82,7 @@ relay inp sfsRef monitor outps = loop
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
                         let factor = 1 :: Double
-                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgFinalizationReceived bs)
@@ -98,7 +91,7 @@ relay inp sfsRef monitor outps = loop
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
                         let factor = 1 :: Double
-                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^2) <$> randomRIO (0, 7800)
+                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
                         writeChan outp (MsgFinalizationRecordReceived fr)
@@ -108,7 +101,7 @@ removeEach :: [a] -> [(a,[a])]
 removeEach = re []
     where
         re l (x:xs) = (x,l++xs) : re (x:l) xs
-        re l [] = []
+        re _ [] = []
 
 gsToString :: BlockState -> String
 gsToString gs = intercalate "\\l" . map show $ keys
@@ -135,7 +128,7 @@ main = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
         (cin, cout, out) <- makeRunner logM bid gen iState
-        forkIO $ sendTransactions cin trans
+        _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) bis
     monitorChan <- newChan
     mapM_ (\((_,cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
