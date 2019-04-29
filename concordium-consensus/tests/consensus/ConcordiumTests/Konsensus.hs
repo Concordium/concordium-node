@@ -10,6 +10,7 @@ import qualified Data.Set as Set
 import Control.Monad
 import qualified Data.ByteString as BS
 import Lens.Micro.Platform
+import Data.Bits
 import Data.Monoid
 import Data.Time.Clock.POSIX
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -27,6 +28,8 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.MonadImplementation
+import Concordium.Afgjort.Freeze
+import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Birk.Bake
@@ -35,6 +38,8 @@ import Concordium.TimeMonad
 
 import Test.QuickCheck
 import Test.Hspec
+
+-- import Debug.Trace
 
 type Trs = HM.HashMap TransactionHash (Transaction, Slot)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
@@ -62,11 +67,6 @@ invariantSkovData SkovData{..} = do
         (pendingTrans, pendingNonces) <- walkTransactions lastFin _skovFocusBlock nonFinTrans anftNonces
         let ptt = foldr (\(tr, _) -> extendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
         checkBinary (==) ptt _skovPendingTransactions "==" "expected pending transactions" "recorded pending transactions"
-        {-
-        checkFinTrans lastFin _skovTransactionsFinalized
-        unless (null (Map.intersection _skovTransactionsPending _skovTransactionsFinalized)) $
-            Left $ "Pending and finalized transaction sets are not disjoint" -}
-        return ()
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
         checkFin (finMap, lastFin, i) (fr, bp) = do
@@ -115,6 +115,35 @@ invariantSkovData SkovData{..} = do
         notDead BlockDead = False
         notDead _ = True
 
+invariantSkovFinalization :: SkovFinalizationState -> Either String ()
+invariantSkovFinalization (SkovFinalizationState sd@SkovData{..} FinalizationState{..}) = do
+        invariantSkovData sd
+        let (_ Seq.:|> (lfr, lfb)) = _skovFinalizationList
+        checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
+        checkBinary (==) _finsHeight (bpHeight lfb + max 1 ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
+        -- This test assumes that this party should be a member of the finalization committee
+        when (null _finsCurrentRound) $ Left "No current finalization round"
+        forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+            checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
+            unless (popCount (toInteger roundDelta) == 1) $ Left $ "Round delta (" ++ show roundDelta ++ ") is not a power of 2"
+            -- Determine which blocks are valid candidates for finalization
+            -- i.e. they are at height _finsHeight and have descendants at height _finsHeight + roundDelta
+            let descendants = case _skovBranches Seq.!? (fromIntegral $ _finsHeight + roundDelta - bpHeight lfb - 1) of
+                                    Nothing -> []
+                                    Just bs -> bs
+            let
+                nthAncestor 0 b = b
+                nthAncestor n b = nthAncestor (n-1) (bpParent b)
+            let eligibleBlocks = Set.fromList $ bpHash . nthAncestor roundDelta <$> descendants
+            let justifiedProposals = Map.keysSet $ Map.filter (\(b,_,_) -> b) $ _proposals $ _freezeState $ roundWMVBA
+            checkBinary (==) justifiedProposals eligibleBlocks "==" "nominally justified finalization blocks" "actually justified finalization blocks"
+            case roundInput of
+                Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
+                Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
+    where
+        checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+        
+
 data DummyM a = DummyM {runDummy :: a}
 
 instance Functor DummyM where
@@ -133,7 +162,7 @@ instance TimeMonad DummyM where
 
 instance LoggerMonad DummyM where
     logEvent src LLError msg = error $ show src ++ ": " ++ msg
-    logEvent _ _ _ = return ()
+    logEvent _ _ _ = return () -- trace (show src ++ ": " ++ msg) $ return ()
 
 data Event
     = EBake Slot
@@ -180,7 +209,7 @@ runKonsensusTest steps states events
                 ETransaction tr -> runAndHandle (receiveTransaction tr) fi fs btargets
                 EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                 EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets
-            case invariantSkovData $ fs' ^. skov of
+            case invariantSkovFinalization fs' of
                 Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                 Right _ -> do
                     let states' = states & ix rcpt . _3 .~ fs'
@@ -197,7 +226,7 @@ runKonsensusTest steps states events
 runKonsensusTestSimple :: Int -> States -> EventPool -> Gen Property
 runKonsensusTestSimple steps states events
         | steps <= 0 || null events = return
-            (case forM_ states $ \(_, _, s) -> invariantSkovData (s ^. skov) of
+            (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
                 Left err -> counterexample ("Invariant failed: " ++ err) False
                 Right _ -> property True)
         | otherwise = do
@@ -278,6 +307,7 @@ tests = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
     it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
     it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
+    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess 1000 $ withInitialStates 2 $ runKonsensusTest 1000
     it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
-    it "4 parties, 10000 steps, check every step" $ withMaxSuccess 10 $ withInitialStates 4 $ runKonsensusTest 10000
+    it "4 parties, 10000 steps, check every step" $ withMaxSuccess 50 $ withInitialStates 4 $ runKonsensusTest 10000
     

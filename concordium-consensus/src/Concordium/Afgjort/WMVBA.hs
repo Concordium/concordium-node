@@ -12,7 +12,9 @@ module Concordium.Afgjort.WMVBA (
     runWMVBA,
     justifyWMVBAInput,
     receiveWMVBAMessage,
-    startWMVBA
+    startWMVBA,
+    -- * For testing
+    _freezeState
 ) where
 
 import Lens.Micro.Platform
