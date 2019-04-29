@@ -30,6 +30,8 @@ pub type Slot = u64;
 
 pub type EncodedPayload = Box<[u8]>;
 
-// temporary types for Signature objects
-pub type SignKey = Box<[u8]>;
-pub type VerifyKey = Box<[u8]>;
+// a type used for objects we only need to store, but not handle
+pub type Encoded = Box<[u8]>;
+
+// temporary type placeholders
+pub type AccountAddress = usize;

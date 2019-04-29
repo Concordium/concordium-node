@@ -11,12 +11,11 @@ const DEDICATED_GAS: usize = 8;
 const DEDICATED_GTU: usize = 8;
 const PAYLOAD_SIZE: usize = 2;
 
-pub type TransactionSignature = sig::Signature;
-
+#[derive(Debug)]
 pub struct TransactionHeader {
-    scheme: SchemeId,
-    sender_key: AccountVerificationKey,
-    nonce: Nonce,
+    scheme_id: Encoded,
+    sender_key: Encoded,
+    nonce: Encoded,
     gas_amount: Amount,
     finalized_pointer: BlockHash,
     sender_account: AccountAddress,
@@ -24,8 +23,9 @@ pub struct TransactionHeader {
 
 pub type TransactionHash = Sha256;
 
+#[derive(Debug)]
 pub struct Transaction {
-    signature: TransactionSignature,
+    signature: Encoded,
     header: TransactionHeader,
     payload: EncodedPayload,
     hash: TransactionHash,

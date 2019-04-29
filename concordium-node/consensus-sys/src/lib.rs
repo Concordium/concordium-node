@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[cfg(unix)]
 extern crate curryrsunix as curryrs;
 #[cfg(windows)]

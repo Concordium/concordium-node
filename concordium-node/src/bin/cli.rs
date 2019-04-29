@@ -14,7 +14,7 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use consensus_sys::consensus;
+use consensus_sys::{block, consensus};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -358,7 +358,7 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => match consensus::Block::deserialize(content) {
+                    PACKET_TYPE_CONSENSUS_BLOCK => match block::Block::deserialize(content) {
                         Some(block) => {
                             match client_utils::add_transmission_to_seenlist(
                                 client_utils::SeenTransmissionType::Block,

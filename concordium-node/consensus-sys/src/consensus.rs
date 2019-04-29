@@ -642,7 +642,7 @@ mod tests {
         let deserialized = Block::deserialize(&input);
         assert!(&deserialized.is_some());
         let block = deserialized.unwrap();
-        assert_eq!(&block.baker_id, &4);
+        assert_eq!(&block.baker_id(), &4);
     }
 
     macro_rules! bakers_test {

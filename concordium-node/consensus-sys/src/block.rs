@@ -2,10 +2,7 @@
 
 use byteorder::{NetworkEndian, ReadBytesExt};
 use chrono::prelude::Utc;
-use std::{
-    mem,
-    str,
-};
+use std::str;
 
 use crate::common::*;
 use crate::parameters::{BakerId, GenesisData};
@@ -17,30 +14,29 @@ const BAKER_ID: usize = 8;
 const NONCE: usize = SHA256 + PROOF_LENGTH;
 const LAST_FINALIZED: usize = SHA256;
 
+#[derive(Debug)]
 pub enum Block {
     Genesis(GenesisBlock),
     Normal(NormalBlock),
 }
 
-struct GenesisBlock {
+#[derive(Debug)]
+pub struct GenesisBlock {
     slot: Slot,
     data: GenesisData,
 }
 
-struct NormalBlock {
+#[derive(Debug)]
+pub struct NormalBlock {
     slot: Slot,
     pointer: BlockHash,
     baker_id: BakerId,
-    proof: BlockProof,
-    nonce: BlockNonce,
+    proof: Encoded,
+    nonce: Encoded,
     last_finalized: BlockHash,
-    signature: BlockSignature,
     transactions: Vec<Transaction>,
+    signature: Encoded,
     data: Vec<u8>, // FIXME: to be removed
-}
-
-unsafe fn sha_from_bytes(bytes: [u8; SHA256]) -> Sha256 {
-    mem::transmute::<[u8; SHA256], Sha256>(bytes)
 }
 
 impl Block {
@@ -48,35 +44,34 @@ impl Block {
         let mut curr_pos = 0;
         let slot = (&data[curr_pos..][..SLOT]).read_u64::<NetworkEndian>().ok()?;
         curr_pos += SLOT;
-        
+
         let mut pointer_bytes = [0u8; POINTER];
         pointer_bytes.copy_from_slice(&data[curr_pos..][..POINTER]);
-        let pointer = unsafe { mem::transmute::<[u8; POINTER], Sha256>(pointer_bytes) };
+        let pointer = Box::new(pointer_bytes);
         curr_pos += POINTER;
-        
+
         let baker_id = (&data[curr_pos..][..BAKER_ID]).read_u64::<NetworkEndian>().ok()?;
         curr_pos += BAKER_ID;
-        
+
         let mut proof_bytes = [0u8; PROOF_LENGTH];
         proof_bytes.copy_from_slice(&data[curr_pos..][..PROOF_LENGTH]);
-        let proof = Proof::from_bytes(&proof_bytes).ok()?;
+        let proof = Box::new(proof_bytes);
         curr_pos += PROOF_LENGTH;
-        
-        let mut nonce_sha_bytes = [0u8; SHA256];
-        nonce_sha_bytes.copy_from_slice(&data[curr_pos..][..SHA256]);
-        let nonce_sha = unsafe { mem::transmute::<[u8; SHA256], Sha256>(nonce_sha_bytes) };
-        curr_pos += SHA256;
-        let mut nonce_proof_bytes = [0u8; PROOF_LENGTH];
-        nonce_proof_bytes.copy_from_slice(&data[curr_pos..][..PROOF_LENGTH]);
-        let nonce_proof = Proof::from_bytes(&nonce_proof_bytes).ok()?;
-        let nonce = (nonce_sha, nonce_proof);
+
+        let mut nonce_bytes = [0u8; NONCE];
+        nonce_bytes.copy_from_slice(&data[curr_pos..][..SHA256]);
+        let nonce = Box::new(nonce_bytes);
         curr_pos += NONCE;
-        
+
         let mut last_finalized_bytes = [0u8; SHA256];
         last_finalized_bytes.copy_from_slice(&data[curr_pos..][..SHA256]);
-        let last_finalized = unsafe { mem::transmute::<[u8; SHA256], Sha256>(last_finalized_bytes) };
+        let last_finalized = Box::new(last_finalized_bytes);
         curr_pos += SHA256;
-        
+
+        let transactions = vec![];
+
+        let signature = Box::new([]);
+
         Some(Block::Normal(NormalBlock {
             slot,
             pointer,
@@ -84,6 +79,8 @@ impl Block {
             proof,
             nonce,
             last_finalized,
+            transactions,
+            signature,
             data: data.to_owned(),
         }))
     }
@@ -94,7 +91,7 @@ impl Block {
             Block::Normal(block) => Ok(block.data.clone()),
         }
     }
-    
+
     pub fn slot_id(&self) -> Slot {
         match self {
             Block::Genesis(block) => block.slot,
@@ -116,31 +113,10 @@ impl Block {
         }
     }
 
-    pub fn proof(&self) -> BlockProof {
-        match self {
-            Block::Genesis(_) => panic!("Genesis block has no proof"),
-            Block::Normal(block) => block.proof,
-        }
-    }
-
-    pub fn nonce(&self) -> BlockNonce {
-        match self {
-            Block::Genesis(_) => panic!("Genesis block has no block nonce"),
-            Block::Normal(block) => block.nonce,
-        }
-    }
-
     pub fn last_finalized(&self) -> BlockHash {
         match self {
             Block::Genesis(_) => panic!("Genesis block has no last finalized pointer"),
             Block::Normal(block) => block.last_finalized.clone(),
-        }
-    }
-
-    pub fn verify_signature(&self, _sig: VerifyKey) -> bool {
-        match self {
-            Block::Genesis(_) => true,
-            Block::Normal(_block) => unimplemented!(),
         }
     }
 
@@ -153,15 +129,9 @@ impl Block {
 
 }
 
-pub type BlockNonce = (Sha256, Proof); // the hash will be removed
-
 pub type BlockHeight = u64;
 
-pub type BlockProof = Proof;
-
-pub type BlockSignature = sig::Signature;
-
-pub type BlockHash = Sha256;
+pub type BlockHash = Encoded;
 
 pub struct PendingBlock {
     block: Block,
