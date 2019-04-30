@@ -2,23 +2,24 @@
 
 use byteorder::{NetworkEndian, ReadBytesExt};
 
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+};
 
-use crate::common::*;
-use crate::block::*;
+use crate::{block::*, common::*};
 
 const TRANSACTION_SIZE: usize = 2;
 const TRANSACTION_TYPE: usize = 1;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
-    scheme_id: Encoded,
-    sender_key: Encoded,
-    nonce: Encoded,
-    gas_amount: Amount,
+    scheme_id:         Encoded,
+    sender_key:        Encoded,
+    nonce:             Encoded,
+    gas_amount:        Amount,
     finalized_pointer: BlockHash,
-    //sender_account: AccountAddress,
+    // sender_account: AccountAddress,
 }
 
 pub type TransactionHash = Sha256;
@@ -26,7 +27,7 @@ pub type TransactionHash = Sha256;
 #[derive(Debug)]
 pub struct Transaction {
     transaction_type: TransactionType,
-    payload: Encoded,
+    payload:          Encoded,
 }
 
 impl Transaction {
@@ -34,22 +35,29 @@ impl Transaction {
     pub fn deserialize(bytes: &[u8]) -> Option<(Self, usize)> {
         let mut curr_pos = 0;
 
-        let transaction_size = (&bytes[curr_pos..][..TRANSACTION_SIZE]).read_u16::<NetworkEndian>().ok()? as usize;
+        let transaction_size = (&bytes[curr_pos..][..TRANSACTION_SIZE])
+            .read_u16::<NetworkEndian>()
+            .ok()? as usize;
         curr_pos += TRANSACTION_SIZE;
 
-        let transaction_type = TransactionType::try_from(bytes[curr_pos]).expect("Unknown payload type!");
+        let transaction_type =
+            TransactionType::try_from(bytes[curr_pos]).expect("Unknown payload type!");
         curr_pos += TRANSACTION_TYPE;
 
         let mut payload_bytes = Vec::with_capacity(transaction_size);
         payload_bytes.copy_from_slice(&bytes[curr_pos..][..transaction_size]);
         let payload = payload_bytes.into_boxed_slice();
 
-        Some((Transaction { transaction_type, payload }, TRANSACTION_SIZE + TRANSACTION_TYPE + transaction_size))
+        Some((
+            Transaction {
+                transaction_type,
+                payload,
+            },
+            TRANSACTION_SIZE + TRANSACTION_TYPE + transaction_size,
+        ))
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        unimplemented!()
-    }
+    pub fn serialize(&self) -> Vec<u8> { unimplemented!() }
 }
 
 #[derive(Debug)]
@@ -75,13 +83,13 @@ impl TryFrom<u8> for TransactionType {
             4 => Ok(TransactionType::UpgradeAccount),
             5 => Ok(TransactionType::UpdateCredentials),
             6 => Ok(TransactionType::UpgradeSmartContract),
-            n => Err(format!("Unsupported TransactionType ({})!", n))
+            n => Err(format!("Unsupported TransactionType ({})!", n)),
         }
     }
 }
 
 pub struct AccountNonFinalizedTransactions {
-    map: HashMap<Nonce, HashSet<Transaction>>,
+    map:        HashMap<Nonce, HashSet<Transaction>>,
     next_nonce: Nonce,
 }
 

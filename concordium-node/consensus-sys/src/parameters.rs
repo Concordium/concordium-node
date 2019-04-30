@@ -2,8 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::block::BakerId;
-use crate::common::*;
+use crate::{block::BakerId, common::*};
 
 pub type LeadershipElectionNonce = Box<[u8]>;
 pub type BakerSignVerifyKey = Encoded;
@@ -21,23 +20,23 @@ pub type VoterPower = u64;
 
 #[derive(Debug)]
 pub struct BakerInfo {
-    election_verify_key: BakerElectionVerifyKey,
+    election_verify_key:  BakerElectionVerifyKey,
     signature_verify_key: BakerSignVerifyKey,
-    lottery_power: LotteryPower,
+    lottery_power:        LotteryPower,
 }
 
 #[derive(Debug)]
 pub struct BirkParameters {
     leadership_election_nonce: Encoded,
-    election_difficulty: Encoded,
-    bakers: HashMap<BakerId, BakerInfo>,
+    election_difficulty:       Encoded,
+    bakers:                    HashMap<BakerId, BakerInfo>,
 }
 
 #[derive(Debug)]
 pub struct VoterInfo {
     verification_key: VoterVerificationKey,
-    public_key: VoterVRFPublicKey,
-    voting_power: VoterPower,
+    public_key:       VoterVRFPublicKey,
+    voting_power:     VoterPower,
 }
 
 pub type FinalizationParameters = Box<[VoterInfo]>;

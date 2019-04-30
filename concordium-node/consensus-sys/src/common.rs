@@ -1,19 +1,18 @@
-use std::hash::Hash;
-use std::num::NonZeroU64;
+use std::{hash::Hash, num::NonZeroU64};
 
-pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use ec_vrf_ed25519 as vrf;
+pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
 pub const SHA256: usize = 32;
 
 pub struct Hashed<T: Hash> {
     unhashed: T,
-    hashed: Sha256,
+    hashed:   Sha256,
 }
 
 pub struct ContractAddress {
-    index: u64,
+    index:    u64,
     subindex: u64,
 }
 

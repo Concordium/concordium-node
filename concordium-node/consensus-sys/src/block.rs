@@ -5,9 +5,7 @@ use chrono::prelude::Utc;
 
 use std::fmt;
 
-use crate::common::*;
-use crate::parameters::*;
-use crate::transaction::*;
+use crate::{common::*, parameters::*, transaction::*};
 
 const SLOT: usize = 8;
 const POINTER: usize = SHA256;
@@ -36,19 +34,21 @@ pub enum BlockData {
 }
 
 pub struct RegularData {
-    pointer: BlockHash,
-    baker_id: BakerId,
-    proof: Encoded,
-    nonce: Encoded,
+    pointer:        BlockHash,
+    baker_id:       BakerId,
+    proof:          Encoded,
+    nonce:          Encoded,
     last_finalized: BlockHash,
-    transactions: Vec<Transaction>,
-    signature: Encoded,
+    transactions:   Vec<Transaction>,
+    signature:      Encoded,
 }
 
 impl fmt::Debug for RegularData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "\n  ptr: {:0x}\n  baker_id: {}\n  proof: <{}B>\n  nonce: <{}B>\
-            \n  last_finalized: {:0x}\n  transactions: {:?}\n  signature: <{}B>\n",
+        write!(
+            f,
+            "\n  ptr: {:0x}\n  baker_id: {}\n  proof: <{}B>\n  nonce: <{}B>\n  last_finalized: \
+             {:0x}\n  transactions: {:?}\n  signature: <{}B>\n",
             (&*self.pointer).read_u64::<NetworkEndian>().unwrap(),
             self.baker_id,
             self.proof.len(),
@@ -65,7 +65,9 @@ impl Block {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
 
-        let slot = (&bytes[curr_pos..][..SLOT]).read_u64::<NetworkEndian>().ok()?;
+        let slot = (&bytes[curr_pos..][..SLOT])
+            .read_u64::<NetworkEndian>()
+            .ok()?;
         curr_pos += SLOT;
 
         let mut pointer_bytes = [0u8; POINTER];
@@ -73,7 +75,9 @@ impl Block {
         let pointer = Box::new(pointer_bytes);
         curr_pos += POINTER;
 
-        let baker_id = (&bytes[curr_pos..][..BAKER_ID]).read_u64::<NetworkEndian>().ok()?;
+        let baker_id = (&bytes[curr_pos..][..BAKER_ID])
+            .read_u64::<NetworkEndian>()
+            .ok()?;
         curr_pos += BAKER_ID;
 
         let mut proof_bytes = [0u8; PROOF_LENGTH];
@@ -91,7 +95,8 @@ impl Block {
         let last_finalized = Box::new(last_finalized_bytes);
         curr_pos += SHA256;
 
-        let transactions = deserialize_transactions(&bytes[curr_pos..bytes.len() - BLOCK_SIGNATURE])?;
+        let transactions =
+            deserialize_transactions(&bytes[curr_pos..bytes.len() - BLOCK_SIGNATURE])?;
 
         let mut signature_bytes = [0u8; BLOCK_SIGNATURE];
         signature_bytes.copy_from_slice(&bytes[bytes.len() - BLOCK_SIGNATURE..]);
@@ -138,13 +143,9 @@ impl Block {
         Ok(ret)
     }
 
-    pub fn slot_id(&self) -> Slot {
-        self.slot
-    }
+    pub fn slot_id(&self) -> Slot { self.slot }
 
-    pub fn is_genesis(&self) -> bool {
-        self.slot_id() == 0
-    }
+    pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
 
     pub fn pointer(&self) -> BlockHash {
         if let BlockData::RegularData(ref data) = self.data {
@@ -207,7 +208,9 @@ impl Block {
 fn deserialize_transactions(bytes: &[u8]) -> Option<Vec<Transaction>> {
     let mut curr_pos = 0;
 
-    let transaction_count = (&bytes[curr_pos..][..TRANSACTION_COUNT]).read_u16::<NetworkEndian>().ok()?;
+    let transaction_count = (&bytes[curr_pos..][..TRANSACTION_COUNT])
+        .read_u16::<NetworkEndian>()
+        .ok()?;
     curr_pos += TRANSACTION_COUNT;
 
     if transaction_count > 0 {
@@ -244,9 +247,9 @@ fn serialize_transactions(transactions: &[Transaction]) -> Vec<u8> {
 
 #[derive(Debug)]
 pub struct GenesisData {
-    timestamp: Timestamp,
-    slot_duration: Duration,
-    birk_parameters: BirkParameters,
+    timestamp:               Timestamp,
+    slot_duration:           Duration,
+    birk_parameters:         BirkParameters,
     finalization_parameters: FinalizationParameters,
 }
 
@@ -261,18 +264,18 @@ pub type BlockHeight = u64;
 pub type BlockHash = Encoded;
 
 pub struct PendingBlock {
-    block: Block,
-    hash: BlockHash,
+    block:    Block,
+    hash:     BlockHash,
     received: Utc,
 }
 
 pub struct BlockPointer {
-    block: Block,
-    hash: BlockHash,
+    block:  Block,
+    hash:   BlockHash,
     parent: Option<Box<BlockPointer>>,
     height: BlockHeight,
-//    state: BlockState,
-    received: Utc,
-    arrived: Utc,
+    //    state: BlockState,
+    received:          Utc,
+    arrived:           Utc,
     transaction_count: u64,
 }
