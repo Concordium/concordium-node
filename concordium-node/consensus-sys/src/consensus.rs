@@ -530,18 +530,18 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
     unsafe {
         let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
         match block_type {
-            0 => {
-                println!("{:?}\n", s);
-                match Block::deserialize(s) {
-                    Some(block) => match CALLBACK_QUEUE.clone().send_block(block) {
+            0 => match Block::deserialize(s) {
+                Some(block) => {
+                    debug!("Got a block: {:?}", block);
+                    match CALLBACK_QUEUE.clone().send_block(block) {
                         Ok(_) => {
                             debug!("Queueing {} block bytes", data_length);
                         }
                         _ => error!("Didn't queue block message properly"),
-                    },
-                    _ => error!("Deserialization of block failed!"),
+                    }
                 }
-            }
+                _ => error!("Deserialization of block failed!"),
+            },
             1 => match CALLBACK_QUEUE.clone().send_finalization(s.to_owned()) {
                 Ok(_) => {
                     debug!("Queueing {} bytes of finalization", s.len());
