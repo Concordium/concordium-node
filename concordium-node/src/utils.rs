@@ -23,11 +23,10 @@ use openssl::{
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
-#[cfg(not(target_os = "windows"))]
-use std::net::{IpAddr, SocketAddr};
 use std::{
     fs,
     io::Cursor,
+    net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
 
@@ -196,13 +195,14 @@ pub fn get_resolvers(_resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
     if !resolvers.is_empty() {
         resolvers.to_owned()
     } else {
-        let adapters = ipconfig::get_adapters().unwrap_or_else(|| {
+        let adapters = ipconfig::get_adapters().unwrap_or_else(|_| {
             panic!("Couldn't get adapters. Bailing out!");
         });
         let name_servers = adapters
             .iter()
             .flat_map(|adapter| adapter.dns_servers().iter())
-            .map(|dns_server| dns_server.to_string());
+            .map(|dns_server| dns_server.to_string())
+            .collect::<Vec<String>>();
 
         if name_servers.is_empty() {
             panic!("Could not read dns servers!");
