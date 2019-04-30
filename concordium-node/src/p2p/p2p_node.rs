@@ -280,7 +280,7 @@ impl P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
             poll: Arc::new(RwLock::new(poll)),
             id,
-            send_queue_in: Arc::new(send_queue_in),
+            send_queue_in: Arc::new(send_queue_in.clone()),
             send_queue_out: Rc::new(send_queue_out),
             internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             queue_to_super: pkt_queue,
