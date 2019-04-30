@@ -33,9 +33,6 @@ use p2p_client::{
     utils,
 };
 
-#[cfg(feature = "instrumentation")]
-use p2p_client::safe_read;
-
 use std::{
     collections::HashMap,
     fs::OpenOptions,
@@ -233,28 +230,6 @@ fn setup_baker_guards(
             }
         });
     }
-}
-
-#[cfg(feature = "instrumentation")]
-fn instantiate_prometheus(
-    conf: &configuration::Config,
-) -> Fallible<Option<Arc<RwLock<StatsExportService>>>> {
-    let prom = if conf.prometheus.prometheus_server {
-        info!("Enabling prometheus server");
-        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode)?;
-        srv.start_server(SocketAddr::new(
-            conf.prometheus.prometheus_listen_addr.parse()?,
-            conf.prometheus.prometheus_listen_port,
-        ));
-        Some(Arc::new(RwLock::new(srv)))
-    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
-        info!("Enabling prometheus push gateway at {}", push_gateway);
-        let srv = StatsExportService::new(StatsServiceMode::NodeMode)?;
-        Some(Arc::new(RwLock::new(srv)))
-    } else {
-        None
-    };
-    Ok(prom)
 }
 
 fn instantiate_node(
@@ -642,22 +617,16 @@ fn main() -> Fallible<()> {
     db_path.push("p2p.db");
     let db = P2PDB::new(db_path.as_path());
 
-    // Instantiate prometheus
-    #[cfg(feature = "instrumentation")]
-    let stats_export_service = instantiate_prometheus(&conf);
-    #[cfg(not(feature = "instrumentation"))]
-    let stats_export_service: Fallible<Option<Arc<RwLock<StatsExportService>>>> =
-        Ok(Some(Arc::new(RwLock::new(StatsExportService::new(
-            StatsServiceMode::NodeMode,
-        )))));
-
-    let stats_export_service = stats_export_service.unwrap_or_else(|e| {
-        error!(
-            "I was not able to instantiate an stats export service: {}",
-            e
-        );
-        None
-    });
+    // Instantiate stats export engine
+    let stats_export_service =
+        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
+            .unwrap_or_else(|e| {
+                error!(
+                    "I was not able to instantiate an stats export service: {}",
+                    e
+                );
+                None
+            });
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -698,7 +667,7 @@ fn main() -> Fallible<()> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
     // Start the P2PNode
     //
@@ -802,7 +771,7 @@ fn create_connections_from_config(
 }
 
 #[cfg(feature = "instrumentation")]
-fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &String, pac: &NetworkPacket) {
+fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
     info!("Sending information to test runner");
     match reqwest::get(&format!(
         "{}/register/{}/{}",
@@ -819,32 +788,6 @@ fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &String, pac: &Net
 
 #[cfg(not(feature = "instrumentation"))]
 fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
-
-#[cfg(feature = "instrumentation")]
-fn start_push_gateway(
-    conf: &configuration::PrometheusConfig,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
-    id: P2PNodeId,
-) -> Fallible<()> {
-    if let Some(ref service) = stats_export_service {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
-            } else {
-                id.to_string()
-            };
-            safe_read!(service)?.start_push_to_gateway(
-                prom_push_addy.clone(),
-                conf.prometheus_push_interval,
-                conf.prometheus_job_name.clone(),
-                instance_name,
-                conf.prometheus_push_username.clone(),
-                conf.prometheus_push_password.clone(),
-            )
-        }
-    }
-    Ok(())
-}
 
 fn send_retransmit_packet(
     node: &mut P2PNode,

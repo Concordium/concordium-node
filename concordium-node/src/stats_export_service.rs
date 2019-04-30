@@ -1,6 +1,5 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
-        use failure::Fallible;
         use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
         use std::{net::SocketAddr, thread, time, sync::Mutex};
         use gotham::{
@@ -16,6 +15,7 @@ cfg_if! {
         use std::sync::atomic::{AtomicUsize, Ordering};
     }
 }
+use failure::Fallible;
 use std::{fmt, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Copy)]
@@ -159,8 +159,8 @@ impl StatsExportService {
     }
 
     #[cfg(not(feature = "instrumentation"))]
-    pub fn new(mode: StatsServiceMode) -> Self {
-        StatsExportService {
+    pub fn new(mode: StatsServiceMode) -> Fallible<Self> {
+        Ok(StatsExportService {
             mode,
             pkts_received_counter: Arc::new(AtomicUsize::new(0)),
             pkts_sent_counter: Arc::new(AtomicUsize::new(0)),
@@ -171,7 +171,7 @@ impl StatsExportService {
             invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
             queue_size: Arc::new(AtomicUsize::new(0)),
             queue_resent: Arc::new(AtomicUsize::new(0)),
-        }
+        })
     }
 
     pub fn peers_inc(&mut self) {

@@ -34,6 +34,9 @@ stages:
     - stack exec -- ghc --print-libdir
     - ( cd dns && cargo test --all --verbose --color=always)
     - ( cd consensus-sys && cargo test --all --verbose --color=always)
+    - echo "Running tests without instrumentation"
+    - cargo test --all --verbose --color=always
+    - echo "Running tests with instrumentation"
     - cargo test --all --verbose --color=always --features=instrumentation
     - cp -rf /root/.stack/* stack/
 
@@ -74,4 +77,5 @@ stages:
     - stack exec -- ghc --print-libdir
     - rustup component add clippy
     - cargo clippy --color=always --all
+    - cargo clippy --features=instrumentation --color=always --all
     - cp -rf /root/.stack/* stack/
