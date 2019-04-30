@@ -46,6 +46,10 @@ instance SchedulerMonad SchedulerImplementation where
   {-# INLINE getAccount #-}
   getAccount addr = Acc.getAccount addr <$> use blockAccounts
 
+  {-# INLINE accountRegIdExists #-}
+  accountRegIdExists regid =
+    Acc.regIdExists regid <$> use blockAccounts
+
   commitStateAndAccountChanges cs = do
     s <- get
     -- INVARIANT: the invariant which should hold at this point is that any

@@ -60,6 +60,9 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     put s'
     return res
 
+  accountRegIdExists regid =
+    lift . flip bsoRegIdExists regid =<< get
+
   commitModule mhash iface viface = do
     (res, s') <- lift . (\s -> bsoPutNewModule s mhash iface viface) =<< get
     put s'

@@ -23,6 +23,8 @@ import Lens.Micro.Platform
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 
+import qualified Concordium.ID.Types as ID
+
 -- * Scheduler monad
 
 -- |Information needed to execute transactions.
@@ -33,6 +35,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- |Get the amount of funds at the particular account address.
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getAccount :: AccountAddress -> m (Maybe Account)
+
+  -- |Check whether an account with given registration id exists.
+  accountRegIdExists :: ID.AccountRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution.

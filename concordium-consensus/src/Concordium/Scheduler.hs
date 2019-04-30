@@ -132,8 +132,11 @@ dispatch msg = do
                     refundEnergy (thSender meta) energy'
                     return $ TxValid (TxReject reason)
   
-            CreateAccount aci -> 
-              if AH.verifyAccount aci
+            CreateAccount aci -> do
+              -- first check if account with given registration does not already exist.
+              ridExists <- accountRegIdExists (ID.aci_regId aci)
+              if ridExists then return $ TxValid (TxReject (DuplicateAccountRegistrationID (ID.aci_regId aci)))
+              else if AH.verifyAccount aci
               then do -- if account information is correct then we create the account with initial nonce 'minNonce'
                 let aaddr = AH.accountAddress aci
                 let account = Account { _accountAddress = aaddr
