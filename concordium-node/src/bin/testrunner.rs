@@ -39,7 +39,6 @@ use p2p_client::{
 };
 use rand::{distributions::Standard, thread_rng, Rng};
 use std::{
-    net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex, RwLock,
@@ -479,13 +478,15 @@ fn main() -> Fallible<()> {
 
     for connect_to in conf.connection.connect_to {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {
-            Some((ip, port)) => {
-                info!("Connecting to peer {}", &connect_to);
-                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
-                    .map_err(|e| error!("{}", e))
-                    .ok();
+            Ok(addrs) => {
+                for addr in addrs {
+                    info!("Connecting to peer {}", addr);
+                    node.connect(PeerType::Node, addr, None)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
+                }
             }
-            None => error!("Can't parse IP to connect to '{}'", &connect_to),
+            Err(err) => error!("{}", err),
         }
     }
 
@@ -493,8 +494,7 @@ fn main() -> Fallible<()> {
         info!("Attempting to bootstrap");
         match bootstrap_nodes {
             Ok(nodes) => {
-                for (ip, port) in nodes {
-                    let addr = SocketAddr::new(ip, port);
+                for addr in nodes {
                     info!("Found bootstrap node: {}", addr);
                     node.connect(PeerType::Bootstrapper, addr, None)
                         .map_err(|e| error!("{}", e))
