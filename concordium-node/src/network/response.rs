@@ -1,8 +1,10 @@
 use crate::{
     common::P2PPeer,
-    network::{NetworkId, ProtocolMessageType},
+    network::{NetworkId, ProtocolMessageType, AsProtocolMessageType, serialization::{ Serializable, Archive }},
 };
-use std::{collections::HashSet, string::ToString};
+
+use failure::Fallible;
+use std::{collections::HashSet };
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -13,40 +15,27 @@ pub enum NetworkResponse {
     Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
 }
 
-impl NetworkResponse {
-    pub fn serialize(&self) -> Vec<u8> {
+impl AsProtocolMessageType for NetworkResponse {
+    fn protocol_type(&self) -> ProtocolMessageType {
         match self {
-            NetworkResponse::Pong(_) => serialize_message!(ProtocolMessageType::ResponsePong, ""),
-            NetworkResponse::FindNode(_, peers) => serialize_message!(
-                ProtocolMessageType::ResponseFindNode,
-                format!(
-                    "{:03}{}",
-                    peers.len(),
-                    peers.iter().map(P2PPeer::serialize).collect::<String>()
-                )
-            ),
-            NetworkResponse::PeerList(_, peers) => serialize_message!(
-                ProtocolMessageType::ResponsePeersList,
-                format!(
-                    "{:03}{}",
-                    peers.len(),
-                    peers.iter().map(P2PPeer::serialize).collect::<String>()
-                )
-            ),
+            NetworkResponse::Pong(..) => ProtocolMessageType::ResponsePong,
+            NetworkResponse::FindNode(..) => ProtocolMessageType::ResponseFindNode,
+            NetworkResponse::PeerList(..) => ProtocolMessageType::ResponsePeersList,
+            NetworkResponse::Handshake(..) => ProtocolMessageType::ResponseHandshake,
+        }
+    }
+}
+
+impl Serializable for NetworkResponse {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+        match self {
+            NetworkResponse::Pong(..) => Ok(()),
+            NetworkResponse::FindNode(.., ref peers) |
+            NetworkResponse::PeerList(.., ref peers) => peers.serialize( archive),
             NetworkResponse::Handshake(me, networks, zk) => {
-                let mut pkt = serialize_message!(
-                    ProtocolMessageType::ResponseHandshake,
-                    format!(
-                        "{}{:05}{:05}{}{:010}",
-                        me.id(),
-                        me.port(),
-                        networks.len(),
-                        networks.iter().map(ToString::to_string).collect::<String>(),
-                        zk.len()
-                    )
-                );
-                pkt.extend_from_slice(zk.as_slice());
-                pkt
+                me.serialize( archive)?;
+                networks.serialize( archive)?;
+                zk.serialize( archive)
             }
         }
     }

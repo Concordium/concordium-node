@@ -1,12 +1,15 @@
 use crate::{
-    common::{deserialize_ip, serialize_ip, ucursor::UCursor, P2PNodeId},
-    network::PROTOCOL_NODE_ID_LENGTH,
+    common::{ P2PNodeId},
+    network::{
+        serialization::{ Serializable, Archive },
+    }
 };
-use failure::{bail, Fallible};
+
+use failure::Fallible;
+
 use std::{
     collections::HashSet,
     net::IpAddr,
-    str::{self, FromStr},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -21,38 +24,6 @@ pub enum BannedNode {
 }
 
 impl BannedNode {
-    pub fn serialize(&self) -> String {
-        match self {
-            BannedNode::ById(id) => format!("0{}", id.to_string()),
-            BannedNode::ByAddr(addr) => format!("1{}", serialize_ip(*addr)),
-        }
-    }
-
-    /// Consumes [partially] a `UCursor` for deserializing a `BannedNode`
-    pub fn deserialize(pkt: &mut UCursor) -> Fallible<BannedNode> {
-        let view = pkt.read_into_view(1)?;
-        let buf = view.as_slice();
-
-        let banned_node = match buf {
-            b"0" => BannedNode::ById({
-                let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-                ensure!(
-                    pkt.len() >= pkt.position() + min_packet_size as u64,
-                    "Node ID chunk needs {} bytes",
-                    min_packet_size
-                );
-
-                let view = pkt.read_into_view(min_packet_size)?;
-                let buf = view.as_slice();
-                P2PNodeId::from_str(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?
-            }),
-            b"1" => BannedNode::ByAddr(deserialize_ip(pkt)?),
-            _ => bail!("Unrecognized slice for deserializing BannedNode"),
-        };
-
-        Ok(banned_node)
-    }
-
     pub fn to_db_repr(&self) -> (Option<String>, Option<String>) {
         match self {
             BannedNode::ById(id) => (Some(id.to_string()), None),
@@ -105,6 +76,50 @@ impl BannedNodes {
     /// Lookup of a tuple `(IdAddr, u16)`
     pub fn is_addr_banned(&self, addr: IpAddr) -> bool { self.by_addr.contains(&addr) }
 }
+
+impl Serializable for BannedNode {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+        match self {
+            BannedNode::ById(id) => {
+                archive.write_u8( 0)?;
+                id.serialize( archive)
+            },
+            BannedNode::ByAddr(addr) => {
+                archive.write_u8( 1)?;
+                addr.serialize( archive)
+            }
+        }
+    }
+}
+
+    /*
+    /// Consumes [partially] a `UCursor` for deserializing a `BannedNode`
+    pub fn deserialize(pkt: &mut UCursor) -> Fallible<BannedNode> {
+        let view = pkt.read_into_view(1)?;
+        let buf = view.as_slice();
+
+        let banned_node = match buf {
+            b"0" => BannedNode::ById({
+                let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
+                ensure!(
+                    pkt.len() >= pkt.position() + min_packet_size as u64,
+                    "Node ID chunk needs {} bytes",
+                    min_packet_size
+                );
+
+                let view = pkt.read_into_view(min_packet_size)?;
+                let buf = view.as_slice();
+                P2PNodeId::from_str(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?
+            }),
+            b"1" => BannedNode::ByAddr(deserialize_ip(pkt)?),
+            _ => bail!("Unrecognized slice for deserializing BannedNode"),
+        };
+
+        Ok(banned_node)
+    }*/
+
+
+
 
 #[cfg(test)]
 pub mod tests {

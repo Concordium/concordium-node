@@ -9,3 +9,9 @@ pub mod cbor;
 
 #[cfg(feature = "s11n_capnp")]
 pub mod cap;
+
+pub mod serializable;
+
+pub use self::{
+    serializable::{ Serializable, Deserializable, Archive },
+};

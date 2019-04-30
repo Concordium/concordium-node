@@ -25,6 +25,11 @@ pub enum ProtocolMessageType {
     RequestRetransmit,
 }
 
+
+pub trait AsProtocolMessageType {
+    fn protocol_type(&self) -> ProtocolMessageType;
+}
+
 static PROTOCOL_MESSAGE_FROM_INT: &[ProtocolMessageType] = &[
     ProtocolMessageType::RequestPing,
     ProtocolMessageType::RequestFindNode,

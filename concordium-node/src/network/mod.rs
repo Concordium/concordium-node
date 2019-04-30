@@ -1,5 +1,3 @@
-use std::fmt;
-
 macro_rules! serialize_message {
     ($msg_type:expr, $content:expr) => {
         format!(
@@ -21,32 +19,21 @@ pub mod protocol_message_type;
 pub mod request;
 pub mod response;
 pub mod serialization;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub struct NetworkId {
-    pub id: u16,
-}
-
-impl From<u16> for NetworkId {
-    fn from(id: u16) -> Self { NetworkId { id } }
-}
-
-impl fmt::Display for NetworkId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:05}", self.id) }
-}
+pub mod network_id;
 
 pub use self::{
     buckets::Buckets,
     message::NetworkMessage,
     packet::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
-    protocol_message_type::{ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH},
+    protocol_message_type::{ProtocolMessageType, AsProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH},
     request::NetworkRequest,
     response::NetworkResponse,
+    network_id::NetworkId
 };
 
 pub const PROTOCOL_NAME: &str = "CONCORDIUMP2P";
 pub const PROTOCOL_VERSION: &str = "001";
+pub const PROTOCOL_VERSION_2: u16 = 1;
 pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
 pub const PROTOCOL_HEADER_LENGTH: usize = 13 + 3 + PROTOCOL_SENT_TIMESTAMP_LENGTH;
 pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;

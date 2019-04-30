@@ -3,12 +3,11 @@ use crate::{
     common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
-        NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        NetworkId, ProtocolMessageType, AsProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
-        PROTOCOL_SINCE_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
+        PROTOCOL_SINCE_TIMESTAMP_LENGTH, PROTOCOL_VERSION, PROTOCOL_VERSION_2
     },
-    p2p::banned_nodes::BannedNode,
 };
 use std::{convert::TryFrom, str::FromStr};
 
@@ -228,7 +227,8 @@ fn deserialize_list_of_peers(pkt: &mut UCursor) -> Fallible<Vec<P2PPeer>> {
     let mut peers = Vec::with_capacity(peers_count);
 
     for _ in 0..peers_count {
-        peers.push(P2PPeer::deserialize(pkt)?);
+        // @TODO reenable
+        // peers.push(P2PPeer::deserialize(pkt)?);
     }
 
     Ok(peers)
@@ -524,12 +524,17 @@ impl NetworkMessage {
                 timestamp,
                 &mut pkt,
             ),
+            ProtocolMessageType::RequestBanNode | ProtocolMessageType::RequestUnbanNode =>
+                Ok( NetworkMessage::UnknownMessage),
+            // @TODO reenable
+            /*
             ProtocolMessageType::RequestBanNode => Ok(NetworkMessage::NetworkRequest(
                 NetworkRequest::BanNode(
                     peer.post_handshake_peer_or_else(|| {
                         err_msg("BanNode Request requires a handshake to be completed first")
                     })?,
-                    BannedNode::deserialize(&mut pkt)?,
+                    // @TODO reenable
+                    // BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
@@ -539,11 +544,12 @@ impl NetworkMessage {
                     peer.post_handshake_peer_or_else(|| {
                         err_msg("UnbanNode Request requires a handshake to be completed first")
                     })?,
-                    BannedNode::deserialize(&mut pkt)?,
+                    // @TODO reenable
+                    // BannedNode::deserialize(&mut pkt)?,
                 ),
                 Some(timestamp),
                 Some(get_current_stamp()),
-            )),
+            )),*/
             ProtocolMessageType::RequestJoinNetwork => deserialize_request_join_network(
                 peer.post_handshake_peer_or_else(|| {
                     err_msg("Join Network Request requires a handshake to be completed first")
@@ -605,6 +611,7 @@ impl NetworkMessage {
             }
         }
     }
+
 }
 
 /// This implementation ignores the reception time stamp.
@@ -628,6 +635,62 @@ impl PartialEq for NetworkMessage {
             _ => false,
         }
     }
+}
+
+use crate::network::serialization::{ Serializable, Deserializable, Archive };
+
+impl AsProtocolMessageType for NetworkMessage {
+    fn protocol_type(&self) -> ProtocolMessageType {
+        match self {
+            NetworkMessage::NetworkRequest(ref request, ..) => request.protocol_type(),
+            NetworkMessage::NetworkResponse(ref response, ..) => response.protocol_type(),
+            NetworkMessage::NetworkPacket(ref packet, ..) => packet.protocol_type(),
+            NetworkMessage::UnknownMessage
+            | NetworkMessage::InvalidMessage => panic!( "Invalid or Unknown messages are not serializable")
+        }
+    }
+}
+
+impl Serializable for NetworkMessage {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+        where A: Archive {
+        archive.write_str( PROTOCOL_NAME)?;
+        archive.write_u16( PROTOCOL_VERSION_2)?;
+        archive.write_u64( get_current_stamp as u64)?;
+        archive.write_u8( self.protocol_type() as u8)?;
+        match self {
+            NetworkMessage::NetworkRequest(ref request, ..) => request.serialize( archive),
+            NetworkMessage::NetworkResponse(ref response, ..) => response.serialize( archive),
+            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serialize( archive),
+            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage")
+        }
+    }
+}
+
+impl Deserializable for NetworkMessage {
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage> where A: Archive {
+        /*
+        archive.tag_str( PROTOCOL_NAME)?;
+        archive.tag_number( PROTOCOL_VERSION_2)?;
+        let timestamp :u64 = archive.read_u64()?;
+        let protocol_type :ProtocolMessageType = ProtocolMessageType::try_from( archive.read_u8()?)?;
+        match protocol_type {
+            ProtocolMessageType::RequestPing | ProtocolMessageType::RequestFindNode | ProtocolMessageType::RequestHandshake | ProtocolMessageType::RequestGetPeers | ProtocolMessageType::RequestBanNode | ProtocolMessageType::RequestUnbanNode | ProtocolMessageType::RequestJoinNetwork | ProtocolMessageType::RequestLeaveNetwork | ProtocolMessageType::RequestRetransmit => {
+                let request = NetworkRequest::deserialize(archive)?;
+                NetworkMessage::NetworkRequest( request, Some(timestamp), Some(get_current_stamp()))
+            },
+            ProtocolMessageType::ResponsePong | ProtocolMessageType::ResponseFindNode | ProtocolMessageType::ResponsePeersList | ProtocolMessageType::ResponseHandshake => {
+                let response = NetworkResponse::deserialize(archive)?;
+                NetworkMessage::NetworkResponse( response, Some(timestamp), Some(get_current_stamp()))
+            },
+            ProtocolMessageType::DirectMessage | ProtocolMessageType::BroadcastedMessage => {
+                let packet = NetworkPacket::deserialize(archive)?;
+                NetworkMessage::NetworkPacket( packet, Some(timestamp), Some(get_current_stamp()))
+            }
+        }*/
+        Ok( NetworkMessage::UnknownMessage)
+    }
+
 }
 
 #[cfg(test)]
@@ -677,11 +740,13 @@ mod unit_test {
                 .message(Box::new(UCursor::from(vec![])))
                 .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
-            let mut h = pkt.serialize();
+
+            /*let mut h = pkt.serialize();
 
             // chop the last 10 bytes which are the length of the message
             h.truncate(h.len() - 10);
-            h
+            h*/
+            vec![]
         };
 
         // Write header and content size

@@ -7,7 +7,10 @@ use std::{
 use failure::Fallible;
 use tempfile::NamedTempFile;
 
-use crate::common::ContainerView;
+use crate::{
+    common::ContainerView,
+    network::serialization::{ Serializable, Archive }
+};
 
 #[derive(Debug)]
 pub struct UCursorFile {
@@ -324,6 +327,13 @@ impl From<Vec<u8>> for UCursor {
 impl From<ContainerView> for UCursor {
     #[inline]
     fn from(view: ContainerView) -> Self { UCursor::build_from_view(view) }
+}
+
+impl Serializable for UCursor {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+        // @TODO
+        Ok(())
+    }
 }
 
 #[cfg(feature = "s11n_serde")]

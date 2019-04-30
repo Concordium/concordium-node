@@ -11,7 +11,7 @@ use std::{
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     connection::Connection,
-    network::{NetworkId, NetworkMessage, NetworkRequest},
+    network::{NetworkId, NetworkMessage },
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
         peer_statistics::PeerStatistic,
@@ -333,9 +333,11 @@ impl TlsServerPrivate {
                 let mut conn = rc_conn.borrow_mut();
 
                 let local_peer = conn.local_peer();
-                conn.serialize_bytes(&NetworkRequest::Ping(local_peer).serialize())
-                    .map_err(|e| error!("{}", e))
-                    .ok();
+
+                // @TODO reenable
+                // conn.serialize_bytes(&NetworkRequest::Ping(local_peer).serialize())
+                //    .map_err(|e| error!("{}", e))
+                //    .ok();
                 conn.set_measured_ping_sent();
                 conn.set_last_ping_sent();
             });

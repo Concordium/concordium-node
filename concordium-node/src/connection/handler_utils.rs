@@ -8,7 +8,7 @@ use crate::{
         P2PPeer,
     },
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
-    network::{NetworkId, NetworkRequest, NetworkResponse},
+    network::{NetworkId },
 };
 use std::sync::atomic::Ordering;
 
@@ -80,12 +80,13 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
     };
 
     let session = &mut *priv_conn.borrow_mut().tls_session;
-    serialize_bytes(
-        session,
-        &NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize(),
-    )?;
+    // @TODO reenable
+    // let data = NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize();
+    let data = [];
+    serialize_bytes( session, &data)?;
 
-    serialize_bytes(session, &NetworkRequest::Ping(local_peer).serialize())?;
+    // @TODO reenable
+    // serialize_bytes(session, &NetworkRequest::Ping(local_peer).serialize())?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
@@ -111,7 +112,9 @@ pub fn send_peer_list(
         );
 
         let local_peer = &priv_conn_borrow.local_peer;
-        NetworkResponse::PeerList(local_peer.to_owned(), random_nodes).serialize()
+        // @TODO reenable
+        // NetworkResponse::PeerList(local_peer.to_owned(), random_nodes).serialize()
+        []
     };
 
     serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
@@ -132,12 +135,16 @@ pub fn send_retransmit_request(
     since_stamp: u64,
     network_id: NetworkId,
 ) -> FunctorResult {
+    // @TODO reenable
+    /*
     let data = NetworkRequest::Retransmit(
         priv_conn.borrow().local_peer.to_owned(),
         since_stamp,
         network_id,
     )
     .serialize();
+    */
+    let data = [];
 
     serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
 

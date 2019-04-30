@@ -566,7 +566,9 @@ impl P2PNode {
             match unbanned_peer {
                 BannedNode::ById(id) => {
                     if peer.id() != *id {
-                        let data = inner_pkt.serialize();
+                        // @TODO reenable that
+                        // let data = inner_pkt.serialize();
+                        let data = [];
                         let no_filter = |_: &Connection| true;
 
                         write_or_die!(self.tls_server).send_over_all_connections(
@@ -577,7 +579,9 @@ impl P2PNode {
                     }
                 }
                 _ => {
-                    let data = inner_pkt.serialize();
+                    // @TODO reenable that
+                    // let data = inner_pkt.serialize();
+                    let data = [];
                     let no_filter = |_: &Connection| true;
 
                     write_or_die!(self.tls_server).send_over_all_connections(
@@ -594,7 +598,9 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
-            let data = inner_pkt.serialize();
+            // @TODO reenable that
+            // let data = inner_pkt.serialize();
+            let data = [];
             let retain = |conn: &Connection| match to_ban {
                 BannedNode::ById(id) => conn.remote_peer().peer().map_or(true, |x| x.id() != *id),
                 BannedNode::ByAddr(addr) => {
@@ -623,7 +629,9 @@ impl P2PNode {
 
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    let data = inner_pkt.serialize();
+                    // @TODO reenable
+                    // let data = inner_pkt.serialize();
+                    let data = [];
                     match inner_pkt.packet_type {
                         NetworkPacketType::DirectMessage(ref receiver) => {
                             let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
@@ -653,7 +661,9 @@ impl P2PNode {
                     ref inner_pkt @ NetworkRequest::GetPeers(..),
                     ..
                 ) => {
-                    let data = inner_pkt.serialize();
+                    // @TODO reenable that
+                    // let data = inner_pkt.serialize();
+                    let data = [];
 
                     write_or_die!(self.tls_server).send_over_all_connections(
                         &data,
@@ -672,7 +682,9 @@ impl P2PNode {
                     ref inner_pkt @ NetworkRequest::JoinNetwork(..),
                     ..
                 ) => {
-                    let data = inner_pkt.serialize();
+                    // @TODO reenable that
+                    // let data = inner_pkt.serialize();
+                    let data = [];
 
                     let mut locked_tls_server = write_or_die!(self.tls_server);
                     locked_tls_server.send_over_all_connections(
@@ -689,7 +701,9 @@ impl P2PNode {
                     ref inner_pkt @ NetworkRequest::LeaveNetwork(..),
                     ..
                 ) => {
-                    let data = inner_pkt.serialize();
+                    // @TODO reenable that
+                    // let data = inner_pkt.serialize();
+                    let data = [];
 
                     let mut locked_tls_server = write_or_die!(self.tls_server);
                     locked_tls_server.send_over_all_connections(

@@ -1,7 +1,8 @@
 use crate::{
     common::{P2PNodeId, P2PPeer, UCursor},
     network::{
-        NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        serialization::{ Serializable, Archive },
+        NetworkId, ProtocolMessageType, AsProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
     },
@@ -26,6 +27,18 @@ lazy_static! {
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
     BroadcastedMessage,
+}
+
+impl Serializable for NetworkPacketType {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+        match self{
+            NetworkPacketType::DirectMessage(ref receiver) => {
+                archive.write_u8(0)?;
+                receiver.serialize( archive)
+            }
+            NetworkPacketType::BroadcastedMessage => archive.write_u8(1)
+        }
+    }
 }
 
 /// # BUG
@@ -131,15 +144,6 @@ impl NetworkPacket {
         header_reader.chain((*self.message).clone())
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let buf_exp_size = self.expected_serialize_message_len();
-        let mut buf = Vec::with_capacity(buf_exp_size);
-        let _bytes_read = self.reader().read_to_end(&mut buf).unwrap_or(0 as usize);
-
-        // debug_assert_eq!( buf_exp_size, bytes_read);
-        buf
-    }
-
     pub fn generate_message_id() -> String {
         let mut secure_bytes = vec![0u8; 256];
         match safe_write!(RNG) {
@@ -147,5 +151,23 @@ impl NetworkPacket {
             Err(_) => return String::new(),
         }
         utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
+    }
+}
+
+impl AsProtocolMessageType for NetworkPacket{
+    fn protocol_type(&self) -> ProtocolMessageType {
+        match self.packet_type {
+            NetworkPacketType::DirectMessage(..) => ProtocolMessageType::DirectMessage,
+            NetworkPacketType::BroadcastedMessage => ProtocolMessageType::BroadcastedMessage
+        }
+    }
+}
+
+impl Serializable for NetworkPacket {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+        self.packet_type.serialize( archive)?;
+        self.message_id.serialize( archive)?;
+        self.network_id.serialize( archive)?;
+        self.message.serialize( archive)
     }
 }

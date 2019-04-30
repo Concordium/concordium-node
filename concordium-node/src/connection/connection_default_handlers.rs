@@ -43,7 +43,9 @@ pub fn default_network_request_ping_handle(
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 
-        NetworkResponse::Pong(remote_peer).serialize()
+        // @TODO reenable
+        // NetworkResponse::Pong(remote_peer).serialize()
+        []
     };
 
     Ok(serialize_bytes(
@@ -73,7 +75,9 @@ pub fn default_network_request_find_node_handle(
                 .into_iter()
                 .map(|node| node.peer)
                 .collect::<Vec<_>>();
-            NetworkResponse::FindNode(remote_peer, nodes).serialize()
+            // @TODO reenable
+            // NetworkResponse::FindNode(remote_peer, nodes).serialize()
+            []
         };
 
         Ok(serialize_bytes(
@@ -111,7 +115,9 @@ pub fn default_network_request_get_peers(
                 .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
-            NetworkResponse::PeerList(remote_peer, nodes).serialize()
+            // @TODO reenable
+            // NetworkResponse::PeerList(remote_peer, nodes).serialize()
+            []
         };
 
         Ok(serialize_bytes(

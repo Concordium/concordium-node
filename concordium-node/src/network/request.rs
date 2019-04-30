@@ -1,9 +1,10 @@
 use crate::{
     common::{P2PNodeId, P2PPeer},
-    network::{NetworkId, ProtocolMessageType},
+    network::{NetworkId, ProtocolMessageType, AsProtocolMessageType, serialization::{ Serializable, Archive }},
     p2p::banned_nodes::BannedNode,
 };
-use std::{collections::HashSet, string::ToString};
+use failure::Fallible;
+use std::{collections::HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -19,52 +20,42 @@ pub enum NetworkRequest {
     Retransmit(P2PPeer, u64, NetworkId),
 }
 
-impl NetworkRequest {
-    pub fn serialize(&self) -> Vec<u8> {
+impl AsProtocolMessageType for NetworkRequest {
+    fn protocol_type(&self) -> ProtocolMessageType {
         match self {
-            NetworkRequest::Ping(_) => serialize_message!(ProtocolMessageType::RequestPing, ""),
-            NetworkRequest::JoinNetwork(_, network) => {
-                serialize_message!(ProtocolMessageType::RequestJoinNetwork, network)
-            }
-            NetworkRequest::LeaveNetwork(_, network) => {
-                serialize_message!(ProtocolMessageType::RequestLeaveNetwork, network)
-            }
-            NetworkRequest::FindNode(_, id) => {
-                serialize_message!(ProtocolMessageType::RequestFindNode, id)
-            }
-            NetworkRequest::BanNode(_, node_data) => {
-                serialize_message!(ProtocolMessageType::RequestBanNode, node_data.serialize())
-            }
-            NetworkRequest::UnbanNode(_, node_data) => {
-                serialize_message!(ProtocolMessageType::RequestUnbanNode, node_data.serialize())
-            }
-            NetworkRequest::GetPeers(_, networks) => serialize_message!(
-                ProtocolMessageType::RequestGetPeers,
-                format!(
-                    "{:05}{}",
-                    networks.len(),
-                    networks.iter().map(ToString::to_string).collect::<String>()
-                )
-            ),
-            NetworkRequest::Handshake(me, networks, zk) => {
-                let mut pkt = serialize_message!(
-                    ProtocolMessageType::RequestHandshake,
-                    format!(
-                        "{}{:05}{:05}{}{:010}",
-                        me.id(),
-                        me.port(),
-                        networks.len(),
-                        networks.iter().map(ToString::to_string).collect::<String>(),
-                        zk.len()
-                    )
-                );
-                pkt.extend_from_slice(zk.as_slice());
-                pkt
-            }
-            NetworkRequest::Retransmit(_, since_stamp, network_id) => serialize_message!(
-                ProtocolMessageType::RequestRetransmit,
-                format!("{:016x}{}", since_stamp, network_id)
-            ),
+            NetworkRequest::Ping(..) => ProtocolMessageType::RequestPing,
+            NetworkRequest::FindNode(..) => ProtocolMessageType::RequestFindNode,
+            NetworkRequest::BanNode(..) => ProtocolMessageType::RequestBanNode,
+            NetworkRequest::Handshake(..) => ProtocolMessageType::RequestHandshake,
+            NetworkRequest::GetPeers(..) => ProtocolMessageType::RequestGetPeers,
+            NetworkRequest::UnbanNode(..) => ProtocolMessageType::RequestUnbanNode,
+            NetworkRequest::JoinNetwork(..) => ProtocolMessageType::RequestJoinNetwork,
+            NetworkRequest::LeaveNetwork(..) => ProtocolMessageType::RequestLeaveNetwork,
+            NetworkRequest::Retransmit(..) => ProtocolMessageType::RequestRetransmit
         }
     }
+}
+
+impl Serializable for NetworkRequest {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+        match self {
+            NetworkRequest::Ping(..) => Ok(()),
+            NetworkRequest::FindNode(.., id) => id.serialize(archive),
+            NetworkRequest::JoinNetwork(.., network) |
+            NetworkRequest::LeaveNetwork(.., network) => network.serialize( archive),
+            NetworkRequest::BanNode(.., node_data) |
+            NetworkRequest::UnbanNode(.., node_data) => node_data.serialize( archive),
+            NetworkRequest::GetPeers(.., ref networks) => networks.serialize( archive),
+            NetworkRequest::Handshake(me, ref networks, ref zk) => {
+                me.serialize( archive)?;
+                networks.serialize( archive)?;
+                zk.serialize( archive)
+            }
+            NetworkRequest::Retransmit(_, since_stamp, network_id) => {
+                archive.write_u64( *since_stamp)?;
+                network_id.serialize( archive)
+            },
+        }
+    }
+
 }
