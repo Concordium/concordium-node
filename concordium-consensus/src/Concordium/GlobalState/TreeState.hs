@@ -28,6 +28,8 @@ import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules
 import Concordium.Types.Acorn.Interfaces
 
+import qualified Concordium.ID.Types as ID
+
 
 data ConsensusStatistics = ConsensusStatistics {
     _blocksReceivedCount :: Int,
@@ -149,6 +151,10 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe Account)
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
+
+  -- |Check whether an account with the given registration ID exists. Return
+  -- @True@ iff so.
+  bsoRegIdExists :: UpdatableBlockState m -> ID.AccountRegistrationID -> m Bool
 
   -- |Try to add a new account to the state. If an account with the address already exists
   -- return @False@, and if the account was successfully added return @True@.
@@ -356,6 +362,7 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
+  bsoRegIdExists s = lift . bsoRegIdExists s
 
   bsoPutNewAccount s = bsoPutNewAccount s
   bsoPutNewInstance s = bsoPutNewInstance s
@@ -423,6 +430,7 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
+  bsoRegIdExists s = lift . bsoRegIdExists s
 
   bsoPutNewAccount s = bsoPutNewAccount s
   bsoPutNewInstance s = bsoPutNewInstance s
