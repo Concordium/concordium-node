@@ -735,9 +735,10 @@ impl Connection {
 
     /// It tries to write into socket all pending to write.
     /// It returns how many bytes were writte into the socket.
+    #[cfg(not(target_os = "windows"))]
     fn flush_tls(&mut self) -> Fallible<usize> {
         let wants_write =
-            self.dptr.borrow().tls_session.wants_write() && !self.closed && !self.closing;
+            !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
             debug!(
                 "{}/{} is attempting to write to socket {:?}",
@@ -750,18 +751,42 @@ impl Connection {
             let mut lptr = self.dptr.borrow_mut();
             match lptr.tls_session.writev_tls(&mut wr) {
                 Err(e) => match e.kind() {
-                    std::io::ErrorKind::WouldBlock => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
-                    std::io::ErrorKind::WriteZero => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
-                    std::io::ErrorKind::Interrupted => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::Interrupted => into_err!(Err(e)),
                     _ => {
                         self.closed = true;
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
+                        into_err!(Err(e))
+                    }
+                },
+                Ok(size) => Ok(size),
+            }
+        } else {
+            Ok(0)
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn flush_tls(&mut self) -> Fallible<usize> {
+        let wants_write =
+            !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
+        if wants_write {
+            debug!(
+                "{}/{} is attempting to write to socket {:?}",
+                self.local_id(),
+                self.local_addr(),
+                self.socket
+            );
+
+            let mut lptr = self.dptr.borrow_mut();
+            match lptr.tls_session.write_tls(&mut self.socket) {
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::Interrupted => into_err!(Err(e)),
+                    _ => {
+                        self.closed = true;
+                        into_err!(Err(e))
                     }
                 },
                 Ok(size) => Ok(size),
