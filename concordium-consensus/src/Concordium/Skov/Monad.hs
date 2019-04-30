@@ -22,7 +22,7 @@ class (Monad m, TimeMonad m, LoggerMonad m, Eq (BlockPointer m), BlockPointerDat
     resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
     -- |Store a block in the block table and add it to the tree
     -- if possible.
-    storeBlock :: Block -> m BlockHash
+    storeBlock :: BakedBlock -> m BlockHash
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).

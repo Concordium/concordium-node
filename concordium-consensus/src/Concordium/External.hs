@@ -18,6 +18,7 @@ import qualified Data.Aeson.Text as AET
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
+import Concordium.GlobalState.Block
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
@@ -113,7 +114,7 @@ outLoop :: LogMethod IO -> Chan OutMessage -> BlockCallback -> IO ()
 outLoop logm chan cbk = do
     readChan chan >>= \case
         MsgNewBlock block -> do
-            let bbs = runPut (put block)
+            let bbs = runPut (put (NormalBlock block))
             logm External LLDebug $ "Sending block data size = " ++ show (BS.length bbs)
             BS.useAsCStringLen bbs $ \(cstr, l) -> cbk 0 cstr (fromIntegral l)
         MsgFinalization finMsg -> do
@@ -156,9 +157,13 @@ receiveBlock bptr cstr l = do
         Left _ -> do
           logm External LLDebug "Block deserialization failed. Ignoring the block."
           return 1
-        Right block -> do logm External LLInfo $ "Block deserialized. Sending to consensus."
-                          writeChan cin $ MsgBlockReceived block
-                          return 0
+        Right (GenesisBlock _) -> do
+            logm External LLDebug $ "Genesis block deserialized. Ignoring the block."
+            return 1
+        Right (NormalBlock block) -> do
+                        logm External LLInfo $ "Block deserialized. Sending to consensus."
+                        writeChan cin $ MsgBlockReceived block
+                        return 0
 
 receiveFinalization :: StablePtr BakerRunner -> CString -> Int64 -> IO ()
 receiveFinalization bptr cstr l = do

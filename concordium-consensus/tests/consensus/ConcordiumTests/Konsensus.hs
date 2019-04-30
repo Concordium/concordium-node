@@ -92,7 +92,7 @@ invariantSkovData SkovData{..} = do
             when (null children) $ Left $ "Empty list of blocks pending parent"
             let checkChild q child = do
                     checkBinary (==) (_skovBlockTable ^. at (pbHash child)) Nothing "==" "pending block status" "Nothing"
-                    checkBinary (==) (blockPointer (pbBlock child)) parent "==" "pending block's parent" "pending parent"
+                    checkBinary (==) (blockPointer (bbFields (pbBlock child))) parent "==" "pending block's parent" "pending parent"
                     checkBinary (>) (blockSlot (pbBlock child)) lfSlot ">" "pending block's slot" "last finalized slot"
                     return (Set.insert ((blockSlot (pbBlock child)), (pbHash child, parent)) q)
             checkBinary (==) (_skovBlockTable ^. at parent) Nothing "==" "pending parent status" "Nothing"
@@ -167,7 +167,7 @@ instance LoggerMonad DummyM where
 
 data Event
     = EBake Slot
-    | EBlock Block
+    | EBlock BakedBlock
     | ETransaction Transaction
     | EFinalization BS.ByteString
     | EFinalizationRecord FinalizationRecord
@@ -203,7 +203,7 @@ runKonsensusTest steps states events
                     let (mb, fs', Endo evs) = runDummy (runFSM (bakeForSlot bkr sl) fi fs)
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
-                                        Just b -> Seq.fromList [(r, EBlock $ bpBlock b) | r <- btargets]
+                                        Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
                     let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
                 EBlock block -> runAndHandle (storeBlock block) fi fs btargets
@@ -239,7 +239,7 @@ runKonsensusTestSimple steps states events
                     let (mb, fs', Endo evs) = runDummy (runFSM (bakeForSlot bkr sl) fi fs)
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
-                                        Just b -> Seq.fromList [(r, EBlock $ bpBlock b) | r <- btargets]
+                                        Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
                     let events'' = blockEvents <> handleMessages btargets (evs []) Seq.|> (rcpt, EBake (sl + 1))
                     return (fs', events'')
                 EBlock block -> runAndHandle (storeBlock block) fi fs btargets

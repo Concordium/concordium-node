@@ -13,11 +13,12 @@ showBSHex :: SBS.ByteString -> String
 showBSHex bs = unpack (toLazyByteString $ byteStringHex bs)
 
 showsBlock :: Block -> ShowS
-showsBlock block rest = show bh ++ if blockSlot block == 0 then "[GENESIS]" else 
-        "[slot=" ++ show (blockSlot block) ++
-        "; pointer=" ++ show (blockPointer block) ++
-        "; baker=" ++ show (blockBaker block) ++
-        "]\n" ++ rest -- ++ foldr (\tr -> shows tr . ('\n':)) rest trs
+showsBlock block rest = show bh ++ 
+        case blockFields block of
+            Nothing -> "[GENESIS]"
+            Just bf -> "[slot=" ++ show (blockSlot block) ++
+                        "; pointer=" ++ show (blockPointer bf) ++
+                        "; baker=" ++ show (blockBaker bf) ++
+                        "]\n" ++ rest
     where
         bh = getHash block :: BlockHash
-        -- trs = unhashed <$> blockTransactions block

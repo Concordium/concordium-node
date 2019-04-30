@@ -15,16 +15,14 @@ import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..))
 -- import Concordium.Kontrol.VerifyBlock
 
 blockLuck :: (SkovMonad m) => BlockPointer m -> m Double
-blockLuck block = do
-        gb <- genesisBlock
-        if block == gb then
-            return 1
-        else do
-            params <- getBirkParameters (blockSlot (bpBlock block))
-            case birkBaker (blockBaker (bpBlock block)) params of
+blockLuck block = case blockFields block of
+        Nothing -> return 1 -- Genesis block has luck 1 by definition
+        Just bf -> do
+            params <- getBirkParameters (blockSlot block)
+            case birkBaker (blockBaker bf) params of
                 Nothing -> return 0 -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just baker ->
-                    return (electionLuck (birkElectionDifficulty params) (bakerLotteryPower baker) (blockProof (bpBlock block)))
+                    return (electionLuck (birkElectionDifficulty params) (bakerLotteryPower baker) (blockProof bf))
 
 compareBlocks :: (SkovMonad m) => BlockPointer m -> Maybe (BlockPointer m, Maybe Double) -> m (Maybe (BlockPointer m, Maybe Double))
 compareBlocks bp Nothing = return $ Just (bp, Nothing)

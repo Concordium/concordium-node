@@ -15,7 +15,7 @@ import Data.Monoid
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.TreeState(BlockPointerData(..), BlockState)
+import Concordium.GlobalState.TreeState(BlockState)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.MonadImplementation
@@ -28,13 +28,13 @@ import Concordium.Logger
 data InMessage =
     MsgShutdown
     | MsgTimer
-    | MsgBlockReceived Block
+    | MsgBlockReceived BakedBlock
     | MsgTransactionReceived Transaction
     | MsgFinalizationReceived BS.ByteString
     | MsgFinalizationRecordReceived FinalizationRecord
 
 data OutMessage = 
-    MsgNewBlock Block
+    MsgNewBlock BakedBlock
     | MsgFinalization BS.ByteString
     | MsgFinalizationRecord FinalizationRecord
 
@@ -61,7 +61,7 @@ makeRunner logm bkr gen initBS = do
                     Nothing -> return ()
                     Just block -> do
                         updateFinState out
-                        liftIO $ writeChan outChan (MsgNewBlock (bpBlock block))
+                        liftIO $ writeChan outChan (MsgNewBlock block)
             ns <- timeUntilNextSlot
             _ <- liftIO $ forkIO $ do
                 threadDelay $ truncate (ns * 1e6)

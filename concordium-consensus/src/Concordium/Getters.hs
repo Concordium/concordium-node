@@ -22,7 +22,6 @@ import Concordium.GlobalState.Information
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.Account as Account
 
 import Data.IORef
 import Text.Read hiding (get)
@@ -126,7 +125,9 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockArriveTime" .= bpArriveTime bp,
                             "blockSlot" .= (fromIntegral slot :: Word64),
                             "blockSlotTime" .= slotTime,
-                            "blockBaker" .= if slot == 0 then Null else toJSON (blockBaker (bpBlock bp)),
+                            "blockBaker" .= case blockFields bp of
+                                            Nothing -> Null
+                                            Just bf -> toJSON (blockBaker bf),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp
                             ]

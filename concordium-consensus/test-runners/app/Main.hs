@@ -60,7 +60,7 @@ makeBaker bid lot = do
         let spk = Sig.verifyKey sk in 
             return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
-relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, Block, Maybe BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
+relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
 relay inp sfsRef monitor outps = loop
     where
         loop = do
@@ -140,9 +140,9 @@ main = do
                     let stateStr = case gs' of
                                     Nothing -> ""
                                     Just gs -> gsToString gs
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
+                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

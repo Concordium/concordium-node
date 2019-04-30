@@ -50,7 +50,7 @@ processTransactions slot bh finalizedP = do
   -- This is done in the method below once a block pointer is constructed.
 
 
-bakeForSlot :: (KontrolMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
+bakeForSlot :: (KontrolMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
@@ -64,14 +64,12 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     (transactions, newState) <- processTransactions slot bb lastFinal
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions
     logEvent Baker LLInfo $ "Baked block"
-    pbReceiveTime <- currentTime
-    newbp <- storeBakedBlock (PendingBlock { pbHash = getHash block
-                                       , pbBlock = block
-                                       ,..})
+    receiveTime <- currentTime
+    newbp <- storeBakedBlock (makePendingBlock block receiveTime)
                          bb
                          lastFinal
                          newState
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp
     logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
-    return newbp
+    return block

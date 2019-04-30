@@ -330,13 +330,14 @@ tryAddBlock block = do
                 guard (parentP == lfb)
                 tryAddLiveParent parentP `mplus` invalidBlock
     where
-        parent = blockPointer block
+        bf = bbFields (pbBlock block)
+        parent = blockPointer bf
         invalidBlock = do
             logEvent Skov LLWarning $ "Block is not valid: " ++ show block
             mzero
         tryAddLiveParent :: BlockPointer m -> MaybeT m (Maybe (BlockPointer m))
         tryAddLiveParent parentP = do -- Alive or finalized
-            let lf = blockLastFinalized block
+            let lf = blockLastFinalized bf
             -- Check that the blockSlot is beyond the parent slot
             guard $ blockSlot (bpBlock parentP) < blockSlot block
             lfStatus <- getBlockStatus lf
@@ -361,7 +362,7 @@ tryAddBlock block = do
                     unless (parentP == genB) $ guard $ -- TODO: Should be possible to remove this test, since bpLastFinalized of the genesis block should be the genesis block itself
                         blockSlot lfBlockP >= blockSlot (bpLastFinalized parentP)
                     bps@BirkParameters{..} <- getBirkParameters (blockSlot block)
-                    BakerInfo{..} <- MaybeT $ pure $ birkBaker (blockBaker block) bps
+                    BakerInfo{..} <- MaybeT $ pure $ birkBaker (blockBaker bf) bps
                     -- Check the block proof
                     guard $ verifyProof
                                 birkLeadershipElectionNonce
@@ -369,13 +370,13 @@ tryAddBlock block = do
                                 (blockSlot block)
                                 bakerElectionVerifyKey
                                 bakerLotteryPower
-                                (blockProof block)
+                                (blockProof bf)
                     -- The block nonce
                     guard $ verifyBlockNonce
                                 birkLeadershipElectionNonce
                                 (blockSlot block)
                                 bakerElectionVerifyKey
-                                (blockNonce block)
+                                (blockNonce bf)
                     -- And the block signature
                     guard $ verifyBlockSignature bakerSignatureVerifyKey block
                     let ts = blockTransactions block
@@ -428,16 +429,16 @@ doResolveBlock cbp = getBlockStatus cbp <&> \case
         Just (BlockFinalized bp _) -> Just bp
         _ -> Nothing
 
-doStoreBlock :: (TreeStateMonad m, SkovMonad m) => SkovListeners m -> Block -> m BlockHash
+doStoreBlock :: (TreeStateMonad m, SkovMonad m) => SkovListeners m -> BakedBlock -> m BlockHash
 {-# INLINE doStoreBlock #-}
 doStoreBlock sl block0 = do
-    let cbp = getHash block0
+    curTime <- currentTime
+    let pb = makePendingBlock block0 curTime
+    let cbp = getHash pb
     oldBlock <- getBlockStatus cbp
     when (isNothing oldBlock) $ do
         -- The block is new, so we have some work to do.
         logEvent Skov LLDebug $ "Received block " ++ show cbp
-        curTime <- currentTime
-        let pb = (PendingBlock cbp block0 curTime)
         updateReceiveStatistics pb
         forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
         addBlock sl pb
