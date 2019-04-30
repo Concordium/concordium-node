@@ -76,7 +76,7 @@ pub struct P2PNode {
     tls_server:           Arc<RwLock<TlsServer>>,
     poll:                 Arc<RwLock<Poll>>,
     id:                   P2PNodeId,
-    send_queue_in:        Arc<Sender<Arc<NetworkMessage>>>,
+    send_queue_in:        Sender<Arc<NetworkMessage>>,
     send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
     pub internal_addr:    SocketAddr,
     queue_to_super:       Sender<Arc<NetworkMessage>>,
@@ -280,7 +280,7 @@ impl P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
             poll: Arc::new(RwLock::new(poll)),
             id,
-            send_queue_in: Arc::new(send_queue_in.clone()),
+            send_queue_in: send_queue_in.clone(),
             send_queue_out: Rc::new(send_queue_out),
             internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             queue_to_super: pkt_queue,
@@ -322,7 +322,7 @@ impl P2PNode {
         let own_networks = Arc::clone(&read_or_die!(self.tls_server).networks());
         let stats_export_service = self.stats_export_service.clone();
         let packet_queue = self.queue_to_super.clone();
-        let send_queue = Arc::clone(&self.send_queue_in);
+        let send_queue = self.send_queue_in.clone();
         let trusted_broadcast = self.config.blind_trusted_broadcast;
         let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
