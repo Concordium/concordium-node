@@ -234,7 +234,7 @@ impl TestRunner {
     }
 
     fn router(&self) -> Router {
-        let state_data = TestRunnerStateData::new(self.node.clone(), self.nid.clone());
+        let state_data = TestRunnerStateData::new(self.node.clone(), self.nid);
         let middleware = StateMiddleware::new(state_data);
         let pipeline = single_middleware(middleware);
         let (chain, pipelines) = single_pipeline(pipeline);
