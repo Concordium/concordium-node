@@ -419,15 +419,11 @@ impl P2PNode {
                         &self.config.bootstrap_node,
                     ) {
                         Ok(nodes) => {
-                            for (ip, port) in nodes {
-                                info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                self.connect(
-                                    PeerType::Bootstrapper,
-                                    SocketAddr::new(ip, port),
-                                    None,
-                                )
-                                .map_err(|e| info!("{}", e))
-                                .ok();
+                            for addr in nodes {
+                                info!("Found bootstrap node addr {}", addr);
+                                self.connect(PeerType::Bootstrapper, addr, None)
+                                    .map_err(|e| info!("{}", e))
+                                    .ok();
                             }
                         }
                         _ => error!("Can't find any bootstrap nodes - check DNS!"),

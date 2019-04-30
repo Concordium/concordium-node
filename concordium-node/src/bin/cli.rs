@@ -37,7 +37,7 @@ use std::{
     collections::HashMap,
     fs::OpenOptions,
     io::{Read, Write},
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
@@ -739,11 +739,10 @@ fn start_baker(
     })
 }
 
-fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &mut P2PNode) {
+fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut P2PNode) {
     match bootstrap_nodes {
         Ok(nodes) => {
-            for &(ip, port) in nodes {
-                let addr = SocketAddr::new(ip, port);
+            for &addr in nodes {
                 info!("Found bootstrap node: {}", addr);
                 node.connect(PeerType::Bootstrapper, addr, None)
                     .unwrap_or_else(|e| error!("{}", e));
@@ -760,12 +759,14 @@ fn create_connections_from_config(
 ) {
     for connect_to in &conf.connect_to {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
-            Some((ip, port)) => {
-                info!("Connecting to peer {}", &connect_to);
-                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
-                    .unwrap_or_else(|e| error!("{}", e));
+            Ok(addrs) => {
+                for addr in addrs {
+                    info!("Connecting to peer {}", &connect_to);
+                    node.connect(PeerType::Node, addr, None)
+                        .unwrap_or_else(|e| error!("{}", e));
+                }
             }
-            None => error!("Can't parse IP to connect to '{}'", &connect_to),
+            Err(err) => error!("{}", err),
         }
     }
 }
