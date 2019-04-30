@@ -96,7 +96,7 @@ instance Show (BlockStatus m) where
 -- in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointer m]
 
-class (Eq bp, Show bp) => BlockPointerData bp where
+class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     type BlockState' bp :: *
     -- |Hash of the block
     bpHash :: bp -> BlockHash

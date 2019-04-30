@@ -88,11 +88,7 @@ instance HashableTo Hash.Hash BlockPointer where
 
 instance BlockData BlockPointer where
     blockSlot = blockSlot . _bpBlock
-    blockPointer = blockPointer . _bpBlock
-    blockBaker = blockBaker . _bpBlock
-    blockProof = blockProof . _bpBlock
-    blockNonce = blockNonce . _bpBlock
-    blockLastFinalized = blockLastFinalized . _bpBlock
+    blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
     verifyBlockSignature key = verifyBlockSignature key . _bpBlock
 
@@ -105,16 +101,18 @@ makeBlockPointer ::
     -> BlockState       -- ^Block state
     -> UTCTime          -- ^Block arrival time
     -> BlockPointer
-makeBlockPointer pb@PendingBlock{..} _bpParent _bpLastFinalized _bpState _bpArriveTime
-        = assert (getHash _bpParent == blockPointer pb) $
-            assert (getHash _bpLastFinalized == blockLastFinalized pb) $
+makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
+        = assert (getHash _bpParent == blockPointer bf) $
+            assert (getHash _bpLastFinalized == blockLastFinalized bf) $
                 BlockPointer {
                     _bpHash = getHash pb,
-                    _bpBlock = pbBlock,
+                    _bpBlock = NormalBlock (pbBlock pb),
                     _bpHeight = _bpHeight _bpParent + 1,
-                    _bpReceiveTime = pbReceiveTime,
+                    _bpReceiveTime = pbReceiveTime pb,
                     _bpTransactionCount = length (blockTransactions pb),
                     ..}
+    where
+        bf = bbFields $ pbBlock pb
 
 
 makeGenesisBlockPointer :: GenesisData -> BlockState -> BlockPointer
@@ -310,7 +308,7 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
     addPendingBlock pb = do
-        let parent = blockPointer (pbBlock pb)
+        let parent = blockPointer (bbFields (pbBlock pb))
         possiblyPendingTable . at parent . non [] %= (pb:)
         possiblyPendingQueue %= MPQ.insert (blockSlot (pbBlock pb)) (getHash pb, parent)
     takeNextPendingUntil slot = tnpu =<< use possiblyPendingQueue
