@@ -60,8 +60,73 @@ impl fmt::Debug for RegularData {
     }
 }
 
+macro_rules! get_block_content {
+    ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
+        pub fn $method_name(&self) -> $content_type {
+            if let BlockData::RegularData(ref data) = self.data {
+                data.$content_ident.clone()
+            } else {
+                panic!("Genesis block has no {}", $content_name)
+            }
+        }
+    }
+}
+
+macro_rules! get_block_content_ref {
+    ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
+        pub fn $method_name(&self) -> &$content_type {
+            if let BlockData::RegularData(ref data) = self.data {
+                &data.$content_ident
+            } else {
+                panic!("Genesis block has no {}", $content_name)
+            }
+        }
+    }
+}
+
 impl Block {
+    get_block_content!(pointer, BlockHash, pointer, "block pointer");
+
+    get_block_content_ref!(pointer_ref, BlockHash, pointer, "block pointer");
+
+    get_block_content!(baker_id, BakerId, baker_id, "baker");
+
+    get_block_content!(proof, Encoded, proof, "proof");
+
+    get_block_content_ref!(proof_ref, Encoded, proof, "proof");
+
+    get_block_content!(nonce, Encoded, nonce, "nonce");
+
+    get_block_content_ref!(nonce_ref, Encoded, nonce, "nonce");
+
+    get_block_content!(
+        last_finalized,
+        BlockHash,
+        last_finalized,
+        "last finalized pointer"
+    );
+
+    get_block_content_ref!(
+        last_finalized_ref,
+        BlockHash,
+        last_finalized,
+        "last finalized pointer"
+    );
+
+    get_block_content_ref!(
+        transactions_ref,
+        [Transaction],
+        transactions,
+        "transactions"
+    );
+
+    get_block_content!(signature, Encoded, signature, "signature");
+
+    get_block_content_ref!(signature_ref, Encoded, signature, "signature");
+
     // FIXME: only works for regular blocks for now
+    // FIXME: use UCursor (for all deserialization) when it's available outside of
+    // client
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
 
@@ -118,7 +183,7 @@ impl Block {
 
     // FIXME: only works for regular blocks for now
     pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
-        let mut ret = Vec::new();
+        let mut ret = Vec::new(); // FIXME: estimate capacity
 
         let mut slot = [0u8; SLOT];
         NetworkEndian::write_u64(&mut slot, self.slot);
@@ -136,7 +201,7 @@ impl Block {
 
         ret.extend_from_slice(&self.last_finalized()); // check
 
-        ret.extend_from_slice(&serialize_transactions(self.transactions()));
+        ret.extend_from_slice(&serialize_transactions(self.transactions_ref()));
 
         ret.extend_from_slice(&self.signature());
 
@@ -146,62 +211,6 @@ impl Block {
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
-
-    pub fn pointer(&self) -> BlockHash {
-        if let BlockData::RegularData(ref data) = self.data {
-            data.pointer.clone()
-        } else {
-            panic!("Genesis block has no block pointer")
-        }
-    }
-
-    pub fn baker_id(&self) -> BakerId {
-        if let BlockData::RegularData(ref data) = self.data {
-            data.baker_id
-        } else {
-            panic!("Genesis block has no baker")
-        }
-    }
-
-    pub fn proof(&self) -> Encoded {
-        if let BlockData::RegularData(ref data) = self.data {
-            data.proof.clone()
-        } else {
-            panic!("Genesis block has no proof")
-        }
-    }
-
-    pub fn nonce(&self) -> Encoded {
-        if let BlockData::RegularData(ref data) = self.data {
-            data.nonce.clone()
-        } else {
-            panic!("Genesis block has no nonce")
-        }
-    }
-
-    pub fn last_finalized(&self) -> BlockHash {
-        if let BlockData::RegularData(ref data) = self.data {
-            data.last_finalized.clone()
-        } else {
-            panic!("Genesis block has no last finalized pointer")
-        }
-    }
-
-    pub fn transactions(&self) -> &[Transaction] {
-        if let BlockData::RegularData(ref data) = self.data {
-            &data.transactions
-        } else {
-            panic!("Genesis block has no transactions")
-        }
-    }
-
-    pub fn signature(&self) -> Encoded {
-        if let BlockData::RegularData(ref data) = self.data {
-            data.signature.clone()
-        } else {
-            panic!("Genesis block has no signature")
-        }
-    }
 }
 
 // FIXME: move to its own impl in transaction.rs
