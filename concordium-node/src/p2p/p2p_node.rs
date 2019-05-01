@@ -59,7 +59,7 @@ pub struct P2PNodeConfig {
     no_bootstrap_dns:        bool,
     bootstrappers_conf:      String,
     dns_resolvers:           Vec<String>,
-    dnssec:                  bool,
+    dnssec_disabled:         bool,
     bootstrap_node:          Vec<String>,
     minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
@@ -271,7 +271,7 @@ impl P2PNode {
                 &conf.connection.resolv_conf,
                 &conf.connection.dns_resolver,
             ),
-            dnssec:                  !conf.connection.no_dnssec,
+            dnssec_disabled:         conf.connection.dnssec_disabled,
             bootstrap_node:          conf.connection.bootstrap_node.clone(),
             minimum_per_bucket:      conf.common.min_peers_bucket,
             blind_trusted_broadcast: conf.connection.no_trust_broadcasts,
@@ -418,7 +418,7 @@ impl P2PNode {
                     match utils::get_bootstrap_nodes(
                         self.config.bootstrappers_conf.clone(),
                         &self.config.dns_resolvers,
-                        self.config.dnssec,
+                        self.config.dnssec_disabled,
                         &self.config.bootstrap_node,
                     ) {
                         Ok(nodes) => {
