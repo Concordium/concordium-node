@@ -684,8 +684,13 @@ fn main() -> Fallible<()> {
 
         while node.get_peer_stats(&network_ids).len() < needed_peers as usize {
             // Sleep until we've gotten more peers
-            //We can have a small race condition here - But since it is only printout it doesn't matter
-            info!("Waiting for {} peers before starting baker. Currently have {}", needed_peers, node.get_peer_stats(&network_ids).len());
+            // We can have a small race condition here - But since it is only printout it
+            // doesn't matter
+            info!(
+                "Waiting for {} peers before starting baker. Currently have {}",
+                needed_peers,
+                node.get_peer_stats(&network_ids).len()
+            );
 
             thread::sleep(Duration::from_secs(5));
         }
