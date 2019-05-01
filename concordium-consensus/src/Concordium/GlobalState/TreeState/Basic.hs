@@ -262,6 +262,9 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     bsoGetAccount bs aaddr =
       return $ bs ^? blockAccounts . ix aaddr
 
+    {-# INLINE bsoRegIdExists #-}
+    bsoRegIdExists bs regid = return (Account.regIdExists regid (bs ^. blockAccounts))
+
     {-# INLINE bsoPutNewAccount #-}
     bsoPutNewAccount bs acc = return $
         if Account.exists addr accounts then
