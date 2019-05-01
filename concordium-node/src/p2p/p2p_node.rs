@@ -267,7 +267,10 @@ impl P2PNode {
             desired_nodes_count:     conf.connection.desired_nodes,
             no_bootstrap_dns:        conf.connection.no_bootstrap_dns,
             bootstrappers_conf:      conf.connection.bootstrap_server.clone(),
-            dns_resolvers:           conf.connection.dns_resolver.clone(),
+            dns_resolvers:           utils::get_resolvers(
+                &conf.connection.resolv_conf,
+                &conf.connection.dns_resolver,
+            ),
             dnssec:                  !conf.connection.no_dnssec,
             bootstrap_node:          conf.connection.bootstrap_node.clone(),
             minimum_per_bucket:      conf.common.min_peers_bucket,
