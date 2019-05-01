@@ -79,6 +79,7 @@ data InstanceTable
     = Empty
     -- |A non-empty instance table
     | Tree !IT
+    deriving (Show)
 
 computeBranchHash :: IT -> IT -> H.Hash
 computeBranchHash t1 t2 = H.hash $ runPut $ put (getHash t1 :: H.Hash) <> put (getHash t2 :: H.Hash)
@@ -103,6 +104,7 @@ data IT
     -- |A vacant leaf records the 'ContractSubindex' of the last instance
     -- with this 'ContractIndex'.
     | VacantLeaf !ContractSubindex
+    deriving (Show)
 
 instance HashableTo H.Hash IT where
     getHash (Branch _ _ _ h _ _) = h
@@ -187,12 +189,12 @@ deleteContractInstance i0 (Tree t0) = Tree $ dci i0 t0
             | i == 0 = VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst
             | otherwise = l
         dci _ vl@(VacantLeaf _) = vl
-        dci i b@(Branch h f v _ l r)
+        dci i b@(Branch h f _ _ l r)
             | i < 2^h = mkBranch (dci i l) r
             | i < 2^(h+1) = mkBranch l (dci (i - 2^h) r)
             | otherwise = b
             where
-                mkBranch t1' t2' = Branch h f v (computeBranchHash t1' t2') t1' t2'
+                mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 
 deleteContractInstanceExact :: ContractAddress -> InstanceTable -> InstanceTable
 deleteContractInstanceExact _ Empty = Empty
@@ -203,9 +205,17 @@ deleteContractInstanceExact addr (Tree t0) = Tree $ dci (contractIndex addr) t0
                         = VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst
             | otherwise = l
         dci _ vl@(VacantLeaf _) = vl
-        dci i b@(Branch h f v _ l r)
+        dci i b@(Branch h f _ _ l r)
             | i < 2^h = mkBranch (dci i l) r
             | i < 2^(h+1) = mkBranch l (dci (i - 2^h) r)
             | otherwise = b
             where
-                mkBranch t1' t2' = Branch h f v (computeBranchHash t1' t2') t1' t2'
+                mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
+
+-- |A collection of smart contract instances.
+newtype Instances = Instances {
+  _instances :: InstanceTable
+  }
+
+instance HashableTo H.Hash Instances where
+    getHash = getHash . _instances

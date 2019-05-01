@@ -109,14 +109,14 @@ instance Serialize Block where
             return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
 signBlock ::
-    BakerSignPrivateKey
-    -> Slot
-    -> BlockHash
-    -> BakerId
-    -> BlockProof
-    -> BlockNonce
-    -> BlockHash
-    -> [Transaction]
+    BakerSignPrivateKey -- ^Key for signing the new block
+    -> Slot             -- ^Block slot (must be non-zero)
+    -> BlockHash        -- ^Hash of parent block
+    -> BakerId          -- ^Identifier of block baker
+    -> BlockProof       -- ^Block proof
+    -> BlockNonce       -- ^Block nonce
+    -> BlockHash        -- ^Hash of last finalized block
+    -> [Transaction]    -- ^List of transactions
     -> BakedBlock
 signBlock key slot parent baker proof bnonce lastFin transactions
     | slot == 0 = error "Only the genesis block may have slot 0"

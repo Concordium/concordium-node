@@ -18,9 +18,7 @@ module Concordium.GlobalState.Instances(
     foldInstances
 ) where
 
-import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
-import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Information (InstanceInfo(InstanceInfo))
@@ -69,14 +67,6 @@ iModuleIface :: Instance -> (Interface, ValueInterface)
 iModuleIface i = (instanceModuleInterface, instanceModuleValueInterface)
     where
         InstanceParameters{..} = instanceParameters i
-
--- |A collection of smart contract instances.
-newtype Instances = Instances {
-  _instances :: InstanceTable
-  }
-
-instance HashableTo H.Hash Instances where
-    getHash = getHash . _instances
 
 -- |The empty set of smart contract instances.
 emptyInstances :: Instances
