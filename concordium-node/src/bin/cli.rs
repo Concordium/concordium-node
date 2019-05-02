@@ -41,6 +41,7 @@ use std::{
     str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
+    time::Duration,
 };
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
@@ -608,7 +609,7 @@ fn main() -> Fallible<()> {
     let bootstrap_nodes = utils::get_bootstrap_nodes(
         conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
-        conf.connection.no_dnssec,
+        conf.connection.dnssec_disabled,
         &conf.connection.bootstrap_node,
     );
 
@@ -647,24 +648,6 @@ fn main() -> Fallible<()> {
         }
     };
 
-    // Starting baker
-    let mut baker = start_baker(&conf.cli.baker, &app_prefs);
-
-    // Starting rpc server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
-        serv.start_server()?;
-        Some(serv)
-    } else {
-        None
-    };
-
-    // Connect outgoing messages to be forwarded into the baker
-    // or editing the db, or triggering new connections
-    //
-    // Thread #2: Read P2PNode output
-    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out, db);
-
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
@@ -683,6 +666,55 @@ fn main() -> Fallible<()> {
             bootstrap(&bootstrap_nodes, &mut node);
         }
     }
+
+    let mut baker = None;
+
+    if conf.cli.baker.baker_id.is_some() {
+        // Wait until we have at least a certain percentage of peers out of desired
+        // before starting the baker
+        let needed_peers = conf.connection.desired_nodes
+            * (conf.cli.baker.baker_min_peer_satisfaction_percentage / 100);
+
+        let network_ids: Vec<NetworkId> = conf
+            .common
+            .network_ids
+            .iter()
+            .map(|x| NetworkId::from(x.to_owned()))
+            .collect();
+
+        while node.get_peer_stats(&network_ids).len() < needed_peers as usize {
+            // Sleep until we've gotten more peers
+            // We can have a small race condition here - But since it is only printout it
+            // doesn't matter
+            info!(
+                "Waiting for {} peers before starting baker. Currently have {}",
+                needed_peers,
+                node.get_peer_stats(&network_ids).len()
+            );
+
+            thread::sleep(Duration::from_secs(5));
+        }
+
+        // We've gotten enough peers. We'll let it start the baker now.
+        info!("We've gotten enough peers. Beginning baker startup!");
+        // Starting baker
+        baker = start_baker(&conf.cli.baker, &app_prefs);
+    }
+
+    // Starting rpc server
+    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
+        serv.start_server()?;
+        Some(serv)
+    } else {
+        None
+    };
+
+    // Connect outgoing messages to be forwarded into the baker
+    // or editing the db, or triggering new connections
+    //
+    // Thread #2: Read P2PNode output
+    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out, db);
 
     // Create listeners on baker output to forward to P2PNode
     //
@@ -758,7 +790,7 @@ fn create_connections_from_config(
     node: &mut P2PNode,
 ) {
     for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.dnssec_disabled) {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);

@@ -446,7 +446,7 @@ fn main() -> Fallible<()> {
     let bootstrap_nodes = utils::get_bootstrap_nodes(
         conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
-        conf.connection.no_dnssec,
+        conf.connection.dnssec_disabled,
         &conf.connection.bootstrap_node,
     );
 
@@ -477,7 +477,7 @@ fn main() -> Fallible<()> {
     setup_process_output(&node, &conf, pkt_out, db);
 
     for connect_to in conf.connection.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.dnssec_disabled) {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", addr);
