@@ -15,7 +15,6 @@ const LAST_FINALIZED: usize = SHA256;
 const PAYLOAD_TYPE: usize = 1;
 const UNDEFINED: usize = 8;
 const PAYLOAD_SIZE: usize = 2;
-const TRANSACTION_COUNT: usize = 2;
 const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
 const BLOCK_BODY: usize = 8;
@@ -39,7 +38,7 @@ pub struct RegularData {
     proof:          Encoded,
     nonce:          Encoded,
     last_finalized: BlockHash,
-    transactions:   Vec<Transaction>,
+    transactions:   Transactions,
     signature:      Encoded,
 }
 
@@ -115,7 +114,7 @@ impl Block {
 
     get_block_content_ref!(
         transactions_ref,
-        [Transaction],
+        Transactions,
         transactions,
         "transactions"
     );
@@ -161,7 +160,7 @@ impl Block {
         curr_pos += SHA256;
 
         let transactions =
-            deserialize_transactions(&bytes[curr_pos..bytes.len() - BLOCK_SIGNATURE])?;
+            Transactions::deserialize(&bytes[curr_pos..bytes.len() - BLOCK_SIGNATURE])?;
 
         let mut signature_bytes = [0u8; BLOCK_SIGNATURE];
         signature_bytes.copy_from_slice(&bytes[bytes.len() - BLOCK_SIGNATURE..]);
@@ -201,7 +200,7 @@ impl Block {
 
         ret.extend_from_slice(&self.last_finalized()); // check
 
-        ret.extend_from_slice(&serialize_transactions(self.transactions_ref()));
+        ret.extend_from_slice(&Transactions::serialize(self.transactions_ref()));
 
         ret.extend_from_slice(&self.signature());
 
@@ -211,47 +210,6 @@ impl Block {
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
-}
-
-// FIXME: move to its own impl in transaction.rs
-fn deserialize_transactions(bytes: &[u8]) -> Option<Vec<Transaction>> {
-    let mut curr_pos = 0;
-
-    let transaction_count = (&bytes[curr_pos..][..TRANSACTION_COUNT])
-        .read_u16::<NetworkEndian>()
-        .ok()?;
-    curr_pos += TRANSACTION_COUNT;
-
-    if transaction_count > 0 {
-        let mut transactions = Vec::with_capacity(transaction_count as usize);
-
-        while let Some((transaction, size)) = Transaction::deserialize(&bytes[curr_pos..]) {
-            transactions.push(transaction);
-            curr_pos += size;
-        }
-
-        Some(transactions)
-    } else {
-        Some(vec![])
-    }
-}
-
-// FIXME: move to its own impl in transaction.rs
-fn serialize_transactions(transactions: &[Transaction]) -> Vec<u8> {
-    if !transactions.is_empty() {
-        let mut transaction_bytes = Vec::new(); // TODO: estimate capacity
-
-        for transaction in transactions {
-            transaction_bytes.extend_from_slice(&transaction.serialize());
-        }
-
-        transaction_bytes
-    } else {
-        let mut ret = [0u8; 16];
-        ret[15] = 64;
-
-        ret.to_vec()
-    }
 }
 
 #[derive(Debug)]

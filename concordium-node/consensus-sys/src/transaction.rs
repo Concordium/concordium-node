@@ -11,6 +11,7 @@ use crate::{block::*, common::*};
 
 const TRANSACTION_SIZE: usize = 2;
 const TRANSACTION_TYPE: usize = 1;
+const TRANSACTION_COUNT: usize = 2;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
@@ -58,6 +59,50 @@ impl Transaction {
     }
 
     pub fn serialize(&self) -> Vec<u8> { unimplemented!() }
+}
+
+#[derive(Debug)]
+pub struct Transactions(Vec<Transaction>);
+
+impl Transactions {
+	pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+		let mut curr_pos = 0;
+
+		let transaction_count = (&bytes[curr_pos..][..TRANSACTION_COUNT])
+			.read_u16::<NetworkEndian>()
+			.ok()?;
+		curr_pos += TRANSACTION_COUNT;
+
+		if transaction_count > 0 {
+			let mut transactions = Vec::with_capacity(transaction_count as usize);
+
+			while let Some((transaction, size)) = Transaction::deserialize(&bytes[curr_pos..]) {
+				transactions.push(transaction);
+				curr_pos += size;
+			}
+
+			Some(Transactions(transactions))
+		} else {
+			Some(Transactions(vec![]))
+		}
+	}
+	
+	pub fn serialize(transactions: &Transactions) -> Vec<u8> {
+		if !transactions.0.is_empty() {
+			let mut transaction_bytes = Vec::new(); // TODO: estimate capacity
+
+			for transaction in &transactions.0 {
+				transaction_bytes.extend_from_slice(&transaction.serialize());
+			}
+
+			transaction_bytes
+		} else {
+			let mut ret = [0u8; 16];
+			ret[15] = 64;
+
+			ret.to_vec()
+		}
+	}
 }
 
 #[derive(Debug)]
