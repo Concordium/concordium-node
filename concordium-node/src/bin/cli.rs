@@ -321,7 +321,75 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
     }
 }
 
-fn setup_process_output(
+fn setup_lower_process_output(
+    node: &P2PNode,
+    conf: &configuration::Config,
+    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    db: P2PDB,
+) -> mpsc::Receiver<Arc<NetworkMessage>> {
+    let mut _node_self_clone = node.clone();
+
+    let (pkt_higher_in, pkt_higher_out) = mpsc::channel::<Arc<NetworkMessage>>();
+
+    let _no_trust_bans = conf.common.no_trust_bans;
+    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
+    let _desired_nodes_clone = conf.connection.desired_nodes;
+    let _guard_pkt = thread::spawn(move || loop {
+        if let Ok(full_msg) = pkt_out.recv() {
+            match *full_msg {
+                NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
+                    Ok(_) => debug!("Relayed message to higher queue"),
+                    Err(err) => error!("Could not relay message to higher queue {}", err),
+                },
+                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
+                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                }
+                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
+                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                }
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::PeerList(ref peer, ref peers),
+                    ..
+                ) => {
+                    info!("Received PeerList response, attempting to satisfy desired peers");
+                    let mut new_peers = 0;
+                    let stats = _node_self_clone.get_peer_stats(&[]);
+                    for peer_node in peers {
+                        debug!(
+                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                            peer.id(),
+                            peer.ip(),
+                            peer.port(),
+                            peer_node.id(),
+                            peer_node.ip(),
+                            peer_node.port()
+                        );
+                        if _node_self_clone
+                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                            .map_err(|e| info!("{}", e))
+                            .is_ok()
+                        {
+                            new_peers += 1;
+                        }
+                        if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                            break;
+                        }
+                    }
+                }
+                NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
+                    match pkt_higher_in.send(full_msg) {
+                        Ok(_) => debug!("Relayed message to higher queue"),
+                        Err(err) => error!("Could not relay message to higher queue {}", err),
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+    pkt_higher_out
+}
+
+fn setup_higher_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
     rpc_serv: &Option<RpcServerImpl>,
@@ -632,7 +700,7 @@ fn main() -> Fallible<()> {
     info!("Debugging enabled: {}", conf.common.debug);
 
     // Instantiate the p2p node
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+    let (mut node, pkt_lower_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
     // Banning nodes in database
     match db.get_banlist() {
@@ -667,13 +735,18 @@ fn main() -> Fallible<()> {
         }
     }
 
-    let mut baker = None;
+    // Connect outgoing messages to handle bans, peer lists - and forward the rest
+    // to the higher packet queue (baker messages, retransmits, etc).
+    //
+    // Thread #4: Read P2PNode output
+    let pkt_higher_out = setup_lower_process_output(&node, &conf, pkt_lower_out, db.clone());
 
-    if conf.cli.baker.baker_id.is_some() {
+    let mut baker = if conf.cli.baker.baker_id.is_some() {
         // Wait until we have at least a certain percentage of peers out of desired
         // before starting the baker
-        let needed_peers = conf.connection.desired_nodes
-            * (conf.cli.baker.baker_min_peer_satisfaction_percentage / 100);
+        let needed_peers = (f64::from(conf.connection.desired_nodes)
+            * (f64::from(conf.cli.baker.baker_min_peer_satisfaction_percentage) / 100.0))
+            .floor();
 
         let network_ids: Vec<NetworkId> = conf
             .common
@@ -682,24 +755,41 @@ fn main() -> Fallible<()> {
             .map(|x| NetworkId::from(x.to_owned()))
             .collect();
 
-        while node.get_peer_stats(&network_ids).len() < needed_peers as usize {
-            // Sleep until we've gotten more peers
-            // We can have a small race condition here - But since it is only printout it
-            // doesn't matter
-            info!(
-                "Waiting for {} peers before starting baker. Currently have {}",
-                needed_peers,
-                node.get_peer_stats(&network_ids).len()
-            );
+        let mut peer_count_opt = Some(
+            node.get_peer_stats(&network_ids)
+                .iter()
+                .filter(|x| x.peer_type == PeerType::Node)
+                .count(),
+        );
 
-            thread::sleep(Duration::from_secs(5));
+        while let Some(peer_count) = peer_count_opt {
+            if peer_count < needed_peers as usize {
+                // Sleep until we've gotten more peers
+                info!(
+                    "Waiting for {} peers before starting baker. Currently have {}",
+                    needed_peers, peer_count,
+                );
+
+                thread::sleep(Duration::from_secs(5));
+
+                peer_count_opt = Some(
+                    node.get_peer_stats(&network_ids)
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count(),
+                );
+            } else {
+                peer_count_opt = None;
+            }
         }
 
         // We've gotten enough peers. We'll let it start the baker now.
         info!("We've gotten enough peers. Beginning baker startup!");
         // Starting baker
-        baker = start_baker(&conf.cli.baker, &app_prefs);
-    }
+        start_baker(&conf.cli.baker, &app_prefs)
+    } else {
+        None
+    };
 
     // Starting rpc server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
@@ -710,15 +800,14 @@ fn main() -> Fallible<()> {
         None
     };
 
-    // Connect outgoing messages to be forwarded into the baker
-    // or editing the db, or triggering new connections
+    // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
-    // Thread #2: Read P2PNode output
-    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out, db);
+    // Thread #5: Read P2PNode output
+    setup_higher_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_higher_out, db);
 
     // Create listeners on baker output to forward to P2PNode
     //
-    // Threads #4, #5, #6
+    // Threads #6, #7, #8
     setup_baker_guards(&mut baker, &node, &conf);
 
     // TPS test
