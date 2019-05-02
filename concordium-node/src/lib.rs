@@ -78,6 +78,7 @@ pub mod db;
 
 pub mod client;
 pub mod crypto;
+#[macro_use]
 pub mod network;
 pub mod p2p;
 

@@ -1,4 +1,4 @@
-use crate::network::serialization::{ Serializable, Archive};
+use crate::network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
 
 use failure::Fallible;
 use std::fmt;
@@ -17,9 +17,20 @@ impl fmt::Display for NetworkId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:05}", self.id) }
 }
 
-impl Serializable for NetworkId{
+impl Serializable for NetworkId {
     #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
-        archive.write_u16( self.id)
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u16(self.id)
+    }
+}
+
+impl Deserializable for NetworkId {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkId>
+    where
+        A: ReadArchive, {
+        Ok(NetworkId::from(archive.read_u16()?))
     }
 }

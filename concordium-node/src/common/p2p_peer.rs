@@ -1,13 +1,13 @@
 use crate::{
-    common::{ P2PNodeId, PeerType, get_current_stamp, fails },
-    network::serialization::{ Serializable, Archive },
+    common::{fails, get_current_stamp, P2PNodeId, PeerType},
+    network::serialization::{Serializable, WriteArchive},
 };
 
 use failure::Fallible;
 use std::{
-    net::{ SocketAddr, IpAddr},
     cmp::Ordering,
     hash::{Hash, Hasher},
+    net::{IpAddr, SocketAddr},
 };
 
 #[derive(Debug, Clone, Builder)]
@@ -58,34 +58,34 @@ impl P2PPeer {
         }
     }
 
-    /*
-    pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
-        let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-
-        ensure!(
-            pkt.len() >= pkt.position() + min_packet_size as u64,
-            "P2PPeer package needs {} bytes",
-            min_packet_size
-        );
-
-        let view = pkt.read_into_view(min_packet_size)?;
-        let buf = view.as_slice();
-
-        let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-        debug!(
-            "deserialized {:?} to {:?}",
-            &buf[..PROTOCOL_NODE_ID_LENGTH],
-            node_id
-        );
-
-        let (ip_addr, port) = deserialize_ip_port(pkt)?;
-
-        P2PPeerBuilder::default()
-            .id(node_id)
-            .addr(SocketAddr::new(ip_addr, port))
-            .peer_type(PeerType::Node)
-            .build()
-    }*/
+    // pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
+    // let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
+    //
+    // ensure!(
+    // pkt.len() >= pkt.position() + min_packet_size as u64,
+    // "P2PPeer package needs {} bytes",
+    // min_packet_size
+    // );
+    //
+    // let view = pkt.read_into_view(min_packet_size)?;
+    // let buf = view.as_slice();
+    //
+    // let node_id =
+    // P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
+    // debug!(
+    // "deserialized {:?} to {:?}",
+    // &buf[..PROTOCOL_NODE_ID_LENGTH],
+    // node_id
+    // );
+    //
+    // let (ip_addr, port) = deserialize_ip_port(pkt)?;
+    //
+    // P2PPeerBuilder::default()
+    // .id(node_id)
+    // .addr(SocketAddr::new(ip_addr, port))
+    // .peer_type(PeerType::Node)
+    // .build()
+    // }
 
     pub fn id(&self) -> P2PNodeId { self.id }
 
@@ -117,11 +117,11 @@ impl PartialOrd for P2PPeer {
 }
 
 impl Serializable for P2PPeer {
-
     #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
-        self.id.serialize( archive)?;
-        self.addr.serialize( archive)
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        self.id.serialize(archive)?;
+        self.addr.serialize(archive)
     }
 }
-

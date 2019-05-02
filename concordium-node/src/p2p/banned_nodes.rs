@@ -1,16 +1,11 @@
 use crate::{
-    common::{ P2PNodeId},
-    network::{
-        serialization::{ Serializable, Archive },
-    }
+    common::P2PNodeId,
+    network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
 };
 
 use failure::Fallible;
 
-use std::{
-    collections::HashSet,
-    net::IpAddr,
-};
+use std::{collections::HashSet, net::IpAddr};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -78,48 +73,61 @@ impl BannedNodes {
 }
 
 impl Serializable for BannedNode {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
         match self {
             BannedNode::ById(id) => {
-                archive.write_u8( 0)?;
-                id.serialize( archive)
-            },
+                archive.write_u8(0)?;
+                id.serialize(archive)
+            }
             BannedNode::ByAddr(addr) => {
-                archive.write_u8( 1)?;
-                addr.serialize( archive)
+                archive.write_u8(1)?;
+                addr.serialize(archive)
             }
         }
     }
 }
 
-    /*
-    /// Consumes [partially] a `UCursor` for deserializing a `BannedNode`
-    pub fn deserialize(pkt: &mut UCursor) -> Fallible<BannedNode> {
-        let view = pkt.read_into_view(1)?;
-        let buf = view.as_slice();
-
-        let banned_node = match buf {
-            b"0" => BannedNode::ById({
-                let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-                ensure!(
-                    pkt.len() >= pkt.position() + min_packet_size as u64,
-                    "Node ID chunk needs {} bytes",
-                    min_packet_size
-                );
-
-                let view = pkt.read_into_view(min_packet_size)?;
-                let buf = view.as_slice();
-                P2PNodeId::from_str(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?
-            }),
-            b"1" => BannedNode::ByAddr(deserialize_ip(pkt)?),
-            _ => bail!("Unrecognized slice for deserializing BannedNode"),
+impl Deserializable for BannedNode {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<BannedNode>
+    where
+        A: ReadArchive, {
+        let bn = match archive.read_u8()? {
+            0 => BannedNode::ById(P2PNodeId::deserialize(archive)?),
+            1 => BannedNode::ByAddr(IpAddr::deserialize(archive)?),
+            _ => bail!("Unsupported type of `BanNode`"),
         };
 
-        Ok(banned_node)
-    }*/
+        Ok(bn)
+    }
+}
 
-
-
+// Consumes [partially] a `UCursor` for deserializing a `BannedNode`
+// pub fn deserialize(pkt: &mut UCursor) -> Fallible<BannedNode> {
+// let view = pkt.read_into_view(1)?;
+// let buf = view.as_slice();
+//
+// let banned_node = match buf {
+// b"0" => BannedNode::ById({
+// let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
+// ensure!(
+// pkt.len() >= pkt.position() + min_packet_size as u64,
+// "Node ID chunk needs {} bytes",
+// min_packet_size
+// );
+//
+// let view = pkt.read_into_view(min_packet_size)?;
+// let buf = view.as_slice();
+// P2PNodeId::from_str(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?
+// }),
+// b"1" => BannedNode::ByAddr(deserialize_ip(pkt)?),
+// _ => bail!("Unrecognized slice for deserializing BannedNode"),
+// };
+//
+// Ok(banned_node)
+// }
 
 #[cfg(test)]
 pub mod tests {

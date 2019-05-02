@@ -338,15 +338,14 @@ impl TlsServer {
                 if let Some(ref rc_conn) = safe_read!(self.dptr)?.find_connection_by_token(token) {
                     let mut conn = rc_conn.borrow_mut();
                     // @TODO Re enable that
-                    /*
-                    conn.serialize_bytes(
-                        &NetworkRequest::Handshake(
-                            self_peer,
-                            safe_read!(networks)?.clone(),
-                            vec![],
-                        )
-                        .serialize(),
-                    )?;*/
+                    // conn.serialize_bytes(
+                    // &NetworkRequest::Handshake(
+                    // self_peer,
+                    // safe_read!(networks)?.clone(),
+                    // vec![],
+                    // )
+                    // .serialize(),
+                    // )?;
                     conn.set_measured_handshake_sent();
                 }
                 Ok(())

@@ -1,10 +1,13 @@
 use crate::{
     common::P2PPeer,
-    network::{NetworkId, ProtocolMessageType, AsProtocolMessageType, serialization::{ Serializable, Archive }},
+    network::{
+        serialization::{Serializable, WriteArchive},
+        AsProtocolMessageType, NetworkId, ProtocolMessageType,
+    },
 };
 
 use failure::Fallible;
-use std::{collections::HashSet };
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -27,15 +30,18 @@ impl AsProtocolMessageType for NetworkResponse {
 }
 
 impl Serializable for NetworkResponse {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
         match self {
             NetworkResponse::Pong(..) => Ok(()),
-            NetworkResponse::FindNode(.., ref peers) |
-            NetworkResponse::PeerList(.., ref peers) => peers.serialize( archive),
+            NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
+                peers.serialize(archive)
+            }
             NetworkResponse::Handshake(me, networks, zk) => {
-                me.serialize( archive)?;
-                networks.serialize( archive)?;
-                zk.serialize( archive)
+                me.serialize(archive)?;
+                networks.serialize(archive)?;
+                zk.serialize(archive)
             }
         }
     }

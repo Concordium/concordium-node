@@ -1,10 +1,15 @@
-pub mod p2p_node_id;
-pub mod p2p_peer;
 pub mod container_view;
 pub mod counter;
+pub mod p2p_node_id;
+pub mod p2p_peer;
 pub mod ucursor;
 
-pub use self::{container_view::ContainerView, ucursor::UCursor, p2p_node_id::P2PNodeId, p2p_peer::{ P2PPeer, P2PPeerBuilder} };
+pub use self::{
+    container_view::ContainerView,
+    p2p_node_id::P2PNodeId,
+    p2p_peer::{P2PPeer, P2PPeerBuilder},
+    ucursor::UCursor,
+};
 
 #[macro_use]
 pub mod functor;
@@ -19,7 +24,7 @@ use std::{
     str::{self, FromStr},
 };
 
-use crate::network::{PROTOCOL_PORT_LENGTH};
+use crate::network::PROTOCOL_PORT_LENGTH;
 
 const PROTOCOL_IP4_LENGTH: usize = 12;
 const PROTOCOL_IP6_LENGTH: usize = 32;
@@ -263,46 +268,43 @@ mod tests {
         };
     }
 
-    /*
-      macro_rules! net_assertion {
-        ($msg:ident, $msg_type:ident, $deserialized:expr) => {
-            assert!(match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_), ..) => true,
-                _ => false,
-            })
-        };
-        ($msg:ident, $msg_type:ident, $deserialized:expr, $nets:expr) => {{
-            match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2), ..) => {
-                    assert_eq!($nets, nets2);
-                }
-                _ => panic!("invalid network message"),
-            }
-        }};
-        ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
-            assert!(match $deserialized {
-                NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
-                    $zk == zk2 && $nets == nets2
-                }
-                _ => false,
-            })
-        }};
-    }
-    */
+    // macro_rules! net_assertion {
+    // ($msg:ident, $msg_type:ident, $deserialized:expr) => {
+    // assert!(match $deserialized {
+    // NetworkMessage::$msg($msg::$msg_type(_), ..) => true,
+    // _ => false,
+    // })
+    // };
+    // ($msg:ident, $msg_type:ident, $deserialized:expr, $nets:expr) => {{
+    // match $deserialized {
+    // NetworkMessage::$msg($msg::$msg_type(_, nets2), ..) => {
+    // assert_eq!($nets, nets2);
+    // }
+    // _ => panic!("invalid network message"),
+    // }
+    // }};
+    // ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
+    // assert!(match $deserialized {
+    // NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
+    // $zk == zk2 && $nets == nets2
+    // }
+    // _ => false,
+    // })
+    // }};
+    // }
 
     macro_rules! net_test {
         ($msg:ident, $msg_type:ident) => {{
             let self_peer = self_peer();
             let test_msg = create_message!($msg, $msg_type, self_peer.clone().peer().unwrap());
             // @TODO reenable that.
-            /*
-            let serialized = UCursor::from(test_msg.serialize());
-            let deserialized = NetworkMessage::deserialize(
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-                serialized,
-            );
-            net_assertion!($msg, $msg_type, deserialized)*/
+            // let serialized = UCursor::from(test_msg.serialize());
+            // let deserialized = NetworkMessage::deserialize(
+            // self_peer.clone(),
+            // self_peer.peer().unwrap().ip(),
+            // serialized,
+            // );
+            // net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
             let self_peer = self_peer();
@@ -310,13 +312,13 @@ mod tests {
             let test_msg =
                 create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets);
             // @TODO reenable that.
-            /*let serialized = UCursor::from(test_msg.serialize());
-            let deserialized = NetworkMessage::deserialize(
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-                serialized,
-            );
-            net_assertion!($msg, $msg_type, deserialized, nets)*/
+            // let serialized = UCursor::from(test_msg.serialize());
+            // let deserialized = NetworkMessage::deserialize(
+            // self_peer.clone(),
+            // self_peer.peer().unwrap().ip(),
+            // serialized,
+            // );
+            // net_assertion!($msg, $msg_type, deserialized, nets)
         }};
         ($msg:ident, $msg_type:ident, $zk:expr, $nets:expr) => {{
             let self_peer = self_peer();
@@ -328,14 +330,13 @@ mod tests {
             let test_msg =
                 create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets, zk);
             // @TODO reenable that.
-            /* let serialized = UCursor::from(test_msg.serialize());
-            let deserialized = NetworkMessage::deserialize(
-                self_peer.clone(),
-                self_peer.peer().unwrap().ip(),
-                serialized,
-            );
-            net_assertion!($msg, $msg_type, deserialized, zk, nets)
-            */
+            // let serialized = UCursor::from(test_msg.serialize());
+            // let deserialized = NetworkMessage::deserialize(
+            // self_peer.clone(),
+            // self_peer.peer().unwrap().ip(),
+            // serialized,
+            // );
+            // net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
     }
 

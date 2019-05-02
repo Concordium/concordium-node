@@ -8,7 +8,7 @@ use crate::{
         P2PPeer,
     },
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
-    network::{NetworkId },
+    network::NetworkId,
 };
 use std::sync::atomic::Ordering;
 
@@ -81,9 +81,10 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
 
     let session = &mut *priv_conn.borrow_mut().tls_session;
     // @TODO reenable
-    // let data = NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize();
+    // let data = NetworkResponse::Handshake(local_peer.clone(), my_nets,
+    // vec![]).serialize();
     let data = [];
-    serialize_bytes( session, &data)?;
+    serialize_bytes(session, &data)?;
 
     // @TODO reenable
     // serialize_bytes(session, &NetworkRequest::Ping(local_peer).serialize())?;
@@ -136,14 +137,12 @@ pub fn send_retransmit_request(
     network_id: NetworkId,
 ) -> FunctorResult {
     // @TODO reenable
-    /*
-    let data = NetworkRequest::Retransmit(
-        priv_conn.borrow().local_peer.to_owned(),
-        since_stamp,
-        network_id,
-    )
-    .serialize();
-    */
+    // let data = NetworkRequest::Retransmit(
+    // priv_conn.borrow().local_peer.to_owned(),
+    // since_stamp,
+    // network_id,
+    // )
+    // .serialize();
     let data = [];
 
     serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;

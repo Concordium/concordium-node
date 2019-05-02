@@ -1,9 +1,8 @@
-use crate::network::serialization::{ Serializable, Archive};
+use crate::network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
 
 use failure::Fallible;
-use rand::distributions::{ Uniform, Distribution };
-use std::{ fmt
-};
+use rand::distributions::{Distribution, Uniform};
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -34,7 +33,18 @@ impl std::str::FromStr for P2PNodeId {
 
 impl Serializable for P2PNodeId {
     #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
-        archive.write_u64( self.0)
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u64(self.0)
+    }
+}
+
+impl Deserializable for P2PNodeId {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<P2PNodeId>
+    where
+        A: ReadArchive, {
+        Ok(P2PNodeId(archive.read_u64()?))
     }
 }

@@ -1,10 +1,11 @@
 use crate::{
     common::{P2PNodeId, P2PPeer, UCursor},
     network::{
-        serialization::{ Serializable, Archive },
-        NetworkId, ProtocolMessageType, AsProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
-        PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
-        PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
+        serialization::{Serializable, WriteArchive},
+        AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
+        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
+        PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
+        PROTOCOL_VERSION,
     },
 };
 
@@ -30,13 +31,15 @@ pub enum NetworkPacketType {
 }
 
 impl Serializable for NetworkPacketType {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
-        match self{
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        match self {
             NetworkPacketType::DirectMessage(ref receiver) => {
                 archive.write_u8(0)?;
-                receiver.serialize( archive)
+                receiver.serialize(archive)
             }
-            NetworkPacketType::BroadcastedMessage => archive.write_u8(1)
+            NetworkPacketType::BroadcastedMessage => archive.write_u8(1),
         }
     }
 }
@@ -154,20 +157,22 @@ impl NetworkPacket {
     }
 }
 
-impl AsProtocolMessageType for NetworkPacket{
+impl AsProtocolMessageType for NetworkPacket {
     fn protocol_type(&self) -> ProtocolMessageType {
         match self.packet_type {
             NetworkPacketType::DirectMessage(..) => ProtocolMessageType::DirectMessage,
-            NetworkPacketType::BroadcastedMessage => ProtocolMessageType::BroadcastedMessage
+            NetworkPacketType::BroadcastedMessage => ProtocolMessageType::BroadcastedMessage,
         }
     }
 }
 
 impl Serializable for NetworkPacket {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()> where A: Archive {
-        self.packet_type.serialize( archive)?;
-        self.message_id.serialize( archive)?;
-        self.network_id.serialize( archive)?;
-        self.message.serialize( archive)
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        self.packet_type.serialize(archive)?;
+        self.message_id.serialize(archive)?;
+        self.network_id.serialize(archive)?;
+        self.message.serialize(archive)
     }
 }

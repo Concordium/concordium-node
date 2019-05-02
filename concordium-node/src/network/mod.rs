@@ -12,23 +12,26 @@ macro_rules! serialize_message {
     };
 }
 
+#[macro_use]
+pub mod serialization;
 pub mod buckets;
 pub mod message;
+pub mod network_id;
 pub mod packet;
 pub mod protocol_message_type;
 pub mod request;
 pub mod response;
-pub mod serialization;
-pub mod network_id;
 
 pub use self::{
     buckets::Buckets,
     message::NetworkMessage,
+    network_id::NetworkId,
     packet::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
-    protocol_message_type::{ProtocolMessageType, AsProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH},
+    protocol_message_type::{
+        AsProtocolMessageType, ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH,
+    },
     request::NetworkRequest,
     response::NetworkResponse,
-    network_id::NetworkId
 };
 
 pub const PROTOCOL_NAME: &str = "CONCORDIUMP2P";

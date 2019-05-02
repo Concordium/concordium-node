@@ -11,7 +11,7 @@ use std::{
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     connection::Connection,
-    network::{NetworkId, NetworkMessage },
+    network::{NetworkId, NetworkMessage},
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
         peer_statistics::PeerStatistic,

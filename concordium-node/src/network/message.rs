@@ -3,10 +3,11 @@ use crate::{
     common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor},
     failure::{err_msg, Fallible},
     network::{
-        NetworkId, ProtocolMessageType, AsProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
-        PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
-        PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
-        PROTOCOL_SINCE_TIMESTAMP_LENGTH, PROTOCOL_VERSION, PROTOCOL_VERSION_2
+        AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
+        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
+        PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH,
+        PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_SINCE_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
+        PROTOCOL_VERSION_2,
     },
 };
 use std::{convert::TryFrom, str::FromStr};
@@ -611,7 +612,6 @@ impl NetworkMessage {
             }
         }
     }
-
 }
 
 /// This implementation ignores the reception time stamp.
@@ -637,7 +637,7 @@ impl PartialEq for NetworkMessage {
     }
 }
 
-use crate::network::serialization::{ Serializable, Deserializable, Archive };
+use crate::network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
 
 impl AsProtocolMessageType for NetworkMessage {
     fn protocol_type(&self) -> ProtocolMessageType {
@@ -645,52 +645,81 @@ impl AsProtocolMessageType for NetworkMessage {
             NetworkMessage::NetworkRequest(ref request, ..) => request.protocol_type(),
             NetworkMessage::NetworkResponse(ref response, ..) => response.protocol_type(),
             NetworkMessage::NetworkPacket(ref packet, ..) => packet.protocol_type(),
-            NetworkMessage::UnknownMessage
-            | NetworkMessage::InvalidMessage => panic!( "Invalid or Unknown messages are not serializable")
+            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
+                panic!("Invalid or Unknown messages are not serializable")
+            }
         }
     }
 }
 
 impl Serializable for NetworkMessage {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-        where A: Archive {
-        archive.write_str( PROTOCOL_NAME)?;
-        archive.write_u16( PROTOCOL_VERSION_2)?;
-        archive.write_u64( get_current_stamp as u64)?;
-        archive.write_u8( self.protocol_type() as u8)?;
+    where
+        A: WriteArchive, {
+        archive.write_str(PROTOCOL_NAME)?;
+        archive.write_u16(PROTOCOL_VERSION_2)?;
+        archive.write_u64(get_current_stamp as u64)?;
+        archive.write_u8(self.protocol_type() as u8)?;
         match self {
-            NetworkMessage::NetworkRequest(ref request, ..) => request.serialize( archive),
-            NetworkMessage::NetworkResponse(ref response, ..) => response.serialize( archive),
-            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serialize( archive),
-            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => bail!("Unsupported type of NetworkMessage")
+            NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),
+            NetworkMessage::NetworkResponse(ref response, ..) => response.serialize(archive),
+            NetworkMessage::NetworkPacket(ref packet, ..) => packet.serialize(archive),
+            NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
+                bail!("Unsupported type of NetworkMessage")
+            }
         }
     }
 }
 
 impl Deserializable for NetworkMessage {
-    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage> where A: Archive {
-        /*
-        archive.tag_str( PROTOCOL_NAME)?;
-        archive.tag_number( PROTOCOL_VERSION_2)?;
-        let timestamp :u64 = archive.read_u64()?;
-        let protocol_type :ProtocolMessageType = ProtocolMessageType::try_from( archive.read_u8()?)?;
-        match protocol_type {
-            ProtocolMessageType::RequestPing | ProtocolMessageType::RequestFindNode | ProtocolMessageType::RequestHandshake | ProtocolMessageType::RequestGetPeers | ProtocolMessageType::RequestBanNode | ProtocolMessageType::RequestUnbanNode | ProtocolMessageType::RequestJoinNetwork | ProtocolMessageType::RequestLeaveNetwork | ProtocolMessageType::RequestRetransmit => {
-                let request = NetworkRequest::deserialize(archive)?;
-                NetworkMessage::NetworkRequest( request, Some(timestamp), Some(get_current_stamp()))
-            },
-            ProtocolMessageType::ResponsePong | ProtocolMessageType::ResponseFindNode | ProtocolMessageType::ResponsePeersList | ProtocolMessageType::ResponseHandshake => {
-                let response = NetworkResponse::deserialize(archive)?;
-                NetworkMessage::NetworkResponse( response, Some(timestamp), Some(get_current_stamp()))
-            },
-            ProtocolMessageType::DirectMessage | ProtocolMessageType::BroadcastedMessage => {
-                let packet = NetworkPacket::deserialize(archive)?;
-                NetworkMessage::NetworkPacket( packet, Some(timestamp), Some(get_current_stamp()))
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage>
+    where
+        A: ReadArchive, {
+        archive.tag_str(PROTOCOL_NAME)?;
+        archive.read_u16().and_then(|version| {
+            if version == PROTOCOL_VERSION_2 {
+                Ok(())
+            } else {
+                bail!("Incompatible protocol version")
             }
-        }*/
-        Ok( NetworkMessage::UnknownMessage)
-    }
+        })?;
+        let timestamp: u64 = archive.read_u64()?;
+        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
+        let message = match protocol_type {
+            ProtocolMessageType::RequestPing
+            | ProtocolMessageType::RequestFindNode
+            | ProtocolMessageType::RequestHandshake
+            | ProtocolMessageType::RequestGetPeers
+            | ProtocolMessageType::RequestBanNode
+            | ProtocolMessageType::RequestUnbanNode
+            | ProtocolMessageType::RequestJoinNetwork
+            | ProtocolMessageType::RequestLeaveNetwork
+            | ProtocolMessageType::RequestRetransmit => {
+                let request = NetworkRequest::deserialize(archive)?;
+                NetworkMessage::NetworkRequest(request, Some(timestamp), Some(get_current_stamp()))
+            }
+            ProtocolMessageType::ResponsePong
+            | ProtocolMessageType::ResponseFindNode
+            | ProtocolMessageType::ResponsePeersList
+            | ProtocolMessageType::ResponseHandshake => {
+                // let response = NetworkResponse::deserialize(archive)?;
+                // NetworkMessage::NetworkResponse(
+                // response,
+                // Some(timestamp),
+                // Some(get_current_stamp()),
+                // )
+                NetworkMessage::UnknownMessage
+            }
+            ProtocolMessageType::DirectMessage | ProtocolMessageType::BroadcastedMessage => {
+                // let packet = NetworkPacket::deserialize(archive)?;
+                // NetworkMessage::NetworkPacket(packet, Some(timestamp),
+                // Some(get_current_stamp()))
+                NetworkMessage::UnknownMessage
+            }
+        };
 
+        Ok(message)
+    }
 }
 
 #[cfg(test)]

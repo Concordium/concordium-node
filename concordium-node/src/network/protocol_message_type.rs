@@ -25,7 +25,6 @@ pub enum ProtocolMessageType {
     RequestRetransmit,
 }
 
-
 pub trait AsProtocolMessageType {
     fn protocol_type(&self) -> ProtocolMessageType;
 }
