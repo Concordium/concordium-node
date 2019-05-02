@@ -9,7 +9,7 @@ use tempfile::NamedTempFile;
 
 use crate::{
     common::ContainerView,
-    network::serialization::{Serializable, WriteArchive},
+    network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
 };
 
 #[derive(Debug)]
@@ -335,6 +335,15 @@ impl Serializable for UCursor {
         A: WriteArchive, {
         // @TODO
         Ok(())
+    }
+}
+
+impl Deserializable for UCursor {
+    fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
+    where
+        A: ReadArchive, {
+        // @TODO
+        Ok(UCursor::from(vec![]))
     }
 }
 

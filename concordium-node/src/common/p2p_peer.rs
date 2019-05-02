@@ -1,6 +1,6 @@
 use crate::{
     common::{fails, get_current_stamp, P2PNodeId, PeerType},
-    network::serialization::{Serializable, WriteArchive},
+    network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
 };
 
 use failure::Fallible;
@@ -121,7 +121,21 @@ impl Serializable for P2PPeer {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
+        self.peer_type.serialize(archive)?;
         self.id.serialize(archive)?;
         self.addr.serialize(archive)
+    }
+}
+
+impl Deserializable for P2PPeer {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<P2PPeer>
+    where
+        A: ReadArchive, {
+        Ok(P2PPeer::from(
+            PeerType::deserialize(archive)?,
+            P2PNodeId::deserialize(archive)?,
+            SocketAddr::deserialize(archive)?,
+        ))
     }
 }

@@ -702,19 +702,16 @@ impl Deserializable for NetworkMessage {
             | ProtocolMessageType::ResponseFindNode
             | ProtocolMessageType::ResponsePeersList
             | ProtocolMessageType::ResponseHandshake => {
-                // let response = NetworkResponse::deserialize(archive)?;
-                // NetworkMessage::NetworkResponse(
-                // response,
-                // Some(timestamp),
-                // Some(get_current_stamp()),
-                // )
-                NetworkMessage::UnknownMessage
+                let response = NetworkResponse::deserialize(archive)?;
+                NetworkMessage::NetworkResponse(
+                    response,
+                    Some(timestamp),
+                    Some(get_current_stamp()),
+                )
             }
             ProtocolMessageType::DirectMessage | ProtocolMessageType::BroadcastedMessage => {
-                // let packet = NetworkPacket::deserialize(archive)?;
-                // NetworkMessage::NetworkPacket(packet, Some(timestamp),
-                // Some(get_current_stamp()))
-                NetworkMessage::UnknownMessage
+                let packet = NetworkPacket::deserialize(archive)?;
+                NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
             }
         };
 

@@ -1,7 +1,7 @@
 use crate::{
     common::{P2PNodeId, P2PPeer, UCursor},
     network::{
-        serialization::{Serializable, WriteArchive},
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
         PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
         PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
@@ -41,6 +41,19 @@ impl Serializable for NetworkPacketType {
             }
             NetworkPacketType::BroadcastedMessage => archive.write_u8(1),
         }
+    }
+}
+
+impl Deserializable for NetworkPacketType {
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacketType>
+    where
+        A: ReadArchive, {
+        let ptype = match archive.read_u8()? {
+            0 => NetworkPacketType::DirectMessage(P2PNodeId::deserialize(archive)?),
+            1 => NetworkPacketType::BroadcastedMessage,
+            _ => bail!("Unsupported Network Packet type"),
+        };
+        Ok(ptype)
     }
 }
 
@@ -174,5 +187,20 @@ impl Serializable for NetworkPacket {
         self.message_id.serialize(archive)?;
         self.network_id.serialize(archive)?;
         self.message.serialize(archive)
+    }
+}
+
+impl Deserializable for NetworkPacket {
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacket>
+    where
+        A: ReadArchive, {
+        let packet = NetworkPacket {
+            packet_type: NetworkPacketType::deserialize(archive)?,
+            peer:        archive.remote_peer().clone(),
+            message_id:  archive.read_string()?,
+            network_id:  NetworkId::deserialize(archive)?,
+            message:     Box::<UCursor>::deserialize(archive)?,
+        };
+        Ok(packet)
     }
 }

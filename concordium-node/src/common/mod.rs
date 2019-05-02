@@ -24,7 +24,10 @@ use std::{
     str::{self, FromStr},
 };
 
-use crate::network::PROTOCOL_PORT_LENGTH;
+use crate::network::{
+    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    PROTOCOL_PORT_LENGTH,
+};
 
 const PROTOCOL_IP4_LENGTH: usize = 12;
 const PROTOCOL_IP6_LENGTH: usize = 32;
@@ -47,6 +50,32 @@ impl fmt::Display for PeerType {
                 PeerType::Bootstrapper => "Bootstrapper",
             }
         )
+    }
+}
+
+impl Serializable for PeerType {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u8(match self {
+            PeerType::Node => 0u8,
+            PeerType::Bootstrapper => 1u8,
+        })
+    }
+}
+
+impl Deserializable for PeerType {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<PeerType>
+    where
+        A: ReadArchive, {
+        let pt = match archive.read_u8()? {
+            0u8 => PeerType::Node,
+            1u8 => PeerType::Bootstrapper,
+            _ => bail!("Unsupported PeerType"),
+        };
+        Ok(pt)
     }
 }
 

@@ -6,7 +6,7 @@ use std::{
     cmp::Eq,
     collections::HashSet,
     hash::Hash,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
 /// # TODO
@@ -26,6 +26,18 @@ impl Deserializable for u8 {
     where
         A: ReadArchive, {
         archive.read_u8()
+    }
+}
+
+impl<T> Deserializable for Box<T>
+where
+    T: Deserializable,
+{
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<Box<T>>
+    where
+        A: ReadArchive, {
+        Ok(Box::new(T::deserialize(archive)?))
     }
 }
 
@@ -66,6 +78,18 @@ impl Deserializable for Ipv6Addr {
         }
 
         Ok(Ipv6Addr::from(segments))
+    }
+}
+
+impl Deserializable for SocketAddr {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<Self>
+    where
+        A: ReadArchive, {
+        Ok(SocketAddr::new(
+            IpAddr::deserialize(archive)?,
+            archive.read_u16()?,
+        ))
     }
 }
 

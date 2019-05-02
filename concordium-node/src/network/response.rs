@@ -1,13 +1,13 @@
 use crate::{
     common::P2PPeer,
     network::{
-        serialization::{Serializable, WriteArchive},
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         AsProtocolMessageType, NetworkId, ProtocolMessageType,
     },
 };
 
 use failure::Fallible;
-use std::collections::HashSet;
+use std::{collections::HashSet, convert::TryFrom};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -33,6 +33,7 @@ impl Serializable for NetworkResponse {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
+        archive.write_u8(self.protocol_type() as u8)?;
         match self {
             NetworkResponse::Pong(..) => Ok(()),
             NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
@@ -44,5 +45,30 @@ impl Serializable for NetworkResponse {
                 zk.serialize(archive)
             }
         }
+    }
+}
+
+impl Deserializable for NetworkResponse {
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkResponse>
+    where
+        A: ReadArchive, {
+        let remote_peer = archive.remote_peer().clone();
+        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
+        let response = match protocol_type {
+            ProtocolMessageType::ResponsePong => NetworkResponse::Pong(remote_peer),
+            ProtocolMessageType::ResponseFindNode => {
+                NetworkResponse::FindNode(remote_peer, Vec::<P2PPeer>::deserialize(archive)?)
+            }
+            ProtocolMessageType::ResponsePeersList => {
+                NetworkResponse::PeerList(remote_peer, Vec::<P2PPeer>::deserialize(archive)?)
+            }
+            ProtocolMessageType::ResponseHandshake => NetworkResponse::Handshake(
+                remote_peer,
+                HashSet::<NetworkId>::deserialize(archive)?,
+                Vec::<u8>::deserialize(archive)?,
+            ),
+            _ => bail!("Unsupported protocol type for Network response"),
+        };
+        Ok(response)
     }
 }
