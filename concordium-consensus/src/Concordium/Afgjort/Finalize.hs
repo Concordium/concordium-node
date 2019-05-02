@@ -175,6 +175,8 @@ class FinalizationStateLenses s where
     finHeight = finState . finsHeight
     finCommittee :: Lens' s FinalizationCommittee
     finCommittee = finState . finsCommittee
+    -- |All received finalization messages for the current and future finalization indexes.
+    -- (Previously, this was just future messages, but now we store all of them for catch-up purposes.)
     finPendingMessages :: Lens' s (Map FinalizationIndex (Map BlockHeight [(Word32, BS.ByteString)]))
     finPendingMessages = finState . finsPendingMessages
     finCurrentRound :: Lens' s (Maybe FinalizationRound)
@@ -242,7 +244,7 @@ newRound newDelta me = do
         logEvent Afgjort LLDebug $ "Starting finalization round: height=" ++ show (theBlockHeight h) ++ " delta=" ++ show (theBlockHeight newDelta)
         justifiedInputs <- fmap (ancestorAtHeight h) <$> getBlocksAtHeight (h + newDelta)
         finIx <- use finIndex
-        pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <<.= []
+        pmsgs <- use $ finPendingMessages . at finIx . non Map.empty . at newDelta . non []
         committee <- use finCommittee
         sessId <- use finSessionId
         let msgHdr src = FinalizationMessageHeader {
@@ -323,17 +325,20 @@ receiveFinalizationMessage msg0 = case runGetState getFinalizationMessageHeader 
         Left _ -> return () -- Message header could not be decoded
         Right (hdr@FinalizationMessageHeader{..}, bodyBS) -> do
             FinalizationState{..} <- use finState
-            when (_finsSessionId == msgSessionId) $ do
-                case compare msgFinalizationIndex _finsIndex of
-                    LT -> return () -- Message is for an old round, so discard
-                    GT -> -- Message is for a future round, so save
-                        finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, bodyBS) :)
-                    EQ -> -- Message is for current round.  Discard if we're not participating, otherwise handle
+            -- Check this is the right session
+            when (_finsSessionId == msgSessionId) $
+                -- Check the finalization index is not out of date
+                unless (msgFinalizationIndex < _finsIndex) $ do
+                    -- Save the message
+                    finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, bodyBS) :)
+                    -- Check if it's the current index
+                    when (msgFinalizationIndex == _finsIndex) $
+                        -- And we're participating
                         forM_ _finsCurrentRound $ \FinalizationRound{..} ->
-                            case compare msgDelta roundDelta of
-                                LT -> return ()
-                                GT -> finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, bodyBS) :)
-                                EQ -> forM_ (decodeCheckMessage _finsCommittee hdr bodyBS) $ \msg ->
+                            -- And it's the current round
+                            when (msgDelta == roundDelta) $
+                                -- And the message can be legitimately decoded
+                                forM_ (decodeCheckMessage _finsCommittee hdr bodyBS) $ \msg ->
                                     forM_ (toParty _finsCommittee msgSenderIndex) $ \src -> do
                                         logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
                                         liftWMVBA (receiveWMVBAMessage src (msgSignature msg) (msgBody msg))
@@ -364,6 +369,8 @@ getMyParty = do
 notifyBlockFinalized :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
 notifyBlockFinalized FinalizationRecord{..} bp = do
         finIndex .= finalizationIndex + 1
+        -- Discard finalization messages from old round
+        finPendingMessages . at finalizationIndex .= Nothing
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
         finHeight .= bpHeight bp + max 1 ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
         -- Determine if we're in the committee
@@ -387,3 +394,18 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} = sum 
         sigWeight (pid, sig) = if checkMessageSignature com (FinalizationMessage (hdr pid) (WMVBAWitnessCreatorMessage finalizationBlockPointer) sig)
             then partyWeight (fromJust (toParty com pid))
             else 0
+
+-- |Get all of the finalization messages received for indexes beyond the last finalized index.
+getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> [BS.ByteString]
+getPendingFinalizationMessages fs = Map.foldrWithKey eachIndex [] (fs ^. finPendingMessages)
+    where
+        eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
+        eachDelta ind delta msgs l = map (eachMsg ind delta) msgs ++ l
+        eachMsg ind delta (senderIndex, bodyBS) = runPut (putFinalizationMessageHeader hdr) <> bodyBS
+            where
+                hdr = FinalizationMessageHeader {
+                    msgSessionId = fs ^. finSessionId,
+                    msgFinalizationIndex = ind,
+                    msgDelta = delta,
+                    msgSenderIndex = senderIndex
+                }

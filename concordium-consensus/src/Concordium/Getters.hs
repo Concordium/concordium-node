@@ -12,6 +12,7 @@ import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
 import Concordium.Logger
+import Concordium.TimeMonad
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
@@ -22,11 +23,16 @@ import Concordium.GlobalState.Information
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.TreeState.Basic
 
+import Concordium.Afgjort.Finalize
+
+import Control.Monad.IO.Class
 import Data.IORef
 import Text.Read hiding (get)
 import qualified Data.Map as Map
-
+import qualified Data.ByteString as BS
 import Data.Aeson
 
 import Data.Word
@@ -155,3 +161,28 @@ getBranches sfsRef = do
     where
         up :: Map.Map Basic.BlockPointer [Value] -> [Basic.BlockPointer] -> Map.Map Basic.BlockPointer [Value]
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
+
+getBlockData :: (LoggerMonad m, TimeMonad m, MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe Block)
+getBlockData sfsRef bh = do
+        sfs <- liftIO $ readIORef sfsRef
+        flip evalSSM (sfs ^. sfsSkov) $
+            fmap bpBlock <$> resolveBlock bh
+
+getBlockFinalization :: (LoggerMonad m, MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe FinalizationRecord)
+getBlockFinalization sfsRef bh = do
+        sfs <- liftIO $ readIORef sfsRef
+        flip evalSSM (sfs ^. sfsSkov) $ do
+            bs <- TS.getBlockStatus bh
+            case bs of
+                Just (TS.BlockFinalized _ fr) -> return $ Just fr
+                _ -> return Nothing
+
+getIndexedFinalization :: (LoggerMonad m, MonadIO m) => IORef SkovFinalizationState -> FinalizationIndex -> m (Maybe FinalizationRecord)
+getIndexedFinalization sfsRef finInd = do
+        sfs <- liftIO $ readIORef sfsRef
+        return $ fst <$> sfs ^? finalizationList . ix (fromIntegral finInd)
+
+getFinalizationMessages :: (LoggerMonad m, MonadIO m) => IORef SkovFinalizationState -> m [BS.ByteString]
+getFinalizationMessages sfsRef = do
+        sfs <- liftIO $ readIORef sfsRef
+        return $ getPendingFinalizationMessages sfs

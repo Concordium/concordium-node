@@ -15,7 +15,10 @@ import Data.IORef
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
 
+import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Data.FixedByteString as FBS
 
+import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
@@ -295,6 +298,84 @@ getLastFinalInstanceInfo bptr cstr = do
 
 freeCStr :: CString -> IO ()
 freeCStr = free
+
+type BlockReference = Ptr Word8
+
+blockReferenceToBlockHash :: BlockReference -> IO BlockHash
+blockReferenceToBlockHash src = Hash.Hash <$> FBS.create cp
+    where
+        cp dest = copyBytes dest src (FBS.fixedLength (undefined :: Hash.DigestSize))
+
+-- |Get a block for the given block hash.
+-- The block hash is passed as a pointer to a fixed length (32 byte) string.
+-- The return value is a length encoded string: the first 4 bytes are
+-- the length (encoded big-endian), followed by the data itself.
+-- The string should be freed by calling 'freeCStr'.
+-- The string may be empty (length 0) if the finalization record is not found.
+getBlock :: StablePtr BakerRunner -> BlockReference -> IO CString
+getBlock bptr blockRef = do
+        BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+        bh <- blockReferenceToBlockHash blockRef
+        logm External LLInfo $ "Received request for block: " ++ show bh
+        b <- runLoggerT (Get.getBlockData sfsRef bh) logm
+        case b of
+            Nothing -> do
+                logm External LLInfo $ "Block not available"
+                byteStringToCString BS.empty
+            Just block -> do
+                logm External LLInfo $ "Block found"
+                byteStringToCString $ P.runPut $ put block
+
+-- |Get a finalization record for the given block.
+-- The block hash is passed as a pointer to a fixed length (32 byte) string.
+-- The return value is a length encoded string: the first 4 bytes are
+-- the length (encoded big-endian), followed by the data itself.
+-- The string should be freed by calling 'freeCStr'.
+-- The string may be empty (length 0) if the finalization record is not found.
+getBlockFinalization :: StablePtr BakerRunner -> BlockReference -> IO CString
+getBlockFinalization bptr blockRef = do
+        BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+        bh <- blockReferenceToBlockHash blockRef
+        logm External LLInfo $ "Received request for finalization record for block: " ++ show bh
+        f <- runLoggerT (Get.getBlockFinalization sfsRef bh) logm
+        case f of
+            Nothing -> do
+                logm External LLInfo $ "Finalization record not available"
+                byteStringToCString BS.empty
+            Just finRec -> do
+                logm External LLInfo $ "Finalization record found"
+                byteStringToCString $ P.runPut $ put finRec
+
+-- |Get a finalization record for the given finalization index.
+-- The return value is a length encoded string: the first 4 bytes are
+-- the length (encoded big-endian), followed by the data itself.
+-- The string should be freed by calling 'freeCStr'.
+-- The string may be empty (length 0) if the finalization record is not found.
+getIndexedFinalization :: StablePtr BakerRunner -> Word64 -> IO CString
+getIndexedFinalization bptr finInd = do
+        BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+        logm External LLInfo $ "Received request for finalization record at index " ++ show finInd
+        f <- runLoggerT (Get.getIndexedFinalization sfsRef (fromIntegral finInd)) logm
+        case f of
+            Nothing -> do
+                logm External LLInfo $ "Finalization record not available"
+                byteStringToCString BS.empty
+            Just finRec -> do
+                logm External LLInfo $ "Finalization record found"
+                byteStringToCString $ P.runPut $ put finRec
+
+-- |Get all pending finalization messages.  The finalization messages are returned
+-- by calling the provided callback for each message, which receives a string and
+-- the length of the string.  The call returns once all messages are handled.
+-- Note: this function is thread safe; it will not block, but the data can in
+-- principle be out of date.
+getFinalizationMessages :: StablePtr BakerRunner -> FunPtr CStringCallback -> IO ()
+getFinalizationMessages bptr callback = do
+        BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+        logm External LLInfo $ "Received request for finalization messages"
+        finMsgs <- runLoggerT (Get.getFinalizationMessages sfsRef) logm
+        mapM_  (\finMsg -> BS.useAsCStringLen finMsg $ \(cstr, l) -> callCStringCallback callback cstr (fromIntegral l)) finMsgs
+
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> IO (StablePtr BakerRunner)
