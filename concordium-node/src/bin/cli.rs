@@ -14,14 +14,14 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use consensus_sys::{block, consensus};
+use consensus_sys::{block::Block, consensus};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
     common::{
         functor::{FilterFunctor, Functorable},
-        get_current_stamp, P2PNodeId, PeerType, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType, UCursor,
     },
     configuration,
     db::P2PDB,
@@ -356,7 +356,11 @@ fn setup_lower_process_output(
                 ) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    let stats = _node_self_clone.get_peer_stats(&[]);
+                    let peer_count = _node_self_clone
+                        .get_peer_stats(&[])
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count();
                     for peer_node in peers {
                         debug!(
                             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
@@ -374,7 +378,7 @@ fn setup_lower_process_output(
                         {
                             new_peers += 1;
                         }
-                        if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
                             break;
                         }
                     }
@@ -430,7 +434,7 @@ fn setup_higher_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => match block::Block::deserialize(content) {
+                    PACKET_TYPE_CONSENSUS_BLOCK => match Block::deserialize(content) {
                         Some(block) => {
                             match client_utils::add_transmission_to_seenlist(
                                 client_utils::SeenTransmissionType::Block,
@@ -817,6 +821,10 @@ fn main() -> Fallible<()> {
     // Threads #6, #7, #8
     setup_baker_guards(&mut baker, &node, &conf);
 
+    // Create the temporary guard to keep requesting retransmit for a period during
+    // first startup
+    replaceme_retransmit_auto_hook(&node, &conf);
+
     // TPS test
     start_tps_test(&conf, &node);
 
@@ -936,6 +944,41 @@ fn send_retransmit_packet(
         }
         Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
     }
+}
+
+fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) {
+    let _retransmit_times = conf.cli.baker.baker_retransmit_request_times;
+    let _retransmit_sleep_time = conf.cli.baker.baker_retransmit_request_interval;
+    let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
+    let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
+    let mut _node_clone = node.clone();
+    thread::spawn(move || {
+        for slot in 0.._retransmit_times {
+            info!(
+                "Retransmit Request #{}: Sleeping {} seconds before next retransmit request",
+                slot, _retransmit_sleep_time
+            );
+            thread::sleep(Duration::from_secs(u64::from(_retransmit_sleep_time)));
+            _node_clone
+                .get_peer_stats(&[])
+                .iter()
+                .filter(|peer| peer.peer_type == PeerType::Node)
+                .for_each(|peer| {
+                    let p2p_peer = P2PPeerBuilder::default()
+                        .id(P2PNodeId::from_str(&peer.id).unwrap())
+                        .addr(peer.addr)
+                        .peer_type(peer.peer_type)
+                        .build()
+                        .unwrap();
+                    _node_clone.send_retransmit(
+                        p2p_peer,
+                        p2p_client::common::get_current_stamp()
+                            - u64::from(_retransmit_back_in_time),
+                        _network_id,
+                    );
+                });
+        }
+    });
 }
 
 fn get_baker_data(

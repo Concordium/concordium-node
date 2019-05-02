@@ -23,7 +23,7 @@ lazy_static! {
     static ref SEEN_TRANSMISSIONS_LIST_BLOCKS: SeenTransmissionsList =
         { SeenTransmissionsList::new(0, 5_000u64) };
     static ref SEEN_TRANSMISSIONS_LIST_FINALIZATIONS: SeenTransmissionsList =
-        { SeenTransmissionsList::new(1000, 5_000u64) };
+        { SeenTransmissionsList::new(10_000, 5_000u64) };
     static ref SEEN_TRANSMISSIONS_LIST_FINALIZATIONRECORDS: SeenTransmissionsList =
         { SeenTransmissionsList::new(0, 5_000u64) };
 }

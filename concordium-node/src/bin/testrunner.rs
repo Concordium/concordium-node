@@ -404,8 +404,11 @@ fn setup_process_output(
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    let stats = _node_self_clone.get_peer_stats(&[]);
-
+                    let peer_count = _node_self_clone
+                        .get_peer_stats(&[])
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count();
                     for peer_node in peers {
                         if _node_self_clone
                             .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
@@ -414,7 +417,7 @@ fn setup_process_output(
                         {
                             new_peers += 1;
                         }
-                        if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
                             break;
                         }
                     }
