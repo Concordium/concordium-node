@@ -16,7 +16,10 @@ pub use self::p2p_node::P2PNode;
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{functor::AFunctor, P2PNodeId, PeerType},
+        common::{
+            functor::{FilterFunctor, Functorable},
+            P2PNodeId, PeerType,
+        },
         configuration::Config,
         connection::P2PEvent,
         network::NetworkMessage,
@@ -85,7 +88,7 @@ mod tests {
                 Some(sender),
                 node_type,
                 None,
-                Arc::new(AFunctor::new("Broadcasting_checks")),
+                Arc::new(FilterFunctor::new("Broadcasting_checks")),
             )
         };
         // Empty on init

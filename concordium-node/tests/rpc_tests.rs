@@ -9,7 +9,10 @@ extern crate grpciowin as grpcio;
 mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
-        common::{functor::AFunctor, PeerType},
+        common::{
+            functor::{FilterFunctor, Functorable},
+            PeerType,
+        },
         configuration::Config,
         db::P2PDB,
         network::NetworkMessage,
@@ -71,7 +74,7 @@ mod tests {
                 Some(sender),
                 peer_type,
                 None,
-                Arc::new(AFunctor::new("Broadcasting_checks")),
+                Arc::new(FilterFunctor::new("Broadcasting_checks")),
             );
 
             let rpc_port = next_port_offset_rpc(1);

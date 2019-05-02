@@ -10,6 +10,7 @@ mod connection_private;
 pub mod fails;
 mod handler_utils;
 
+use crate::common::functor::FuncResult;
 use rustls::Session;
 
 /// It is a common trait for `rustls::ClientSession` and `rustls::ServerSession`
@@ -45,7 +46,7 @@ use failure::{bail, Error, Fallible};
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
-        functor::{AFunctorCW, FunctorError, FunctorResult},
+        functor::{FunctorResult, UnitFunction},
         get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     network::{
@@ -74,38 +75,6 @@ macro_rules! handle_by_private {
         let dptr_cloned = Rc::clone(&$dptr);
         make_atomic_callback!(move |m: $message_type| { $fn(&dptr_cloned, m) })
     }};
-}
-
-macro_rules! drop_conn_if_unwanted {
-    ($process:expr, $self:ident) => {
-        if let Err(e) = $process {
-            match e.downcast::<fails::UnwantedMessageError>() {
-                Ok(f) => {
-                    error!("Dropping connection: {}", f);
-                    $self.close();
-                }
-                Err(e) => {
-                    if let Ok(f) = e.downcast::<FunctorError>() {
-                        f.errors.iter().for_each(|x| {
-                            if x.to_string().contains("SendError(..)") {
-                                trace!("Send Error in incoming plaintext");
-                            } else {
-                                error!("{}", x);
-                            }
-                        });
-                    }
-                }
-            }
-        } else if $self.status == ConnectionStatus::Untrusted {
-            $self.setup_message_handler();
-            debug!(
-                "Succesfully executed handshake between {:?} and {:?}",
-                $self.local_peer(),
-                $self.remote_peer()
-            );
-            $self.status = ConnectionStatus::Established;
-        }
-    };
 }
 
 const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
@@ -284,10 +253,10 @@ impl Connection {
     // Setup message handler
     // ============================
 
-    fn make_update_last_seen_handler<T>(&self) -> AFunctorCW<T> {
+    fn make_update_last_seen_handler<T>(&self) -> UnitFunction<T> {
         let priv_conn = Rc::clone(&self.dptr);
 
-        make_atomic_callback!(move |_: &T| -> FunctorResult {
+        make_atomic_callback!(move |_: &T| -> FuncResult<()> {
             priv_conn.borrow_mut().update_last_seen();
             Ok(())
         })
@@ -576,7 +545,7 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult {
+    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult<()> {
         let buf_cursor = UCursor::from(buf);
         let outer = Arc::new(NetworkMessage::deserialize(
             self.remote_peer(),
@@ -648,12 +617,36 @@ impl Connection {
             trace!("Completed packet with {} size", self.pkt_buffer.len());
             self.validate_packet();
             if self.pkt_valid() || !self.pkt_validated() {
-                drop_conn_if_unwanted!(self.process_complete_packet(self.pkt_buffer.to_vec()), self)
+                let res = self.process_complete_packet(self.pkt_buffer.to_vec());
+                self.drop_conn_if_unwanted(res)
             }
             self.clear_buffer();
         }
 
         &buf[max_to_append..]
+    }
+
+    fn drop_conn_if_unwanted(&mut self, process_result: FunctorResult<()>) {
+        if let Err(e) = process_result {
+            if let Some(f) = e
+                .errors
+                .iter()
+                .find(|ref x| x.downcast_ref::<fails::UnwantedMessageError>().is_some())
+            {
+                error!("Dropping connection: {}", f);
+                self.close();
+            } else {
+                e.errors.iter().for_each(|x| error!("{}", x));
+            }
+        } else if self.status == ConnectionStatus::Untrusted {
+            self.setup_message_handler();
+            debug!(
+                "Succesfully executed handshake between {:?} and {:?}",
+                self.local_peer(),
+                self.remote_peer()
+            );
+            self.status = ConnectionStatus::Established;
+        }
     }
 
     /// It tries to load the expected size for the next message.

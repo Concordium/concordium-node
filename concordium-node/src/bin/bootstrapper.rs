@@ -17,7 +17,10 @@ use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
-    common::{functor::AFunctor, P2PNodeId, PeerType},
+    common::{
+        functor::{FilterFunctor, Functorable},
+        P2PNodeId, PeerType,
+    },
     configuration,
     connection::MessageManager,
     db::P2PDB,
@@ -106,7 +109,7 @@ fn main() -> Result<(), Error> {
 
     let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-    let broadcasting_checks = Arc::new(AFunctor::new("Broadcasting_checks"));
+    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();

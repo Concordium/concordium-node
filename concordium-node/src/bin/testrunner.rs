@@ -27,7 +27,11 @@ use gotham::{
 };
 use hyper::{Body, Response, StatusCode};
 use p2p_client::{
-    common::{self, functor::AFunctor, PeerType},
+    common::{
+        self,
+        functor::{FilterFunctor, Functorable},
+        PeerType,
+    },
     configuration,
     db::P2PDB,
     lock_or_die,
@@ -332,7 +336,7 @@ fn instantiate_node(
         None
     };
 
-    let broadcasting_checks = Arc::new(AFunctor::new("Broadcasting_checks"));
+    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
     let node = P2PNode::new(
         node_id,
