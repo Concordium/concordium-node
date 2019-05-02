@@ -1,6 +1,6 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 
-use std::{hash::Hash, num::NonZeroU64};
+use std::{fmt, hash::Hash, num::NonZeroU64, ops::Deref};
 
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
@@ -11,6 +11,29 @@ use crate::block::BlockHash;
 pub const SHA256: usize = 32;
 pub const INCARNATION: usize = 8;
 pub const SESSION_ID: usize = SHA256 + INCARNATION;
+
+#[derive(Clone)]
+pub struct HashBytes(Box<[u8]>);
+
+impl HashBytes {
+    pub fn new(bytes: &[u8]) -> Self { HashBytes(Box::from(bytes)) }
+}
+
+impl Deref for HashBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for HashBytes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f, "{:0x}", (&*self.0).read_u64::<NetworkEndian>().unwrap(),
+        )
+    }
+}
 
 pub struct Hashed<T: Hash> {
     unhashed: T,
@@ -43,9 +66,7 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
 
-        let mut genesis_block_bytes = [0u8; SHA256];
-        genesis_block_bytes.copy_from_slice(&bytes[curr_pos..][..SHA256]);
-        let genesis_block = Box::new(genesis_block_bytes);
+        let genesis_block = HashBytes::new(&bytes[curr_pos..][..SHA256]);
         curr_pos += SHA256;
 
         let incarnation = (&bytes[curr_pos..][..INCARNATION])
@@ -57,7 +78,32 @@ impl SessionId {
 }
 
 // a type used for objects we only need to store, but not handle
-pub type Encoded = Box<[u8]>;
+#[derive(Clone)]
+pub struct Encoded(Box<[u8]>);
+
+impl Encoded {
+    pub fn new(bytes: &[u8]) -> Self {
+        let boxed = Box::from(bytes);
+
+        Encoded(boxed)
+    }
+}
+
+impl Deref for Encoded {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Encoded {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f, "<encoded: {}B>", self.0.len(),
+        )
+    }
+}
 
 // temporary type placeholders
 pub type AccountAddress = usize;

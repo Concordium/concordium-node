@@ -3,8 +3,6 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 use chrono::prelude::Utc;
 
-use std::fmt;
-
 use crate::{common::*, parameters::*, transaction::*};
 
 const SLOT: usize = 8;
@@ -41,6 +39,7 @@ pub struct GenesisData {
     finalization_parameters: FinalizationParameters,
 }
 
+#[derive(Debug)]
 pub struct RegularData {
     pointer:        BlockHash,
     baker_id:       BakerId,
@@ -49,23 +48,6 @@ pub struct RegularData {
     last_finalized: BlockHash,
     transactions:   Transactions,
     signature:      Encoded,
-}
-
-impl fmt::Debug for RegularData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "\n  ptr: {:0x}\n  baker_id: {}\n  proof: <{}B>\n  nonce: <{}B>\n  last_finalized: \
-             {:0x}\n  transactions: {:?}\n  signature: <{}B>\n",
-            (&*self.pointer).read_u64::<NetworkEndian>().unwrap(),
-            self.baker_id,
-            self.proof.len(),
-            self.nonce.len(),
-            (&*self.last_finalized).read_u64::<NetworkEndian>().unwrap(),
-            self.transactions,
-            self.signature.len(),
-        )
-    }
 }
 
 macro_rules! get_block_content {
@@ -143,9 +125,7 @@ impl Block {
             .ok()?;
         curr_pos += SLOT;
 
-        let mut pointer_bytes = [0u8; POINTER];
-        pointer_bytes.copy_from_slice(&bytes[curr_pos..][..POINTER]);
-        let pointer = Box::new(pointer_bytes);
+        let pointer = HashBytes::new(&bytes[curr_pos..][..POINTER]);
         curr_pos += POINTER;
 
         let baker_id = (&bytes[curr_pos..][..BAKER_ID])
@@ -153,26 +133,18 @@ impl Block {
             .ok()?;
         curr_pos += BAKER_ID;
 
-        let mut proof_bytes = [0u8; PROOF_LENGTH];
-        proof_bytes.copy_from_slice(&bytes[curr_pos..][..PROOF_LENGTH]);
-        let proof = Box::new(proof_bytes);
+        let proof = Encoded::new(&bytes[curr_pos..][..PROOF_LENGTH]);
         curr_pos += PROOF_LENGTH;
 
-        let mut nonce_bytes = [0u8; NONCE];
-        nonce_bytes.copy_from_slice(&bytes[curr_pos..][..NONCE]);
-        let nonce = Box::new(nonce_bytes);
+        let nonce = Encoded::new(&bytes[curr_pos..][..NONCE]);
         curr_pos += NONCE;
 
-        let mut last_finalized_bytes = [0u8; SHA256];
-        last_finalized_bytes.copy_from_slice(&bytes[curr_pos..][..SHA256]);
-        let last_finalized = Box::new(last_finalized_bytes);
+        let last_finalized = HashBytes::new(&bytes[curr_pos..][..SHA256]);
         curr_pos += SHA256;
 
         let transactions = Transactions::deserialize(&bytes[curr_pos..bytes.len() - SIGNATURE])?;
 
-        let mut signature_bytes = [0u8; SIGNATURE];
-        signature_bytes.copy_from_slice(&bytes[bytes.len() - SIGNATURE..]);
-        let signature = Box::new(signature_bytes);
+        let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
 
         Some(Block {
             slot,
@@ -228,7 +200,7 @@ pub type Duration = u64;
 
 pub type BlockHeight = u64;
 
-pub type BlockHash = Encoded;
+pub type BlockHash = HashBytes;
 
 pub struct PendingBlock {
     block:    Block,

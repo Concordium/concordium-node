@@ -45,9 +45,7 @@ impl Transaction {
             TransactionType::try_from(bytes[curr_pos]).expect("Unknown payload type!");
         curr_pos += TRANSACTION_TYPE;
 
-        let mut payload_bytes = Vec::with_capacity(transaction_size);
-        payload_bytes.copy_from_slice(&bytes[curr_pos..][..transaction_size]);
-        let payload = payload_bytes.into_boxed_slice();
+        let payload = Encoded::new(&bytes[curr_pos..][..transaction_size]);
 
         Some((
             Transaction {
