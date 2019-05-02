@@ -6,6 +6,7 @@ import Control.Monad
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
+import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -80,7 +81,7 @@ instanceData inst = InstanceData (instanceModel inst) (instanceAmount inst)
 
 data Model = Model {
     -- Data of instances
-    modelInstances :: HM.HashMap ContractIndex (ContractSubindex, InstanceData),
+    modelInstances :: Map.Map ContractIndex (ContractSubindex, InstanceData),
     -- The next free subindex for free indexes
     modelFree :: Map.Map ContractIndex ContractSubindex,
     -- The lowest index that has never been assigned
@@ -88,16 +89,16 @@ data Model = Model {
 } deriving (Eq, Show)
 
 emptyModel :: Model
-emptyModel = Model HM.empty Map.empty 0
+emptyModel = Model Map.empty Map.empty 0
 
 modelGetInstanceData :: ContractAddress -> Model -> Maybe InstanceData
 modelGetInstanceData (ContractAddress ci csi) m = do
-        (csi', idata) <- HM.lookup ci (modelInstances m)
+        (csi', idata) <- Map.lookup ci (modelInstances m)
         guard $ csi == csi'
         return idata
     
 modelUpdateInstanceAt :: ContractAddress -> Amount -> Value -> Model -> Model
-modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = HM.adjust upd ci (modelInstances m)}
+modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = Map.adjust upd ci (modelInstances m)}
     where
         upd o@(csi', _)
             | csi == csi' = (csi, InstanceData val amt)
@@ -108,7 +109,7 @@ modelCreateInstance mk m
     | null (modelFree m) =
         let ca = ContractAddress (modelBound m) 0 in
             (ca, m {
-                        modelInstances = HM.insert (modelBound m) (0, instanceData (mk ca)) (modelInstances m),
+                        modelInstances = Map.insert (modelBound m) (0, instanceData (mk ca)) (modelInstances m),
                         modelBound = succ $ modelBound m
                     })
     | otherwise =
@@ -117,16 +118,16 @@ modelCreateInstance mk m
             ca = ContractAddress ci csi
         in
             (ca, m {
-                modelInstances = HM.insert ci (csi, instanceData (mk ca)) (modelInstances m),
+                modelInstances = Map.insert ci (csi, instanceData (mk ca)) (modelInstances m),
                 modelFree = free'
             })
 
 modelDeleteInstance :: ContractAddress -> Model -> Model
-modelDeleteInstance (ContractAddress ci csi) m = case HM.lookup ci (modelInstances m) of
+modelDeleteInstance (ContractAddress ci csi) m = case Map.lookup ci (modelInstances m) of
         Nothing -> m
         Just (csi', _) -> if csi /= csi' then m else
                             m {
-                                modelInstances = HM.delete ci (modelInstances m),
+                                modelInstances = Map.delete ci (modelInstances m),
                                 modelFree = Map.insert ci (succ csi) (modelFree m)
                             }
 
@@ -138,7 +139,7 @@ instanceTableToModel (Tree t0) = ttm 0 emptyModel t0
             let m' = ttm offset m l in
                 ttm (offset + 2^h) m' r
         ttm offset m (Leaf inst) = m {
-                                        modelInstances = HM.insert offset (contractSubindex $ instanceAddress $ instanceParameters inst, instanceData inst) (modelInstances m),
+                                        modelInstances = Map.insert offset (contractSubindex $ instanceAddress $ instanceParameters inst, instanceData inst) (modelInstances m),
                                         modelBound = modelBound m + 1
                                     }
         ttm offset m (VacantLeaf si) = m {
@@ -165,6 +166,11 @@ checkInvariantThen insts r = case invariantInstances insts of
         Right _ -> r
         Left ex -> return $ counterexample (ex ++ "\n" ++ show (_instances insts)) False
 
+arbitraryMapElement :: Map.Map k v -> Gen (k, v)
+arbitraryMapElement m = do
+        ind <- choose (0, Map.size m - 1)
+        return (Map.elemAt ind m)
+
 generateFromUpdates :: Int -> Gen (Instances, Model)
 generateFromUpdates n0 = gen n0 emptyInstances emptyModel
     where
@@ -177,12 +183,13 @@ generateFromUpdates n0 = gen n0 emptyInstances emptyModel
                     let (_, model') = modelCreateInstance (makeDummyInstance instData) model
                     gen (n-1) insts' model'
                 deleteExisting = do
-                    (ci, (csi, _)) <- elements $ HM.toList (modelInstances model)
+                    (ci, (csi, _)) <- arbitraryMapElement (modelInstances model)
                     let
                         ca = ContractAddress ci csi
                         insts' = deleteInstance ca insts
                         model' = modelDeleteInstance ca model
                     gen (n-1) insts' model'
+
 
 
 testUpdates :: Int -> Gen Property
@@ -219,7 +226,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 updateExisting = do
-                    (ci, (csi0, _)) <- elements $ HM.toList (modelInstances model)
+                    (ci, (csi0, _)) <- arbitraryMapElement (modelInstances model)
                     csi <- oneof [return csi0, ContractSubindex <$> arbitrary]
                     InstanceData v a <- arbitrary
                     let
@@ -228,7 +235,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 deleteExisting = do
-                    (ci, (csi0, _)) <- elements $ HM.toList (modelInstances model)
+                    (ci, (csi0, _)) <- arbitraryMapElement (modelInstances model)
                     csi <- oneof [return csi0, ContractSubindex <$> arbitrary]
                     let
                         ca = ContractAddress ci csi
@@ -236,7 +243,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                         model' = modelDeleteInstance ca model
                     tu (n-1) insts' model'
                 updateFree = do
-                    (ci, csi0) <- elements $ Map.toList (modelFree model)
+                    (ci, csi0) <- arbitraryMapElement (modelFree model)
                     csi <- ContractSubindex <$> oneof [choose (0, fromIntegral csi0 - 1), choose (fromIntegral csi0, maxBound)]
                     InstanceData v a <- arbitrary
                     let
@@ -245,7 +252,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 deleteFree = do
-                    (ci, csi0) <- elements $ Map.toList (modelFree model)
+                    (ci, csi0) <- arbitraryMapElement (modelFree model)
                     csi <- oneof [return csi0, ContractSubindex <$> arbitrary]
                     let
                         ca = ContractAddress ci csi
@@ -258,18 +265,33 @@ testCreateDelete n = do
     (insts, model) <- generateFromUpdates n
     checkInvariantThen insts $ return $ modelCheck insts model
 
-{-
 testGetInstance :: Instances -> Model -> Gen Property
-testGetInstance insts model = oneof [present, deleted, absent]
+testGetInstance insts model = oneof $ [present | not (null $ modelInstances model)] ++ 
+                                        [deleted | not (null $ modelFree model)] ++
+                                        [absent]
     where
         present = do
-            (ci, (csi0, d)) <- elements $ HM.toList (modelInstances model)
--}
+            (ci, (csi, d)) <- arbitraryMapElement (modelInstances model)
+            return $ fmap instanceData (getInstance (ContractAddress ci csi) insts) === Just d
+        deleted = do
+            (ci, csi0) <- arbitraryMapElement (modelFree model)
+            csi <- ContractSubindex <$> oneof [choose (0, fromIntegral csi0 - 1), choose (fromIntegral csi0, maxBound)]
+            return $ fmap instanceData (getInstance (ContractAddress ci csi) insts) === Nothing
+        absent = do
+            ci <- ContractIndex <$> choose (fromIntegral $ modelBound model, maxBound)
+            csi <- ContractSubindex <$> arbitrary
+            return $ fmap instanceData (getInstance (ContractAddress ci csi) insts) === Nothing
 
-
+testFoldInstances :: Instances -> Model -> Property
+testFoldInstances insts model = allInsts === modInsts
+    where
+        allInsts = (\i -> (instanceAddress (instanceParameters i), instanceData i)) <$> (insts ^.. foldInstances)
+        modInsts = (\(ci, (csi, d)) -> (ContractAddress ci csi, d)) <$> Map.toAscList (modelInstances model)
 
 tests :: Spec
 tests = parallel $ describe "GlobalStateTests.Instances" $ do
+    it "getInstance" $ withMaxSuccess 1000 $ forAllBlind (generateFromUpdates 5000) $ \(i,m) -> withMaxSuccess 100 $ testGetInstance i m
+    it "foldInstances" $ withMaxSuccess 100 $ forAllBlind (generateFromUpdates 5000) $ uncurry testFoldInstances
     it "50000 create/delete - check at end" $ withMaxSuccess 10 $ testCreateDelete 50000
     it "500 instance updates - check every step" $ withMaxSuccess 10000 $ testUpdates 500
     
