@@ -123,6 +123,25 @@ pub struct BakerConfig {
         default_value = "50"
     )]
     pub baker_min_peer_satisfaction_percentage: u8,
+    #[structopt(
+        long = "retransmit-times",
+        help = "Times to request transmit from peers",
+        default_value = "10"
+    )]
+    pub baker_retransmit_request_times: u16,
+    #[structopt(
+        long = "retransmit-request-interval",
+        help = "Time in seconds between retransmit requests",
+        default_value = "120"
+    )]
+    pub baker_retransmit_request_interval: u16,
+    #[structopt(
+        long = "retransmit-request-since",
+        help = "Each retransmit will request messages since current time minus this amount of \
+                seconds in the past",
+        default_value = "300"
+    )]
+    pub baker_retransmit_request_since: u16,
 }
 
 #[derive(StructOpt, Debug)]
@@ -370,6 +389,9 @@ impl Default for Config {
                     baker_num_bakers: 60,
                     baker_genesis: 0,
                     baker_min_peer_satisfaction_percentage: 50,
+                    baker_retransmit_request_interval: 120,
+                    baker_retransmit_request_since: 300,
+                    baker_retransmit_request_times: 10,
                 },
                 tps:             TpsConfig {
                     enable_tps_test:       false,

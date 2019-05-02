@@ -620,6 +620,89 @@ impl P2PNode {
         };
     }
 
+    fn process_join_network(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+        let mut locked_tls_server = write_or_die!(self.tls_server);
+        locked_tls_server.send_over_all_connections(
+            &data,
+            &is_valid_connection_post_handshake,
+            &check_sent_status_fn,
+        );
+
+        if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
+            locked_tls_server.add_network(*network_id);
+        }
+    }
+
+    fn process_leave_network(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+
+        let mut locked_tls_server = write_or_die!(self.tls_server);
+        locked_tls_server.send_over_all_connections(
+            &data,
+            &is_valid_connection_post_handshake,
+            &check_sent_status_fn,
+        );
+
+        if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
+            locked_tls_server.remove_network(*network_id);
+        }
+    }
+
+    fn process_get_peers(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+        write_or_die!(self.tls_server).send_over_all_connections(
+            &data,
+            &is_valid_connection_post_handshake,
+            &check_sent_status_fn,
+        );
+    }
+
+    fn process_retransmit(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        if let NetworkRequest::Retransmit(ref peer, ..) = inner_pkt {
+            let filter = |conn: &Connection| is_conn_peer_id(conn, peer.id());
+            write_or_die!(self.tls_server).send_over_all_connections(
+                &inner_pkt.serialize(),
+                &filter,
+                &check_sent_status_fn,
+            );
+        }
+    }
+
+    fn process_network_packet(&self, inner_pkt: &NetworkPacket) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+        match inner_pkt.packet_type {
+            NetworkPacketType::DirectMessage(ref receiver) => {
+                let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
+                write_or_die!(self.tls_server).send_over_all_connections(
+                    &data,
+                    &filter,
+                    &check_sent_status_fn,
+                );
+            }
+            NetworkPacketType::BroadcastedMessage => {
+                let filter = |conn: &Connection| {
+                    is_valid_connection_in_broadcast(conn, &inner_pkt.peer, inner_pkt.network_id)
+                };
+                write_or_die!(self.tls_server).send_over_all_connections(
+                    &data,
+                    &filter,
+                    &check_sent_status_fn,
+                );
+            }
+        };
+    }
+
     pub fn process_messages(&mut self) {
         let messages = self.send_queue_out.try_iter();
         for outer_pkt in messages {
@@ -628,49 +711,19 @@ impl P2PNode {
                 let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
             };
             trace!("Got message to process!");
-            let check_sent_status_fn =
-                |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    let data = inner_pkt.serialize();
-                    match inner_pkt.packet_type {
-                        NetworkPacketType::DirectMessage(ref receiver) => {
-                            let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
-                            write_or_die!(self.tls_server).send_over_all_connections(
-                                &data,
-                                &filter,
-                                &check_sent_status_fn,
-                            );
-                        }
-                        NetworkPacketType::BroadcastedMessage => {
-                            let filter = |conn: &Connection| {
-                                is_valid_connection_in_broadcast(
-                                    conn,
-                                    &inner_pkt.peer,
-                                    inner_pkt.network_id,
-                                )
-                            };
-                            write_or_die!(self.tls_server).send_over_all_connections(
-                                &data,
-                                &filter,
-                                &check_sent_status_fn,
-                            );
-                        }
-                    };
+                    self.process_network_packet(inner_pkt)
                 }
+                NetworkMessage::NetworkRequest(
+                    ref inner_pkt @ NetworkRequest::Retransmit(..),
+                    ..
+                ) => self.process_retransmit(inner_pkt),
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::GetPeers(..),
                     ..
-                ) => {
-                    let data = inner_pkt.serialize();
-
-                    write_or_die!(self.tls_server).send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                    );
-                }
+                ) => self.process_get_peers(inner_pkt),
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::UnbanNode(..),
                     ..
@@ -681,37 +734,11 @@ impl P2PNode {
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::JoinNetwork(..),
                     ..
-                ) => {
-                    let data = inner_pkt.serialize();
-
-                    let mut locked_tls_server = write_or_die!(self.tls_server);
-                    locked_tls_server.send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                    );
-
-                    if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
-                        locked_tls_server.add_network(*network_id);
-                    }
-                }
+                ) => self.process_join_network(inner_pkt),
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::LeaveNetwork(..),
                     ..
-                ) => {
-                    let data = inner_pkt.serialize();
-
-                    let mut locked_tls_server = write_or_die!(self.tls_server);
-                    locked_tls_server.send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                    );
-
-                    if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
-                        locked_tls_server.remove_network(*network_id);
-                    }
-                }
+                ) => self.process_leave_network(inner_pkt),
                 _ => {}
             }
         }
@@ -838,6 +865,18 @@ impl P2PNode {
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
                 NetworkRequest::GetPeers(self.get_self_peer(), nids.clone()),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
+    pub fn send_retransmit(&mut self, receiver: P2PPeer, since: u64, nid: NetworkId) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::Retransmit(receiver, since, nid),
                 None,
                 None,
             ))
