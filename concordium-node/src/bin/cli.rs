@@ -567,10 +567,11 @@ fn setup_higher_process_output(
                     ) => {
                         info!("Received PeerList response, attempting to satisfy desired peers");
                         let mut new_peers = 0;
-                        let stats = _node_self_clone
+                        let stats_count = _node_self_clone
                             .get_peer_stats(&[])
                             .iter()
-                            .filter(|x| x.peer_type == PeerType::Node);
+                            .filter(|x| x.peer_type == PeerType::Node)
+                            .count();
                         for peer_node in peers {
                             debug!(
                                 "Peer {}/{}/{} sent us peer info for {}/{}/{}",
@@ -588,7 +589,7 @@ fn setup_higher_process_output(
                             {
                                 new_peers += 1;
                             }
-                            if new_peers + stats.count() as u8 >= _desired_nodes_clone {
+                            if new_peers + stats_count as u8 >= _desired_nodes_clone {
                                 break;
                             }
                         }
