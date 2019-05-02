@@ -1,5 +1,3 @@
-use crate::block::*;
-
 use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::{
@@ -15,6 +13,9 @@ use std::{
     thread,
     time::{self, Duration},
 };
+
+use crate::block::*;
+use crate::finalization::*;
 
 #[repr(C)]
 pub struct baker_runner {
@@ -157,11 +158,11 @@ impl ConsensusBaker {
     }
 
     pub fn send_block(&self, block: &Block) -> i64 {
-        wrap_send_data_to_c!(self, block.serialize().unwrap(), receiveBlock)
+        wrap_send_data_to_c!(self, block.serialize(), receiveBlock)
     }
 
-    pub fn send_finalization(&self, data: Vec<u8>) {
-        wrap_send_data_to_c!(self, data, receiveFinalization);
+    pub fn send_finalization(&self, msg: &FinalizationMessage) {
+        wrap_send_data_to_c!(self, msg.serialize(), receiveFinalization);
     }
 
     pub fn send_finalization_record(&self, data: Vec<u8>) -> i64 {
@@ -232,8 +233,8 @@ impl ConsensusBaker {
 pub struct ConsensusOutQueue {
     receiver_block:               Arc<Mutex<mpsc::Receiver<Block>>>,
     sender_block:                 Arc<Mutex<mpsc::Sender<Block>>>,
-    receiver_finalization:        Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
-    sender_finalization:          Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
+    receiver_finalization:        Arc<Mutex<mpsc::Receiver<FinalizationMessage>>>,
+    sender_finalization:          Arc<Mutex<mpsc::Sender<FinalizationMessage>>>,
     receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
     sender_finalization_record:   Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
 }
@@ -241,7 +242,7 @@ pub struct ConsensusOutQueue {
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel::<Block>();
-        let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
+        let (sender_finalization, receiver_finalization) = mpsc::channel::<FinalizationMessage>();
         let (sender_finalization_record, receiver_finalization_record) = mpsc::channel::<Vec<u8>>();
         ConsensusOutQueue {
             receiver_block:               Arc::new(Mutex::new(receiver)),
@@ -255,8 +256,8 @@ impl Default for ConsensusOutQueue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, data: Block) -> Result<(), mpsc::SendError<Block>> {
-        safe_lock!(self.sender_block).send(data)
+    pub fn send_block(self, block: Block) -> Result<(), mpsc::SendError<Block>> {
+        safe_lock!(self.sender_block).send(block)
     }
 
     pub fn recv_block(self) -> Result<Block, mpsc::RecvError> {
@@ -271,22 +272,22 @@ impl ConsensusOutQueue {
         safe_lock!(self.receiver_block).try_recv()
     }
 
-    pub fn send_finalization(self, data: Vec<u8>) -> Result<(), mpsc::SendError<Vec<u8>>> {
-        safe_lock!(self.sender_finalization).send(data)
+    pub fn send_finalization(self, msg: FinalizationMessage) -> Result<(), mpsc::SendError<FinalizationMessage>> {
+        safe_lock!(self.sender_finalization).send(msg)
     }
 
-    pub fn recv_finalization(self) -> Result<Vec<u8>, mpsc::RecvError> {
+    pub fn recv_finalization(self) -> Result<FinalizationMessage, mpsc::RecvError> {
         safe_lock!(self.receiver_finalization).recv()
     }
 
     pub fn recv_timeout_finalization(
         self,
         timeout: Duration,
-    ) -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
+    ) -> Result<FinalizationMessage, mpsc::RecvTimeoutError> {
         safe_lock!(self.receiver_finalization).recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization(self) -> Result<FinalizationMessage, mpsc::TryRecvError> {
         safe_lock!(self.receiver_finalization).try_recv()
     }
 
@@ -387,15 +388,15 @@ impl ConsensusContainer {
     pub fn send_block(&self, block: &Block) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
             if block.baker_id() != *id {
-                return baker.send_block(&block);
+                return baker.send_block(block);
             }
         }
         1
     }
 
-    pub fn send_finalization(&self, pkt: &[u8]) -> i64 {
+    pub fn send_finalization(&self, msg: &FinalizationMessage) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
-            baker.send_finalization(pkt.to_vec());
+            baker.send_finalization(msg);
         }
         -1
     }
@@ -542,11 +543,17 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
                 }
                 _ => error!("Deserialization of block failed!"),
             },
-            1 => match CALLBACK_QUEUE.clone().send_finalization(s.to_owned()) {
-                Ok(_) => {
-                    debug!("Queueing {} bytes of finalization", s.len());
+            1 => match FinalizationMessage::deserialize(s) {
+                Some(msg) => {
+                    println!("{:?}", msg); // FIXME: change to a debug!() message
+                    match CALLBACK_QUEUE.clone().send_finalization(msg) {
+                        Ok(_) => {
+                            debug!("Queueing {} bytes of finalization", s.len());
+                        }
+                        _ => error!("Didn't queue finalization message properly"),
+                    }
                 }
-                _ => error!("Didn't queue finalization message properly"),
+                _ => error!("Deserialization of finalization message failed!"),
             },
             2 => {
                 match CALLBACK_QUEUE
@@ -632,17 +639,15 @@ mod tests {
             80, 250, 12, 155, 181, 159, 38, 21, 76, 17, 163, 120, 85, 98, 161, 153, 200, 241, 198,
             143, 204, 245, 171, 15, 7,
         ];
+
         let deserialized = Block::deserialize(&input);
         assert!(deserialized.is_some());
         let block = deserialized.unwrap();
         assert_eq!(&block.baker_id(), &3);
 
         let serialized = Block::serialize(&block);
-        assert!(serialized.is_ok());
-        let output = serialized.unwrap();
-        println!("{:?}", output);
-        assert_eq!(output.len(), 352);
-        assert_eq!(output, input);
+        assert_eq!(serialized.len(), 352);
+        assert_eq!(serialized, input);
     }
 
     macro_rules! bakers_test {

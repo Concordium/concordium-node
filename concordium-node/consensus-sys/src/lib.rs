@@ -14,5 +14,6 @@ mod fails;
 pub mod block;
 pub mod common;
 pub mod consensus;
+pub mod finalization;
 pub mod parameters;
 pub mod transaction;
