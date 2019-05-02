@@ -8,17 +8,18 @@ use std::fmt;
 use crate::{common::*, parameters::*, transaction::*};
 
 const SLOT: usize = 8;
-const POINTER: usize = SHA256;
+pub const BLOCK_HASH: usize = SHA256;
+const POINTER: usize = BLOCK_HASH;
 const BAKER_ID: usize = 8;
-const NONCE: usize = SHA256 + PROOF_LENGTH; // should soon be shorter
-const LAST_FINALIZED: usize = SHA256;
+const NONCE: usize = BLOCK_HASH + PROOF_LENGTH; // should soon be shorter
+const LAST_FINALIZED: usize = BLOCK_HASH;
 const PAYLOAD_TYPE: usize = 1;
 const UNDEFINED: usize = 8;
 const PAYLOAD_SIZE: usize = 2;
 const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
 const BLOCK_BODY: usize = 8;
-const BLOCK_SIGNATURE: usize = 64;
+const SIGNATURE: usize = 64;
 
 #[derive(Debug)]
 pub struct Block {
@@ -30,6 +31,14 @@ pub struct Block {
 pub enum BlockData {
     GenesisData(GenesisData),
     RegularData(RegularData),
+}
+
+#[derive(Debug)]
+pub struct GenesisData {
+    timestamp:               Timestamp,
+    slot_duration:           Duration,
+    birk_parameters:         BirkParameters,
+    finalization_parameters: FinalizationParameters,
 }
 
 pub struct RegularData {
@@ -159,11 +168,10 @@ impl Block {
         let last_finalized = Box::new(last_finalized_bytes);
         curr_pos += SHA256;
 
-        let transactions =
-            Transactions::deserialize(&bytes[curr_pos..bytes.len() - BLOCK_SIGNATURE])?;
+        let transactions = Transactions::deserialize(&bytes[curr_pos..bytes.len() - SIGNATURE])?;
 
-        let mut signature_bytes = [0u8; BLOCK_SIGNATURE];
-        signature_bytes.copy_from_slice(&bytes[bytes.len() - BLOCK_SIGNATURE..]);
+        let mut signature_bytes = [0u8; SIGNATURE];
+        signature_bytes.copy_from_slice(&bytes[bytes.len() - SIGNATURE..]);
         let signature = Box::new(signature_bytes);
 
         Some(Block {
@@ -181,7 +189,7 @@ impl Block {
     }
 
     // FIXME: only works for regular blocks for now
-    pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
+    pub fn serialize(&self) -> Vec<u8> {
         let mut ret = Vec::new(); // FIXME: estimate capacity
 
         let mut slot = [0u8; SLOT];
@@ -204,20 +212,12 @@ impl Block {
 
         ret.extend_from_slice(&self.signature());
 
-        Ok(ret)
+        ret
     }
 
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
-}
-
-#[derive(Debug)]
-pub struct GenesisData {
-    timestamp:               Timestamp,
-    slot_duration:           Duration,
-    birk_parameters:         BirkParameters,
-    finalization_parameters: FinalizationParameters,
 }
 
 pub type BakerId = u64;
