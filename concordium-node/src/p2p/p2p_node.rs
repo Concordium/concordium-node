@@ -1,4 +1,30 @@
-use crate::{p2p::banned_nodes::BannedNode, utils};
+use crate::{
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FilterFunctor, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer, UCursor,
+    },
+    configuration,
+    connection::{
+        Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
+        NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
+    },
+    network::{
+        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
+    },
+    p2p::{
+        banned_nodes::BannedNode,
+        fails,
+        no_certificate_verification::NoCertificateVerification,
+        p2p_node_handlers::{
+            forward_network_packet_message, forward_network_request, forward_network_response,
+        },
+        peer_statistics::PeerStatistic,
+        tls_server::{TlsServer, TlsServerBuilder},
+    },
+    stats_export_service::StatsExportService,
+    utils,
+};
 use chrono::prelude::*;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -22,32 +48,6 @@ use std::{
     },
     thread::{JoinHandle, ThreadId},
     time::{Duration, SystemTime},
-};
-
-use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::AFunctor, P2PNodeId, P2PPeer, PeerType,
-        RemotePeer, UCursor,
-    },
-    configuration,
-    connection::{
-        Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
-        NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
-    },
-    network::{
-        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
-    },
-    p2p::{
-        fails,
-        no_certificate_verification::NoCertificateVerification,
-        p2p_node_handlers::{
-            forward_network_packet_message, forward_network_request, forward_network_response,
-        },
-        peer_statistics::PeerStatistic,
-        tls_server::{TlsServer, TlsServerBuilder},
-    },
-    stats_export_service::StatsExportService,
 };
 
 const SERVER: Token = Token(0);
@@ -90,7 +90,7 @@ pub struct P2PNode {
     pub max_nodes:        Option<u16>,
     pub print_peers:      bool,
     config:               P2PNodeConfig,
-    broadcasting_checks:  Arc<AFunctor<NetworkPacket>>,
+    broadcasting_checks:  Arc<FilterFunctor<NetworkPacket>>,
 }
 
 unsafe impl Send for P2PNode {}
@@ -103,7 +103,7 @@ impl P2PNode {
         event_log: Option<Sender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
-        broadcasting_checks: Arc<AFunctor<NetworkPacket>>,
+        broadcasting_checks: Arc<FilterFunctor<NetworkPacket>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
@@ -331,7 +331,7 @@ impl P2PNode {
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
             if pac.packet_type == NetworkPacketType::BroadcastedMessage
-                && broadcasting_checks.run_callbacks(pac).is_ok()
+                && broadcasting_checks.run_filters(pac)
             {
                 forward_network_packet_message(
                     &seen_messages,

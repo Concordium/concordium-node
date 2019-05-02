@@ -1,4 +1,5 @@
 use super::fails;
+use crate::common::functor::Functorable;
 use failure::{bail, Fallible};
 use mio::{
     net::{TcpListener, TcpStream},
@@ -19,7 +20,7 @@ use webpki::DNSNameRef;
 
 use crate::{
     common::{
-        functor::afunctor::{AFunctor, AFunctorCW},
+        functor::{UnitFunction, UnitFunctor},
         P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
@@ -31,8 +32,8 @@ use crate::{
     stats_export_service::StatsExportService,
 };
 
-pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
-pub type PreHandshake = AFunctor<SocketAddr>;
+pub type PreHandshakeCW = UnitFunction<SocketAddr>;
+pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
     server:                  Option<TcpListener>,

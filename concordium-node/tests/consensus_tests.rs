@@ -10,7 +10,10 @@ mod tests {
     use consensus_sys::consensus::*;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
-        common::{functor::AFunctor, PeerType},
+        common::{
+            functor::{FilterFunctor, Functorable},
+            PeerType,
+        },
         configuration::Config,
         db::P2PDB,
         network::NetworkMessage,
@@ -81,7 +84,7 @@ mod tests {
             Some(sender),
             PeerType::Node,
             None,
-            Arc::new(AFunctor::new("Broadcasting_checks")),
+            Arc::new(FilterFunctor::new("Broadcasting_checks")),
         );
 
         let mut rpc_serv = RpcServerImpl::new(
