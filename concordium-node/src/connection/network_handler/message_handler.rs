@@ -165,13 +165,14 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use crate::{
-        common::{functor::FuncResult, P2PNodeId, P2PPeerBuilder, PeerType, UCursor},
+        common::{functor::FuncResult, P2PNodeId, P2PPeerBuilder, PeerType},
         connection::{MessageHandler, PacketHandler},
         network::{
             NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
             NetworkRequest, NetworkResponse,
         },
     };
+    use concordium_common::UCursor;
 
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},

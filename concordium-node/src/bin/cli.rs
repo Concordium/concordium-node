@@ -6,6 +6,8 @@ extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
 #[macro_use]
+extern crate concordium_common;
+#[macro_use]
 extern crate failure;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
@@ -14,6 +16,7 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use concordium_common::UCursor;
 use consensus_sys::{block::Block, consensus};
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -21,7 +24,7 @@ use p2p_client::{
     client::utils as client_utils,
     common::{
         functor::{FilterFunctor, Functorable},
-        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType,
     },
     configuration,
     db::P2PDB,
@@ -31,7 +34,6 @@ use p2p_client::{
     },
     p2p::*,
     rpc::RpcServerImpl,
-    spawn_or_die,
     stats_engine::StatsEngine,
     stats_export_service::{StatsExportService, StatsServiceMode},
     utils,

@@ -7,6 +7,8 @@ extern crate grpciowin as grpcio;
 extern crate log;
 #[macro_use]
 extern crate p2p_client;
+#[macro_use]
+extern crate concordium_common;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
@@ -26,7 +28,6 @@ use p2p_client::{
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    safe_read, spawn_or_die,
     stats_export_service::StatsServiceMode,
     utils,
 };

@@ -13,18 +13,19 @@ edition = "2018"
 default = []
 valgrind = []
 s11n_capnp = ["capnp", "capnpc"]
-s11n_serde = ["s11n_serde_cbor", "s11n_serde_json"]
-s11n_serde_json = ["serde", "serde_derive", "serde_json"]
-s11n_serde_cbor = ["serde_cbor", "serde", "serde_derive"]
+s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
+s11n_serde_json = ["serde_json", "s11n_serde"]
+s11n_serde_cbor = ["serde_cbor", "s11n_serde"]
 s11n_nom = ["nom"]
 instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json", "gotham", "gotham_derive", "hyper", "mime"]
 
 [dependencies]
 # Internal dependencies
 consensus-sys = { path = "consensus-sys" }
-dns = { path = "dns" }
+concordium-dns = { path = "concordium-dns" }
 ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+concordium-common = { path = "concordium-common" }
 # External dependencies
 libc = "0.2"
 structopt = "0.2"

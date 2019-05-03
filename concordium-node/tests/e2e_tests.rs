@@ -5,11 +5,12 @@ extern crate log;
 
 #[cfg(test)]
 mod tests {
+    use concordium_common::{safe_write, UCursor};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::{
             functor::{FilterFunctor, Functorable},
-            PeerType, UCursor,
+            PeerType,
         },
         configuration::Config,
         connection::MessageManager,
@@ -27,7 +28,19 @@ mod tests {
     };
 
     mod utils {
+        use concordium_common::{safe_write, UCursor};
         use failure::Fallible;
+        use p2p_client::{
+            common::{
+                functor::{FilterFunctor, Functorable},
+                PeerType,
+            },
+            configuration::Config,
+            connection::MessageManager,
+            network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
+            p2p::p2p_node::P2PNode,
+            stats_export_service::{StatsExportService, StatsServiceMode},
+        };
         use std::{
             cell::RefCell,
             sync::{
@@ -36,18 +49,6 @@ mod tests {
                 Arc, Once, RwLock, ONCE_INIT,
             },
             time,
-        };
-
-        use p2p_client::{
-            common::{
-                functor::{FilterFunctor, Functorable},
-                PeerType, UCursor,
-            },
-            configuration::Config,
-            connection::MessageManager,
-            network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
-            p2p::p2p_node::P2PNode,
-            stats_export_service::{StatsExportService, StatsServiceMode},
         };
 
         static INIT: Once = ONCE_INIT;

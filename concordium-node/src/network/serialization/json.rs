@@ -20,8 +20,10 @@ mod unit_test {
 
     use super::s11n_network_message;
 
+    use concordium_common::UCursor;
+
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
             NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
         },
@@ -61,7 +63,7 @@ mod unit_test {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(100u16))
-                    .message(direct_message_content)
+                    .message(Box::new(direct_message_content))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),

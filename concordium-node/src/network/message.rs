@@ -1,6 +1,6 @@
 use super::{NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
     failure::{err_msg, Fallible},
     network::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
@@ -10,6 +10,7 @@ use crate::{
     },
     p2p::banned_nodes::BannedNode,
 };
+use concordium_common::{ContainerView, UCursor};
 use std::{convert::TryFrom, str::FromStr};
 
 #[cfg(feature = "s11n_nom")]
@@ -642,9 +643,10 @@ mod unit_test {
 
     use super::*;
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
     };
+    use concordium_common::UCursor;
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
