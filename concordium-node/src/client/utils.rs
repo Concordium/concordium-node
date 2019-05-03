@@ -118,3 +118,25 @@ pub fn start_push_gateway(
     }
     Ok(())
 }
+
+#[cfg(feature = "instrumentation")]
+pub fn stop_stats_export_engine(
+    conf: &configuration::Config,
+    srv: &Option<Arc<RwLock<StatsExportService>>>,
+) {
+    if conf.prometheus.prometheus_server {
+        if let Some(srv) = srv {
+            info!("Stopping prometheus server");
+            if let Ok(mut locked) = srv.write() {
+                locked.stop_server();
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "instrumentation"))]
+pub fn stop_stats_export_engine(
+    _: &configuration::Config,
+    _: &Option<Arc<RwLock<StatsExportService>>>,
+) {
+}
