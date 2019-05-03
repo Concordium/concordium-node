@@ -807,6 +807,9 @@ fn main() -> Fallible<()> {
         consensus::ConsensusContainer::stop_haskell();
     }
 
+    // Close stats server export if present
+    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+
     Ok(())
 }
 

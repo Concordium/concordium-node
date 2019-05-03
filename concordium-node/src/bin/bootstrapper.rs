@@ -189,5 +189,8 @@ fn main() -> Result<(), Error> {
 
     write_or_die!(node).join().expect("Node thread panicked!");
 
+    // Close stats server export if present
+    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+
     Ok(())
 }

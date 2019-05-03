@@ -17,7 +17,7 @@ s11n_serde = ["s11n_serde_cbor", "s11n_serde_json"]
 s11n_serde_json = ["serde", "serde_derive", "serde_json"]
 s11n_serde_cbor = ["serde_cbor", "serde", "serde_derive"]
 s11n_nom = ["nom"]
-instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json", "gotham", "gotham_derive", "hyper", "mime"]
+instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json", "gotham", "gotham_derive", "hyper", "mime", "tokio", "num_cpus"]
 
 [dependencies]
 # Internal dependencies
@@ -70,6 +70,8 @@ gotham_derive = { version = "0.3", optional = true }
 reqwest = { version = "^0.9", default-features = false, optional = true }
 hyper = { version = "0.12", optional = true }
 mime = { version = "0.3", optional = true }
+num_cpus = { version = "1.10.0", optional = true }
+tokio = { version = "0.1.19", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
