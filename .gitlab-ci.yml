@@ -75,7 +75,7 @@ stages:
     - cp -rf stack/* /root/.stack/
     - cp scripts/init.build.env.sh .
     - pacman -Sy && pacman -Syyu --noconfirm
-    - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound --noconfirm
+    - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound capnproto --noconfirm
     - pacman -Scc --noconfirm
     - ./init.build.env.sh
     - stack exec -- ghc --print-libdir
