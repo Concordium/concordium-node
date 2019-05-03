@@ -7,7 +7,7 @@ use std::{
 use failure::Fallible;
 use tempfile::NamedTempFile;
 
-use crate::common::ContainerView;
+use crate::ContainerView;
 
 #[derive(Debug)]
 pub struct UCursorFile {
@@ -433,7 +433,7 @@ mod unit_test {
     use std::io::{Cursor, Read};
 
     use super::UCursor;
-    use crate::common::ContainerView;
+    use crate::ContainerView;
 
     fn make_content_with_size(content_size: usize) -> Vec<u8> {
         thread_rng()

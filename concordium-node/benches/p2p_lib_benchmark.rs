@@ -1,8 +1,10 @@
 #[macro_use]
 extern crate criterion;
 
+use concordium_common::UCursor;
+
 use p2p_client::{
-    common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+    common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
     network::{NetworkId, NetworkPacket, NetworkPacketBuilder},
 };
 use std::{
@@ -43,64 +45,23 @@ pub fn make_direct_message_header(content_size: usize) -> Vec<u8> {
     h
 }
 
+#[cfg(any(
+    not(feature = "s11n_nom"),
+    not(feature = "s11n_capnp"),
+    not(feature = "s11n_serde_cbor"),
+    not(feature = "s11n_serde_json")
+))]
 mod common {
-    #[cfg(any(
-        not(feature = "s11n_nom"),
-        not(feature = "s11n_capnp"),
-        not(feature = "s11n_serde_cbor"),
-        not(feature = "s11n_serde_json")
-    ))]
     use criterion::Criterion;
-    #[cfg(any(
-        not(feature = "s11n_nom"),
-        not(feature = "s11n_capnp"),
-        not(feature = "s11n_serde_cbor"),
-        not(feature = "s11n_serde_json")
-    ))]
     pub fn nop_bench(_c: &mut Criterion) {}
-
-    pub mod ucursor {
-        use p2p_client::common::{ContainerView, UCursor};
-
-        use criterion::Criterion;
-        use rand::{distributions::Standard, thread_rng, Rng};
-
-        fn make_content_with_size(content_size: usize) -> Vec<u8> {
-            thread_rng()
-                .sample_iter(&Standard)
-                .take(content_size)
-                .collect::<Vec<u8>>()
-        }
-
-        pub fn from_memory_to_file_1m(b: &mut Criterion) { from_memory_to_file(1024 * 1024, b) }
-
-        pub fn from_memory_to_file_4m(b: &mut Criterion) { from_memory_to_file(4 * 1024 * 1024, b) }
-
-        pub fn from_memory_to_file_32m(b: &mut Criterion) {
-            from_memory_to_file(32 * 1024 * 1024, b)
-        }
-
-        fn from_memory_to_file(content_size: usize, c: &mut Criterion) {
-            let content = make_content_with_size(content_size);
-            let view = ContainerView::from(content);
-            let bench_id = format!("Benchmark from memory to file using {} bytes", content_size);
-
-            c.bench_function(bench_id.as_str(), move |b| {
-                let cloned_view = view.clone();
-                b.iter(|| {
-                    let mut cur = UCursor::build_from_view(cloned_view.clone());
-                    cur.swap_to_file()
-                })
-            });
-        }
-    }
 }
 
 mod network {
     pub mod message {
         use crate::make_direct_message_header;
+        use concordium_common::{ContainerView, UCursor};
         use p2p_client::{
-            common::{ContainerView, P2PPeerBuilder, PeerType, RemotePeer, UCursor},
+            common::{P2PPeerBuilder, PeerType, RemotePeer},
             network::NetworkMessage,
         };
         use rand::{distributions::Alphanumeric, thread_rng, Rng};
@@ -259,9 +220,9 @@ mod serialization {
     #[cfg(feature = "s11n_serde_cbor")]
     pub mod serde_cbor {
         use crate::localhost_peer;
-
+        use concordium_common::UCursor;
         use p2p_client::{
-            common::{P2PNodeId, UCursor},
+            common::P2PNodeId,
             network::{
                 serialization::cbor::s11n_network_message, NetworkId, NetworkMessage,
                 NetworkPacketBuilder,
@@ -285,7 +246,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(100u16))
-                    .message(UCursor::from(content.into_bytes()))
+                    .message(Box::new(UCursor::from(content.into_bytes())))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
@@ -333,9 +294,10 @@ mod serialization {
     #[cfg(feature = "s11n_serde_json")]
     pub mod serde_json {
         use crate::localhost_peer;
+        use concordium_common::UCursor;
 
         use p2p_client::{
-            common::{P2PNodeId, UCursor},
+            common::P2PNodeId,
             network::{
                 serialization::json::s11n_network_message, NetworkId, NetworkMessage,
                 NetworkPacketBuilder,
@@ -359,7 +321,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(100u16))
-                    .message(content_cursor)
+                    .message(Box::new(content_cursor))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
@@ -464,8 +426,10 @@ mod serialization {
     pub mod capnp {
         use crate::localhost_peer;
 
+        use concordium_common::UCursor;
+
         use p2p_client::{
-            common::{P2PNodeId, P2PPeerBuilder, PeerType, UCursor},
+            common::{P2PNodeId, P2PPeerBuilder, PeerType},
             network::{
                 serialization::cap::{deserialize, save_network_message},
                 NetworkId, NetworkMessage, NetworkPacketBuilder,
@@ -497,7 +461,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(111u16))
-                    .message(content_cursor)
+                    .message(Box::new(content_cursor))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
@@ -543,13 +507,6 @@ mod serialization {
 
     }
 }
-
-criterion_group!(
-    ucursor_benches,
-    common::ucursor::from_memory_to_file_1m,
-    common::ucursor::from_memory_to_file_4m,
-    common::ucursor::from_memory_to_file_32m
-);
 
 criterion_group!(
     s11n_custom_benches,
@@ -627,7 +584,6 @@ criterion_group!(
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
 criterion_main!(
-    ucursor_benches,
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,

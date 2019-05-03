@@ -1,12 +1,14 @@
 mod s11n {
     use crate::{
-        common::{P2PNodeId, P2PPeer, PeerType, UCursor},
+        common::{P2PNodeId, P2PPeer, PeerType},
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
             NetworkRequest, NetworkResponse,
         },
         p2p_capnp,
     };
+
+    use concordium_common::UCursor;
 
     use ::capnp::serialize;
     use std::{
@@ -81,7 +83,7 @@ mod s11n {
             .peer(peer.to_owned())
             .message_id(msg_id.to_string())
             .network_id(NetworkId::from(network_id))
-            .message(UCursor::from(msg.to_vec()))
+            .message(Box::new(UCursor::from(msg.to_vec())))
             .build_direct(receiver_id)
             .map_err(|err| ::capnp::Error::failed(err.to_string()))?;
 
@@ -415,11 +417,11 @@ mod unit_test {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use super::{deserialize, save_network_message};
-
+    use concordium_common::UCursor;
     use std::str::FromStr;
 
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
             NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
         },
@@ -428,6 +430,7 @@ mod unit_test {
     fn localhost_peer() -> P2PPeer {
         P2PPeerBuilder::default()
             .peer_type(PeerType::Node)
+            .id(P2PNodeId(100000u64))
             .addr(SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
                 8888,
@@ -459,7 +462,7 @@ mod unit_test {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(111u16))
-                    .message(UCursor::from(direct_message_content))
+                    .message(Box::new(UCursor::from(direct_message_content)))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
@@ -479,11 +482,7 @@ mod unit_test {
     #[test]
     fn ut_s11n_capnp_001() {
         let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let local_peer = P2PPeerBuilder::default()
-            .peer_type(PeerType::Node)
-            .addr(SocketAddr::new(local_ip, 8888))
-            .build()
-            .unwrap();
+        let local_peer = localhost_peer();
 
         let test_params = ut_s11n_001_data();
         for (data, expected) in &test_params {

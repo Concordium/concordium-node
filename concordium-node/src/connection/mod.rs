@@ -43,11 +43,13 @@ use rustls::{ClientSession, ServerSession};
 
 use failure::{bail, Error, Fallible};
 
+use concordium_common::UCursor;
+
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         functor::{FunctorResult, UnitFunction},
-        get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
