@@ -5,16 +5,12 @@ use crate::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
     },
     failure::Fallible,
-    network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION_2},
+    network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
 use std::convert::TryFrom;
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
-
-const PROTOCOL_PEERS_COUNT_LENGTH: usize = 3;
-const PROTOCOL_NETWORK_IDS_COUNT_LENGTH: usize = 5;
-const PROTOCOL_HANDSHAKE_CONTENT_LENGTH: usize = 10;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -80,7 +76,7 @@ impl Serializable for NetworkMessage {
     where
         A: WriteArchive, {
         archive.write_str(PROTOCOL_NAME)?;
-        archive.write_u16(PROTOCOL_VERSION_2)?;
+        archive.write_u16(PROTOCOL_VERSION)?;
         archive.write_u64(get_current_stamp as u64)?;
         archive.write_u8(self.protocol_type() as u8)?;
         match self {
@@ -100,7 +96,7 @@ impl Deserializable for NetworkMessage {
         A: ReadArchive, {
         archive.tag_str(PROTOCOL_NAME)?;
         archive.read_u16().and_then(|version| {
-            if version == PROTOCOL_VERSION_2 {
+            if version == PROTOCOL_VERSION {
                 Ok(())
             } else {
                 bail!("Incompatible protocol version")

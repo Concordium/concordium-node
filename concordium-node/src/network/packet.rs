@@ -3,12 +3,7 @@ use crate::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         P2PNodeId, P2PPeer, UCursor,
     },
-    network::{
-        AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
-        PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
-        PROTOCOL_VERSION,
-    },
+    network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
 };
 
 use crate::{
@@ -16,10 +11,7 @@ use crate::{
     utils,
 };
 use rand::{rngs::OsRng, RngCore};
-use std::{
-    io::{Chain, Cursor, Read},
-    sync::RwLock,
-};
+use std::{io::Read, sync::RwLock};
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
@@ -108,60 +100,6 @@ impl NetworkPacketBuilder {
 }
 
 impl NetworkPacket {
-    fn direct_header_as_vec(&self, receiver: P2PNodeId) -> Vec<u8> {
-        serialize_message!(
-            ProtocolMessageType::DirectMessage,
-            format!(
-                "{}{}{}{:010}",
-                receiver,
-                self.message_id,
-                self.network_id,
-                self.message.len()
-            )
-        )
-    }
-
-    fn broadcast_header_as_vec(&self) -> Vec<u8> {
-        serialize_message!(
-            ProtocolMessageType::BroadcastedMessage,
-            format!(
-                "{}{}{:010}",
-                self.message_id,
-                self.network_id,
-                self.message.len()
-            )
-        )
-    }
-
-    fn header_as_vec(&self) -> Vec<u8> {
-        match self.packet_type {
-            NetworkPacketType::DirectMessage(receiver) => self.direct_header_as_vec(receiver),
-            NetworkPacketType::BroadcastedMessage => self.broadcast_header_as_vec(),
-        }
-    }
-
-    fn expected_serialize_message_len(&self) -> usize {
-        let common_part_len = PROTOCOL_NAME.len()
-            + PROTOCOL_VERSION.len()
-            + PROTOCOL_SENT_TIMESTAMP_LENGTH
-            + PROTOCOL_MESSAGE_TYPE_LENGTH
-            + PROTOCOL_MESSAGE_ID_LENGTH
-            + PROTOCOL_NETWORK_ID_LENGTH
-            + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH
-            + self.message.len() as usize;
-
-        if let NetworkPacketType::DirectMessage(..) = self.packet_type {
-            common_part_len + PROTOCOL_NODE_ID_LENGTH
-        } else {
-            common_part_len
-        }
-    }
-
-    pub fn reader(&self) -> Chain<Cursor<Vec<u8>>, UCursor> {
-        let header_reader = Cursor::new(self.header_as_vec());
-        header_reader.chain((*self.message).clone())
-    }
-
     pub fn generate_message_id() -> String {
         let mut secure_bytes = vec![0u8; 256];
         match safe_write!(RNG) {

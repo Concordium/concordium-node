@@ -315,7 +315,7 @@ mod tests {
         common::Deserializable,
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
+            NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
@@ -590,27 +590,6 @@ mod tests {
 
     #[test]
     fn req_banaddr_test() {
-        // let self_peer = self_peer();
-        // let nets = dummy_ban_node(Some(IpAddr::from([8, 8, 8, 8])));
-        //
-        // let test_msg = NetworkMessage::NetworkRequest(
-        // create_message!( NetworkRequest, BanNode, self_peer.clone().peer().unwrap(),
-        // nets), Some(get_current_stamp()), None);
-        //
-        // let test_msg = create_message!( NetworkRequest, BanNode,
-        // self_peer.clone().peer().unwrap(), nets);
-        //
-        // let test_msg_data = serialize_into_memory!(test_msg).unwrap();
-        //
-        // let deserialized = deserialize_from_memory!(
-        // NetworkMessage,
-        // test_msg_data,
-        // self_peer.clone(),
-        // self_peer.peer().unwrap().ip()
-        // )
-        // .unwrap();
-        //
-        // net_assertion!(NetworkRequest, BanNode, deserialized, nets);
         net_test!(
             NetworkRequest,
             BanNode,
@@ -641,34 +620,50 @@ mod tests {
 
     #[test]
     fn resp_invalid_version() {
+        let ping = NetworkMessage::NetworkRequest(
+            NetworkRequest::Ping(self_peer().peer().unwrap()),
+            None,
+            None,
+        );
+        let mut ping_data = serialize_into_memory!(ping).unwrap();
+
+        // Force and error in version protocol:
+        //  + 4 bytes (size of string)
+        //  + 13 bytes (PROTOCOL_NAME)
+        //  + 1 byte due to endianess (Version is stored as u16)
+        ping_data[4 + 13 + 1] = (PROTOCOL_VERSION + 1) as u8;
+
         let deserialized = deserialize_from_memory!(
             NetworkMessage,
-            b"CONCORDIUMP2P0021001".to_vec(),
+            ping_data,
             self_peer(),
             IpAddr::from([127, 0, 0, 1])
-        )
-        .unwrap();
+        );
 
-        assert!(match deserialized {
-            NetworkMessage::InvalidMessage => true,
-            _ => false,
-        })
+        assert!(deserialized.is_err());
     }
 
     #[test]
     fn resp_invalid_protocol() {
+        let ping = NetworkMessage::NetworkRequest(
+            NetworkRequest::Ping(self_peer().peer().unwrap()),
+            None,
+            None,
+        );
+        let mut ping_data = serialize_into_memory!(ping).unwrap();
+
+        // Force and error in protocol name:
+        //  + 4 bytes (size of string)
+        ping_data[4 + 1] = b'X';
+
         let deserialized = deserialize_from_memory!(
             NetworkMessage,
-            b"CONC0RD1UMP2P0021001".to_vec(),
+            ping_data,
             self_peer(),
             IpAddr::from([127, 0, 0, 1])
-        )
-        .unwrap();
+        );
 
-        assert!(match deserialized {
-            NetworkMessage::InvalidMessage => true,
-            _ => false,
-        })
+        assert!(deserialized.is_err())
     }
 
     #[test]

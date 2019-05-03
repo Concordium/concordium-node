@@ -35,8 +35,8 @@ pub use self::{
 };
 
 pub const PROTOCOL_NAME: &str = "CONCORDIUMP2P";
-pub const PROTOCOL_VERSION: &str = "001";
-pub const PROTOCOL_VERSION_2: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 1;
+
 pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
 pub const PROTOCOL_HEADER_LENGTH: usize = 13 + 3 + PROTOCOL_SENT_TIMESTAMP_LENGTH;
 pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
