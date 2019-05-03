@@ -32,7 +32,7 @@ stages:
     - ./init.build.env.sh
     - rustc --version && cargo --version
     - stack exec -- ghc --print-libdir
-    - ( cd dns && cargo test --all --verbose --color=always)
+    - ( cd concordium-dns && cargo test --all --verbose --color=always)
     - ( cd consensus-sys && cargo test --all --verbose --color=always)
     - ( cd concordium-common && cargo test --all --verbose --color=always)
     - echo "Running tests without extra features"
@@ -60,7 +60,7 @@ stages:
     - cargo fmt -- --color=always
     - ( cd consensus-sys && cargo fmt -- --color=always)
     - ( cd concordium-common && cargo fmt -- --color=always)
-    - ( cd dns && cargo fmt -- --color=always)
+    - ( cd concordium-dns && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | wc -l) -eq 0 || (echo 'You have introduced some unformated code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
 "lint:clippy":

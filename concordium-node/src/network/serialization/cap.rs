@@ -52,7 +52,7 @@ mod s11n {
     }
 
     #[inline(always)]
-    fn load_peer_type(peer_type: &p2p_capnp::PeerType) -> PeerType {
+    fn load_peer_type(peer_type: p2p_capnp::PeerType) -> PeerType {
         match peer_type {
             p2p_capnp::PeerType::Node => PeerType::Node,
             p2p_capnp::PeerType::Bootstrapper => PeerType::Bootstrapper,
@@ -62,7 +62,7 @@ mod s11n {
     #[inline(always)]
     fn load_p2p_peer(p2p_peer: &p2p_capnp::p2_p_peer::Reader) -> ::capnp::Result<P2PPeer> {
         Ok(P2PPeer::from(
-            load_peer_type(&p2p_peer.get_peer_type()?),
+            load_peer_type(p2p_peer.get_peer_type()?),
             load_p2p_node_id(&p2p_peer.get_id()?)?,
             SocketAddr::new(load_ip_addr(&p2p_peer.get_ip()?)?, p2p_peer.get_port()),
         ))
@@ -194,7 +194,7 @@ mod s11n {
     #[inline(always)]
     fn write_p2p_node_id(
         node_id_builder: &mut p2p_capnp::p2_p_node_id::Builder,
-        p2p_node_id: &P2PNodeId,
+        p2p_node_id: P2PNodeId,
     ) {
         node_id_builder.set_id(p2p_node_id.0);
     }
@@ -210,7 +210,7 @@ mod s11n {
     #[inline(always)]
     fn write_ip_addr_v4(
         ip_addr_v4_builder: &mut p2p_capnp::ip_addr_v4::Builder,
-        ip_addr_v4: &Ipv4Addr,
+        ip_addr_v4: Ipv4Addr,
     ) {
         let octets: [u8; 4] = ip_addr_v4.octets();
         ip_addr_v4_builder.set_a(octets[0]);
@@ -236,11 +236,11 @@ mod s11n {
     }
 
     #[inline(always)]
-    fn write_ip_addr(builder: &mut p2p_capnp::ip_addr::Builder, ip_addr: &IpAddr) {
+    fn write_ip_addr(builder: &mut p2p_capnp::ip_addr::Builder, ip_addr: IpAddr) {
         match ip_addr {
             IpAddr::V4(ip_addr_v4) => {
                 let mut v4_builder = builder.reborrow().init_v4();
-                write_ip_addr_v4(&mut v4_builder, &ip_addr_v4);
+                write_ip_addr_v4(&mut v4_builder, ip_addr_v4);
             }
             IpAddr::V6(ip_addr_v6) => {
                 let mut v6_builder = builder.reborrow().init_v6();
@@ -254,14 +254,14 @@ mod s11n {
         {
             let mut ip_builder = builder.reborrow().init_ip();
             let ip = peer.ip();
-            write_ip_addr(&mut ip_builder, &ip);
+            write_ip_addr(&mut ip_builder, ip);
         }
 
         builder.set_port(peer.port());
         {
             let mut builder_id = builder.reborrow().init_id();
             let id = peer.id();
-            write_p2p_node_id(&mut builder_id, &id);
+            write_p2p_node_id(&mut builder_id, id);
         }
         builder.set_peer_type(write_peer_type(peer.peer_type()));
     }
@@ -270,8 +270,8 @@ mod s11n {
     fn write_network_packet_direct(
         builder: &mut p2p_capnp::network_packet_direct::Builder,
         peer: &P2PPeer,
-        msg_id: &String,
-        receiver: &P2PNodeId,
+        msg_id: &str,
+        receiver: P2PNodeId,
         network_id: u16,
         msg: &[u8],
     ) {
@@ -297,7 +297,7 @@ mod s11n {
         timestamp: u64,
     ) {
         match np.packet_type {
-            NetworkPacketType::DirectMessage(ref receiver) => {
+            NetworkPacketType::DirectMessage(receiver) => {
                 let view = np
                     .message
                     .read_all_into_view()
