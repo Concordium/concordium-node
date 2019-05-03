@@ -26,14 +26,11 @@ use p2p_client::{
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    safe_read,
+    safe_read, spawn_or_die,
     stats_export_service::StatsServiceMode,
     utils,
 };
-use std::{
-    sync::{mpsc, Arc, RwLock},
-    thread,
-};
+use std::sync::{mpsc, Arc, RwLock};
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
@@ -113,7 +110,7 @@ fn main() -> Result<(), Error> {
 
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }

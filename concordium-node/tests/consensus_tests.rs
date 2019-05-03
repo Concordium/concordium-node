@@ -20,13 +20,11 @@ mod tests {
         p2p::p2p_node::P2PNode,
         proto::*,
         rpc::RpcServerImpl,
+        spawn_or_die,
     };
-    use std::{
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            mpsc, Arc,
-        },
-        thread,
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
     };
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
@@ -66,7 +64,7 @@ mod tests {
         &consensus_container.start_baker(0, private_data[&0].clone());
 
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }

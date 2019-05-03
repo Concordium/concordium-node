@@ -452,7 +452,7 @@ impl P2PNode {
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
 
-        let join_handle = std::thread::spawn(move || {
+        let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
             let mut events = Events::with_capacity(1024);
             let mut log_time = SystemTime::now();
 
