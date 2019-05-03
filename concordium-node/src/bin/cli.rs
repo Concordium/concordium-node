@@ -14,7 +14,7 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use consensus_sys::{block::Block, consensus};
+use consensus_sys::{block::Block, consensus, finalization::{FinalizationMessage, FinalizationRecord}};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -106,40 +106,38 @@ fn setup_baker_guards(
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
         thread::spawn(move || loop {
             match _baker_clone.out_queue().recv_block() {
-                Ok(x) => match x.serialize() {
-                    Ok(bytes) => {
-                        let mut out_bytes = vec![];
-                        let msg_id = NetworkPacket::generate_message_id();
-                        match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
-                            Ok(_) => {
-                                out_bytes.extend(&bytes);
-                                match &_node_ref.send_message(
-                                    None,
-                                    _network_id,
-                                    Some(msg_id.clone()),
-                                    out_bytes,
-                                    true,
-                                ) {
-                                    Ok(_) => {
-                                        client_utils::add_transmission_to_seenlist(
-                                            client_utils::SeenTransmissionType::Block,
-                                            msg_id,
-                                            get_current_stamp(),
-                                            &bytes,
-                                        )
-                                        .map_err(|err| {
-                                            error!("Can't store block in transmission list {}", err)
-                                        })
-                                        .ok();
-                                        info!("Broadcasted block {}/{}", x.slot_id(), x.baker_id())
-                                    }
-                                    Err(_) => error!("Couldn't broadcast block!"),
+                Ok(block) => {
+                    let bytes = block.serialize();
+                    let mut out_bytes = vec![];
+                    let msg_id = NetworkPacket::generate_message_id();
+                    match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
+                        Ok(_) => {
+                            out_bytes.extend(&bytes);
+                            match &_node_ref.send_message(
+                                None,
+                                _network_id,
+                                Some(msg_id.clone()),
+                                out_bytes,
+                                true,
+                            ) {
+                                Ok(_) => {
+                                    client_utils::add_transmission_to_seenlist(
+                                        client_utils::SeenTransmissionType::Block,
+                                        msg_id,
+                                        get_current_stamp(),
+                                        &bytes,
+                                    )
+                                    .map_err(|err| {
+                                        error!("Can't store block in transmission list {}", err)
+                                    })
+                                    .ok();
+                                    info!("Broadcasted block {}/{}", block.slot_id(), block.baker_id())
                                 }
+                                Err(_) => error!("Couldn't broadcast block!"),
                             }
-                            Err(_) => error!("Can't write type to packet"),
                         }
+                        Err(_) => error!("Can't write type to packet"),
                     }
-                    Err(_) => error!("Couldn't serialize block {:?}", x),
                 },
                 _ => error!("Error receiving block from baker"),
             }
@@ -148,7 +146,8 @@ fn setup_baker_guards(
         let mut _node_ref_2 = node.clone();
         thread::spawn(move || loop {
             match _baker_clone_2.out_queue().recv_finalization() {
-                Ok(bytes) => {
+                Ok(msg) => {
+                    let bytes = msg.serialize();
                     let mut out_bytes = vec![];
                     let msg_id = NetworkPacket::generate_message_id();
                     match out_bytes
@@ -192,7 +191,8 @@ fn setup_baker_guards(
         let mut _node_ref_3 = node.clone();
         thread::spawn(move || loop {
             match _baker_clone_3.out_queue().recv_finalization_record() {
-                Ok(bytes) => {
+                Ok(rec) => {
+                    let bytes = rec.serialize();
                     let mut out_bytes = vec![];
                     let msg_id = NetworkPacket::generate_message_id();
                     match out_bytes
@@ -470,7 +470,8 @@ fn setup_higher_process_output(
                             &content,
                         ) {
                             Ok(_) => {
-                                baker.send_finalization(content);
+                                baker.send_finalization(&FinalizationMessage::deserialize(content)
+                                    .expect("Can't deserialize a finalization message"));
                                 info!("Sent finalization package to consensus layer");
                             }
                             Err(err) => {
@@ -485,7 +486,9 @@ fn setup_higher_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_finalization_record(content) {
+                            Ok(_) => match baker.send_finalization_record(&FinalizationRecord::deserialize(content)
+                                .expect("Can't deserialize a finalization record"))
+                            {
                                 0i64 => info!("Sent finalization record from network to baker"),
                                 x => error!(
                                     "Can't send finalization record from network to baker due to \
