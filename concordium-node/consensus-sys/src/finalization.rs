@@ -16,6 +16,8 @@ const PHASE: usize = 4;
 const TICKET: usize = 80;
 const ABBA_INPUT: usize = PHASE + TICKET;
 const PARTY: usize = 4;
+const FINALIZATION_DELAY: usize = BLOCK_HEIGHT;
+const SIGNATURE_COUNT: usize = 8;
 
 #[derive(Debug)]
 pub struct FinalizationMessage {
@@ -263,5 +265,74 @@ impl CssDoneReporting {
         NetworkEndian::write_u32(&mut phase_bytes, self.phase);
 
         [&phase_bytes, self.rest.as_ref()].concat()
+    }
+}
+
+#[derive(Debug)]
+pub struct FinalizationRecord {
+    finalization_index: FinalizationIndex,
+    block_pointer: BlockHash,
+    proof: FinalizationProof,
+    delay: BlockHeight,
+}
+
+impl FinalizationRecord {
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        let mut curr_pos = 0;
+
+        let finalization_index = (&bytes[curr_pos..][..FINALIZATION_INDEX])
+            .read_u64::<NetworkEndian>()
+            .ok()?;
+        curr_pos += FINALIZATION_INDEX;
+
+
+        let block_pointer = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
+        curr_pos += BLOCK_HASH;
+
+        let proof = FinalizationProof::deserialize(&bytes[curr_pos..bytes.len() - FINALIZATION_DELAY])?;
+
+        let delay = (&bytes[bytes.len() - FINALIZATION_DELAY..])
+            .read_u64::<NetworkEndian>()
+            .ok()?;
+
+        Some(FinalizationRecord {
+            finalization_index,
+            block_pointer,
+            proof,
+            delay,
+        })
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug)]
+struct FinalizationProof {
+    signature_count: u64,
+    signatures: Vec<Encoded>,
+}
+
+impl FinalizationProof {
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        let mut curr_pos = 0;
+
+        let signature_count = (&bytes[curr_pos..SIGNATURE_COUNT])
+            .read_u64::<NetworkEndian>()
+            .ok()?;
+        curr_pos += SIGNATURE_COUNT;
+
+        let mut signatures = Vec::with_capacity(signature_count as usize);
+
+        for _ in 0..signature_count {
+            signatures.push(Encoded::new(&bytes[curr_pos..SIGNATURE]));
+            curr_pos += SIGNATURE;
+        }
+
+        Some(FinalizationProof {
+            signature_count,
+            signatures,
+        })
     }
 }

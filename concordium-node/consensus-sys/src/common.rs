@@ -117,4 +117,3 @@ impl fmt::Debug for Encoded {
 
 // temporary type placeholders
 pub type AccountAddress = usize;
-pub type FinalizationRecord = usize;

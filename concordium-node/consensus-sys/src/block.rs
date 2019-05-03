@@ -18,6 +18,7 @@ const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
 const BLOCK_BODY: usize = 8;
 const SIGNATURE: usize = 64;
+pub const BLOCK_HEIGHT: usize = 8;
 
 #[derive(Debug)]
 pub struct Block {
