@@ -1,4 +1,6 @@
-use byteorder::{NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+
+use std::io::Write;
 
 use crate::block::*;
 use crate::common::*;
@@ -41,7 +43,12 @@ impl FinalizationMessage {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        unimplemented!()
+        [
+            self.header.serialize().as_slice(),
+            self.message.serialize().as_slice(),
+            &[0, 0, 0, 0, 0, 0, 0, 64], // FIXME: what is this pad??
+            self.signature.as_ref()
+        ].concat()
     }
 }
 
@@ -69,14 +76,10 @@ impl FinalizationMessageHeader {
             .ok()?;
         curr_pos += FINALIZATION_INDEX;
 
-        let delta = (&bytes[curr_pos..][..DELTA])
-            .read_u64::<NetworkEndian>()
-            .ok()?;
+        let delta = (&bytes[curr_pos..][..DELTA]).read_u64::<NetworkEndian>().ok()?;
         curr_pos += DELTA;
 
-        let sender = (&bytes[curr_pos..][..SENDER])
-            .read_u32::<NetworkEndian>()
-            .ok()?;
+        let sender = (&bytes[curr_pos..][..SENDER]).read_u32::<NetworkEndian>().ok()?;
 
         Some(FinalizationMessageHeader {
             session_id,
@@ -84,6 +87,24 @@ impl FinalizationMessageHeader {
             delta,
             sender,
         })
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = [0u8; SESSION_ID + FINALIZATION_INDEX + DELTA + SENDER];
+        let mut curr_pos = 0;
+
+        let _ = (&mut bytes[curr_pos..][..SESSION_ID]).write(&self.session_id.serialize());
+        curr_pos += SESSION_ID;
+
+        NetworkEndian::write_u64(&mut bytes[curr_pos..][..FINALIZATION_INDEX], self.finalization_index);
+        curr_pos += FINALIZATION_INDEX;
+
+        NetworkEndian::write_u64(&mut bytes[curr_pos..][..DELTA], self.delta);
+        curr_pos += DELTA;
+
+        NetworkEndian::write_u32(&mut bytes[curr_pos..], self.sender);
+
+        bytes.to_vec()
     }
 }
 
@@ -105,41 +126,49 @@ impl WmvbaMessage {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
 
-        let message_type = (&bytes[curr_pos..][..WMVBA_TYPE])
-            .read_u8()
-            .ok()?;
+        let message_type = (&bytes[curr_pos..][..WMVBA_TYPE]).read_u8().ok()?;
         curr_pos += WMVBA_TYPE;
 
-        match message_type {
-            0 => {
-                let val = HashBytes::new(&bytes[curr_pos..][..VAL]);
+        let message = match message_type {
+            0 => WmvbaMessage::Proposal(HashBytes::new(&bytes[curr_pos..][..VAL])),
+            1 => WmvbaMessage::Vote(None),
+            2 => WmvbaMessage::Vote(Some(HashBytes::new(&bytes[curr_pos..][..VAL]))),
+            3 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&bytes[curr_pos..], false)?),
+            4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&bytes[curr_pos..], true)?),
+            5 => WmvbaMessage::CssSeen(CssSeen::deserialize(&bytes[curr_pos..], false)?),
+            6 => WmvbaMessage::CssSeen(CssSeen::deserialize(&bytes[curr_pos..], true)?),
+            7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&bytes[curr_pos..])?),
+            8 => WmvbaMessage::AreWeDone(false),
+            9 => WmvbaMessage::AreWeDone(true),
+            10 => WmvbaMessage::WitnessCreator(HashBytes::new(&bytes[curr_pos..][..VAL])),
+            n => panic!("Deserialization of WMVBA message type No {} is not implemented!", n),
+        };
 
-                Some(WmvbaMessage::Proposal(val))
-            },
-            1 => Some(WmvbaMessage::Vote(None)),
-            2 => {
-                let val = HashBytes::new(&bytes[curr_pos..][..VAL]);
-
-                Some(WmvbaMessage::Vote(Some(val)))
-            },
-            3 => Some(WmvbaMessage::AbbaInput(AbbaInput::deserialize(&bytes[curr_pos..], false)?)),
-            4 => Some(WmvbaMessage::AbbaInput(AbbaInput::deserialize(&bytes[curr_pos..], true)?)),
-            5 => Some(WmvbaMessage::CssSeen(CssSeen::deserialize(&bytes[curr_pos..], false)?)),
-            6 => Some(WmvbaMessage::CssSeen(CssSeen::deserialize(&bytes[curr_pos..], true)?)),
-            7 => Some(WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&bytes[curr_pos..])?)),
-            8 => Some(WmvbaMessage::AreWeDone(false)),
-            10 => Some(WmvbaMessage::AreWeDone(true)),
-            11 => {
-                let val = HashBytes::new(&bytes[curr_pos..][..VAL]);
-
-                Some(WmvbaMessage::WitnessCreator(val))
-            },
-            n => panic!("FIXME: WMVBA message No {} is not specified!", n),
-        }
+        Some(message)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        unimplemented!()
+        match self {
+            WmvbaMessage::Proposal(ref val) => [&[0], val.as_ref()].concat(),
+            WmvbaMessage::Vote(vote) => match vote {
+                None => vec![1],
+                Some(val) => [&[2], val.as_ref()].concat(),
+            },
+            WmvbaMessage::AbbaInput(abba) => match abba.justified {
+                false => [&[3], abba.serialize().as_slice()].concat(),
+                true => [&[4], abba.serialize().as_slice()].concat(),
+            },
+            WmvbaMessage::CssSeen(css) => match css.saw {
+                false => [&[5], css.serialize().as_slice()].concat(),
+                true => [&[6], css.serialize().as_slice()].concat(),
+            },
+            WmvbaMessage::CssDoneReporting(cdr) => [&[7], cdr.serialize().as_slice()].concat(),
+            WmvbaMessage::AreWeDone(arewe) => match arewe {
+                false => vec![8],
+                true => vec![9],
+            },
+            WmvbaMessage::WitnessCreator(val) => [&[10], val.as_ref()].concat(),
+        }
     }
 }
 
@@ -156,9 +185,7 @@ impl AbbaInput {
     pub fn deserialize(bytes: &[u8], justified: bool) -> Option<Self> {
         let mut curr_pos = 0;
 
-        let phase = (&bytes[curr_pos..][..PHASE])
-            .read_u32::<NetworkEndian>()
-            .ok()?;
+        let phase = (&bytes[curr_pos..][..PHASE]).read_u32::<NetworkEndian>().ok()?;
         curr_pos += PHASE;
 
         let ticket = Encoded::new(&bytes[curr_pos..][..TICKET]);
@@ -168,6 +195,15 @@ impl AbbaInput {
             ticket,
             justified,
         })
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = [0u8; PHASE + TICKET];
+
+        NetworkEndian::write_u32(&mut bytes[..PHASE], self.phase);
+        let _ = (&mut bytes[PHASE..][..TICKET]).write(&self.ticket);
+
+        bytes.to_vec()
     }
 }
 
@@ -180,16 +216,9 @@ struct CssSeen {
 
 impl CssSeen {
     pub fn deserialize(bytes: &[u8], saw: bool) -> Option<Self> {
-        let mut curr_pos = 0;
+        let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>().ok()?;
 
-        let phase = (&bytes[curr_pos..][..PHASE])
-            .read_u32::<NetworkEndian>()
-            .ok()?;
-        curr_pos += PHASE;
-
-        let party = (&bytes[curr_pos..][..PARTY])
-            .read_u32::<NetworkEndian>()
-            .ok()?;
+        let party = (&bytes[PHASE..][..PARTY]).read_u32::<NetworkEndian>().ok()?;
 
         Some(CssSeen {
             phase,
@@ -197,12 +226,21 @@ impl CssSeen {
             saw,
         })
     }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = [0u8; PHASE + PARTY];
+
+        NetworkEndian::write_u32(&mut bytes[..PHASE], self.phase);
+        NetworkEndian::write_u32(&mut bytes[PHASE..][..PARTY], self.party);
+
+        bytes.to_vec()
+    }
 }
 
 #[derive(Debug)]
 struct CssDoneReporting {
     phase: Phase,
-    rest: Encoded, // FIXME
+    rest: Encoded, // TODO when specs improve
     /*
     nominatedFalseCount: u64,
     nominatedFalse: u64, // FIXME: it's actually u64 * 4, which seems excessive
@@ -213,18 +251,17 @@ struct CssDoneReporting {
 
 impl CssDoneReporting {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
-        let mut curr_pos = 0;
+        let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>().ok()?;
+        let rest = Encoded::new(&bytes[PHASE..]);
 
-        let phase = (&bytes[curr_pos..][..PHASE])
-            .read_u32::<NetworkEndian>()
-            .ok()?;
-        curr_pos += PHASE;
+        Some(CssDoneReporting { phase, rest })
+    }
 
-        let rest = Encoded::new(&bytes[curr_pos..]);
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut phase_bytes = [0u8; PHASE];
 
-        Some(CssDoneReporting {
-            phase,
-            rest,
-        })
+        NetworkEndian::write_u32(&mut phase_bytes, self.phase);
+
+        [&phase_bytes, self.rest.as_ref()].concat()
     }
 }

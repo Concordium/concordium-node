@@ -1,12 +1,12 @@
-use byteorder::{NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 
-use std::{fmt, hash::Hash, num::NonZeroU64, ops::Deref};
+use std::{fmt, hash::Hash, io::Write, num::NonZeroU64, ops::Deref};
 
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-use crate::block::BlockHash;
+use crate::block::*;
 
 pub const SHA256: usize = 32;
 pub const INCARNATION: usize = 8;
@@ -66,14 +66,24 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         let mut curr_pos = 0;
 
-        let genesis_block = HashBytes::new(&bytes[curr_pos..][..SHA256]);
-        curr_pos += SHA256;
+        let genesis_block = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
+        curr_pos += BLOCK_HASH;
 
         let incarnation = (&bytes[curr_pos..][..INCARNATION])
             .read_u64::<NetworkEndian>()
             .ok()?;
 
         Some(SessionId { genesis_block, incarnation })
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = [0u8; BLOCK_HASH + INCARNATION];
+
+        let _ = (&mut bytes[..BLOCK_HASH]).write(&self.genesis_block);
+
+        NetworkEndian::write_u64(&mut bytes[BLOCK_HASH..], self.incarnation);
+
+        bytes.to_vec()
     }
 }
 
@@ -100,7 +110,7 @@ impl Deref for Encoded {
 impl fmt::Debug for Encoded {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
-            f, "<encoded: {}B>", self.0.len(),
+            f, "<{}B>", self.0.len(),
         )
     }
 }

@@ -545,7 +545,7 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             },
             1 => match FinalizationMessage::deserialize(s) {
                 Some(msg) => {
-                    println!("{:?}", msg); // FIXME: change to a debug!() message
+                    debug!("Got a finalization message: {:?}", msg);
                     match CALLBACK_QUEUE.clone().send_finalization(msg) {
                         Ok(_) => {
                             debug!("Queueing {} bytes of finalization", s.len());
