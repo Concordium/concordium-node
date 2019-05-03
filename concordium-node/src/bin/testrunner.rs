@@ -37,17 +37,14 @@ use p2p_client::{
     lock_or_die,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    safe_lock,
+    safe_lock, spawn_or_die,
     stats_export_service::StatsExportService,
     utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex, RwLock,
-    },
-    thread,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex, RwLock,
 };
 
 #[derive(Clone, StateData)]
@@ -326,7 +323,7 @@ fn instantiate_node(
 
     let node_sender = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -362,7 +359,7 @@ fn setup_process_output(
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
+    let _guard_pkt = spawn_or_die!("Node output processing", move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => match pac.packet_type {

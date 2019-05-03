@@ -31,6 +31,7 @@ use p2p_client::{
     },
     p2p::*,
     rpc::RpcServerImpl,
+    spawn_or_die,
     stats_engine::StatsEngine,
     stats_export_service::{StatsExportService, StatsServiceMode},
     utils,
@@ -104,7 +105,7 @@ fn setup_baker_guards(
         let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-        thread::spawn(move || loop {
+        spawn_or_die!("Process baker blocks output", move || loop {
             match _baker_clone.out_queue().recv_block() {
                 Ok(x) => match x.serialize() {
                     Ok(bytes) => {
@@ -146,7 +147,7 @@ fn setup_baker_guards(
         });
         let _baker_clone_2 = baker.to_owned();
         let mut _node_ref_2 = node.clone();
-        thread::spawn(move || loop {
+        spawn_or_die!("Process baker finalization output", move || loop {
             match _baker_clone_2.out_queue().recv_finalization() {
                 Ok(bytes) => {
                     let mut out_bytes = vec![];
@@ -190,7 +191,7 @@ fn setup_baker_guards(
         });
         let _baker_clone_3 = baker.to_owned();
         let mut _node_ref_3 = node.clone();
-        thread::spawn(move || loop {
+        spawn_or_die!("Process baker finalization records output", move || loop {
             match _baker_clone_3.out_queue().recv_finalization_record() {
                 Ok(bytes) => {
                     let mut out_bytes = vec![];
@@ -265,7 +266,7 @@ fn instantiate_node(
     // Thread #1: Read P2PEvents from P2PNode
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -299,7 +300,7 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
         let mut _node_ref = node.clone();
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
-        thread::spawn(move || {
+        spawn_or_die!("TPS processing", move || {
             let mut done = false;
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
@@ -337,7 +338,7 @@ fn setup_lower_process_output(
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
+    let _guard_pkt = spawn_or_die!("Lower queue processing", move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
@@ -415,7 +416,7 @@ fn setup_higher_process_output(
     let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
     let mut _msg_count = 0;
     let _tps_message_count = conf.cli.tps.tps_message_count;
-    let _guard_pkt = thread::spawn(move || {
+    let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         fn send_msg_to_baker(
             baker_ins: &mut Option<consensus::ConsensusContainer>,
             mut msg: UCursor,
@@ -921,7 +922,7 @@ fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) 
     let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
     let mut _node_clone = node.clone();
-    thread::spawn(move || {
+    spawn_or_die!("Retransmit hook", move || {
         for slot in 0.._retransmit_times {
             info!(
                 "Retransmit Request #{}: Sleeping {} seconds before next retransmit request",

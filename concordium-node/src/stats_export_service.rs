@@ -316,7 +316,7 @@ impl StatsExportService {
     #[cfg(feature = "instrumentation")]
     pub fn start_server(&mut self, listen_addr: SocketAddr) -> thread::JoinHandle<()> {
         let self_clone = self.clone();
-        thread::spawn(move || {
+        spawn_or_die!("Prometheus server", move || {
             gotham::start(listen_addr, self_clone.router());
         })
     }
@@ -333,7 +333,7 @@ impl StatsExportService {
     ) {
         let metrics_families = self.registry.gather();
         let _mode = self.mode.to_string();
-        let _th = thread::spawn(move || loop {
+        let _th = spawn_or_die!("Prometheus push", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
                 prometheus_push_password.clone().and_then(|password| {

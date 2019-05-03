@@ -447,7 +447,10 @@ impl Connection {
 
     pub fn is_closed(&self) -> bool { self.closed }
 
-    pub fn close(&mut self) { self.closing = true; }
+    pub fn close(&mut self) {
+        self.dptr.borrow_mut().tls_session.send_close_notify();
+        self.closing = true;
+    }
 
     pub fn shutdown(&mut self) -> Fallible<()> {
         self.socket.shutdown(Shutdown::Both)?;

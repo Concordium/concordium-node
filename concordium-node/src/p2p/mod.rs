@@ -32,7 +32,6 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,
         },
-        thread,
     };
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
@@ -50,7 +49,7 @@ mod tests {
             let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
             let (sender, receiver) = mpsc::channel();
-            let _guard = thread::spawn(move || loop {
+            let _guard = spawn_or_die!("Log loop", move || loop {
                 if let Ok(msg) = receiver.recv() {
                     match msg {
                         P2PEvent::ConnectEvent(addr) => info!("Received connection from {}", addr),
