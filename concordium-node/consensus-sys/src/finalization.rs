@@ -37,18 +37,22 @@ impl FinalizationMessage {
 
         let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
 
-        Some(FinalizationMessage {
+        let msg = FinalizationMessage {
             header,
             message,
             signature,
-        })
+        };
+
+        debug_assert_eq!(msg.serialize().as_slice(), bytes);
+
+        Some(msg)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
         [
             self.header.serialize().as_slice(),
             self.message.serialize().as_slice(),
-            &[0, 0, 0, 0, 0, 0, 0, 64], // FIXME: what is this pad??
+            &[0, 0, 0, 0, 0, 0, 0, 64], // FIXME: superfluous signature length
             self.signature.as_ref()
         ].concat()
     }

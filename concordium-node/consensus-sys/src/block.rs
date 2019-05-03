@@ -147,7 +147,7 @@ impl Block {
 
         let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
 
-        Some(Block {
+        let block = Block {
             slot,
             data: BlockData::RegularData(RegularData {
                 pointer,
@@ -158,7 +158,11 @@ impl Block {
                 transactions,
                 signature,
             }),
-        })
+        };
+
+        debug_assert_eq!(block.serialize().as_slice(), bytes);
+
+        Some(block)
     }
 
     // FIXME: only works for regular blocks for now
@@ -182,6 +186,8 @@ impl Block {
         ret.extend_from_slice(&self.last_finalized()); // check
 
         ret.extend_from_slice(&Transactions::serialize(self.transactions_ref()));
+
+        ret.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 64]); // FIXME: superfluous signature length
 
         ret.extend_from_slice(&self.signature());
 

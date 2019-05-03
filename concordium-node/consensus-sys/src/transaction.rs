@@ -1,6 +1,6 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
-use byteorder::{NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -86,20 +86,16 @@ impl Transactions {
     }
 
     pub fn serialize(transactions: &Transactions) -> Vec<u8> {
-        if !transactions.0.is_empty() {
-            let mut transaction_bytes = Vec::new(); // TODO: estimate capacity
+        let mut transaction_count = [0u8; 8];
+        NetworkEndian::write_u64(&mut transaction_count, transactions.0.len() as u64);
 
-            for transaction in &transactions.0 {
-                transaction_bytes.extend_from_slice(&transaction.serialize());
-            }
+        let mut transactions_bytes = Vec::new(); // TODO: estimate capacity
 
-            transaction_bytes
-        } else {
-            let mut ret = [0u8; 16];
-            ret[15] = 64;
-
-            ret.to_vec()
+        for transaction in &transactions.0 {
+            transactions_bytes.extend_from_slice(&transaction.serialize());
         }
+
+        [&transaction_count, transactions_bytes.as_slice()].concat()
     }
 }
 
