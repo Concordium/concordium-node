@@ -1,5 +1,8 @@
 use crate::common::serialization::WriteArchive;
+
 use failure::Fallible;
+
+use std::ops::Deref;
 
 pub trait Serializable<T: ?Sized = Self> {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
@@ -48,7 +51,7 @@ where
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        (*self).serialize(archive)
+        self.deref().serialize(archive)
     }
 }
 
