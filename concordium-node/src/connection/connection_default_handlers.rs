@@ -1,13 +1,16 @@
 use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FunctorResult, get_current_stamp},
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FunctorResult, get_current_stamp,
+        serialization::Serializable,
+    },
     connection::connection_private::ConnectionPrivate,
-    network::{NetworkId, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
 use super::{fails, handler_utils::*};
-use failure::bail;
+use failure::{bail, Fallible};
 
 macro_rules! reject_handshake {
     ($direction:ident, $message:ident) => {{
@@ -43,9 +46,12 @@ pub fn default_network_request_ping_handle(
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 
-        // @TODO reenable
-        // NetworkResponse::Pong(remote_peer).serialize()
-        []
+        let pong_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::Pong(remote_peer),
+            Some(get_current_stamp()),
+            None,
+        );
+        serialize_into_memory!(pong_msg, 64)?
     };
 
     Ok(serialize_bytes(
@@ -75,9 +81,13 @@ pub fn default_network_request_find_node_handle(
                 .into_iter()
                 .map(|node| node.peer)
                 .collect::<Vec<_>>();
-            // @TODO reenable
-            // NetworkResponse::FindNode(remote_peer, nodes).serialize()
-            []
+
+            let find_node_msg = NetworkMessage::NetworkResponse(
+                NetworkResponse::FindNode(remote_peer, nodes),
+                Some(get_current_stamp()),
+                None,
+            );
+            serialize_into_memory!(find_node_msg, 256)?
         };
 
         Ok(serialize_bytes(
@@ -115,9 +125,12 @@ pub fn default_network_request_get_peers(
                 .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
-            // @TODO reenable
-            // NetworkResponse::PeerList(remote_peer, nodes).serialize()
-            []
+            let peer_list_msg = NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(remote_peer, nodes),
+                Some(get_current_stamp()),
+                None,
+            );
+            serialize_into_memory!(peer_list_msg, 256)?
         };
 
         Ok(serialize_bytes(

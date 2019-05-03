@@ -26,6 +26,9 @@ where
 
     #[inline]
     pub fn inner(&self) -> &T { &self.io_writer }
+
+    #[inline]
+    pub fn inner_mut(&mut self) -> &mut T { &mut self.io_writer }
 }
 
 impl<T> std::convert::From<T> for IOWriteArchiveAdapter<T>
@@ -75,6 +78,17 @@ where
         self.io_writer.write(data)?;
         Ok(())
     }
+}
+
+impl<T> std::io::Write for IOWriteArchiveAdapter<T>
+where
+    T: Write,
+{
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> { self.io_writer.write(buf) }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> { self.io_writer.flush() }
 }
 
 pub struct IOReadArchiveAdapter<T>
@@ -156,4 +170,12 @@ where
     fn read_into_byte_slice(&mut self, output: &mut [u8]) -> Fallible<()> {
         into_err!(self.io_reader.read_exact(output))
     }
+}
+
+impl<T> std::io::Read for IOReadArchiveAdapter<T>
+where
+    T: Read,
+{
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { self.io_reader.read(buf) }
 }

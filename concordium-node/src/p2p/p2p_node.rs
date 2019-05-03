@@ -630,9 +630,8 @@ impl P2PNode {
 
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    // @TODO reenable
-                    // let data = inner_pkt.serialize();
-                    let data = [];
+                    let data = serialize_into_memory!(*outer_pkt).unwrap();
+
                     match inner_pkt.packet_type {
                         NetworkPacketType::DirectMessage(ref receiver) => {
                             let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
@@ -662,9 +661,7 @@ impl P2PNode {
                     ref inner_pkt @ NetworkRequest::GetPeers(..),
                     ..
                 ) => {
-                    // @TODO reenable that
-                    // let data = inner_pkt.serialize();
-                    let data = [];
+                    let data = serialize_into_memory!(*outer_pkt).unwrap();
 
                     write_or_die!(self.tls_server).send_over_all_connections(
                         &data,
@@ -683,9 +680,7 @@ impl P2PNode {
                     ref inner_pkt @ NetworkRequest::JoinNetwork(..),
                     ..
                 ) => {
-                    // @TODO reenable that
-                    // let data = inner_pkt.serialize();
-                    let data = [];
+                    let data = serialize_into_memory!(*outer_pkt).unwrap();
 
                     let mut locked_tls_server = write_or_die!(self.tls_server);
                     locked_tls_server.send_over_all_connections(

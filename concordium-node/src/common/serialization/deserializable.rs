@@ -9,8 +9,6 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
-/// # TODO
-/// Move to other file.
 pub trait Deserializable: Sized {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where

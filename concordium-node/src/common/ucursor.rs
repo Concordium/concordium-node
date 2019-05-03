@@ -329,21 +329,29 @@ impl From<ContainerView> for UCursor {
     fn from(view: ContainerView) -> Self { UCursor::build_from_view(view) }
 }
 
+/// # TODO
+/// Integrate into `WriteArchive` in orde to avoid copies.
 impl Serializable for UCursor {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        // @TODO
+        let mut self_from = self.sub(self.position())?;
+        archive.write_u64(self_from.len())?;
+        std::io::copy(&mut self_from, archive)?;
         Ok(())
     }
 }
 
+/// # TODO
+/// Integrate into `ReadArchive` in orde to avoid copies.
 impl Deserializable for UCursor {
     fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
     where
         A: ReadArchive, {
-        // @TODO
-        Ok(UCursor::from(vec![]))
+        let len = archive.read_u64()?;
+        let mut data = Vec::with_capacity(len as usize);
+        std::io::copy(archive, &mut data)?;
+        Ok(UCursor::from(data))
     }
 }
 

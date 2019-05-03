@@ -4,7 +4,7 @@ use failure::{err_msg, Fallible};
 
 use std::{net::IpAddr, str};
 
-pub trait WriteArchive: Sized {
+pub trait WriteArchive: Sized + std::io::Write {
     // Write
     fn write_u8(&mut self, data: u8) -> Fallible<()>;
     fn write_u16(&mut self, data: u16) -> Fallible<()>;
@@ -20,7 +20,7 @@ pub trait WriteArchive: Sized {
     }
 }
 
-pub trait ReadArchive: Sized {
+pub trait ReadArchive: Sized + std::io::Read {
     fn post_handshake_peer(&self) -> Fallible<P2PPeer> {
         self.remote_peer().clone().post_handshake_peer_or_else(|| {
             err_msg("Message requires handshake to be completed first")
