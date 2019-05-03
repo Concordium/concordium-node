@@ -1,7 +1,7 @@
-use crate::{
-    common::{
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-        fails, get_current_stamp, P2PNodeId, PeerType},
+use crate::common::{
+    fails, get_current_stamp,
+    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    P2PNodeId, PeerType,
 };
 
 use failure::Fallible;

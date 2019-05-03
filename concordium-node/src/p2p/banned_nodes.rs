@@ -1,6 +1,6 @@
 use crate::common::{
-    P2PNodeId,
     serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    P2PNodeId,
 };
 
 use failure::Fallible;

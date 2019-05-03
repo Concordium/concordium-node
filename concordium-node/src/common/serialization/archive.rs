@@ -1,11 +1,8 @@
-use crate::common::{ P2PPeer, RemotePeer };
+use crate::common::{P2PPeer, RemotePeer};
 
-use failure::{ Fallible, err_msg };
+use failure::{err_msg, Fallible};
 
-use std::{
-    net::IpAddr,
-    str,
-};
+use std::{net::IpAddr, str};
 
 pub trait WriteArchive: Sized {
     // Write
@@ -25,8 +22,8 @@ pub trait WriteArchive: Sized {
 
 pub trait ReadArchive: Sized {
     fn post_handshake_peer(&self) -> Fallible<P2PPeer> {
-        self.remote_peer().clone().post_handshake_peer_or_else( ||{
-            err_msg( "Message requires handshake to be completed first")
+        self.remote_peer().clone().post_handshake_peer_or_else(|| {
+            err_msg("Message requires handshake to be completed first")
         })
     }
 
@@ -61,4 +58,3 @@ pub trait ReadArchive: Sized {
         }
     }
 }
-

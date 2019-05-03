@@ -8,8 +8,8 @@ use failure::Fallible;
 use tempfile::NamedTempFile;
 
 use crate::common::{
-    ContainerView,
     serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    ContainerView,
 };
 
 #[derive(Debug)]

@@ -1,6 +1,7 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer, UCursor,
+    common::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+        P2PNodeId, P2PPeer, UCursor,
     },
     network::{
         AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,

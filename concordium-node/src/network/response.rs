@@ -1,9 +1,9 @@
 use crate::{
-    common::{ P2PPeer,
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},},
-    network::{
-        AsProtocolMessageType, NetworkId, ProtocolMessageType,
+    common::{
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+        P2PPeer,
     },
+    network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
 };
 
 use failure::Fallible;

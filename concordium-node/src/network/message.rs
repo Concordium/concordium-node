@@ -2,16 +2,12 @@ use super::{NetworkPacket, NetworkRequest, NetworkResponse};
 use crate::{
     common::{
         get_current_stamp,
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive}
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
     },
     failure::Fallible,
-    network::{
-        AsProtocolMessageType, ProtocolMessageType,
-        PROTOCOL_NAME,
-        PROTOCOL_VERSION_2,
-    },
+    network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION_2},
 };
-use std::{convert::TryFrom };
+use std::convert::TryFrom;
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
@@ -65,7 +61,6 @@ impl PartialEq for NetworkMessage {
         }
     }
 }
-
 
 impl AsProtocolMessageType for NetworkMessage {
     fn protocol_type(&self) -> ProtocolMessageType {
@@ -159,10 +154,11 @@ mod unit_test {
 
     use super::*;
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor, RemotePeer,
-            serialization::{ Deserializable, IOReadArchiveAdapter },
+        common::{
+            serialization::{Deserializable, IOReadArchiveAdapter},
+            P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer, UCursor,
         },
-        network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkId, }
+        network::{NetworkId, NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
     };
 
     #[test]
@@ -196,8 +192,7 @@ mod unit_test {
                 .message(Box::new(UCursor::from(vec![])))
                 .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
-
-            let mut h = serialize_into_memory!( pkt)?;
+            let mut h = serialize_into_memory!(pkt)?;
 
             // chop the last 10 bytes which are the length of the message
             h.truncate(h.len() - 10);
@@ -236,9 +231,12 @@ mod unit_test {
             .addr(SocketAddr::new(local_ip, 8888))
             .build()?;
 
-        let mut archive = IOReadArchiveAdapter::new( cursor_on_disk,
-            RemotePeer::PostHandshake(local_peer.clone()), local_ip);
-        let message = NetworkMessage::deserialize( &mut archive)?;
+        let mut archive = IOReadArchiveAdapter::new(
+            cursor_on_disk,
+            RemotePeer::PostHandshake(local_peer.clone()),
+            local_ip,
+        );
+        let message = NetworkMessage::deserialize(&mut archive)?;
 
         if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {

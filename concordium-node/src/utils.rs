@@ -313,14 +313,12 @@ pub fn get_bootstrap_nodes(
 pub fn serialize_bootstrap_peers(peers: &[String]) -> Result<String, &'static str> {
     let mut buffer = format!("{:05}", peers.len());
 
-    /*
-    for peer in peers {
-        match parse_ip_port(peer) {
-            Some(addr) => buffer.push_str(&serialize_addr(addr)),
-            _ => return Err("Invalid IP:port"),
-        }
-    }
-    */
+    // for peer in peers {
+    // match parse_ip_port(peer) {
+    // Some(addr) => buffer.push_str(&serialize_addr(addr)),
+    // _ => return Err("Invalid IP:port"),
+    // }
+    // }
     Ok(buffer)
 }
 

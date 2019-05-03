@@ -1,11 +1,11 @@
 pub mod archive;
-pub mod serializable;
 pub mod deserializable;
 pub mod io_archive_adapter;
+pub mod serializable;
 
 pub use self::{
-    serializable::Serializable,
+    archive::{ReadArchive, WriteArchive},
     deserializable::Deserializable,
-    archive::{ ReadArchive, WriteArchive },
-    io_archive_adapter::{ IOReadArchiveAdapter, IOWriteArchiveAdapter }
+    io_archive_adapter::{IOReadArchiveAdapter, IOWriteArchiveAdapter},
+    serializable::Serializable,
 };

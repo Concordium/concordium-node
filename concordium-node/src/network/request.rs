@@ -1,10 +1,9 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer,
+    common::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+        P2PNodeId, P2PPeer,
     },
-    network::{
-        AsProtocolMessageType, NetworkId, ProtocolMessageType,
-    },
+    network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
     p2p::banned_nodes::BannedNode,
 };
 use failure::Fallible;

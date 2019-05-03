@@ -1,16 +1,15 @@
 use crate::common::{
-    serialization::{ WriteArchive, ReadArchive },
+    serialization::{ReadArchive, WriteArchive},
     RemotePeer,
-    };
+};
 
 use byteorder::{ByteOrder, NetworkEndian};
-use failure::{ Fallible };
+use failure::Fallible;
 
 use std::{
     io::{Read, Write},
     net::IpAddr,
 };
-
 
 pub struct IOWriteArchiveAdapter<T>
 where
@@ -118,7 +117,7 @@ where
     T: Read,
 {
     #[inline]
-    fn remote_peer(&self) -> &RemotePeer{ &self.remote_peer }
+    fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
 
     #[inline]
     fn ip(&self) -> IpAddr { self.ip }
