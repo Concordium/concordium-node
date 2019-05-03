@@ -48,7 +48,7 @@ pub fn add_transmission_to_seenlist(
 pub fn get_transmissions_since_from_seenlist(
     transmission_type: SeenTransmissionType,
     since_stamp: u64,
-) -> Fallible<Vec<Vec<u8>>> {
+) -> Fallible<Vec<(String, Vec<u8>)>> {
     match transmission_type {
         SeenTransmissionType::Block => {
             SEEN_TRANSMISSIONS_LIST_BLOCKS.get_transmissions_since(since_stamp)
