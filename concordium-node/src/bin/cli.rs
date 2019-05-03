@@ -14,7 +14,11 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use consensus_sys::{block::Block, consensus, finalization::{FinalizationMessage, FinalizationRecord}};
+use consensus_sys::{
+    block::Block,
+    consensus,
+    finalization::{FinalizationMessage, FinalizationRecord},
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -131,14 +135,18 @@ fn setup_baker_guards(
                                         error!("Can't store block in transmission list {}", err)
                                     })
                                     .ok();
-                                    info!("Broadcasted block {}/{}", block.slot_id(), block.baker_id())
+                                    info!(
+                                        "Broadcasted block {}/{}",
+                                        block.slot_id(),
+                                        block.baker_id()
+                                    )
                                 }
                                 Err(_) => error!("Couldn't broadcast block!"),
                             }
                         }
                         Err(_) => error!("Can't write type to packet"),
                     }
-                },
+                }
                 _ => error!("Error receiving block from baker"),
             }
         });
@@ -470,8 +478,10 @@ fn setup_higher_process_output(
                             &content,
                         ) {
                             Ok(_) => {
-                                baker.send_finalization(&FinalizationMessage::deserialize(content)
-                                    .expect("Can't deserialize a finalization message"));
+                                baker.send_finalization(
+                                    &FinalizationMessage::deserialize(content)
+                                        .expect("Can't deserialize a finalization message"),
+                                );
                                 info!("Sent finalization package to consensus layer");
                             }
                             Err(err) => {
@@ -486,9 +496,10 @@ fn setup_higher_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_finalization_record(&FinalizationRecord::deserialize(content)
-                                .expect("Can't deserialize a finalization record"))
-                            {
+                            Ok(_) => match baker.send_finalization_record(
+                                &FinalizationRecord::deserialize(content)
+                                    .expect("Can't deserialize a finalization record"),
+                            ) {
                                 0i64 => info!("Sent finalization record from network to baker"),
                                 x => error!(
                                     "Can't send finalization record from network to baker due to \

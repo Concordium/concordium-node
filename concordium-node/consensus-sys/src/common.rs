@@ -22,16 +22,12 @@ impl HashBytes {
 impl Deref for HashBytes {
     type Target = [u8];
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+    fn deref(&self) -> &Self::Target { &self.0 }
 }
 
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f, "{:0x}", (&*self.0).read_u64::<NetworkEndian>().unwrap(),
-        )
+        write!(f, "{:0x}", (&*self.0).read_u64::<NetworkEndian>().unwrap(),)
     }
 }
 
@@ -59,7 +55,7 @@ pub type Slot = u64;
 #[derive(Debug)]
 pub struct SessionId {
     genesis_block: BlockHash,
-    incarnation: u64,
+    incarnation:   u64,
 }
 
 impl SessionId {
@@ -73,7 +69,10 @@ impl SessionId {
             .read_u64::<NetworkEndian>()
             .ok()?;
 
-        Some(SessionId { genesis_block, incarnation })
+        Some(SessionId {
+            genesis_block,
+            incarnation,
+        })
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -102,17 +101,11 @@ impl Encoded {
 impl Deref for Encoded {
     type Target = [u8];
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+    fn deref(&self) -> &Self::Target { &self.0 }
 }
 
 impl fmt::Debug for Encoded {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f, "<{}B>", self.0.len(),
-        )
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len(),) }
 }
 
 // temporary type placeholders

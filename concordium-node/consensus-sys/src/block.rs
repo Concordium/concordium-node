@@ -104,12 +104,7 @@ impl Block {
         "last finalized pointer"
     );
 
-    get_block_content_ref!(
-        transactions_ref,
-        Transactions,
-        transactions,
-        "transactions"
-    );
+    get_block_content_ref!(transactions_ref, Transactions, transactions, "transactions");
 
     get_block_content!(signature, Encoded, signature, "signature");
 

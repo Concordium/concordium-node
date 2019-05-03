@@ -2,8 +2,7 @@ use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 
 use std::io::Write;
 
-use crate::block::*;
-use crate::common::*;
+use crate::{block::*, common::*};
 
 const HEADER: usize = 60;
 const FINALIZATION_INDEX: usize = 8;
@@ -21,8 +20,8 @@ const SIGNATURE_COUNT: usize = 8;
 
 #[derive(Debug)]
 pub struct FinalizationMessage {
-    header: FinalizationMessageHeader,
-    message: WmvbaMessage,
+    header:    FinalizationMessageHeader,
+    message:   WmvbaMessage,
     signature: Encoded,
 }
 
@@ -53,8 +52,9 @@ impl FinalizationMessage {
             self.header.serialize().as_slice(),
             self.message.serialize().as_slice(),
             &[0, 0, 0, 0, 0, 0, 0, 64], // FIXME: superfluous signature length
-            self.signature.as_ref()
-        ].concat()
+            self.signature.as_ref(),
+        ]
+        .concat()
     }
 }
 
@@ -64,10 +64,10 @@ type Party = u32;
 
 #[derive(Debug)]
 struct FinalizationMessageHeader {
-    session_id: SessionId,
+    session_id:         SessionId,
     finalization_index: FinalizationIndex,
-    delta: BlockHeight,
-    sender: Party,
+    delta:              BlockHeight,
+    sender:             Party,
 }
 
 impl FinalizationMessageHeader {
@@ -82,10 +82,14 @@ impl FinalizationMessageHeader {
             .ok()?;
         curr_pos += FINALIZATION_INDEX;
 
-        let delta = (&bytes[curr_pos..][..DELTA]).read_u64::<NetworkEndian>().ok()?;
+        let delta = (&bytes[curr_pos..][..DELTA])
+            .read_u64::<NetworkEndian>()
+            .ok()?;
         curr_pos += DELTA;
 
-        let sender = (&bytes[curr_pos..][..SENDER]).read_u32::<NetworkEndian>().ok()?;
+        let sender = (&bytes[curr_pos..][..SENDER])
+            .read_u32::<NetworkEndian>()
+            .ok()?;
 
         Some(FinalizationMessageHeader {
             session_id,
@@ -102,7 +106,10 @@ impl FinalizationMessageHeader {
         let _ = (&mut bytes[curr_pos..][..SESSION_ID]).write(&self.session_id.serialize());
         curr_pos += SESSION_ID;
 
-        NetworkEndian::write_u64(&mut bytes[curr_pos..][..FINALIZATION_INDEX], self.finalization_index);
+        NetworkEndian::write_u64(
+            &mut bytes[curr_pos..][..FINALIZATION_INDEX],
+            self.finalization_index,
+        );
         curr_pos += FINALIZATION_INDEX;
 
         NetworkEndian::write_u64(&mut bytes[curr_pos..][..DELTA], self.delta);
@@ -147,7 +154,10 @@ impl WmvbaMessage {
             8 => WmvbaMessage::AreWeDone(false),
             9 => WmvbaMessage::AreWeDone(true),
             10 => WmvbaMessage::WitnessCreator(HashBytes::new(&bytes[curr_pos..][..VAL])),
-            n => panic!("Deserialization of WMVBA message type No {} is not implemented!", n),
+            n => panic!(
+                "Deserialization of WMVBA message type No {} is not implemented!",
+                n
+            ),
         };
 
         Some(message)
@@ -160,14 +170,20 @@ impl WmvbaMessage {
                 None => vec![1],
                 Some(val) => [&[2], val.as_ref()].concat(),
             },
-            WmvbaMessage::AbbaInput(abba) => match abba.justified {
-                false => [&[3], abba.serialize().as_slice()].concat(),
-                true => [&[4], abba.serialize().as_slice()].concat(),
-            },
-            WmvbaMessage::CssSeen(css) => match css.saw {
-                false => [&[5], css.serialize().as_slice()].concat(),
-                true => [&[6], css.serialize().as_slice()].concat(),
-            },
+            WmvbaMessage::AbbaInput(abba) => {
+                if !abba.justified {
+                    [&[3], abba.serialize().as_slice()].concat()
+                } else {
+                    [&[4], abba.serialize().as_slice()].concat()
+                }
+            }
+            WmvbaMessage::CssSeen(css) => {
+                if !css.saw {
+                    [&[5], css.serialize().as_slice()].concat()
+                } else {
+                    [&[6], css.serialize().as_slice()].concat()
+                }
+            }
             WmvbaMessage::CssDoneReporting(cdr) => [&[7], cdr.serialize().as_slice()].concat(),
             WmvbaMessage::AreWeDone(arewe) => match arewe {
                 false => vec![8],
@@ -182,8 +198,8 @@ type Phase = u32;
 
 #[derive(Debug)]
 struct AbbaInput {
-    phase: Phase,
-    ticket: Encoded,
+    phase:     Phase,
+    ticket:    Encoded,
     justified: bool, // FIXME: verify that this is what True/False means here
 }
 
@@ -191,7 +207,9 @@ impl AbbaInput {
     pub fn deserialize(bytes: &[u8], justified: bool) -> Option<Self> {
         let mut curr_pos = 0;
 
-        let phase = (&bytes[curr_pos..][..PHASE]).read_u32::<NetworkEndian>().ok()?;
+        let phase = (&bytes[curr_pos..][..PHASE])
+            .read_u32::<NetworkEndian>()
+            .ok()?;
         curr_pos += PHASE;
 
         let ticket = Encoded::new(&bytes[curr_pos..][..TICKET]);
@@ -217,20 +235,18 @@ impl AbbaInput {
 struct CssSeen {
     phase: Phase,
     party: Party,
-    saw: bool,
+    saw:   bool,
 }
 
 impl CssSeen {
     pub fn deserialize(bytes: &[u8], saw: bool) -> Option<Self> {
         let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>().ok()?;
 
-        let party = (&bytes[PHASE..][..PARTY]).read_u32::<NetworkEndian>().ok()?;
+        let party = (&bytes[PHASE..][..PARTY])
+            .read_u32::<NetworkEndian>()
+            .ok()?;
 
-        Some(CssSeen {
-            phase,
-            party,
-            saw,
-        })
+        Some(CssSeen { phase, party, saw })
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -246,13 +262,13 @@ impl CssSeen {
 #[derive(Debug)]
 struct CssDoneReporting {
     phase: Phase,
-    rest: Encoded, // TODO when specs improve
-    /*
-    nominatedFalseCount: u64,
-    nominatedFalse: u64, // FIXME: it's actually u64 * 4, which seems excessive
-    nominatedTrueCount: u64,
-    nominatedTrue: u64, // FIXME: it's actually u64 * 4, which seems excessive
-    */
+    rest:  Encoded, /* TODO when specs improve
+                     * nominatedFalseCount: u64,
+                     * nominatedFalse: u64, // FIXME: it's actually u64 * 4, which seems
+                     * excessive nominatedTrueCount: u64,
+                     * nominatedTrue: u64, // FIXME: it's actually u64 * 4, which seems
+                     * excessive
+                     */
 }
 
 impl CssDoneReporting {
@@ -275,9 +291,9 @@ impl CssDoneReporting {
 #[derive(Debug)]
 pub struct FinalizationRecord {
     finalization_index: FinalizationIndex,
-    block_pointer: BlockHash,
-    proof: FinalizationProof,
-    delay: BlockHeight,
+    block_pointer:      BlockHash,
+    proof:              FinalizationProof,
+    delay:              BlockHeight,
 }
 
 impl FinalizationRecord {
@@ -289,11 +305,11 @@ impl FinalizationRecord {
             .ok()?;
         curr_pos += FINALIZATION_INDEX;
 
-
         let block_pointer = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
         curr_pos += BLOCK_HASH;
 
-        let proof = FinalizationProof::deserialize(&bytes[curr_pos..bytes.len() - FINALIZATION_DELAY])?;
+        let proof =
+            FinalizationProof::deserialize(&bytes[curr_pos..bytes.len() - FINALIZATION_DELAY])?;
 
         let delay = (&bytes[bytes.len() - FINALIZATION_DELAY..])
             .read_u64::<NetworkEndian>()
@@ -307,15 +323,13 @@ impl FinalizationRecord {
         })
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        unimplemented!()
-    }
+    pub fn serialize(&self) -> Vec<u8> { unimplemented!() }
 }
 
 #[derive(Debug)]
 struct FinalizationProof {
     signature_count: u64,
-    signatures: Vec<Encoded>,
+    signatures:      Vec<Encoded>,
 }
 
 impl FinalizationProof {

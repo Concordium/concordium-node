@@ -14,8 +14,7 @@ use std::{
     time::{self, Duration},
 };
 
-use crate::block::*;
-use crate::finalization::*;
+use crate::{block::*, finalization::*};
 
 #[repr(C)]
 pub struct baker_runner {
@@ -243,7 +242,8 @@ impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel::<Block>();
         let (sender_finalization, receiver_finalization) = mpsc::channel::<FinalizationMessage>();
-        let (sender_finalization_record, receiver_finalization_record) = mpsc::channel::<FinalizationRecord>();
+        let (sender_finalization_record, receiver_finalization_record) =
+            mpsc::channel::<FinalizationRecord>();
         ConsensusOutQueue {
             receiver_block:               Arc::new(Mutex::new(receiver)),
             sender_block:                 Arc::new(Mutex::new(sender)),
@@ -272,7 +272,10 @@ impl ConsensusOutQueue {
         safe_lock!(self.receiver_block).try_recv()
     }
 
-    pub fn send_finalization(self, msg: FinalizationMessage) -> Result<(), mpsc::SendError<FinalizationMessage>> {
+    pub fn send_finalization(
+        self,
+        msg: FinalizationMessage,
+    ) -> Result<(), mpsc::SendError<FinalizationMessage>> {
         safe_lock!(self.sender_finalization).send(msg)
     }
 
@@ -291,7 +294,10 @@ impl ConsensusOutQueue {
         safe_lock!(self.receiver_finalization).try_recv()
     }
 
-    pub fn send_finalization_record(self, rec: FinalizationRecord) -> Result<(), mpsc::SendError<FinalizationRecord>> {
+    pub fn send_finalization_record(
+        self,
+        rec: FinalizationRecord,
+    ) -> Result<(), mpsc::SendError<FinalizationRecord>> {
         safe_lock!(self.sender_finalization_record).send(rec)
     }
 
