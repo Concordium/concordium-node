@@ -94,10 +94,10 @@ impl SeenTransmissionsList {
                 .iter_mut()
                 .filter_map(|element| {
                     if element.seen_at > since_timestamp {
-                        match element.read_payload() {
-                            Ok(bytes) => Some((element.seen_in_message_id.to_owned(), bytes)),
-                            _ => None,
-                        }
+                        element
+                            .read_payload()
+                            .map(|bytes| (element.seen_in_message_id.to_owned(), bytes))
+                            .ok()
                     } else {
                         None
                     }
@@ -108,10 +108,10 @@ impl SeenTransmissionsList {
                 .iter_mut()
                 .filter_map(|element| {
                     if element.seen_at > since_timestamp {
-                        match element.read_payload() {
-                            Ok(bytes) => Some((element.seen_in_message_id.to_owned(), bytes)),
-                            _ => None,
-                        }
+                        element
+                            .read_payload()
+                            .map(|bytes| (element.seen_in_message_id.to_owned(), bytes))
+                            .ok()
                     } else {
                         None
                     }
