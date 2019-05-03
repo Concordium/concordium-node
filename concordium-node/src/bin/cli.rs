@@ -402,7 +402,6 @@ fn setup_higher_process_output(
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
-    db: P2PDB,
 ) {
     let mut _node_self_clone = node.clone();
 
@@ -561,46 +560,6 @@ fn setup_higher_process_output(
                             error!("Send network message to baker has failed: {:?}", e);
                         }
                     }
-
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
-                        utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                    }
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
-                        utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                    }
-                    NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(ref peer, ref peers),
-                        ..
-                    ) => {
-                        info!("Received PeerList response, attempting to satisfy desired peers");
-                        let mut new_peers = 0;
-                        let stats_count = _node_self_clone
-                            .get_peer_stats(&[])
-                            .iter()
-                            .filter(|x| x.peer_type == PeerType::Node)
-                            .count();
-                        for peer_node in peers {
-                            debug!(
-                                "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                                peer.id(),
-                                peer.ip(),
-                                peer.port(),
-                                peer_node.id(),
-                                peer_node.ip(),
-                                peer_node.port()
-                            );
-                            if _node_self_clone
-                                .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                                .map_err(|e| info!("{}", e))
-                                .is_ok()
-                            {
-                                new_peers += 1;
-                            }
-                            if new_peers + stats_count as u8 >= _desired_nodes_clone {
-                                break;
-                            }
-                        }
-                    }
                     NetworkMessage::NetworkRequest(
                         NetworkRequest::Retransmit(ref peer, since_stamp, network_id),
                         ..
@@ -612,11 +571,12 @@ fn setup_higher_process_output(
                         .map_err(|err| {
                             error!("Can't get list of block packets to retransmit {}", err)
                         }) {
-                            res.iter().for_each(|pkt| {
+                            res.iter().for_each(|(msg_id, pkt)| {
                                 send_retransmit_packet(
                                     &mut _node_self_clone,
                                     peer.id(),
                                     network_id,
+                                    msg_id,
                                     PACKET_TYPE_CONSENSUS_BLOCK,
                                     pkt,
                                 );
@@ -629,11 +589,12 @@ fn setup_higher_process_output(
                         .map_err(|err| {
                             error!("Can't get list of finalizations to retransmit {}", err)
                         }) {
-                            res.iter().for_each(|pkt| {
+                            res.iter().for_each(|(msg_id, pkt)| {
                                 send_retransmit_packet(
                                     &mut _node_self_clone,
                                     peer.id(),
                                     network_id,
+                                    msg_id,
                                     PACKET_TYPE_CONSENSUS_FINALIZATION,
                                     pkt,
                                 );
@@ -649,11 +610,12 @@ fn setup_higher_process_output(
                                 err
                             )
                         }) {
-                            res.iter().for_each(|pkt| {
+                            res.iter().for_each(|(msg_id, pkt)| {
                                 send_retransmit_packet(
                                     &mut _node_self_clone,
                                     peer.id(),
                                     network_id,
+                                    msg_id,
                                     PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
                                     pkt,
                                 );
@@ -814,7 +776,7 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #5: Read P2PNode output
-    setup_higher_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_higher_out, db);
+    setup_higher_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_higher_out);
 
     // Create listeners on baker output to forward to P2PNode
     //
@@ -930,6 +892,7 @@ fn send_retransmit_packet(
     node: &mut P2PNode,
     receiver: P2PNodeId,
     network_id: NetworkId,
+    message_id: &str,
     payload_type: u16,
     data: &[u8],
 ) {
@@ -937,7 +900,13 @@ fn send_retransmit_packet(
     match out_bytes.write_u16::<BigEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
-            match node.send_message(Some(receiver), network_id, None, out_bytes, false) {
+            match node.send_message(
+                Some(receiver),
+                network_id,
+                Some(message_id.to_owned()),
+                out_bytes,
+                false,
+            ) {
                 Ok(_) => info!("Retransmitted packet of type {}", payload_type),
                 Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
             }
