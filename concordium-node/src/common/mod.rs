@@ -550,18 +550,14 @@ mod tests {
             .build_direct(P2PNodeId::default())?;
 
         let msg_serialized = serialize_into_memory!(msg, 256)?;
-        let mut deserialized =
-            deserialize_from_memory!(NetworkMessage, msg_serialized, self_peer.clone(), ipaddr)?;
+        let mut packet =
+            deserialize_from_memory!(NetworkPacket, msg_serialized, self_peer.clone(), ipaddr)?;
 
-        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
-            if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
-                assert_eq!(packet.network_id, NetworkId::from(100));
-                assert_eq!(packet.message.read_all_into_view()?, text_msg);
-            } else {
-                bail!("It should be a direct message");
-            }
+        if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
+            assert_eq!(packet.network_id, NetworkId::from(100));
+            assert_eq!(packet.message.read_all_into_view()?, text_msg);
         } else {
-            bail!("It should be a network packet message");
+            bail!("It should be a direct message");
         }
 
         Ok(())
@@ -580,18 +576,14 @@ mod tests {
             .build_broadcast()?;
 
         let serialized = serialize_into_memory!(msg, 256)?;
-        let mut deserialized =
-            deserialize_from_memory!(NetworkMessage, serialized, self_peer.clone(), ipaddr)?;
+        let mut packet =
+            deserialize_from_memory!(NetworkPacket, serialized, self_peer.clone(), ipaddr)?;
 
-        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
-            if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
-                assert_eq!(packet.network_id, NetworkId::from(100));
-                assert_eq!(packet.message.read_all_into_view()?, text_msg);
-            } else {
-                bail!("Expected broadcast message");
-            }
+        if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
+            assert_eq!(packet.network_id, NetworkId::from(100));
+            assert_eq!(packet.message.read_all_into_view()?, text_msg);
         } else {
-            bail!("Expected network packet message");
+            bail!("Expected broadcast message");
         }
         Ok(())
     }
