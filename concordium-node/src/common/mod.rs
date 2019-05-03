@@ -1,3 +1,4 @@
+pub mod serialization;
 pub mod container_view;
 pub mod counter;
 pub mod p2p_node_id;
@@ -10,6 +11,46 @@ pub use self::{
     p2p_peer::{P2PPeer, P2PPeerBuilder},
     ucursor::UCursor,
 };
+
+#[macro_export]
+macro_rules! serialize_into_memory {
+    ($src:ident) => {
+        (|| -> Fallible<Vec<u8>> {
+            let mut archive = $crate::common::serialization::IOWriteArchiveAdapter::from(Vec::new());
+            $src.serialize(&mut archive)?;
+            Ok(archive.into_inner())
+        })()
+    };
+    ($src:ident, $capacity:expr) => {
+        (|| -> Fallible<Vec<u8>> {
+            let mut archive = $crate::common::serialization::IOWriteArchiveAdapter::from(Vec::with_capacity($capacity));
+            $src.serialize(&mut archive)?;
+            Ok(archive.into_inner())
+        })()
+    };
+}
+
+#[macro_export]
+macro_rules! deserialize_from_memory {
+    ($target_type:ident, $src:expr, $peer:expr, $ip:expr) => {
+        (|| -> Fallible<$target_type> {
+            let cursor = $crate::common::UCursor::build_from_view( $crate::common::ContainerView::from($src));
+            let mut archive = $crate::common::serialization::IOReadArchiveAdapter::new( cursor, $peer, $ip);
+            $target_type::deserialize( &mut archive)
+        })()
+    }
+}
+
+pub struct ReadArchiveBuilder;
+
+impl ReadArchiveBuilder {
+    pub fn build_from_memory(src: Vec<u8>, peer: RemotePeer, ip: IpAddr ) -> serialization::IOReadArchiveAdapter< UCursor > {
+        let view = ContainerView::from(src);
+        let cursor = UCursor::build_from_view( view);
+        serialization::IOReadArchiveAdapter::new( cursor, peer, ip)
+    }
+}
+
 
 #[macro_use]
 pub mod functor;
@@ -24,9 +65,9 @@ use std::{
     str::{self, FromStr},
 };
 
-use crate::network::{
-    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    PROTOCOL_PORT_LENGTH,
+use crate::{
+    common::serialization::{  Deserializable, ReadArchive, Serializable, WriteArchive },
+    network::{ PROTOCOL_PORT_LENGTH },
 };
 
 const PROTOCOL_IP4_LENGTH: usize = 12;
@@ -255,6 +296,7 @@ pub fn deserialize_ip_port(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
     Ok((ip_addr, port))
 }
 
+
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
 
 pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().to_le_bytes()[..]) }
@@ -263,6 +305,7 @@ pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().t
 mod tests {
     use super::*;
     use crate::{
+        common::{ Deserializable },
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
             NetworkRequest, NetworkResponse,
@@ -480,11 +523,10 @@ mod tests {
             .network_id(NetworkId::from(100))
             .message(Box::new(UCursor::build_from_view(text_msg.clone())))
             .build_direct(P2PNodeId::default())?;
+
         // @TODO reenable
-        // let serialized = msg.serialize();
-        let serialized = vec![];
-        let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
-        let mut deserialized = NetworkMessage::deserialize(self_peer.clone(), ipaddr, s11n_cursor);
+        let msg_serialized = serialize_into_memory!(msg,256)?;
+        let mut deserialized = deserialize_from_memory!( NetworkMessage, msg_serialized, self_peer.clone(), ipaddr)?;
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
@@ -512,11 +554,9 @@ mod tests {
             .message(Box::new(UCursor::build_from_view(text_msg.clone())))
             .build_broadcast()?;
 
-        // @TODO reenable
-        // let serialized = msg.serialize();
-        let serialized = vec![];
-        let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
-        let mut deserialized = NetworkMessage::deserialize(self_peer.clone(), ipaddr, s11n_cursor);
+        let serialized = serialize_into_memory!( msg, 256)?;
+        let mut deserialized = deserialize_from_memory!( NetworkMessage,
+                                                         serialized, self_peer.clone(), ipaddr)?;
 
         if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
             if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
@@ -563,11 +603,9 @@ mod tests {
 
     #[test]
     fn resp_invalid_version() {
-        let deserialized = NetworkMessage::deserialize(
-            self_peer(),
-            IpAddr::from([127, 0, 0, 1]),
-            UCursor::from(b"CONCORDIUMP2P0021001".to_vec()),
-        );
+        let deserialized = deserialize_from_memory!( NetworkMessage,
+            b"CONCORDIUMP2P0021001".to_vec(), self_peer(), IpAddr::from([127, 0, 0, 1])).unwrap();
+
         assert!(match deserialized {
             NetworkMessage::InvalidMessage => true,
             _ => false,
@@ -576,11 +614,9 @@ mod tests {
 
     #[test]
     fn resp_invalid_protocol() {
-        let deserialized = NetworkMessage::deserialize(
-            self_peer(),
-            IpAddr::from([127, 0, 0, 1]),
-            UCursor::from(b"CONC0RD1UMP2P0021001".to_vec()),
-        );
+        let deserialized = deserialize_from_memory!( NetworkMessage,
+            b"CONC0RD1UMP2P0021001".to_vec(), self_peer(), IpAddr::from([127, 0, 0, 1])).unwrap();
+
         assert!(match deserialized {
             NetworkMessage::InvalidMessage => true,
             _ => false,

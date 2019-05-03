@@ -1,7 +1,8 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer},
-    network::{
+    common::{P2PNodeId, P2PPeer,
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    },
+    network::{
         AsProtocolMessageType, NetworkId, ProtocolMessageType,
     },
     p2p::banned_nodes::BannedNode,
@@ -73,7 +74,7 @@ impl Deserializable for NetworkRequest {
     where
         A: ReadArchive, {
         let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
-        let remote_peer = archive.remote_peer().clone();
+        let remote_peer = archive.post_handshake_peer()?;
         let request = match protocol_type {
             ProtocolMessageType::RequestPing => NetworkRequest::Ping(remote_peer),
             ProtocolMessageType::RequestFindNode => {

@@ -1,26 +1,20 @@
-use super::{NetworkPacket, NetworkPacketBuilder, NetworkRequest, NetworkResponse};
+use super::{NetworkPacket, NetworkRequest, NetworkResponse};
 use crate::{
-    common::{get_current_stamp, ContainerView, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor},
-    failure::{err_msg, Fallible},
+    common::{
+        get_current_stamp,
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive}
+    },
+    failure::Fallible,
     network::{
-        AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
-        PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH,
-        PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_SINCE_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
+        AsProtocolMessageType, ProtocolMessageType,
+        PROTOCOL_NAME,
         PROTOCOL_VERSION_2,
     },
 };
-use std::{convert::TryFrom, str::FromStr};
+use std::{convert::TryFrom };
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
-
-use std::{
-    collections::HashSet,
-    io::{Seek, SeekFrom},
-    net::{IpAddr, SocketAddr},
-    str,
-};
 
 const PROTOCOL_PEERS_COUNT_LENGTH: usize = 3;
 const PROTOCOL_NETWORK_IDS_COUNT_LENGTH: usize = 5;
@@ -36,394 +30,6 @@ pub enum NetworkMessage {
     InvalidMessage,
 }
 
-/// It deserializes from `bytes` into a `NetworkPacket::DirectMessage`.
-fn deserialize_direct_message(
-    peer: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_NODE_ID_LENGTH
-        + PROTOCOL_MESSAGE_ID_LENGTH
-        + PROTOCOL_NETWORK_ID_LENGTH
-        + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH;
-
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Direct Message needs at least {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    // 1. Load receiver_id
-    let receiver_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-    let buf = &buf[PROTOCOL_NODE_ID_LENGTH..];
-
-    // 2. Load msg_id
-    let msgid = String::from_utf8(buf[..PROTOCOL_MESSAGE_ID_LENGTH].to_vec())?;
-    let buf = &buf[PROTOCOL_MESSAGE_ID_LENGTH..];
-
-    // 3. Load network_id
-    let network_id = NetworkId::from(
-        str::from_utf8(&buf[..PROTOCOL_NETWORK_ID_LENGTH])?
-            .parse::<u16>()
-            .unwrap_or(0 as u16),
-    );
-    let buf = &buf[PROTOCOL_NETWORK_ID_LENGTH..];
-
-    // 4. Load content size and content
-    let content_size =
-        str::from_utf8(&buf[..PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH])?.parse::<usize>()?;
-    // let buf = &buf[PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH..];
-
-    ensure!(
-        pkt.len() >= pkt.position() + content_size as u64,
-        "Direct Message content needs {} bytes",
-        content_size
-    );
-    let content_cursor = pkt.sub(pkt.position())?;
-
-    let packet = NetworkPacketBuilder::default()
-        .peer(peer)
-        .message_id(msgid)
-        .network_id(network_id)
-        .message(Box::new(content_cursor))
-        .build_direct(receiver_id)?;
-
-    Ok(NetworkMessage::NetworkPacket(
-        packet,
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-fn deserialize_broadcast_message(
-    peer: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_MESSAGE_ID_LENGTH
-        + PROTOCOL_NETWORK_ID_LENGTH
-        + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH;
-
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Broadcast Message needs at least {} bytes",
-        min_packet_size
-    );
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    // 1. Load `message id`
-    let message_id = String::from_utf8(buf[..PROTOCOL_MESSAGE_ID_LENGTH].to_vec())?;
-    let buf = &buf[PROTOCOL_MESSAGE_ID_LENGTH..];
-
-    let network_id =
-        NetworkId::from(str::from_utf8(&buf[..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?);
-    let buf = &buf[PROTOCOL_NETWORK_ID_LENGTH..];
-
-    let content_size =
-        str::from_utf8(&buf[..PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH])?.parse::<usize>()?;
-    ensure!(
-        pkt.len() >= pkt.position() + content_size as u64,
-        "Broadcast Message content needs {} bytes",
-        content_size
-    );
-
-    Ok(NetworkMessage::NetworkPacket(
-        NetworkPacketBuilder::default()
-            .peer(peer)
-            .message_id(message_id)
-            .network_id(network_id)
-            .message(Box::new(pkt.sub(pkt.position())?))
-            .build_broadcast()?,
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-/// Deserialize `FindNode` Request message
-fn deserialize_request_find_node(
-    peer: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Find Node Request needs {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(PROTOCOL_NODE_ID_LENGTH)?;
-    let node_id_str = str::from_utf8(view.as_slice())?;
-    let node_id = P2PNodeId::from_str(node_id_str)?;
-
-    Ok(NetworkMessage::NetworkRequest(
-        NetworkRequest::FindNode(peer, node_id),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-/// Deserialize `Join Network` Request message.
-fn deserialize_request_join_network(
-    peer: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_NETWORK_ID_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Join Network Request needs {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(PROTOCOL_NETWORK_ID_LENGTH)?;
-    let network_id = NetworkId::from(str::from_utf8(view.as_slice())?.parse::<u16>()?);
-
-    Ok(NetworkMessage::NetworkRequest(
-        NetworkRequest::JoinNetwork(peer, network_id),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-/// Deserialize `Leave Network` Request message.
-fn deserialize_request_leave_network(
-    peer: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_NETWORK_ID_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Leave Network Request needs {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(PROTOCOL_NETWORK_ID_LENGTH)?;
-    let network_id = NetworkId::from(str::from_utf8(view.as_slice())?.parse::<u16>()?);
-
-    Ok(NetworkMessage::NetworkRequest(
-        NetworkRequest::LeaveNetwork(peer, network_id),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-fn deserialize_list_of_peers(pkt: &mut UCursor) -> Fallible<Vec<P2PPeer>> {
-    let min_packet_size = PROTOCOL_PEERS_COUNT_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "List of peers requires at least {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(PROTOCOL_PEERS_COUNT_LENGTH)?;
-    let buf = view.as_slice();
-
-    let peers_count = str::from_utf8(&buf[..PROTOCOL_PEERS_COUNT_LENGTH])?.parse::<usize>()?;
-    let mut peers = Vec::with_capacity(peers_count);
-
-    for _ in 0..peers_count {
-        // @TODO reenable
-        // peers.push(P2PPeer::deserialize(pkt)?);
-    }
-
-    Ok(peers)
-}
-
-fn deserialize_response_find_node(
-    sender: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let peers = deserialize_list_of_peers(pkt)?;
-    Ok(NetworkMessage::NetworkResponse(
-        NetworkResponse::FindNode(sender, peers),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-fn deserialize_response_peer_list(
-    sender: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let peers = deserialize_list_of_peers(pkt)?;
-    Ok(NetworkMessage::NetworkResponse(
-        NetworkResponse::PeerList(sender, peers),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-fn deserialize_request_get_peers(
-    sender: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_NETWORK_IDS_COUNT_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Get Peers Request needs at least {} bytes",
-        min_packet_size
-    );
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    let network_ids_count =
-        str::from_utf8(&buf[..PROTOCOL_NETWORK_IDS_COUNT_LENGTH])?.parse::<usize>()?;
-    let min_packet_size = network_ids_count * PROTOCOL_NETWORK_ID_LENGTH;
-
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Get Peers Request needs {} bytes for {} network ids",
-        min_packet_size,
-        network_ids_count
-    );
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    let mut networks = HashSet::with_capacity(network_ids_count);
-    let mut offset = 0;
-    for _ in 0..network_ids_count {
-        let network_id = NetworkId::from(
-            str::from_utf8(&buf[offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?,
-        );
-        networks.insert(network_id);
-        offset += PROTOCOL_NETWORK_ID_LENGTH;
-    }
-
-    Ok(NetworkMessage::NetworkRequest(
-        NetworkRequest::GetPeers(sender, networks),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-/// # TODO
-/// Try to remove handshake content to avoid copied vector from `pkt`. Use the
-/// packet directly
-fn deserialize_common_handshake(
-    pkt: &mut UCursor,
-) -> Fallible<(P2PNodeId, u16, HashSet<NetworkId>, ContainerView)> {
-    let min_packet_size =
-        PROTOCOL_NODE_ID_LENGTH + PROTOCOL_PORT_LENGTH + PROTOCOL_NETWORK_IDS_COUNT_LENGTH;
-
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Handshare requires at least {} bytes",
-        min_packet_size
-    );
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-    let buf = &buf[PROTOCOL_NODE_ID_LENGTH..];
-
-    let port = str::from_utf8(&buf[..PROTOCOL_PORT_LENGTH])?.parse::<u16>()?;
-    let buf = &buf[PROTOCOL_PORT_LENGTH..];
-
-    // Read network ids count
-    let network_ids_count =
-        str::from_utf8(&buf[..PROTOCOL_NETWORK_IDS_COUNT_LENGTH])?.parse::<usize>()?;
-    let min_packet_size =
-        network_ids_count * PROTOCOL_NETWORK_ID_LENGTH + PROTOCOL_HANDSHAKE_CONTENT_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Handshare requires {} bytes for network ids",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    let mut network_ids = HashSet::with_capacity(network_ids_count);
-    let mut buf_offset = 0;
-    for _ in 0..network_ids_count {
-        let nid = NetworkId::from(
-            str::from_utf8(&buf[buf_offset..][..PROTOCOL_NETWORK_ID_LENGTH])?.parse::<u16>()?,
-        );
-        network_ids.insert(nid);
-        buf_offset += PROTOCOL_NETWORK_ID_LENGTH;
-    }
-    let buf = &buf[buf_offset..];
-
-    let content_size =
-        str::from_utf8(&buf[..PROTOCOL_HANDSHAKE_CONTENT_LENGTH])?.parse::<usize>()?;
-    ensure!(
-        pkt.len() >= pkt.position() + content_size as u64,
-        "Handshare requires {} bytes for its content",
-        min_packet_size
-    );
-
-    let content = pkt.read_into_view(content_size)?;
-    Ok((node_id, port, network_ids, content))
-}
-
-fn deserialize_response_handshake(
-    remote_ip: IpAddr,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(PeerType::Node, node_id, SocketAddr::new(remote_ip, port));
-
-    Ok(NetworkMessage::NetworkResponse(
-        NetworkResponse::Handshake(peer, network_ids, content.as_slice().to_vec()),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-fn deserialize_request_handshake(
-    remote_ip: IpAddr,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let (node_id, port, network_ids, content) = deserialize_common_handshake(pkt)?;
-    let peer = P2PPeer::from(PeerType::Node, node_id, SocketAddr::new(remote_ip, port));
-
-    Ok(NetworkMessage::NetworkRequest(
-        NetworkRequest::Handshake(peer, network_ids, content.as_slice().to_vec()),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
-fn deserialize_request_retransmit(
-    peer: P2PPeer,
-    timestamp: u64,
-    pkt: &mut UCursor,
-) -> Fallible<NetworkMessage> {
-    let min_packet_size = PROTOCOL_SINCE_TIMESTAMP_LENGTH + PROTOCOL_NETWORK_ID_LENGTH;
-    ensure!(
-        pkt.len() >= pkt.position() + min_packet_size as u64,
-        "Retransmit Request needs {} bytes",
-        min_packet_size
-    );
-
-    let view = pkt.read_into_view(min_packet_size)?;
-    let buf = view.as_slice();
-
-    let since_stamp =
-        u64::from_str_radix(str::from_utf8(&buf[..PROTOCOL_SINCE_TIMESTAMP_LENGTH])?, 16)?;
-    let nid = NetworkId::from(
-        str::from_utf8(&buf[PROTOCOL_SINCE_TIMESTAMP_LENGTH..][..PROTOCOL_NETWORK_ID_LENGTH])?
-            .parse::<u16>()?,
-    );
-
-    Ok(NetworkMessage::NetworkRequest(
-        NetworkRequest::Retransmit(peer, since_stamp, nid),
-        Some(timestamp),
-        Some(get_current_stamp()),
-    ))
-}
-
 impl NetworkMessage {
     #[cfg(feature = "s11n_nom")]
     pub fn deserialize_nom(bytes: &[u8]) -> NetworkMessage {
@@ -431,183 +37,6 @@ impl NetworkMessage {
             Ok(msg) => msg.1,
             Err(e) => {
                 warn!("Network deserialization has failed {}", e);
-                NetworkMessage::InvalidMessage
-            }
-        }
-    }
-
-    pub fn try_deserialize(
-        peer: RemotePeer,
-        ip: IpAddr,
-        mut pkt: UCursor,
-    ) -> Fallible<NetworkMessage> {
-        let protocol_name_length = PROTOCOL_NAME.len();
-        let protocol_version_length = PROTOCOL_VERSION.len();
-
-        pkt.seek(SeekFrom::Start(0))?;
-
-        // Load header into mem.
-        let header_size = protocol_name_length
-            + protocol_version_length
-            + PROTOCOL_SENT_TIMESTAMP_LENGTH
-            + PROTOCOL_MESSAGE_TYPE_LENGTH;
-
-        ensure!(
-            pkt.len() >= header_size as u64,
-            "Network Message requires at least {} bytes",
-            header_size
-        );
-        let view = pkt.read_into_view(header_size)?;
-        let header = view.as_slice();
-
-        // Check protocol name
-        let protocol = unsafe { str::from_utf8_unchecked(&header[..protocol_name_length]) };
-        ensure!(protocol == PROTOCOL_NAME, "Unsupported protocol");
-        let header = &header[protocol_name_length..];
-
-        // Check version
-        let version = unsafe { str::from_utf8_unchecked(&header[..protocol_version_length]) };
-        ensure!(version == PROTOCOL_VERSION, "Unsupported version");
-        let header = &header[protocol_version_length..];
-
-        // Load timestamp
-        let timestamp = {
-            let timestamp = base64::decode(&header[..PROTOCOL_SENT_TIMESTAMP_LENGTH])?;
-            if timestamp.len() != 8 {
-                error!("Invalid timesptamp {:?}", timestamp);
-            }
-            debug_assert_eq!(timestamp.len(), 8);
-            let mut a = [0; 8];
-            a.copy_from_slice(timestamp.as_slice());
-            u64::from_le_bytes(a)
-        };
-        let header = &header[PROTOCOL_SENT_TIMESTAMP_LENGTH..];
-
-        // Load message type id
-        // **ATTENTION**
-        // It is not an `str`, just a byte slice. Do not use as `str` because it did not
-        // be checked as valid utf8.
-        // This is unsafe code is a performance optimization.
-        let message_type_id_str = str::from_utf8(&header[..PROTOCOL_MESSAGE_TYPE_LENGTH])?;
-        let message_type_id = ProtocolMessageType::try_from(message_type_id_str)?;
-        match message_type_id {
-            ProtocolMessageType::RequestPing => Ok(NetworkMessage::NetworkRequest(
-                NetworkRequest::Ping(peer.post_handshake_peer_or_else(|| {
-                    err_msg("Ping message requires handshake to be completed first")
-                })?),
-                Some(timestamp),
-                Some(get_current_stamp()),
-            )),
-            ProtocolMessageType::ResponsePong => Ok(NetworkMessage::NetworkResponse(
-                NetworkResponse::Pong(peer.post_handshake_peer_or_else(|| {
-                    err_msg("Pong message requires handshake to be completed first")
-                })?),
-                Some(timestamp),
-                Some(get_current_stamp()),
-            )),
-            ProtocolMessageType::ResponseHandshake => {
-                deserialize_response_handshake(ip, timestamp, &mut pkt)
-            }
-            ProtocolMessageType::RequestGetPeers => deserialize_request_get_peers(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("GetPeers Request requires handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::RequestHandshake => {
-                deserialize_request_handshake(ip, timestamp, &mut pkt)
-            }
-            ProtocolMessageType::RequestFindNode => deserialize_request_find_node(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("FindNode Request requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::RequestBanNode | ProtocolMessageType::RequestUnbanNode =>
-                Ok( NetworkMessage::UnknownMessage),
-            // @TODO reenable
-            /*
-            ProtocolMessageType::RequestBanNode => Ok(NetworkMessage::NetworkRequest(
-                NetworkRequest::BanNode(
-                    peer.post_handshake_peer_or_else(|| {
-                        err_msg("BanNode Request requires a handshake to be completed first")
-                    })?,
-                    // @TODO reenable
-                    // BannedNode::deserialize(&mut pkt)?,
-                ),
-                Some(timestamp),
-                Some(get_current_stamp()),
-            )),
-            ProtocolMessageType::RequestUnbanNode => Ok(NetworkMessage::NetworkRequest(
-                NetworkRequest::UnbanNode(
-                    peer.post_handshake_peer_or_else(|| {
-                        err_msg("UnbanNode Request requires a handshake to be completed first")
-                    })?,
-                    // @TODO reenable
-                    // BannedNode::deserialize(&mut pkt)?,
-                ),
-                Some(timestamp),
-                Some(get_current_stamp()),
-            )),*/
-            ProtocolMessageType::RequestJoinNetwork => deserialize_request_join_network(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Join Network Request requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::RequestLeaveNetwork => deserialize_request_leave_network(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Leave Network Request requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::ResponseFindNode => deserialize_response_find_node(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Find Node Response requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::ResponsePeersList => deserialize_response_peer_list(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Peer List Response requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::DirectMessage => deserialize_direct_message(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Direct Message requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::BroadcastedMessage => deserialize_broadcast_message(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Broadcast Message requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-            ProtocolMessageType::RequestRetransmit => deserialize_request_retransmit(
-                peer.post_handshake_peer_or_else(|| {
-                    err_msg("Request Retransmit requires a handshake to be completed first")
-                })?,
-                timestamp,
-                &mut pkt,
-            ),
-        }
-    }
-
-    pub fn deserialize(connection_peer: RemotePeer, ip: IpAddr, pkt: UCursor) -> NetworkMessage {
-        match NetworkMessage::try_deserialize(connection_peer, ip, pkt) {
-            Ok(message) => message,
-            Err(e) => {
-                error!("{:?}", e);
                 NetworkMessage::InvalidMessage
             }
         }
@@ -637,7 +66,6 @@ impl PartialEq for NetworkMessage {
     }
 }
 
-use crate::network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
 
 impl AsProtocolMessageType for NetworkMessage {
     fn protocol_type(&self) -> ProtocolMessageType {
@@ -731,8 +159,10 @@ mod unit_test {
 
     use super::*;
     use crate::{
-        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
-        network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
+        common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor, RemotePeer,
+            serialization::{ Deserializable, IOReadArchiveAdapter },
+        },
+        network::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkId, }
     };
 
     #[test]
@@ -767,12 +197,11 @@ mod unit_test {
                 .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
 
-            /*let mut h = pkt.serialize();
+            let mut h = serialize_into_memory!( pkt)?;
 
             // chop the last 10 bytes which are the length of the message
             h.truncate(h.len() - 10);
-            h*/
-            vec![]
+            h
         };
 
         // Write header and content size
@@ -807,11 +236,9 @@ mod unit_test {
             .addr(SocketAddr::new(local_ip, 8888))
             .build()?;
 
-        let message = NetworkMessage::try_deserialize(
-            RemotePeer::PostHandshake(local_peer.clone()),
-            local_ip,
-            cursor_on_disk,
-        )?;
+        let mut archive = IOReadArchiveAdapter::new( cursor_on_disk,
+            RemotePeer::PostHandshake(local_peer.clone()), local_ip);
+        let message = NetworkMessage::deserialize( &mut archive)?;
 
         if let NetworkMessage::NetworkPacket(ref packet, ..) = message {
             if let NetworkPacketType::DirectMessage(..) = packet.packet_type {

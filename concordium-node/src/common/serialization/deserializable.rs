@@ -1,4 +1,4 @@
-use crate::network::serialization::ReadArchive;
+use crate::common::serialization::ReadArchive;
 
 use failure::Fallible;
 

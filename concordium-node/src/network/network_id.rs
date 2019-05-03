@@ -1,4 +1,4 @@
-use crate::network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
+use crate::common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive};
 
 use failure::Fallible;
 use std::fmt;

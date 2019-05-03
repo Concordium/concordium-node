@@ -1,7 +1,7 @@
 use crate::{
-    common::P2PPeer,
+    common::{ P2PPeer,
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},},
     network::{
-        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         AsProtocolMessageType, NetworkId, ProtocolMessageType,
     },
 };
@@ -52,7 +52,7 @@ impl Deserializable for NetworkResponse {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkResponse>
     where
         A: ReadArchive, {
-        let remote_peer = archive.remote_peer().clone();
+        let remote_peer = archive.post_handshake_peer()?;
         let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
         let response = match protocol_type {
             ProtocolMessageType::ResponsePong => NetworkResponse::Pong(remote_peer),

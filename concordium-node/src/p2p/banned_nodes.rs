@@ -1,6 +1,6 @@
-use crate::{
-    common::P2PNodeId,
-    network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+use crate::common::{
+    P2PNodeId,
+    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
 };
 
 use failure::Fallible;

@@ -1,4 +1,4 @@
-use crate::network::serialization::WriteArchive;
+use crate::common::serialization::WriteArchive;
 use failure::Fallible;
 
 pub trait Serializable<T: ?Sized = Self> {

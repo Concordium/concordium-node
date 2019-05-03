@@ -7,9 +7,9 @@ use std::{
 use failure::Fallible;
 use tempfile::NamedTempFile;
 
-use crate::{
-    common::ContainerView,
-    network::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+use crate::common::{
+    ContainerView,
+    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
 };
 
 #[derive(Debug)]

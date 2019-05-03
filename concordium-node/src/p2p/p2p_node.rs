@@ -26,6 +26,7 @@ use std::{
 
 use crate::{
     common::{
+        serialization::Serializable,
         counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     configuration,
@@ -34,7 +35,6 @@ use crate::{
         NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
     },
     network::{
-        serialization::{IOWriteArchiveAdapter, Serializable},
         Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
         NetworkRequest, NetworkResponse,
     },
@@ -702,23 +702,16 @@ impl P2PNode {
                     ref inner_pkt @ NetworkRequest::LeaveNetwork(..),
                     ..
                 ) => {
-                    // @TODO reenable that
-                    /*
-                    let archive = IOWriteArchiveAdapter::from( BufWriter::from( Vec::with_capacity(256)));
-                    inner_pkt.serialize( archive)?;
-                    let data: &[u8] = archive.into_inner().buffer();
-                    // let data = inner_pkt.serialize();*/
                     if let Ok(data) = serialize_into_memory!( inner_pkt, 128) {
                         let mut locked_tls_server = write_or_die!(self.tls_server);
                         locked_tls_server.send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                        );
+                            &data,
+                            &is_valid_connection_post_handshake,
+                            &check_sent_status_fn);
 
-                    if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
-                        locked_tls_server.remove_network(*network_id);
-                    }
+                        if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
+                            locked_tls_server.remove_network(*network_id);
+                        }
                     }
                 }
                 _ => {}

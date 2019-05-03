@@ -1,7 +1,8 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer, UCursor},
-    network::{
+    common::{P2PNodeId, P2PPeer, UCursor,
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    },
+    network::{
         AsProtocolMessageType, NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH,
         PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
         PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
@@ -196,7 +197,7 @@ impl Deserializable for NetworkPacket {
         A: ReadArchive, {
         let packet = NetworkPacket {
             packet_type: NetworkPacketType::deserialize(archive)?,
-            peer:        archive.remote_peer().clone(),
+            peer:        archive.post_handshake_peer()?,
             message_id:  archive.read_string()?,
             network_id:  NetworkId::deserialize(archive)?,
             message:     Box::<UCursor>::deserialize(archive)?,

@@ -47,6 +47,7 @@ use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         functor::{AFunctorCW, FunctorError, FunctorResult},
+        serialization::{ Deserializable, IOReadArchiveAdapter },
         get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     network::{
@@ -586,11 +587,11 @@ impl Connection {
     /// handlers.
     fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult {
         let buf_cursor = UCursor::from(buf);
-        let outer = Arc::new(NetworkMessage::deserialize(
-            self.remote_peer(),
-            self.remote_addr().ip(),
-            buf_cursor,
-        ));
+
+        let mut archive = IOReadArchiveAdapter::new( buf_cursor, self.remote_peer().clone(), self.remote_addr().ip());
+        let message = NetworkMessage::deserialize( &mut archive)?;
+        let outer = Arc::new( message);
+
         self.messages_received += 1;
         TOTAL_MESSAGES_RECEIVED_COUNTER.fetch_add(1, Ordering::Relaxed);
         if let Some(ref service) = &self.stats_export_service() {
