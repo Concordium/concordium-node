@@ -1,11 +1,12 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer, UCursor},
+    common::{P2PNodeId, P2PPeer},
     network::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
     },
 };
+use concordium_common::UCursor;
 
 use crate::{
     failure::{err_msg, Fallible},

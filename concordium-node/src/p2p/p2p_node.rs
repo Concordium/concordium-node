@@ -1,7 +1,7 @@
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FilterFunctor, P2PNodeId, P2PPeer, PeerType,
-        RemotePeer, UCursor,
+        RemotePeer,
     },
     configuration,
     connection::{
@@ -26,6 +26,7 @@ use crate::{
     utils,
 };
 use chrono::prelude::*;
+use concordium_common::UCursor;
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;

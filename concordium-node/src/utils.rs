@@ -5,7 +5,7 @@ use crate::{
     fails::{HostPortParseError, NoDNSResolversAvailable},
     p2p::{banned_nodes::BannedNode, P2PNode},
 };
-use ::dns::dns;
+use ::concordium_dns::dns;
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
