@@ -26,6 +26,7 @@ const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
 const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
+const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 60_000;
 
 /// This class allows to share some information between `TlsServer` and its
 /// handler. This concept is similar to `d-Pointer` of C++ but it is used just
@@ -254,6 +255,10 @@ impl TlsServerPrivate {
                 || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
         };
 
+        let filter_predicate_no_handshake = |conn: &Connection| -> bool {
+            !conn.is_post_handshake() && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+        };
+
         let wrap_connection_already_gone_as_non_fatal =
             |token, res: Fallible<()>| -> Fallible<Token> {
                 use std::io::ErrorKind;
@@ -275,7 +280,7 @@ impl TlsServerPrivate {
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|rc_conn| {
                 let rc_conn_borrowed = rc_conn.borrow();
-                filter_predicate_bootstrapper(&rc_conn_borrowed) || filter_predicate_node(&rc_conn_borrowed) || rc_conn_borrowed.closing
+                filter_predicate_bootstrapper(&rc_conn_borrowed) || filter_predicate_node(&rc_conn_borrowed) || rc_conn_borrowed.closing || filter_predicate_no_handshake(&rc_conn_borrowed)
             })
             .map(|rc_conn| {
                 // Deregister connection from the poll and shut down the socket
