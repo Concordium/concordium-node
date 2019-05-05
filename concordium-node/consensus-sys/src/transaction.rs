@@ -27,8 +27,8 @@ pub type TransactionHash = Sha256;
 
 #[derive(Debug)]
 pub struct Transaction {
-    //transaction_type: TransactionType,
-    payload:          Encoded,
+    // transaction_type: TransactionType,
+    payload: Encoded,
 }
 
 impl Transaction {

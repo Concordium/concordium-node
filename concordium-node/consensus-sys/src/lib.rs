@@ -11,20 +11,25 @@ extern crate log;
 
 macro_rules! check_serialization {
     ($target:expr, $source:expr) => {
-        debug_assert_eq!($target.serialize().as_slice(), $source, "Invalid serialization of {:?}", $target);
-    }
+        debug_assert_eq!(
+            $target.serialize().as_slice(),
+            $source,
+            "Invalid serialization of {:?}",
+            $target
+        );
+    };
 }
 
 macro_rules! debug_deserialization {
     ($target:expr, $bytes:expr) => {
         info!("Deserializing an object: {} ({}B)", $target, $bytes.len());
-    }
+    };
 }
 
 macro_rules! debug_serialization {
     ($object:expr) => {
         info!("Serializing an object: {:?}", $object);
-    }
+    };
 }
 
 #[macro_use]
