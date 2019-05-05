@@ -8,7 +8,7 @@ const HEADER: usize = 60;
 const FINALIZATION_INDEX: usize = 8;
 const DELTA: usize = 8;
 const SENDER: usize = 4;
-const SIGNATURE: usize = 64;
+const SIGNATURE: usize = 64 + 8; // FIXME: unknown 8B prefix
 const WMVBA_TYPE: usize = 1;
 const VAL: usize = BLOCK_HASH;
 const PHASE: usize = 4;
@@ -27,6 +27,8 @@ pub struct FinalizationMessage {
 
 impl FinalizationMessage {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("FinalizationMessage", bytes);
+
         let mut curr_pos = 0;
 
         let header = FinalizationMessageHeader::deserialize(&bytes[curr_pos..][..HEADER])?;
@@ -42,16 +44,17 @@ impl FinalizationMessage {
             signature,
         };
 
-        debug_assert_eq!(msg.serialize().as_slice(), bytes);
+        check_serialization!(msg, bytes);
 
         Some(msg)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         [
             self.header.serialize().as_slice(),
             self.message.serialize().as_slice(),
-            &[0, 0, 0, 0, 0, 0, 0, 64], // FIXME: superfluous signature length
             self.signature.as_ref(),
         ]
         .concat()
@@ -72,6 +75,8 @@ struct FinalizationMessageHeader {
 
 impl FinalizationMessageHeader {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        //debug_deserialization!("FinalizationMessageHeader", bytes);
+
         let mut curr_pos = 0;
 
         let session_id = SessionId::deserialize(&bytes[curr_pos..][..SESSION_ID])?;
@@ -90,16 +95,25 @@ impl FinalizationMessageHeader {
         let sender = (&bytes[curr_pos..][..SENDER])
             .read_u32::<NetworkEndian>()
             .ok()?;
+        curr_pos += SENDER;
 
-        Some(FinalizationMessageHeader {
+        debug_assert_eq!(curr_pos, bytes.len());
+
+        let header = FinalizationMessageHeader {
             session_id,
             finalization_index,
             delta,
             sender,
-        })
+        };
+
+        check_serialization!(header, bytes);
+
+        Some(header)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        //debug_serialization!(self);
+
         let mut bytes = [0u8; SESSION_ID + FINALIZATION_INDEX + DELTA + SENDER];
         let mut curr_pos = 0;
 
@@ -115,7 +129,7 @@ impl FinalizationMessageHeader {
         NetworkEndian::write_u64(&mut bytes[curr_pos..][..DELTA], self.delta);
         curr_pos += DELTA;
 
-        NetworkEndian::write_u32(&mut bytes[curr_pos..], self.sender);
+        NetworkEndian::write_u32(&mut bytes[curr_pos..][..SENDER], self.sender);
 
         bytes.to_vec()
     }
@@ -137,12 +151,14 @@ enum WmvbaMessage {
 
 impl WmvbaMessage {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("WmvbaMessage", bytes);
+
         let mut curr_pos = 0;
 
         let message_type = (&bytes[curr_pos..][..WMVBA_TYPE]).read_u8().ok()?;
         curr_pos += WMVBA_TYPE;
 
-        let message = match message_type {
+        let msg = match message_type {
             0 => WmvbaMessage::Proposal(HashBytes::new(&bytes[curr_pos..][..VAL])),
             1 => WmvbaMessage::Vote(None),
             2 => WmvbaMessage::Vote(Some(HashBytes::new(&bytes[curr_pos..][..VAL]))),
@@ -160,10 +176,14 @@ impl WmvbaMessage {
             ),
         };
 
-        Some(message)
+        check_serialization!(msg, bytes);
+
+        Some(msg)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         match self {
             WmvbaMessage::Proposal(ref val) => [&[0], val.as_ref()].concat(),
             WmvbaMessage::Vote(vote) => match vote {
@@ -205,6 +225,8 @@ struct AbbaInput {
 
 impl AbbaInput {
     pub fn deserialize(bytes: &[u8], justified: bool) -> Option<Self> {
+        debug_deserialization!("AbbaInput", bytes);
+
         let mut curr_pos = 0;
 
         let phase = (&bytes[curr_pos..][..PHASE])
@@ -213,15 +235,24 @@ impl AbbaInput {
         curr_pos += PHASE;
 
         let ticket = Encoded::new(&bytes[curr_pos..][..TICKET]);
+        curr_pos += TICKET;
 
-        Some(AbbaInput {
+        debug_assert_eq!(curr_pos, bytes.len());
+
+        let abba = AbbaInput {
             phase,
             ticket,
             justified,
-        })
+        };
+
+        check_serialization!(abba, bytes);
+
+        Some(abba)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         let mut bytes = [0u8; PHASE + TICKET];
 
         NetworkEndian::write_u32(&mut bytes[..PHASE], self.phase);
@@ -240,16 +271,24 @@ struct CssSeen {
 
 impl CssSeen {
     pub fn deserialize(bytes: &[u8], saw: bool) -> Option<Self> {
+        debug_deserialization!("CssSeen", bytes);
+
         let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>().ok()?;
 
         let party = (&bytes[PHASE..][..PARTY])
             .read_u32::<NetworkEndian>()
             .ok()?;
 
-        Some(CssSeen { phase, party, saw })
+        let css = CssSeen { phase, party, saw };
+
+        check_serialization!(css, bytes);
+
+        Some(css)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         let mut bytes = [0u8; PHASE + PARTY];
 
         NetworkEndian::write_u32(&mut bytes[..PHASE], self.phase);
@@ -273,13 +312,21 @@ struct CssDoneReporting {
 
 impl CssDoneReporting {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("CssDoneReporting", bytes);
+
         let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>().ok()?;
         let rest = Encoded::new(&bytes[PHASE..]);
 
-        Some(CssDoneReporting { phase, rest })
+        let cssr = CssDoneReporting { phase, rest };
+
+        check_serialization!(cssr, bytes);
+
+        Some(cssr)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         let mut phase_bytes = [0u8; PHASE];
 
         NetworkEndian::write_u32(&mut phase_bytes, self.phase);
@@ -298,6 +345,8 @@ pub struct FinalizationRecord {
 
 impl FinalizationRecord {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("FinalizationRecord", bytes);
+
         let mut curr_pos = 0;
 
         let finalization_index = (&bytes[curr_pos..][..FINALIZATION_INDEX])
@@ -315,28 +364,41 @@ impl FinalizationRecord {
             .read_u64::<NetworkEndian>()
             .ok()?;
 
-        Some(FinalizationRecord {
+        let rec = FinalizationRecord {
             finalization_index,
             block_pointer,
             proof,
             delay,
-        })
+        };
+
+        check_serialization!(rec, bytes);
+
+        Some(rec)
     }
 
-    pub fn serialize(&self) -> Vec<u8> { unimplemented!() }
+    pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
+        let mut finalization_index_bytes = [0u8; FINALIZATION_INDEX];
+        NetworkEndian::write_u64(&mut finalization_index_bytes, self.finalization_index);
+
+        let mut delay_bytes = [0u8; FINALIZATION_DELAY];
+        NetworkEndian::write_u64(&mut delay_bytes, self.delay);
+
+        [&finalization_index_bytes, self.block_pointer.as_ref(), self.proof.serialize().as_slice(), &delay_bytes].concat()
+    }
 }
 
 #[derive(Debug)]
-struct FinalizationProof {
-    signature_count: u64,
-    signatures:      Vec<Encoded>,
-}
+struct FinalizationProof(Vec<(u32, Encoded)>);
 
 impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("FinalizationProof", bytes);
+
         let mut curr_pos = 0;
 
-        let signature_count = (&bytes[curr_pos..SIGNATURE_COUNT])
+        let signature_count = (&bytes[curr_pos..][..SIGNATURE_COUNT])
             .read_u64::<NetworkEndian>()
             .ok()?;
         curr_pos += SIGNATURE_COUNT;
@@ -344,13 +406,43 @@ impl FinalizationProof {
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
         for _ in 0..signature_count {
-            signatures.push(Encoded::new(&bytes[curr_pos..SIGNATURE]));
+            let tbd = (&bytes[curr_pos..][..4])
+                .read_u32::<NetworkEndian>()
+                .ok()?;
+            curr_pos += 4;
+
+            let signature = Encoded::new(&bytes[curr_pos..][..SIGNATURE]);
             curr_pos += SIGNATURE;
+
+            signatures.push((tbd, signature));
         }
 
-        Some(FinalizationProof {
-            signature_count,
-            signatures,
-        })
+        debug_assert_eq!(curr_pos, bytes.len());
+
+        let proof = FinalizationProof(signatures);
+
+        check_serialization!(proof, bytes);
+
+        Some(proof)
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
+        let mut signature_count_bytes = [0u8; SIGNATURE_COUNT];
+        NetworkEndian::write_u64(&mut signature_count_bytes, self.0.len() as u64);
+
+        let mut bytes = Vec::with_capacity(self.0.len() as usize * (4 + SIGNATURE));
+        bytes.extend_from_slice(&signature_count_bytes);
+
+        for (tbd, signature) in &self.0 {
+            let mut tbd_bytes = [0u8; 4];
+            NetworkEndian::write_u32(&mut tbd_bytes, *tbd);
+
+            bytes.extend_from_slice(&tbd_bytes);
+            bytes.extend_from_slice(signature);
+        }
+
+        bytes
     }
 }

@@ -6,11 +6,11 @@ pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-use crate::block::*;
-
 pub const SHA256: usize = 32;
 pub const INCARNATION: usize = 8;
 pub const SESSION_ID: usize = SHA256 + INCARNATION;
+
+use crate::block::{BlockHash, BLOCK_HASH};
 
 #[derive(Clone)]
 pub struct HashBytes(Box<[u8]>);
@@ -60,6 +60,8 @@ pub struct SessionId {
 
 impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("SessionId", bytes);
+
         let mut curr_pos = 0;
 
         let genesis_block = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
@@ -69,13 +71,19 @@ impl SessionId {
             .read_u64::<NetworkEndian>()
             .ok()?;
 
-        Some(SessionId {
+        let sess = SessionId {
             genesis_block,
             incarnation,
-        })
+        };
+
+        check_serialization!(sess, bytes);
+
+        Some(sess)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         let mut bytes = [0u8; BLOCK_HASH + INCARNATION];
 
         let _ = (&mut bytes[..BLOCK_HASH]).write(&self.genesis_block);
@@ -105,7 +113,7 @@ impl Deref for Encoded {
 }
 
 impl fmt::Debug for Encoded {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len(),) }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len()) }
 }
 
 // temporary type placeholders

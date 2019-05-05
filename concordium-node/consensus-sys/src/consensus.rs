@@ -539,7 +539,6 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
         match block_type {
             0 => match Block::deserialize(s) {
                 Some(block) => {
-                    debug!("Deserialized a {:?}", block);
                     match CALLBACK_QUEUE.clone().send_block(block) {
                         Ok(_) => {
                             debug!("Queueing {} block bytes", data_length);
@@ -551,7 +550,6 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             },
             1 => match FinalizationMessage::deserialize(s) {
                 Some(msg) => {
-                    debug!("Deserialized a {:?}", msg);
                     match CALLBACK_QUEUE.clone().send_finalization(msg) {
                         Ok(_) => {
                             debug!("Queueing {} bytes of finalization", s.len());
@@ -563,7 +561,6 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
             },
             2 => match FinalizationRecord::deserialize(s) {
                 Some(rec) => {
-                    debug!("Deserialized a {:?}", rec);
                     match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
                         Ok(_) => {
                             debug!("Queueing {} bytes of finalization record", s.len());

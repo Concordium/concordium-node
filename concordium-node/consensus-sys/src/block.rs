@@ -17,7 +17,7 @@ const PAYLOAD_SIZE: usize = 2;
 const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
 const BLOCK_BODY: usize = 8;
-const SIGNATURE: usize = 64;
+const SIGNATURE: usize = 64 + 8; // FIXME: unknown 8B prefix
 pub const BLOCK_HEIGHT: usize = 8;
 
 #[derive(Debug)]
@@ -114,6 +114,8 @@ impl Block {
     // FIXME: use UCursor (for all deserialization) when it's available outside of
     // client
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("Block", bytes);
+
         let mut curr_pos = 0;
 
         let slot = (&bytes[curr_pos..][..SLOT])
@@ -155,13 +157,15 @@ impl Block {
             }),
         };
 
-        debug_assert_eq!(block.serialize().as_slice(), bytes);
+        check_serialization!(block, bytes);
 
         Some(block)
     }
 
     // FIXME: only works for regular blocks for now
     pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         let mut ret = Vec::new(); // FIXME: estimate capacity
 
         let mut slot = [0u8; SLOT];
@@ -181,8 +185,6 @@ impl Block {
         ret.extend_from_slice(&self.last_finalized()); // check
 
         ret.extend_from_slice(&Transactions::serialize(self.transactions_ref()));
-
-        ret.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 64]); // FIXME: superfluous signature length
 
         ret.extend_from_slice(&self.signature());
 
