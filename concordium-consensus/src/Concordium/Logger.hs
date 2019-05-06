@@ -40,6 +40,7 @@ data LogLevel
     | LLWarning
     | LLInfo
     | LLDebug
+    | LLTrace
     deriving (Eq, Ord)
 
 instance Show LogLevel where
@@ -47,6 +48,7 @@ instance Show LogLevel where
     show LLWarning = "WARNING"
     show LLInfo = "INFO"
     show LLDebug = "DEBUG"
+    show LLTrace = "TRACE"
 
 -- |Convert a 'LogLevel' value to the representation required by the
 -- Rust API.
@@ -55,6 +57,7 @@ logLevelId LLError = 1
 logLevelId LLWarning = 2
 logLevelId LLInfo = 3
 logLevelId LLDebug = 4
+logLevelId LLTrace = 5
 
 -- |A method for logging an event in a given monad.
 type LogMethod m = LogSource -> LogLevel -> String -> m ()
