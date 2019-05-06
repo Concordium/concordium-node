@@ -3,8 +3,7 @@ use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
-        serialization::Serializable,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, serialization::Serializable,
     },
     connection::connection_private::ConnectionPrivate,
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},

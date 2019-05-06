@@ -1,5 +1,5 @@
 use crate::{
-    common::{ serialize_addr, P2PPeer},
+    common::{serialize_addr, P2PPeer},
     crypto,
     db::P2PDB,
     fails::{HostPortParseError, NoDNSResolversAvailable},

@@ -16,8 +16,7 @@ pub use self::{
 macro_rules! serialize_into_memory {
     ($src:expr) => {
         (|| -> Fallible<Vec<u8>> {
-            let mut archive =
-                $crate::common::serialization::WriteArchiveAdapter::from(Vec::new());
+            let mut archive = $crate::common::serialization::WriteArchiveAdapter::from(Vec::new());
             $src.serialize(&mut archive)?;
             Ok(archive.into_inner())
         })()
@@ -365,8 +364,8 @@ mod tests {
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
             match $deserialized {
                 NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
-                    assert_eq!( $zk, zk2);
-                    assert_eq!( $nets, nets2);
+                    assert_eq!($zk, zk2);
+                    assert_eq!($nets, nets2);
                 }
                 _ => panic!("invalid network message"),
             }

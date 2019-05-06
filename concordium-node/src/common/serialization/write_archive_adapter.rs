@@ -1,6 +1,4 @@
-use crate::common::{
-    serialization::WriteArchive
-};
+use crate::common::serialization::WriteArchive;
 
 use byteorder::{ByteOrder, NetworkEndian};
 use failure::Fallible;
@@ -81,5 +79,3 @@ where
     #[inline]
     fn flush(&mut self) -> std::io::Result<()> { self.io_writer.flush() }
 }
-
-

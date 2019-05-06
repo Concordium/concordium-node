@@ -555,8 +555,7 @@ impl Connection {
             self.remote_peer().clone(),
             self.remote_addr().ip(),
         );
-        let message = NetworkMessage::deserialize(&mut archive)
-            .map_err( |e| vec![e])?;
+        let message = NetworkMessage::deserialize(&mut archive).map_err(|e| vec![e])?;
         let outer = Arc::new(message);
 
         self.messages_received += 1;

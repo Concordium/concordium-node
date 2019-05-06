@@ -1,8 +1,7 @@
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FilterFunctor, P2PNodeId, P2PPeer, PeerType,
-        RemotePeer, UCursor, get_current_stamp,
-        serialization::Serializable
+        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FilterFunctor, get_current_stamp,
+        serialization::Serializable, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     configuration,
     connection::{
@@ -574,15 +573,18 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
-        let data = serialize_into_memory!( NetworkMessage::NetworkRequest(
-            inner_pkt.clone(), Some(get_current_stamp()),None), 256).unwrap();
-         let no_filter = |_: &Connection| true;
+        let data = serialize_into_memory!(
+            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256
+        )
+        .unwrap();
+        let no_filter = |_: &Connection| true;
 
-         write_or_die!(self.tls_server).send_over_all_connections(
+        write_or_die!(self.tls_server).send_over_all_connections(
             &data,
             &no_filter,
             &check_sent_status_fn,
-         );
+        );
     }
 
     fn process_unban(&self, inner_pkt: &NetworkRequest) {
@@ -604,8 +606,12 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
-            let data = serialize_into_memory!( NetworkMessage::NetworkRequest(
-                inner_pkt.clone(), Some(get_current_stamp()), None)).unwrap();
+            let data = serialize_into_memory!(NetworkMessage::NetworkRequest(
+                inner_pkt.clone(),
+                Some(get_current_stamp()),
+                None
+            ))
+            .unwrap();
             let retain = |conn: &Connection| match to_ban {
                 BannedNode::ById(id) => conn.remote_peer().peer().map_or(true, |x| x.id() != *id),
                 BannedNode::ByAddr(addr) => {
@@ -626,8 +632,10 @@ impl P2PNode {
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
         let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest( inner_pkt.clone(), Some(get_current_stamp()), None), 256)
-            .unwrap();
+            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256
+        )
+        .unwrap();
 
         let mut locked_tls_server = write_or_die!(self.tls_server);
         locked_tls_server.send_over_all_connections(
@@ -645,8 +653,10 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest( inner_pkt.clone(), Some(get_current_stamp()), None), 256)
-            .unwrap();
+            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256
+        )
+        .unwrap();
 
         let mut locked_tls_server = write_or_die!(self.tls_server);
         locked_tls_server.send_over_all_connections(
@@ -664,8 +674,10 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest( inner_pkt.clone(), Some(get_current_stamp()), None), 256)
-            .unwrap();
+            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256
+        )
+        .unwrap();
 
         write_or_die!(self.tls_server).send_over_all_connections(
             &data,
@@ -681,8 +693,10 @@ impl P2PNode {
             let filter = |conn: &Connection| is_conn_peer_id(conn, peer.id());
 
             let data = serialize_into_memory!(
-                NetworkMessage::NetworkRequest( inner_pkt.clone(), Some(get_current_stamp()), None), 256)
-                .unwrap();
+                NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+                256
+            )
+            .unwrap();
 
             write_or_die!(self.tls_server).send_over_all_connections(
                 &data,
@@ -697,8 +711,10 @@ impl P2PNode {
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
         let data = serialize_into_memory!(
-            NetworkMessage::NetworkPacket( inner_pkt.clone(), Some(get_current_stamp()), None), 256)
-            .unwrap();
+            NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256
+        )
+        .unwrap();
 
         match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(ref receiver) => {

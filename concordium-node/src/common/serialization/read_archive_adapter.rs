@@ -1,15 +1,9 @@
-use crate::common::{
-    serialization::{ReadArchive},
-    RemotePeer,
-};
+use crate::common::{serialization::ReadArchive, RemotePeer};
 
 use byteorder::{ByteOrder, NetworkEndian};
 use failure::Fallible;
 
-use std::{
-    io::{Read, },
-    net::IpAddr,
-};
+use std::{io::Read, net::IpAddr};
 
 pub struct ReadArchiveAdapter<T>
 where

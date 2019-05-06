@@ -1,15 +1,8 @@
-use crate::common::{
-    serialization::{ Deserializable },
-    P2PPeer, RemotePeer
-};
+use crate::common::{serialization::Deserializable, P2PPeer, RemotePeer};
 
 use failure::{err_msg, Fallible};
 
-use std::{
-    net::IpAddr,
-    fmt::Display,
-    str
-};
+use std::{fmt::Display, net::IpAddr, str};
 
 pub trait WriteArchive: Sized + std::io::Write {
     // Write
@@ -44,20 +37,20 @@ pub trait ReadArchive: Sized + std::io::Read {
 
     fn read_n_bytes(&mut self, len: u32) -> Fallible<Vec<u8>>;
 
-
     /// #TODO
     /// Should it be read as 'str'?
     fn read_string(&mut self) -> Fallible<String> {
         let len = self.read_u32()?;
         let mut buf = vec![0u8; len as usize];
-        self.read( buf.as_mut_slice())?;
+        self.read(buf.as_mut_slice())?;
 
-        Ok( String::from_utf8(buf)?)
+        Ok(String::from_utf8(buf)?)
     }
 
     // Utilitis for parsing.
     fn tag<T>(&mut self, tag: T) -> Fallible<()>
-        where T: Deserializable + PartialEq + Display {
+    where
+        T: Deserializable + PartialEq + Display, {
         let other: T = T::deserialize(self)?;
         if tag == other {
             Ok(())
@@ -68,7 +61,7 @@ pub trait ReadArchive: Sized + std::io::Read {
 
     fn tag_slice(&mut self, tag: &[u8]) -> Fallible<()> {
         let mut buf = vec![0u8; tag.len()];
-        self.read( buf.as_mut_slice())?;
+        self.read(buf.as_mut_slice())?;
         if tag == buf.as_slice() {
             Ok(())
         } else {

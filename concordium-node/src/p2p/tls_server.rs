@@ -19,13 +19,13 @@ use webpki::DNSNameRef;
 
 use crate::{
     common::{
-        functor::{UnitFunction, UnitFunctor, Functorable},
+        functor::{Functorable, UnitFunction, UnitFunctor},
         get_current_stamp,
         serialization::Serializable,
         P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
-    network::{Buckets, NetworkId, NetworkRequest, NetworkMessage},
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
         tls_server_private::TlsServerPrivate,

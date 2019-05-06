@@ -11,7 +11,7 @@ use crate::{
     utils,
 };
 use rand::{rngs::OsRng, RngCore};
-use std::{sync::RwLock};
+use std::sync::RwLock;
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
