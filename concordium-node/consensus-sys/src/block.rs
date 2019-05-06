@@ -2,6 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 use chrono::prelude::Utc;
+use failure::Fallible;
 
 use crate::{common::*, parameters::*, transaction::*};
 
@@ -113,22 +114,20 @@ impl Block {
     // FIXME: only works for regular blocks for now
     // FIXME: use UCursor (for all deserialization) when it's available outside of
     // client
-    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Block", bytes);
 
         let mut curr_pos = 0;
 
         let slot = (&bytes[curr_pos..][..SLOT])
-            .read_u64::<NetworkEndian>()
-            .ok()?;
+            .read_u64::<NetworkEndian>()?;
         curr_pos += SLOT;
 
         let pointer = HashBytes::new(&bytes[curr_pos..][..POINTER]);
         curr_pos += POINTER;
 
         let baker_id = (&bytes[curr_pos..][..BAKER_ID])
-            .read_u64::<NetworkEndian>()
-            .ok()?;
+            .read_u64::<NetworkEndian>()?;
         curr_pos += BAKER_ID;
 
         let proof = Encoded::new(&bytes[curr_pos..][..PROOF_LENGTH]);
@@ -159,7 +158,7 @@ impl Block {
 
         check_serialization!(block, bytes);
 
-        Some(block)
+        Ok(block)
     }
 
     // FIXME: only works for regular blocks for now

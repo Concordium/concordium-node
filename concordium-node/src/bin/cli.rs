@@ -442,30 +442,27 @@ fn setup_higher_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => match Block::deserialize(content) {
-                        Some(block) => {
-                            match client_utils::add_transmission_to_seenlist(
-                                client_utils::SeenTransmissionType::Block,
-                                message_id,
-                                get_current_stamp(),
-                                &content,
-                            ) {
-                                Ok(_) => match baker.send_block(&block) {
-                                    0i64 => info!("Sent block from network to baker"),
-                                    x => error!(
-                                        "Can't send block from network to baker due to error code \
-                                         #{}",
-                                        x
-                                    ),
-                                },
-                                Err(err) => {
-                                    error!("Can't store block in transmission list {}", err)
-                                }
+                    PACKET_TYPE_CONSENSUS_BLOCK => {
+                        let block = Block::deserialize(content)?;
+
+                        match client_utils::add_transmission_to_seenlist(
+                            client_utils::SeenTransmissionType::Block,
+                            message_id,
+                            get_current_stamp(),
+                            &content,
+                        ) {
+                            Ok(_) => match baker.send_block(&block) {
+                                0i64 => info!("Sent block from network to baker"),
+                                x => error!(
+                                    "Can't send block from network to baker due to error code \
+                                     #{}",
+                                    x
+                                ),
+                            },
+                            Err(err) => {
+                                error!("Can't store block in transmission list {}", err)
                             }
                         }
-                        _ => error!(
-                            "Couldn't deserialize block, can't move forward with the message"
-                        ),
                     },
                     PACKET_TYPE_CONSENSUS_TRANSACTION => {
                         baker.send_transaction(content);
@@ -480,8 +477,7 @@ fn setup_higher_process_output(
                         ) {
                             Ok(_) => {
                                 baker.send_finalization(
-                                    &FinalizationMessage::deserialize(content)
-                                        .expect("Can't deserialize a finalization message"),
+                                    &FinalizationMessage::deserialize(content)?,
                                 );
                                 info!("Sent finalization package to consensus layer");
                             }
@@ -498,8 +494,7 @@ fn setup_higher_process_output(
                             &content,
                         ) {
                             Ok(_) => match baker.send_finalization_record(
-                                &FinalizationRecord::deserialize(content)
-                                    .expect("Can't deserialize a finalization record"),
+                                &FinalizationRecord::deserialize(content)?,
                             ) {
                                 0i64 => info!("Sent finalization record from network to baker"),
                                 x => error!(

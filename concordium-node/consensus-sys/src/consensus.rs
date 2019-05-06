@@ -538,31 +538,31 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
         let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
         match block_type {
             0 => match Block::deserialize(s) {
-                Some(block) => match CALLBACK_QUEUE.clone().send_block(block) {
+                Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
                     Ok(_) => {
                         debug!("Queueing {} block bytes", data_length);
                     }
                     _ => error!("Didn't queue block message properly"),
                 },
-                _ => error!("Deserialization of block failed!"),
+                Err(e) => error!("Deserialization of block failed: {:?}", e),
             },
             1 => match FinalizationMessage::deserialize(s) {
-                Some(msg) => match CALLBACK_QUEUE.clone().send_finalization(msg) {
+                Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization(msg) {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization", s.len());
                     }
                     _ => error!("Didn't queue finalization message properly"),
                 },
-                _ => error!("Deserialization of finalization message failed!"),
+                Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
             },
             2 => match FinalizationRecord::deserialize(s) {
-                Some(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
+                Ok(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization record", s.len());
                     }
                     _ => error!("Didn't queue finalization record message properly"),
                 },
-                _ => error!("Deserialization of finalization record failed!"),
+                Err(e) => error!("Deserialization of finalization record failed: {:?}", e),
             },
             _ => error!("Received invalid callback type"),
         }
