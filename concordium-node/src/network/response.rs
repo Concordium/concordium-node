@@ -39,7 +39,8 @@ impl Serializable for NetworkResponse {
             NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
                 peers.serialize(archive)
             }
-            NetworkResponse::Handshake(_, networks, zk) => {
+            NetworkResponse::Handshake(me, networks, zk) => {
+                me.serialize(archive)?;
                 networks.serialize(archive)?;
                 zk.serialize(archive)
             }
@@ -51,18 +52,18 @@ impl Deserializable for NetworkResponse {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkResponse>
     where
         A: ReadArchive, {
-        let remote_peer = archive.post_handshake_peer()?;
+        let remote_peer = archive.post_handshake_peer();
         let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
         let response = match protocol_type {
-            ProtocolMessageType::ResponsePong => NetworkResponse::Pong(remote_peer),
+            ProtocolMessageType::ResponsePong => NetworkResponse::Pong(remote_peer?),
             ProtocolMessageType::ResponseFindNode => {
-                NetworkResponse::FindNode(remote_peer, Vec::<P2PPeer>::deserialize(archive)?)
+                NetworkResponse::FindNode(remote_peer?, Vec::<P2PPeer>::deserialize(archive)?)
             }
             ProtocolMessageType::ResponsePeersList => {
-                NetworkResponse::PeerList(remote_peer, Vec::<P2PPeer>::deserialize(archive)?)
+                NetworkResponse::PeerList(remote_peer?, Vec::<P2PPeer>::deserialize(archive)?)
             }
             ProtocolMessageType::ResponseHandshake => NetworkResponse::Handshake(
-                remote_peer,
+                P2PPeer::deserialize(archive)?,
                 HashSet::<NetworkId>::deserialize(archive)?,
                 Vec::<u8>::deserialize(archive)?,
             ),
