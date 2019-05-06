@@ -98,7 +98,7 @@ fn main() -> Result<(), Error> {
         None
     };
 
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     let id = match conf.common.id {
         Some(ref x) => x.to_owned(),
@@ -146,7 +146,7 @@ fn main() -> Result<(), Error> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };

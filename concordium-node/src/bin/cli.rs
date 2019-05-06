@@ -350,7 +350,7 @@ fn setup_lower_process_output(
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
-                    Ok(_) => debug!("Relayed message to higher queue"),
+                    Ok(_) => trace!("Relayed message to higher queue"),
                     Err(err) => error!("Could not relay message to higher queue {}", err),
                 },
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
@@ -363,7 +363,7 @@ fn setup_lower_process_output(
                     NetworkResponse::PeerList(ref peer, ref peers),
                     ..
                 ) => {
-                    info!("Received PeerList response, attempting to satisfy desired peers");
+                    debug!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
                     let peer_count = _node_self_clone
                         .get_peer_stats(&[])
@@ -371,7 +371,7 @@ fn setup_lower_process_output(
                         .filter(|x| x.peer_type == PeerType::Node)
                         .count();
                     for peer_node in peers {
-                        debug!(
+                        info!(
                             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
                             peer.id(),
                             peer.ip(),
@@ -394,7 +394,7 @@ fn setup_lower_process_output(
                 }
                 NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
                     match pkt_higher_in.send(full_msg) {
-                        Ok(_) => debug!("Relayed message to higher queue"),
+                        Ok(_) => trace!("Relayed message to higher queue"),
                         Err(err) => error!("Could not relay message to higher queue {}", err),
                     }
                 }
@@ -699,7 +699,7 @@ fn main() -> Fallible<()> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };
@@ -889,7 +889,7 @@ fn create_connections_from_config(
 
 #[cfg(feature = "instrumentation")]
 fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
-    info!("Sending information to test runner");
+    debug!("Sending information to test runner");
     match reqwest::get(&format!(
         "{}/register/{}/{}",
         test_runner_url,
@@ -925,7 +925,7 @@ fn send_retransmit_packet(
                 out_bytes,
                 false,
             ) {
-                Ok(_) => info!("Retransmitted packet of type {}", payload_type),
+                Ok(_) => debug!("Retransmitted packet of type {}", payload_type),
                 Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
             }
         }
