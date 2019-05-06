@@ -12,12 +12,12 @@ import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.VRF as VRF
 
-newtype TicketProof = TicketProof VRF.Proof deriving (Ser.Serialize,Eq,Show)
+newtype TicketProof = TicketProof VRF.Proof deriving (Ser.Serialize,Eq,Ord,Show)
 
 data Ticket = Ticket {
     ticketValue :: Double,
     ticketProof :: VRF.Proof
-} deriving (Eq, Show)
+} deriving (Eq, Ord, Show)
 
 calculateTicketValue :: VRF.Proof -> Int -> Int -> Double
 calculateTicketValue pf weight totalWeight = (VRF.hashToDouble (VRF.proofToHash pf) + encodeFloat 1 (-53)) ** (fromIntegral totalWeight / fromIntegral weight)

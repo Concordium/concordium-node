@@ -31,6 +31,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
 
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Afgjort.Types
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 
@@ -38,12 +39,12 @@ import Concordium.Afgjort.CSS
 type Phase = Word32
 
 -- |A message in the ABBA protocol
-data ABBAMessage party
+data ABBAMessage
     = Justified Phase Choice TicketProof            -- ^Party's input for a given phase
-    | CSSSeen Phase party Choice                    -- ^CSS seen message for a phase
-    | CSSDoneReporting Phase (Map party Choice)     -- ^CSS done reporting message for a phase
+    | CSSSeen Phase Party Choice                    -- ^CSS seen message for a phase
+    | CSSDoneReporting Phase (Map Party Choice)     -- ^CSS done reporting message for a phase
     | WeAreDone Choice                              -- ^Message that indicates consensus should be reached
-    deriving (Eq, Show)
+    deriving (Eq, Ord, Show)
 
 -- |An @ABBAInstance@ consists of:
 --
@@ -54,7 +55,7 @@ data ABBAMessage party
 -- * The public key of each party
 -- * My party
 -- * My VRF key
-data ABBAInstance party = ABBAInstance {
+data ABBAInstance = ABBAInstance {
     -- |The instance identifier for this instantiation of the protocol
     baid :: BS.ByteString,
     -- |The total weight of all parties
@@ -62,11 +63,11 @@ data ABBAInstance party = ABBAInstance {
     -- |The maximum weight of corrupt parties (must be less than @totalWeight/3@).
     corruptWeight :: Int,
     -- |The weight of each party
-    partyWeight :: party -> Int,
+    partyWeight :: Party -> Int,
     -- |The public key of each party
-    pubKeys :: party -> VRF.PublicKey,
+    pubKeys :: Party -> VRF.PublicKey,
     -- |My party
-    me :: party,
+    me :: Party,
     -- |My VRF key
     privateKey :: VRF.KeyPair
 }
@@ -76,21 +77,21 @@ data ABBAInstance party = ABBAInstance {
 -- This includes the lottery tickets submitted by parties, the CSS state for the current phase,
 -- and the total weight and set of parties that have nominated each input.  Once the weight
 -- exceeds the threshold, we record it as @Nothing@, forgetting the exact weigth and parties.
-data PhaseState party = PhaseState {
-    _lotteryTickets :: Map (Double, party) Ticket,
-    _phaseCSSState :: Either (Maybe Choices, Seq (party, CSSMessage party)) (CSSState party),
-    _topInputWeight :: Maybe (Int, Set party),
-    _botInputWeight :: Maybe (Int, Set party)
+data PhaseState = PhaseState {
+    _lotteryTickets :: Map (Double, Party) Ticket,
+    _phaseCSSState :: Either (Maybe Choices, Seq (Party, CSSMessage)) CSSState,
+    _topInputWeight :: Maybe (Int, Set Party),
+    _botInputWeight :: Maybe (Int, Set Party)
 } deriving (Show)
 makeLenses ''PhaseState
 
 -- |The total weight and set of parties nominating a particular choice.
-inputWeight :: Choice -> Lens' (PhaseState party) (Maybe (Int, Set party))
+inputWeight :: Choice -> Lens' PhaseState (Maybe (Int, Set Party))
 inputWeight True = topInputWeight
 inputWeight False = botInputWeight
 
 -- |The initial state of a phase
-initialPhaseState :: PhaseState party
+initialPhaseState :: PhaseState
 initialPhaseState = PhaseState {
     _lotteryTickets = Map.empty,
     _phaseCSSState = Left (Nothing, Seq.empty),
@@ -103,35 +104,35 @@ initialPhaseState = PhaseState {
 -- This includes the current phase, the state of all phases, the current grade,
 -- and the set and weight of parties that have claimed we are done with each
 -- possible output choice.
-data ABBAState party = ABBAState {
+data ABBAState = ABBAState {
     _currentPhase :: Phase,
-    _phaseStates :: Map Phase (PhaseState party),
+    _phaseStates :: Map Phase PhaseState,
     _currentGrade :: Word8,
-    _topWeAreDone :: Set party,
+    _topWeAreDone :: Set Party,
     _topWeAreDoneWeight :: Int,
-    _botWeAreDone :: Set party,
+    _botWeAreDone :: Set Party,
     _botWeAreDoneWeight :: Int,
     _completed :: Bool
 } deriving (Show)
 makeLenses ''ABBAState
 
 -- |The state of a particular phase
-phaseState :: Phase -> Lens' (ABBAState party) (PhaseState party)
+phaseState :: Phase -> Lens' ABBAState PhaseState
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
     (\s t -> s & phaseStates . at p ?~ t)
 
 -- |The set of parties claiming we are done with a given choice
-weAreDone :: Choice -> Lens' (ABBAState party) (Set party)
+weAreDone :: Choice -> Lens' ABBAState (Set Party)
 weAreDone True = topWeAreDone
 weAreDone False = botWeAreDone
 
 -- |The weight of parties claiming we are done with a given choice
-weAreDoneWeight :: Choice -> Lens' (ABBAState party) Int
+weAreDoneWeight :: Choice -> Lens' ABBAState Int
 weAreDoneWeight True = topWeAreDoneWeight
 weAreDoneWeight False = botWeAreDoneWeight
 
 -- |The initial state of the ABBA protocol.
-initialABBAState :: ABBAState party
+initialABBAState :: ABBAState
 initialABBAState = ABBAState {
     _currentPhase = 0,
     _phaseStates = Map.singleton 0 (initialPhaseState {_phaseCSSState = Right initialCSSState}),
@@ -144,43 +145,43 @@ initialABBAState = ABBAState {
 }
 
 -- |The @ABBAMonad@ class defines the events associated with the ABBA protocol.
-class (MonadState (ABBAState party) m, MonadReader (ABBAInstance party) m) => ABBAMonad party m where
+class (MonadState ABBAState m, MonadReader ABBAInstance m) => ABBAMonad m where
     -- |Sign and broadcast an ABBA message to all parties, __including__ our own 'ABBAInstance'.
-    sendABBAMessage :: ABBAMessage party -> m ()
+    sendABBAMessage :: ABBAMessage -> m ()
     -- |Determine the result
     aBBAComplete :: Choice -> m ()
 
 -- |Representation of (output) events associated with the ABBA protocol.
-data ABBAOutputEvent party
-    = SendABBAMessage (ABBAMessage party)   -- ^Sign and broadcast a message
+data ABBAOutputEvent
+    = SendABBAMessage ABBAMessage   -- ^Sign and broadcast a message
     | ABBAComplete Choice                   -- ^Determine result
 
 -- |A concrete implementation of the ABBA monad.
-newtype ABBA party a = ABBA {
-    runABBA' :: RWS (ABBAInstance party) (Endo [ABBAOutputEvent party]) (ABBAState party) a
+newtype ABBA a = ABBA {
+    runABBA' :: RWS ABBAInstance (Endo [ABBAOutputEvent]) ABBAState a
 } deriving (Functor, Applicative, Monad)
 
 -- |Run part of the ABBA protocol, given an 'ABBAInstance' and 'ABBAState'.
 -- The result includes the updated state and a list of 'ABBAOutputEvent's that occurred during the execution.
 {-# INLINE runABBA #-}
-runABBA :: ABBA party a -> ABBAInstance party -> ABBAState party -> (a, ABBAState party, [ABBAOutputEvent party])
+runABBA :: ABBA a -> ABBAInstance -> ABBAState -> (a, ABBAState, [ABBAOutputEvent])
 runABBA z i s = runRWS (runABBA' z) i s & _3 %~ (\(Endo f) -> f [])
 
-instance MonadState (ABBAState party) (ABBA party) where
+instance MonadState ABBAState ABBA where
     get = ABBA get
     put = ABBA . put
     state = ABBA . state
 
-instance MonadReader (ABBAInstance party) (ABBA party) where
+instance MonadReader ABBAInstance ABBA where
     ask = ABBA ask
     reader = ABBA . reader
     local f = ABBA . local f . runABBA'
 
-instance ABBAMonad party (ABBA party) where
+instance ABBAMonad ABBA where
     sendABBAMessage msg = ABBA $ tell $ Endo (SendABBAMessage msg :)
     aBBAComplete c = ABBA $ tell $ Endo (ABBAComplete c :)
 
-liftCSSReceiveMessage :: (ABBAMonad party m, Ord party, Show party) => Phase -> party -> CSSMessage party -> m ()
+liftCSSReceiveMessage :: (ABBAMonad m) => Phase -> Party -> CSSMessage -> m ()
 liftCSSReceiveMessage phase src msg = do
         ABBAInstance{..} <- ask
         use (phaseState phase . phaseCSSState) >>= \case
@@ -190,7 +191,7 @@ liftCSSReceiveMessage phase src msg = do
                 phaseState phase . phaseCSSState .= Right cssstate'
                 handleCSSEvents phase evs
 
-liftCSSJustifyChoice :: (ABBAMonad party m, Ord party, Show party) => Phase -> Choice -> m ()
+liftCSSJustifyChoice :: (ABBAMonad m) => Phase -> Choice -> m ()
 liftCSSJustifyChoice phase c = do
         ABBAInstance{..} <- ask
         use (phaseState phase . phaseCSSState) >>= \case
@@ -200,7 +201,7 @@ liftCSSJustifyChoice phase c = do
                 phaseState phase . phaseCSSState .= Right cssstate'
                 handleCSSEvents phase evs
 
-handleCSSEvents :: (ABBAMonad party m, Ord party, Show party) => Phase -> [CSSOutputEvent party] -> m ()
+handleCSSEvents :: (ABBAMonad m) => Phase -> [CSSOutputEvent] -> m ()
 handleCSSEvents _ [] = return ()
 handleCSSEvents phase (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> handleCSSEvents phase evs
     where
@@ -238,8 +239,8 @@ liftCSS phase a = do
 -}
 
 -- |Deal with a core set being generated by CSS.  The phase should always be the current phase.
-{-# SPECIALIZE handleCoreSet :: (Ord party, Show party) => Phase -> CoreSet party -> ABBA party () #-}
-handleCoreSet :: (ABBAMonad party m, Ord party, Show party) => Phase -> CoreSet party -> m ()
+{-# SPECIALIZE handleCoreSet :: Phase -> CoreSet -> ABBA () #-}
+handleCoreSet :: (ABBAMonad m) => Phase -> CoreSet -> m ()
 handleCoreSet phase cs = do
         ABBAInstance{..} <- ask
         cp <- use currentPhase
@@ -280,7 +281,7 @@ handleCoreSet phase cs = do
             tkt <- view $ myTicket (phase + 1)
             sendABBAMessage (Justified (phase+1) nextBit tkt)
 
-beginPhase :: (ABBAMonad party m, Ord party, Show party) => Phase -> m ()
+beginPhase :: (ABBAMonad m) => Phase -> m ()
 beginPhase phase = use (phaseState phase . phaseCSSState) >>= \case
         Left (justif, msgs) -> do
             phaseState phase . phaseCSSState .= Right initialCSSState
@@ -293,29 +294,29 @@ beginPhase phase = use (phaseState phase . phaseCSSState) >>= \case
 {-# INLINE beginPhase #-}
 
 -- |Get the lottery identifier string for the given phase.
-lotteryId :: Phase -> SimpleGetter (ABBAInstance party) BS.ByteString
+lotteryId :: Phase -> SimpleGetter ABBAInstance BS.ByteString
 lotteryId phase = to $ \a ->
         Ser.runPut $ Ser.put (baid a) >> Ser.put phase
 
 -- |Get my lottery ticket for the given phase.
-myTicket :: Phase -> SimpleGetter (ABBAInstance party) TicketProof
+myTicket :: Phase -> SimpleGetter ABBAInstance TicketProof
 myTicket phase = to $ \a ->
         makeTicketProof (a ^. lotteryId phase) (privateKey a)
 
 {-# INLINE unlessCompleted #-}
-unlessCompleted :: (ABBAMonad party m) => m () -> m ()
+unlessCompleted :: (ABBAMonad m) => m () -> m ()
 unlessCompleted a = do
         c <- use completed
         unless c a
 
 -- |Called to indicate that a given choice is justified.
-{-# SPECIALIZE justifyABBAChoice :: (Ord party, Show party) => Choice -> ABBA party () #-}
-justifyABBAChoice :: (ABBAMonad party m, Ord party, Show party) => Choice -> m ()
+{-# SPECIALIZE justifyABBAChoice :: Choice -> ABBA () #-}
+justifyABBAChoice :: (ABBAMonad m) => Choice -> m ()
 justifyABBAChoice c = unlessCompleted $ liftCSSJustifyChoice 0 c
 
 -- |Called when an 'ABBAMessage' is received.
-{-# SPECIALIZE receiveABBAMessage :: (Ord party, Show party) => party -> ABBAMessage party -> ABBA party () #-}
-receiveABBAMessage :: (ABBAMonad party m, Ord party, Show party) => party -> ABBAMessage party -> m ()
+{-# SPECIALIZE receiveABBAMessage :: Party -> ABBAMessage -> ABBA () #-}
+receiveABBAMessage :: (ABBAMonad m) => Party -> ABBAMessage -> m ()
 receiveABBAMessage src (Justified phase c ticketProof) = unlessCompleted $ do
     ABBAInstance{..} <- ask
     liftCSSReceiveMessage phase src (Input c)
@@ -342,8 +343,8 @@ receiveABBAMessage src (WeAreDone c) = unlessCompleted $ do
             aBBAComplete c
 
 -- |Called to start the ABBA protocol
-{-# SPECIALIZE beginABBA :: Choice -> ABBA party () #-}
-beginABBA :: (ABBAMonad party m) => Choice -> m ()
+{-# SPECIALIZE beginABBA :: Choice -> ABBA () #-}
+beginABBA :: (ABBAMonad m) => Choice -> m ()
 beginABBA c = unlessCompleted $ do
     cp <- use currentPhase
     when (cp == 0) $ do

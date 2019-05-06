@@ -18,3 +18,8 @@ EXPORTS
  getLastFinalInstances
  getLastFinalAccountInfo
  getLastFinalInstanceInfo
+ getBlock
+ getBlockFinalization
+ getIndexedFinalization
+ getFinalizationMessages
+ getFinalizationPoint

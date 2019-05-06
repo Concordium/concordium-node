@@ -14,7 +14,7 @@ import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..))
 -- import Concordium.Kontrol.VerifyBlock
 
-blockLuck :: (SkovMonad m) => BlockPointer m -> m Double
+blockLuck :: (SkovQueryMonad m) => BlockPointer m -> m Double
 blockLuck block = case blockFields block of
         Nothing -> return 1 -- Genesis block has luck 1 by definition
         Just bf -> do
@@ -24,7 +24,7 @@ blockLuck block = case blockFields block of
                 Just baker ->
                     return (electionLuck (birkElectionDifficulty params) (bakerLotteryPower baker) (blockProof bf))
 
-compareBlocks :: (SkovMonad m) => BlockPointer m -> Maybe (BlockPointer m, Maybe Double) -> m (Maybe (BlockPointer m, Maybe Double))
+compareBlocks :: (SkovQueryMonad m) => BlockPointer m -> Maybe (BlockPointer m, Maybe Double) -> m (Maybe (BlockPointer m, Maybe Double))
 compareBlocks bp Nothing = return $ Just (bp, Nothing)
 compareBlocks contender best@(Just (bestb, mbestLuck)) =
     case compare (blockSlot (bpBlock bestb)) (blockSlot (bpBlock contender)) of
@@ -38,7 +38,7 @@ compareBlocks contender best@(Just (bestb, mbestLuck)) =
             return $ Just $ if (bestLuck, bpHash bestb) < (luck, bpHash contender) then (contender, Just luck) else (bestb, Just bestLuck)
 
 -- |Get the best block currently in the tree.
-bestBlock :: forall m. (SkovMonad m) => m (BlockPointer m)
+bestBlock :: forall m. (SkovQueryMonad m) => m (BlockPointer m)
 bestBlock = branchesFromTop >>= bb
     where
         bb [] = lastFinalizedBlock
@@ -49,7 +49,7 @@ bestBlock = branchesFromTop >>= bb
                 Just (bp, _) -> return bp
 
 -- |Get the best block in the tree with a slot time strictly below the given bound.
-bestBlockBefore :: forall m. (SkovMonad m) => Slot -> m (BlockPointer m)
+bestBlockBefore :: forall m. (SkovQueryMonad m) => Slot -> m (BlockPointer m)
 bestBlockBefore slotBound = branchesFromTop >>= bb
     where
         bb [] = lastFinalizedBlock

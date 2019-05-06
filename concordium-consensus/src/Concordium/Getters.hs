@@ -6,12 +6,9 @@ module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
 
--- import Concordium.Payload.Transaction
---import Concordium.Types as T
 import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov.Monad
-import Concordium.Logger
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
@@ -22,11 +19,16 @@ import Concordium.GlobalState.Information
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.TreeState.Basic
 
+import Concordium.Afgjort.Finalize
+
+import Control.Monad.IO.Class
 import Data.IORef
 import Text.Read hiding (get)
 import qualified Data.Map as Map
-
+import qualified Data.ByteString as BS
 import Data.Aeson
 
 import Data.Word
@@ -37,12 +39,12 @@ hsh = show . (getHash :: Basic.BlockPointer -> BlockHash)
 getBestBlockState :: IORef SkovFinalizationState -> IO (TS.BlockState (SimpleSkovMonad s m))
 getBestBlockState sfsRef = do
     sfs <- readIORef sfsRef
-    runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (bpState <$> bestBlock)
+    flip evalSSM (sfs ^. sfsSkov) (bpState <$> bestBlock)
 
 getLastFinalState :: IORef SkovFinalizationState -> IO (TS.BlockState (SimpleSkovMonad s m))
 getLastFinalState sfsRef = do
     sfs <- readIORef sfsRef
-    runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
+    flip evalSSM (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
 
 getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AccountAddress]
 getLastFinalAccountList sfsRef = do
@@ -75,7 +77,7 @@ getLastFinalContractInfo sfsRef addr = do
 getConsensusStatus :: IORef SkovFinalizationState -> IO Value
 getConsensusStatus sfsRef = do
     sfs <- readIORef sfsRef
-    runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $ do
+    flip evalSSM (sfs ^. sfsSkov) $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
         return $ object [
@@ -109,7 +111,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> do
             sfs <- readIORef sfsRef
-            runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $
+            flip evalSSM (sfs ^. sfsSkov) $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -137,7 +139,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> do
             sfs <- readIORef sfsRef
-            runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $
+            flip evalSSM (sfs ^. sfsSkov) $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -147,7 +149,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
 getBranches :: IORef SkovFinalizationState -> IO Value
 getBranches sfsRef = do
         sfs <- readIORef sfsRef
-        runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) $ do
+        flip evalSSM (sfs ^. sfsSkov) $ do
             brs <- branchesFromTop
             let brt = foldl up Map.empty brs
             lastFin <- lastFinalizedBlock
@@ -155,3 +157,33 @@ getBranches sfsRef = do
     where
         up :: Map.Map Basic.BlockPointer [Value] -> [Basic.BlockPointer] -> Map.Map Basic.BlockPointer [Value]
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
+
+getBlockData :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe Block)
+getBlockData sfsRef bh = do
+        sfs <- liftIO $ readIORef sfsRef
+        flip evalSSM (sfs ^. sfsSkov) $
+            fmap bpBlock <$> resolveBlock bh
+
+getBlockFinalization :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe FinalizationRecord)
+getBlockFinalization sfsRef bh = do
+        sfs <- liftIO $ readIORef sfsRef
+        flip evalSSM (sfs ^. sfsSkov) $ do
+            bs <- TS.getBlockStatus bh
+            case bs of
+                Just (TS.BlockFinalized _ fr) -> return $ Just fr
+                _ -> return Nothing
+
+getIndexedFinalization :: (MonadIO m) => IORef SkovFinalizationState -> FinalizationIndex -> m (Maybe FinalizationRecord)
+getIndexedFinalization sfsRef finInd = do
+        sfs <- liftIO $ readIORef sfsRef
+        return $ fst <$> sfs ^? finalizationList . ix (fromIntegral finInd)
+
+getFinalizationMessages :: (MonadIO m) => IORef SkovFinalizationState -> FinalizationPoint -> m [BS.ByteString]
+getFinalizationMessages sfsRef finPt = do
+        sfs <- liftIO $ readIORef sfsRef
+        return $ getPendingFinalizationMessages sfs finPt
+
+getFinalizationPoint :: (MonadIO m) => IORef SkovFinalizationState -> m FinalizationPoint
+getFinalizationPoint sfsRef = do
+        sfs <- liftIO $ readIORef sfsRef
+        return $ getCurrentFinalizationPoint sfs

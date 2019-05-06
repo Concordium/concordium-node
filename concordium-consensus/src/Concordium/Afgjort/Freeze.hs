@@ -21,14 +21,16 @@ import Control.Monad.State.Class
 import Control.Monad.RWS
 import Lens.Micro.Platform
 
+import Concordium.Afgjort.Types
+
 -- |Freeze protocol messages
-data FreezeMessage val
-    = Proposal val      -- ^Propose a value
-    | Vote (Maybe val)  -- ^Vote for a value (or nothing)
+data FreezeMessage
+    = Proposal Val      -- ^Propose a value
+    | Vote (Maybe Val)  -- ^Vote for a value (or nothing)
     deriving (Eq, Ord, Show)
 
 -- |The state of the Freeze protocol.
-data FreezeState val party = FreezeState {
+data FreezeState = FreezeState {
     -- |The proposals.  Each proposal is associated with a triple consisting of:
     -- a @Bool@ indicating whether the proposed candidate is justified;
     -- the total weight of parties proposing the value; and
@@ -36,10 +38,10 @@ data FreezeState val party = FreezeState {
     -- Note that each party should be allowed only one proposal.
     -- In particular, if a party has made a proposal, no additional
     -- proposals should be considered from that party.
-    _proposals :: Map val (Bool, Int, Set party),
+    _proposals :: Map Val (Bool, Int, Set Party),
     -- |The set of parties that have submitted proposals.  This includes proposals that are not yet justified,
     -- in order to avoid allowing a party to make more than one proposal.
-    _proposers :: Set party,
+    _proposers :: Set Party,
     -- |The weighted total of the parties who have made justified proposals.
     _totalProposals :: Int,
     -- |The number of distinct justified proposals.  This is used to determine
@@ -50,21 +52,21 @@ data FreezeState val party = FreezeState {
     -- the total weight of parties voting for the value; and
     -- the set of parties that have voted for the value.
     -- Like proposals, we only consider the first vote for a given party.
-    _votes :: Map (Maybe val) (Bool, Int, Set party),
+    _votes :: Map (Maybe Val) (Bool, Int, Set Party),
     -- |The set of parties from which votes have been received.
     -- This includes votes that are not yet justified.
-    _voters :: Set party,
+    _voters :: Set Party,
     -- |The weighted total of the parties who have made justified votes.
     _totalVotes :: Int,
     -- |The set of decisions that have become justified.
-    _justifiedDecisions :: Set (Maybe val),
+    _justifiedDecisions :: Set (Maybe Val),
     -- |Whether we have output a justifed decision already.
     _completed :: Bool
 } deriving (Eq, Ord, Show)
 makeLenses ''FreezeState
 
 -- |The initial state of the Freeze protocol.
-initialFreezeState :: FreezeState val party
+initialFreezeState :: FreezeState
 initialFreezeState = FreezeState Map.empty Set.empty 0 0 Map.empty Set.empty 0 Set.empty False
 
 -- |The context for running the Freeze protocol, which includes
@@ -73,48 +75,48 @@ initialFreezeState = FreezeState Map.empty Set.empty 0 0 Map.empty Set.empty 0 S
 -- * The maximum weight of corrupt parties (must be less than @totalWeight/3@)
 -- * The weight of each party
 -- * My party
-data FreezeInstance party = FreezeInstance {
+data FreezeInstance = FreezeInstance {
     totalWeight :: Int,
     corruptWeight :: Int,
-    partyWeight :: party -> Int,
-    me :: party
+    partyWeight :: Party -> Int,
+    me :: Party
 }
 
 -- | 'FreezeMonad' is implemented by a client that wishes to use the Freeze protocol
-class (MonadReader (FreezeInstance party) m, MonadState (FreezeState val party) m) => FreezeMonad val party m where
+class (MonadReader FreezeInstance m, MonadState FreezeState m) => FreezeMonad m where
     -- |Broadcast a 'FreezeMessage' to all parties.  It is not necessary for the
     -- messages to be sent back to the 'FreezeInstance', but should not be harmful
     -- either.
-    sendFreezeMessage :: FreezeMessage val -> m ()
+    sendFreezeMessage :: FreezeMessage -> m ()
     -- |Output the decision from running the freeze protocol.
-    frozen :: Maybe val -> m ()
+    frozen :: Maybe Val -> m ()
     -- |Notify that a decision from the freeze protocol has become justified.
-    decisionJustified :: Maybe val -> m ()
+    decisionJustified :: Maybe Val -> m ()
 
 
-data FreezeOutputEvent val
-    = SendFreezeMessage (FreezeMessage val)
-    | Frozen (Maybe val)
-    | DecisionJustified (Maybe val)
+data FreezeOutputEvent
+    = SendFreezeMessage FreezeMessage
+    | Frozen (Maybe Val)
+    | DecisionJustified (Maybe Val)
 
-newtype Freeze val party a = Freeze {
-    runFreeze' :: RWS (FreezeInstance party) (Endo [FreezeOutputEvent val]) (FreezeState val party) a
+newtype Freeze a = Freeze {
+    runFreeze' :: RWS FreezeInstance (Endo [FreezeOutputEvent]) FreezeState a
 } deriving (Functor, Applicative, Monad)
 
-runFreeze :: Freeze val party a -> FreezeInstance party -> FreezeState val party -> (a, FreezeState val party, [FreezeOutputEvent val])
+runFreeze :: Freeze a -> FreezeInstance -> FreezeState -> (a, FreezeState, [FreezeOutputEvent])
 runFreeze z i s = runRWS (runFreeze' z) i s & _3 %~ (\(Endo f) -> f [])
 
-instance MonadReader (FreezeInstance party) (Freeze val party) where
+instance MonadReader FreezeInstance Freeze where
     ask = Freeze ask
     reader = Freeze . reader
     local f = Freeze . local f . runFreeze'
 
-instance MonadState (FreezeState val party) (Freeze val party) where
+instance MonadState FreezeState Freeze where
     get = Freeze get
     put = Freeze . put
     state = Freeze . state
 
-instance FreezeMonad val party (Freeze val party) where
+instance FreezeMonad Freeze where
     sendFreezeMessage = Freeze . tell . Endo . (:) . SendFreezeMessage
     frozen = Freeze . tell . Endo . (:) . Frozen
     decisionJustified = Freeze . tell . Endo . (:) . DecisionJustified
@@ -126,7 +128,7 @@ whenAddToSet val setLens act = do
         setLens .= Set.insert val theSet
         act
 
-addProposal :: (Ord val, Ord party, FreezeMonad val party m) => party -> val -> m ()
+addProposal :: (FreezeMonad m) => Party -> Val -> m ()
 addProposal party value = do
     FreezeInstance{..} <- ask
     when (partyWeight party > 0) $ whenAddToSet party proposers $
@@ -143,7 +145,7 @@ addProposal party value = do
                     when (newWeight >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                     when (newTotalProposals >= totalWeight - corruptWeight) doVote
 
-justifyVote :: (Ord val, FreezeMonad val party m) => Maybe val -> m ()
+justifyVote :: (FreezeMonad m) => Maybe Val -> m ()
 justifyVote vote = do
     FreezeInstance{..} <- ask
     use (votes . at vote) >>= \case
@@ -156,7 +158,7 @@ justifyVote vote = do
             when (newTotalVotes >= totalWeight - corruptWeight) doFinish
         Just (True, _, _) -> return () 
 
-addVote :: (Ord val, Ord party, FreezeMonad val party m) => party -> Maybe val -> m ()
+addVote :: (FreezeMonad m) => Party -> Maybe Val -> m ()
 addVote party vote = do
     FreezeInstance{..} <- ask
     when (partyWeight party > 0) $ whenAddToSet party voters $
@@ -172,11 +174,11 @@ addVote party vote = do
                 when (partyWeight party + weight > corruptWeight) $ justifyDecision vote
                 when (newTotalVotes >= totalWeight - corruptWeight) doFinish
 
-justifyDecision :: (Ord val, FreezeMonad val party m) => Maybe val -> m ()
+justifyDecision :: (FreezeMonad m) => Maybe Val -> m ()
 justifyDecision decision = whenAddToSet decision justifiedDecisions $ decisionJustified decision
 
 
-doVote :: forall val party m. (Ord val, Ord party, FreezeMonad val party m) => m ()
+doVote :: forall m. (FreezeMonad m) => m ()
 doVote = do
         FreezeInstance{..} <- ask
         vtrs <- use voters
@@ -189,7 +191,7 @@ doVote = do
             addVote me vote
             sendFreezeMessage (Vote vote)
 
-doFinish :: (FreezeMonad val party m) => m ()
+doFinish :: (FreezeMonad m) => m ()
 doFinish = do
     alreadyCompleted <- completed <<.= True
     unless alreadyCompleted $
@@ -202,7 +204,8 @@ doFinish = do
 -- This should only be called once per instance.  If it is called more than once,
 -- or if it is called after receiving a proposal from our own party, only the first
 -- proposal is considered, and subsequent proposals are not broadcast.
-propose :: (Ord val, Ord party, FreezeMonad val party m) => val -> m ()
+propose :: (FreezeMonad m) => Val -> m ()
+{-# SPECIALIZE propose :: Val -> Freeze () #-}
 propose candidate = do
         FreezeInstance{..} <- ask
         pps <- use proposers
@@ -211,7 +214,8 @@ propose candidate = do
             sendFreezeMessage (Proposal candidate)
 
 -- |Justify a value as a candidate.
-justifyCandidate :: (Ord val, Ord party, FreezeMonad val party m) => val -> m ()
+justifyCandidate :: (FreezeMonad m) => Val -> m ()
+{-# SPECIALIZE justifyCandidate :: Val -> Freeze () #-}
 justifyCandidate value = do
     FreezeInstance{..} <- ask
     use (proposals . at value) >>= \case
@@ -227,6 +231,7 @@ justifyCandidate value = do
         Just (True, _, _) -> return ()
 
 -- |Handle a Freeze message from the network
-receiveFreezeMessage :: (Ord val, Ord party, FreezeMonad val party m) => party -> FreezeMessage val -> m ()
+receiveFreezeMessage :: (FreezeMonad m) => Party -> FreezeMessage -> m ()
+{-# SPECIALIZE receiveFreezeMessage :: Party -> FreezeMessage -> Freeze () #-}
 receiveFreezeMessage party (Proposal val) = addProposal party val
 receiveFreezeMessage party (Vote vote) = addVote party vote

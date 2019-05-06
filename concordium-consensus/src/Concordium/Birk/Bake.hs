@@ -11,7 +11,6 @@ import Data.Serialize
 import Concordium.Types
 
 import Concordium.GlobalState.Parameters
-import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Transactions

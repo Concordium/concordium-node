@@ -45,6 +45,8 @@ import Control.Monad.State.Class
 import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
+import Concordium.Afgjort.Types
+
 type Choice = Bool
 
 type Choices = Maybe Choice
@@ -54,25 +56,25 @@ addChoice c Nothing = Just (Just c)
 addChoice _ (Just Nothing) = Just Nothing
 addChoice c cs@(Just (Just c')) = if c == c' then cs else Just Nothing
 
-data CSSMessage party
+data CSSMessage
     = Input Choice
-    | Seen party Choice
-    | DoneReporting (Map party Choice) -- Possbly use list instead
+    | Seen Party Choice
+    | DoneReporting (Map Party Choice) -- Possbly use list instead
     deriving (Eq, Ord, Show)
 
-data CSSInstance party = CSSInstance {
+data CSSInstance = CSSInstance {
     -- |The total weight of all parties
     totalWeight :: Int,
     -- |The (maximum) weight of all corrupt parties (should be less than @totalWeight/3@).
     corruptWeight :: Int,
     -- |The weight of each party
-    partyWeight :: party -> Int
+    partyWeight :: Party -> Int
 }
 
 
-data CoreSet party = CoreSet {
-    coreTop :: Maybe (Set party),
-    coreBot :: Maybe (Set party)
+data CoreSet = CoreSet {
+    coreTop :: Maybe (Set Party),
+    coreBot :: Maybe (Set Party)
 } deriving (Show)
 
 -- | Invariant:
@@ -85,7 +87,7 @@ data CoreSet party = CoreSet {
 --
 --   * if '_inputBot' at @p@ holds value @s@, then @s@ must be a valid signature by @p@ of the message @Input False@
 
-data CSSState party = CSSState {
+data CSSState = CSSState {
     -- |Whether we are in the report stage (initially @True@)
     _report :: Bool,
     -- |Whether *bottom* is considered justified
@@ -93,33 +95,33 @@ data CSSState party = CSSState {
     -- |Whether *top* is considered justified
     _topJustified :: Bool,
     -- |The parties that have nominated *top*, with the signatures for their nominations
-    _inputTop :: Set party,
+    _inputTop :: Set Party,
     -- |The parties that have nominated *bottom*, with the signatures for their nominations
-    _inputBot :: Set party,
+    _inputBot :: Set Party,
     -- |For each party, the total weight and set of parties that report having seen a nomination of *top* by that party.
-    _sawTop :: Map party (Int, Set party),
+    _sawTop :: Map Party (Int, Set Party),
     -- |As above, for *bottom*
-    _sawBot :: Map party (Int, Set party),
+    _sawBot :: Map Party (Int, Set Party),
     -- |The set of nominations we saw.  That is, the first justified nomination we received from each party.
-    _iSaw :: Map party Choice,
+    _iSaw :: Map Party Choice,
     -- |The set of parties for which (n-t) parties have sent justified Seen messages.
-    _manySaw :: Map party Choices,
+    _manySaw :: Map Party Choices,
     -- |The total weight of parties in '_manySaw'.
     _manySawWeight :: Int,
     -- |For each pair @(seen,c)@ for which we have not received a justified input, this records
     -- parties that have sent DoneReporting messages that include this pair, where all previous
     -- pairs have been justified and all future pairs are held in the list.
-    _unjustifiedDoneReporting :: Map (party, Choice) (Map party [(party, Choice)]),
+    _unjustifiedDoneReporting :: Map (Party, Choice) (Map Party [(Party, Choice)]),
     -- |The set of parties for which we have received fully justified DoneReporting messages.
-    _justifiedDoneReporting :: Set party,
+    _justifiedDoneReporting :: Set Party,
     -- |The total weight of parties for which we have received fully justified DoneReporting messages.
     _justifiedDoneReportingWeight :: Int,
     -- |If '_justifiedDoneReportingWeight' is at least (n-t), then the core set determined at that time.  Otherwise @Nothing@.
-    _core :: Maybe (CoreSet party)
+    _core :: Maybe CoreSet
 } deriving (Show)
 makeLenses ''CSSState
 
-initialCSSState :: CSSState party
+initialCSSState :: CSSState
 initialCSSState = CSSState {
     _report = True,
     _botJustified = False,
@@ -137,61 +139,61 @@ initialCSSState = CSSState {
     _core = Nothing
 }
 
-justified :: Choice -> Lens' (CSSState party) Bool
+justified :: Choice -> Lens' CSSState Bool
 justified True = topJustified
 justified False = botJustified
 
-input :: Choice -> Lens' (CSSState party) (Set party)
+input :: Choice -> Lens' CSSState (Set Party)
 input True = inputTop
 input False = inputBot
 
-saw :: Choice -> Lens' (CSSState party) (Map party (Int, Set party))
+saw :: Choice -> Lens' CSSState (Map Party (Int, Set Party))
 saw True = sawTop
 saw False = sawBot
 
 -- |Given a witnessing party (@seer@), a choice (@c@) and a nominating party (@seen@),
 -- produces a 'SimpleGetter' for a 'CSSState' that returns @True@ exactly when we have
 -- a justified message from @seer@ that @seen@ nominated @c@.
-sawJustified :: (Ord party) =>
-    party       -- ^ @seer@
+sawJustified ::
+    Party       -- ^ @seer@
     -> Choice   -- ^ @c@
-    -> party    -- ^ @seen@
-    -> SimpleGetter (CSSState party) Bool
+    -> Party    -- ^ @seen@
+    -> SimpleGetter CSSState Bool
 sawJustified seer c seen = to $ \s ->
     (s ^. justified c) && (seen `Set.member` (s ^. input c)) &&
         case s ^. saw c . at seen of
             Nothing -> False
             Just (_, m) -> seer `Set.member` m
 
-class (MonadState (CSSState party) m, MonadReader (CSSInstance party) m) => CSSMonad party m where
+class (MonadState CSSState m, MonadReader CSSInstance m) => CSSMonad m where
     -- |Sign and broadcast a CSS message to all parties, __including__ our own 'CSSInstance'.
-    sendCSSMessage :: CSSMessage party -> m ()
+    sendCSSMessage :: CSSMessage -> m ()
     -- |Determine the core set.
-    selectCoreSet :: CoreSet party -> m ()
+    selectCoreSet :: CoreSet -> m ()
 
-data CSSOutputEvent party
-    = SendCSSMessage (CSSMessage party)
-    | SelectCoreSet (CoreSet party)
+data CSSOutputEvent
+    = SendCSSMessage CSSMessage
+    | SelectCoreSet CoreSet
 
-newtype CSS party a = CSS {
-    runCSS' :: RWS (CSSInstance party) (Endo [CSSOutputEvent party]) (CSSState party) a
+newtype CSS a = CSS {
+    runCSS' :: RWS CSSInstance (Endo [CSSOutputEvent]) CSSState a
 } deriving (Functor, Applicative, Monad)
 
 {-# INLINE runCSS #-}
-runCSS :: CSS party a -> CSSInstance party -> CSSState party -> (a, CSSState party, [CSSOutputEvent party])
+runCSS :: CSS a -> CSSInstance -> CSSState -> (a, CSSState, [CSSOutputEvent])
 runCSS z i s = runRWS (runCSS' z) i s & _3 %~ (\(Endo f) -> f [])
 
-instance MonadState (CSSState party) (CSS party) where
+instance MonadState CSSState CSS where
     get = CSS get
     put = CSS . put
     state = CSS . state
 
-instance MonadReader (CSSInstance party) (CSS party) where
+instance MonadReader CSSInstance CSS where
     ask = CSS ask
     reader = CSS . reader
     local f = CSS . local f . runCSS'
 
-instance CSSMonad party (CSS party) where
+instance CSSMonad CSS where
     sendCSSMessage msg = CSS $ tell $ Endo (SendCSSMessage msg :)
     selectCoreSet cs = CSS $ tell $ Endo (SelectCoreSet cs :)
 
@@ -199,8 +201,8 @@ whenM :: (Monad m) => m Bool -> m () -> m ()
 whenM t a = t >>= \r -> when r a
 
 -- |Called to notify when a choice becomes justified.
-{-# SPECIALIZE justifyChoice :: Ord party => Choice -> CSS party () #-}
-justifyChoice :: (CSSMonad party m, Ord party) => Choice -> m ()
+{-# SPECIALIZE justifyChoice :: Choice -> CSS () #-}
+justifyChoice :: (CSSMonad m) => Choice -> m ()
 justifyChoice c = do
     -- Record the choice as justified
     alreadyJustified <- justified c <<.= True
@@ -210,8 +212,8 @@ justifyChoice c = do
         forM_ (Set.toList inputs) $ \p -> justifyNomination p c
 
 -- |Handle an incoming CSSMessage from a party. 
-{-# SPECIALIZE receiveCSSMessage :: Ord party => party -> CSSMessage party -> CSS party () #-}
-receiveCSSMessage :: (CSSMonad party m, Ord party) => party -> CSSMessage party -> m ()
+{-# SPECIALIZE receiveCSSMessage :: Party -> CSSMessage -> CSS () #-}
+receiveCSSMessage :: (CSSMonad m) => Party -> CSSMessage -> m ()
 receiveCSSMessage src (Input c) = do
     -- Record that we've seen this nomination
     input c %= Set.insert src
@@ -237,8 +239,8 @@ receiveCSSMessage src (DoneReporting sawSet) = handleDoneReporting src (Map.toLi
 
 -- |Call when a nomination (@c@) by a party (@src@) becomes justified,
 -- i.e. @input c@ contains @src@ and @justified c@ gives @True@.
-{-# SPECIALIZE justifyNomination :: Ord party => party -> Choice -> CSS party () #-}
-justifyNomination :: (CSSMonad party m, Ord party) => party -> Choice -> m ()
+{-# SPECIALIZE justifyNomination :: Party -> Choice -> CSS () #-}
+justifyNomination :: (CSSMonad m) => Party -> Choice -> m ()
 justifyNomination src c = do
     CSSInstance{..} <- ask
     -- In the report phase, add the nomination to @iSaw@ and send a seen message
@@ -263,8 +265,8 @@ justifyNomination src c = do
             -- And handle those where we do.
             forM_ (Map.toList js) $ uncurry handleDoneReporting))
 
-{-# SPECIALIZE addManySaw :: Ord party => party -> Choice -> CSS party () #-}
-addManySaw :: (CSSMonad party m, Ord party) => party -> Choice -> m ()
+{-# SPECIALIZE addManySaw :: Party -> Choice -> CSS () #-}
+addManySaw :: (CSSMonad m) => Party -> Choice -> m ()
 addManySaw party c = do
     CSSInstance{..} <- ask
     oldMS <- manySaw . at party <<%= addChoice c
@@ -273,8 +275,8 @@ addManySaw party c = do
         oldRep <- report <<.= False
         when oldRep $
             sendCSSMessage . DoneReporting =<< use iSaw
-{-# SPECIALIZE handleDoneReporting :: Ord party => party -> [(party, Choice)] -> CSS party () #-}
-handleDoneReporting :: (CSSMonad party m, Ord party) => party -> [(party, Choice)] -> m ()
+{-# SPECIALIZE handleDoneReporting :: Party -> [(Party, Choice)] -> CSS () #-}
+handleDoneReporting :: (CSSMonad m) => Party -> [(Party, Choice)] -> m ()
 handleDoneReporting party [] = do
     CSSInstance{..} <- ask
     alreadyDone <- Set.member party <$> use justifiedDoneReporting

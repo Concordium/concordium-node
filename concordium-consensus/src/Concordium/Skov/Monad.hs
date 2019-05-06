@@ -17,26 +17,9 @@ import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData, BlockSta
 import Concordium.Logger
 import Concordium.TimeMonad
 
-class (Monad m, TimeMonad m, LoggerMonad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m)) => SkovMonad m where
+class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m)) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
-    -- |Store a block in the block table and add it to the tree
-    -- if possible.
-    storeBlock :: BakedBlock -> m BlockHash
-    -- |Store a block in the block table that has just been baked.
-    -- This assumes the block is valid and that there can be nothing
-    -- pending for it (children or finalization).
-    storeBakedBlock ::
-        PendingBlock        -- ^The block to add
-        -> BlockPointer m     -- ^Parent pointer
-        -> BlockPointer m     -- ^Last finalized pointer
-        -> BlockState m       -- ^State
-        -> m (BlockPointer m)
-    -- |Add a transaction to the transaction table.
-    receiveTransaction :: Transaction -> m ()
-    -- |Add a finalization record.  This should (eventually) result
-    -- in a block being finalized.
-    finalizeBlock :: FinalizationRecord -> m ()
     -- |Determine if a block has been finalized.
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
@@ -55,12 +38,27 @@ class (Monad m, TimeMonad m, LoggerMonad m, Eq (BlockPointer m), BlockPointerDat
     -- |Get a list of all the blocks at a given height in the tree.
     getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
 
-instance SkovMonad m => SkovMonad (MaybeT m) where
+class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
+    -- |Store a block in the block table and add it to the tree
+    -- if possible.
+    storeBlock :: BakedBlock -> m BlockHash
+    -- |Store a block in the block table that has just been baked.
+    -- This assumes the block is valid and that there can be nothing
+    -- pending for it (children or finalization).
+    storeBakedBlock ::
+        PendingBlock        -- ^The block to add
+        -> BlockPointer m     -- ^Parent pointer
+        -> BlockPointer m     -- ^Last finalized pointer
+        -> BlockState m       -- ^State
+        -> m (BlockPointer m)
+    -- |Add a transaction to the transaction table.
+    receiveTransaction :: Transaction -> m ()
+    -- |Add a finalization record.  This should (eventually) result
+    -- in a block being finalized.
+    finalizeBlock :: FinalizationRecord -> m ()
+
+instance SkovQueryMonad m => SkovQueryMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock
-    storeBlock = lift . storeBlock
-    storeBakedBlock pb parent lastFin state = lift $ storeBakedBlock pb parent lastFin state
-    receiveTransaction = lift . receiveTransaction
-    finalizeBlock = lift . finalizeBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
     getGenesisData = lift getGenesisData
@@ -69,16 +67,22 @@ instance SkovMonad m => SkovMonad (MaybeT m) where
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
 
-getBirkParameters :: (SkovMonad m) => Slot -> m BirkParameters
+instance SkovMonad m => SkovMonad (MaybeT m) where
+    storeBlock b = lift $ storeBlock b
+    storeBakedBlock pb parent lastFin state = lift $ storeBakedBlock pb parent lastFin state
+    receiveTransaction = lift . receiveTransaction
+    finalizeBlock fr = lift $ finalizeBlock fr
+
+getBirkParameters :: (SkovQueryMonad m) => Slot -> m BirkParameters
 getBirkParameters _ = genesisBirkParameters <$> getGenesisData
 
-getGenesisTime :: (SkovMonad m) => m Timestamp
+getGenesisTime :: (SkovQueryMonad m) => m Timestamp
 getGenesisTime = genesisTime <$> getGenesisData
 
-getFinalizationParameters :: (SkovMonad m) => m FinalizationParameters
+getFinalizationParameters :: (SkovQueryMonad m) => m FinalizationParameters
 getFinalizationParameters = genesisFinalizationParameters <$> getGenesisData
 
-getSlotTime :: (SkovMonad m) => Slot -> m UTCTime
+getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + genesisSlotDuration genData * fromIntegral s))
