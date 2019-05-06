@@ -55,8 +55,7 @@ impl Serializable for NetworkRequest {
                 node_data.serialize(archive)
             }
             NetworkRequest::GetPeers(.., ref networks) => networks.serialize(archive),
-            NetworkRequest::Handshake(me, ref networks, ref zk) => {
-                me.serialize(archive)?;
+            NetworkRequest::Handshake(_, ref networks, ref zk) => {
                 networks.serialize(archive)?;
                 zk.serialize(archive)
             }
