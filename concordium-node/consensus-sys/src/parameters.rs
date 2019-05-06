@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::{block::BakerId, common::*};
 
-pub type LeadershipElectionNonce = Box<[u8]>;
+pub type LeadershipElectionNonce = Encoded;
 pub type BakerSignVerifyKey = Encoded;
 pub type BakerSignPrivateKey = Encoded;
 pub type BakerElectionVerifyKey = Encoded;

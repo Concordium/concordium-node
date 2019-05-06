@@ -3,23 +3,22 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 use chrono::prelude::Utc;
 
-use std::fmt;
-
 use crate::{common::*, parameters::*, transaction::*};
 
 const SLOT: usize = 8;
-const POINTER: usize = SHA256;
+pub const BLOCK_HASH: usize = SHA256;
+const POINTER: usize = BLOCK_HASH;
 const BAKER_ID: usize = 8;
-const NONCE: usize = SHA256 + PROOF_LENGTH; // should soon be shorter
-const LAST_FINALIZED: usize = SHA256;
+const NONCE: usize = BLOCK_HASH + PROOF_LENGTH; // should soon be shorter
+const LAST_FINALIZED: usize = BLOCK_HASH;
 const PAYLOAD_TYPE: usize = 1;
 const UNDEFINED: usize = 8;
 const PAYLOAD_SIZE: usize = 2;
-const TRANSACTION_COUNT: usize = 2;
 const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
 const BLOCK_BODY: usize = 8;
-const BLOCK_SIGNATURE: usize = 64;
+const SIGNATURE: usize = 64 + 8; // FIXME: unknown 8B prefix
+pub const BLOCK_HEIGHT: usize = 8;
 
 #[derive(Debug)]
 pub struct Block {
@@ -33,31 +32,23 @@ pub enum BlockData {
     RegularData(RegularData),
 }
 
+#[derive(Debug)]
+pub struct GenesisData {
+    timestamp:               Timestamp,
+    slot_duration:           Duration,
+    birk_parameters:         BirkParameters,
+    finalization_parameters: FinalizationParameters,
+}
+
+#[derive(Debug)]
 pub struct RegularData {
     pointer:        BlockHash,
     baker_id:       BakerId,
     proof:          Encoded,
     nonce:          Encoded,
     last_finalized: BlockHash,
-    transactions:   Vec<Transaction>,
+    transactions:   Transactions,
     signature:      Encoded,
-}
-
-impl fmt::Debug for RegularData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "\n  ptr: {:0x}\n  baker_id: {}\n  proof: <{}B>\n  nonce: <{}B>\n  last_finalized: \
-             {:0x}\n  transactions: {:?}\n  signature: <{}B>\n",
-            (&*self.pointer).read_u64::<NetworkEndian>().unwrap(),
-            self.baker_id,
-            self.proof.len(),
-            self.nonce.len(),
-            (&*self.last_finalized).read_u64::<NetworkEndian>().unwrap(),
-            self.transactions,
-            self.signature.len(),
-        )
-    }
 }
 
 macro_rules! get_block_content {
@@ -113,12 +104,7 @@ impl Block {
         "last finalized pointer"
     );
 
-    get_block_content_ref!(
-        transactions_ref,
-        [Transaction],
-        transactions,
-        "transactions"
-    );
+    get_block_content_ref!(transactions_ref, Transactions, transactions, "transactions");
 
     get_block_content!(signature, Encoded, signature, "signature");
 
@@ -128,6 +114,8 @@ impl Block {
     // FIXME: use UCursor (for all deserialization) when it's available outside of
     // client
     pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        debug_deserialization!("Block", bytes);
+
         let mut curr_pos = 0;
 
         let slot = (&bytes[curr_pos..][..SLOT])
@@ -135,9 +123,7 @@ impl Block {
             .ok()?;
         curr_pos += SLOT;
 
-        let mut pointer_bytes = [0u8; POINTER];
-        pointer_bytes.copy_from_slice(&bytes[curr_pos..][..POINTER]);
-        let pointer = Box::new(pointer_bytes);
+        let pointer = HashBytes::new(&bytes[curr_pos..][..POINTER]);
         curr_pos += POINTER;
 
         let baker_id = (&bytes[curr_pos..][..BAKER_ID])
@@ -145,29 +131,20 @@ impl Block {
             .ok()?;
         curr_pos += BAKER_ID;
 
-        let mut proof_bytes = [0u8; PROOF_LENGTH];
-        proof_bytes.copy_from_slice(&bytes[curr_pos..][..PROOF_LENGTH]);
-        let proof = Box::new(proof_bytes);
+        let proof = Encoded::new(&bytes[curr_pos..][..PROOF_LENGTH]);
         curr_pos += PROOF_LENGTH;
 
-        let mut nonce_bytes = [0u8; NONCE];
-        nonce_bytes.copy_from_slice(&bytes[curr_pos..][..NONCE]);
-        let nonce = Box::new(nonce_bytes);
+        let nonce = Encoded::new(&bytes[curr_pos..][..NONCE]);
         curr_pos += NONCE;
 
-        let mut last_finalized_bytes = [0u8; SHA256];
-        last_finalized_bytes.copy_from_slice(&bytes[curr_pos..][..SHA256]);
-        let last_finalized = Box::new(last_finalized_bytes);
+        let last_finalized = HashBytes::new(&bytes[curr_pos..][..SHA256]);
         curr_pos += SHA256;
 
-        let transactions =
-            deserialize_transactions(&bytes[curr_pos..bytes.len() - BLOCK_SIGNATURE])?;
+        let transactions = Transactions::deserialize(&bytes[curr_pos..bytes.len() - SIGNATURE])?;
 
-        let mut signature_bytes = [0u8; BLOCK_SIGNATURE];
-        signature_bytes.copy_from_slice(&bytes[bytes.len() - BLOCK_SIGNATURE..]);
-        let signature = Box::new(signature_bytes);
+        let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
 
-        Some(Block {
+        let block = Block {
             slot,
             data: BlockData::RegularData(RegularData {
                 pointer,
@@ -178,11 +155,17 @@ impl Block {
                 transactions,
                 signature,
             }),
-        })
+        };
+
+        check_serialization!(block, bytes);
+
+        Some(block)
     }
 
     // FIXME: only works for regular blocks for now
-    pub fn serialize(&self) -> Result<Vec<u8>, &'static str> {
+    pub fn serialize(&self) -> Vec<u8> {
+        debug_serialization!(self);
+
         let mut ret = Vec::new(); // FIXME: estimate capacity
 
         let mut slot = [0u8; SLOT];
@@ -201,65 +184,16 @@ impl Block {
 
         ret.extend_from_slice(&self.last_finalized()); // check
 
-        ret.extend_from_slice(&serialize_transactions(self.transactions_ref()));
+        ret.extend_from_slice(&Transactions::serialize(self.transactions_ref()));
 
         ret.extend_from_slice(&self.signature());
 
-        Ok(ret)
+        ret
     }
 
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
-}
-
-// FIXME: move to its own impl in transaction.rs
-fn deserialize_transactions(bytes: &[u8]) -> Option<Vec<Transaction>> {
-    let mut curr_pos = 0;
-
-    let transaction_count = (&bytes[curr_pos..][..TRANSACTION_COUNT])
-        .read_u16::<NetworkEndian>()
-        .ok()?;
-    curr_pos += TRANSACTION_COUNT;
-
-    if transaction_count > 0 {
-        let mut transactions = Vec::with_capacity(transaction_count as usize);
-
-        while let Some((transaction, size)) = Transaction::deserialize(&bytes[curr_pos..]) {
-            transactions.push(transaction);
-            curr_pos += size;
-        }
-
-        Some(transactions)
-    } else {
-        Some(vec![])
-    }
-}
-
-// FIXME: move to its own impl in transaction.rs
-fn serialize_transactions(transactions: &[Transaction]) -> Vec<u8> {
-    if !transactions.is_empty() {
-        let mut transaction_bytes = Vec::new(); // TODO: estimate capacity
-
-        for transaction in transactions {
-            transaction_bytes.extend_from_slice(&transaction.serialize());
-        }
-
-        transaction_bytes
-    } else {
-        let mut ret = [0u8; 16];
-        ret[15] = 64;
-
-        ret.to_vec()
-    }
-}
-
-#[derive(Debug)]
-pub struct GenesisData {
-    timestamp:               Timestamp,
-    slot_duration:           Duration,
-    birk_parameters:         BirkParameters,
-    finalization_parameters: FinalizationParameters,
 }
 
 pub type BakerId = u64;
@@ -270,7 +204,7 @@ pub type Duration = u64;
 
 pub type BlockHeight = u64;
 
-pub type BlockHash = Encoded;
+pub type BlockHash = HashBytes;
 
 pub struct PendingBlock {
     block:    Block,

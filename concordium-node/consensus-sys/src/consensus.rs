@@ -1,5 +1,3 @@
-use crate::block::*;
-
 use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::{
@@ -15,6 +13,8 @@ use std::{
     thread,
     time::{self, Duration},
 };
+
+use crate::{block::*, finalization::*};
 
 #[repr(C)]
 pub struct baker_runner {
@@ -157,15 +157,15 @@ impl ConsensusBaker {
     }
 
     pub fn send_block(&self, block: &Block) -> i64 {
-        wrap_send_data_to_c!(self, block.serialize().unwrap(), receiveBlock)
+        wrap_send_data_to_c!(self, block.serialize(), receiveBlock)
     }
 
-    pub fn send_finalization(&self, data: Vec<u8>) {
-        wrap_send_data_to_c!(self, data, receiveFinalization);
+    pub fn send_finalization(&self, msg: &FinalizationMessage) {
+        wrap_send_data_to_c!(self, msg.serialize(), receiveFinalization);
     }
 
-    pub fn send_finalization_record(&self, data: Vec<u8>) -> i64 {
-        wrap_send_data_to_c!(self, data, receiveFinalizationRecord)
+    pub fn send_finalization_record(&self, rec: &FinalizationRecord) -> i64 {
+        wrap_send_data_to_c!(self, rec.serialize(), receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
@@ -232,17 +232,18 @@ impl ConsensusBaker {
 pub struct ConsensusOutQueue {
     receiver_block:               Arc<Mutex<mpsc::Receiver<Block>>>,
     sender_block:                 Arc<Mutex<mpsc::Sender<Block>>>,
-    receiver_finalization:        Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
-    sender_finalization:          Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
-    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
-    sender_finalization_record:   Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
+    receiver_finalization:        Arc<Mutex<mpsc::Receiver<FinalizationMessage>>>,
+    sender_finalization:          Arc<Mutex<mpsc::Sender<FinalizationMessage>>>,
+    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<FinalizationRecord>>>,
+    sender_finalization_record:   Arc<Mutex<mpsc::Sender<FinalizationRecord>>>,
 }
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel::<Block>();
-        let (sender_finalization, receiver_finalization) = mpsc::channel::<Vec<u8>>();
-        let (sender_finalization_record, receiver_finalization_record) = mpsc::channel::<Vec<u8>>();
+        let (sender_finalization, receiver_finalization) = mpsc::channel::<FinalizationMessage>();
+        let (sender_finalization_record, receiver_finalization_record) =
+            mpsc::channel::<FinalizationRecord>();
         ConsensusOutQueue {
             receiver_block:               Arc::new(Mutex::new(receiver)),
             sender_block:                 Arc::new(Mutex::new(sender)),
@@ -255,8 +256,8 @@ impl Default for ConsensusOutQueue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, data: Block) -> Result<(), mpsc::SendError<Block>> {
-        safe_lock!(self.sender_block).send(data)
+    pub fn send_block(self, block: Block) -> Result<(), mpsc::SendError<Block>> {
+        safe_lock!(self.sender_block).send(block)
     }
 
     pub fn recv_block(self) -> Result<Block, mpsc::RecvError> {
@@ -271,41 +272,47 @@ impl ConsensusOutQueue {
         safe_lock!(self.receiver_block).try_recv()
     }
 
-    pub fn send_finalization(self, data: Vec<u8>) -> Result<(), mpsc::SendError<Vec<u8>>> {
-        safe_lock!(self.sender_finalization).send(data)
+    pub fn send_finalization(
+        self,
+        msg: FinalizationMessage,
+    ) -> Result<(), mpsc::SendError<FinalizationMessage>> {
+        safe_lock!(self.sender_finalization).send(msg)
     }
 
-    pub fn recv_finalization(self) -> Result<Vec<u8>, mpsc::RecvError> {
+    pub fn recv_finalization(self) -> Result<FinalizationMessage, mpsc::RecvError> {
         safe_lock!(self.receiver_finalization).recv()
     }
 
     pub fn recv_timeout_finalization(
         self,
         timeout: Duration,
-    ) -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
+    ) -> Result<FinalizationMessage, mpsc::RecvTimeoutError> {
         safe_lock!(self.receiver_finalization).recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization(self) -> Result<FinalizationMessage, mpsc::TryRecvError> {
         safe_lock!(self.receiver_finalization).try_recv()
     }
 
-    pub fn send_finalization_record(self, data: Vec<u8>) -> Result<(), mpsc::SendError<Vec<u8>>> {
-        safe_lock!(self.sender_finalization_record).send(data)
+    pub fn send_finalization_record(
+        self,
+        rec: FinalizationRecord,
+    ) -> Result<(), mpsc::SendError<FinalizationRecord>> {
+        safe_lock!(self.sender_finalization_record).send(rec)
     }
 
-    pub fn recv_finalization_record(self) -> Result<Vec<u8>, mpsc::RecvError> {
+    pub fn recv_finalization_record(self) -> Result<FinalizationRecord, mpsc::RecvError> {
         safe_lock!(self.receiver_finalization_record).recv()
     }
 
     pub fn recv_timeout_finalization_record(
         self,
         timeout: Duration,
-    ) -> Result<Vec<u8>, mpsc::RecvTimeoutError> {
+    ) -> Result<FinalizationRecord, mpsc::RecvTimeoutError> {
         safe_lock!(self.receiver_finalization_record).recv_timeout(timeout)
     }
 
-    pub fn try_recv_finalization_record(self) -> Result<Vec<u8>, mpsc::TryRecvError> {
+    pub fn try_recv_finalization_record(self) -> Result<FinalizationRecord, mpsc::TryRecvError> {
         safe_lock!(self.receiver_finalization_record).try_recv()
     }
 
@@ -387,22 +394,22 @@ impl ConsensusContainer {
     pub fn send_block(&self, block: &Block) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
             if block.baker_id() != *id {
-                return baker.send_block(&block);
+                return baker.send_block(block);
             }
         }
         1
     }
 
-    pub fn send_finalization(&self, pkt: &[u8]) -> i64 {
+    pub fn send_finalization(&self, msg: &FinalizationMessage) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
-            baker.send_finalization(pkt.to_vec());
+            baker.send_finalization(msg);
         }
         -1
     }
 
-    pub fn send_finalization_record(&self, pkt: &[u8]) -> i64 {
+    pub fn send_finalization_record(&self, rec: &FinalizationRecord) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
-            return baker.send_finalization_record(pkt.to_vec());
+            return baker.send_finalization_record(rec);
         }
         0
     }
@@ -531,34 +538,32 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
         let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
         match block_type {
             0 => match Block::deserialize(s) {
-                Some(block) => {
-                    debug!("Got a block: {:?}", block);
-                    match CALLBACK_QUEUE.clone().send_block(block) {
-                        Ok(_) => {
-                            debug!("Queueing {} block bytes", data_length);
-                        }
-                        _ => error!("Didn't queue block message properly"),
+                Some(block) => match CALLBACK_QUEUE.clone().send_block(block) {
+                    Ok(_) => {
+                        debug!("Queueing {} block bytes", data_length);
                     }
-                }
+                    _ => error!("Didn't queue block message properly"),
+                },
                 _ => error!("Deserialization of block failed!"),
             },
-            1 => match CALLBACK_QUEUE.clone().send_finalization(s.to_owned()) {
-                Ok(_) => {
-                    debug!("Queueing {} bytes of finalization", s.len());
-                }
-                _ => error!("Didn't queue finalization message properly"),
+            1 => match FinalizationMessage::deserialize(s) {
+                Some(msg) => match CALLBACK_QUEUE.clone().send_finalization(msg) {
+                    Ok(_) => {
+                        debug!("Queueing {} bytes of finalization", s.len());
+                    }
+                    _ => error!("Didn't queue finalization message properly"),
+                },
+                _ => error!("Deserialization of finalization message failed!"),
             },
-            2 => {
-                match CALLBACK_QUEUE
-                    .clone()
-                    .send_finalization_record(s.to_owned())
-                {
+            2 => match FinalizationRecord::deserialize(s) {
+                Some(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
                     Ok(_) => {
                         debug!("Queueing {} bytes of finalization record", s.len());
                     }
                     _ => error!("Didn't queue finalization record message properly"),
-                }
-            }
+                },
+                _ => error!("Deserialization of finalization record failed!"),
+            },
             _ => error!("Received invalid callback type"),
         }
     }
@@ -608,43 +613,6 @@ mod tests {
 
     fn setup() { INIT.call_once(|| env_logger::init()); }
 
-    #[test]
-    pub fn deserialize_serialize_block() {
-        setup();
-        let input = vec![
-            0, 0, 0, 0, 9, 71, 59, 160, 107, 46, 201, 51, 188, 160, 233, 71, 192, 78, 24, 191, 100,
-            186, 65, 60, 90, 108, 200, 104, 202, 158, 140, 155, 148, 115, 240, 37, 85, 11, 195,
-            184, 0, 0, 0, 0, 0, 0, 0, 3, 249, 115, 148, 130, 93, 224, 16, 199, 50, 255, 202, 188,
-            58, 150, 46, 64, 74, 177, 41, 17, 6, 102, 146, 193, 84, 147, 162, 207, 152, 125, 207,
-            238, 180, 60, 243, 189, 229, 69, 102, 67, 142, 34, 190, 111, 177, 145, 1, 186, 175,
-            254, 250, 124, 165, 84, 112, 155, 108, 235, 188, 162, 150, 135, 64, 91, 134, 199, 138,
-            151, 218, 241, 89, 221, 169, 44, 130, 126, 71, 141, 121, 2, 213, 146, 61, 42, 124, 76,
-            107, 127, 34, 196, 225, 168, 233, 119, 112, 239, 161, 210, 254, 163, 27, 192, 169, 73,
-            233, 54, 198, 132, 168, 86, 111, 86, 255, 157, 33, 252, 26, 161, 168, 145, 3, 49, 18,
-            202, 63, 255, 47, 30, 98, 111, 88, 247, 226, 184, 153, 185, 89, 253, 190, 9, 63, 19,
-            176, 63, 122, 244, 30, 254, 101, 158, 61, 193, 192, 17, 91, 160, 125, 106, 120, 65,
-            117, 17, 250, 44, 36, 106, 231, 166, 195, 244, 86, 198, 44, 228, 72, 16, 158, 181, 160,
-            7, 240, 42, 27, 132, 41, 234, 174, 11, 161, 22, 82, 8, 224, 164, 225, 197, 216, 227,
-            183, 11, 150, 128, 57, 253, 75, 65, 143, 41, 189, 35, 36, 110, 11, 180, 201, 8, 167,
-            119, 192, 146, 14, 243, 204, 161, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 99,
-            203, 126, 157, 148, 130, 196, 64, 225, 182, 205, 189, 78, 14, 214, 105, 24, 6, 53, 104,
-            155, 174, 53, 46, 58, 212, 36, 140, 59, 24, 250, 184, 116, 58, 158, 209, 219, 120, 167,
-            80, 250, 12, 155, 181, 159, 38, 21, 76, 17, 163, 120, 85, 98, 161, 153, 200, 241, 198,
-            143, 204, 245, 171, 15, 7,
-        ];
-        let deserialized = Block::deserialize(&input);
-        assert!(deserialized.is_some());
-        let block = deserialized.unwrap();
-        assert_eq!(&block.baker_id(), &3);
-
-        let serialized = Block::serialize(&block);
-        assert!(serialized.is_ok());
-        let output = serialized.unwrap();
-        println!("{:?}", output);
-        assert_eq!(output.len(), 352);
-        assert_eq!(output, input);
-    }
-
     macro_rules! bakers_test {
         ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
@@ -671,12 +639,12 @@ mod tests {
                     }
                 }
                 while let Ok(msg) = &_th_container.out_queue().try_recv_finalization() {
-                    debug!("Relaying finalization");
+                    debug!("Relaying {:?}", msg);
                     &_th_container.send_finalization(msg);
                 }
-                while let Ok(msg) = &_th_container.out_queue().try_recv_finalization_record() {
-                    debug!("Relaying finalization record");
-                    &_th_container.send_finalization_record(msg);
+                while let Ok(rec) = &_th_container.out_queue().try_recv_finalization_record() {
+                    debug!("Relaying {:?}", rec);
+                    &_th_container.send_finalization_record(rec);
                 }
             });
 
