@@ -59,35 +59,6 @@ impl P2PPeer {
         }
     }
 
-    // pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
-    // let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-    //
-    // ensure!(
-    // pkt.len() >= pkt.position() + min_packet_size as u64,
-    // "P2PPeer package needs {} bytes",
-    // min_packet_size
-    // );
-    //
-    // let view = pkt.read_into_view(min_packet_size)?;
-    // let buf = view.as_slice();
-    //
-    // let node_id =
-    // P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-    // debug!(
-    // "deserialized {:?} to {:?}",
-    // &buf[..PROTOCOL_NODE_ID_LENGTH],
-    // node_id
-    // );
-    //
-    // let (ip_addr, port) = deserialize_ip_port(pkt)?;
-    //
-    // P2PPeerBuilder::default()
-    // .id(node_id)
-    // .addr(SocketAddr::new(ip_addr, port))
-    // .peer_type(PeerType::Node)
-    // .build()
-    // }
-
     pub fn id(&self) -> P2PNodeId { self.id }
 
     pub fn ip(&self) -> IpAddr { self.addr.ip() }

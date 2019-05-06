@@ -104,31 +104,6 @@ impl Deserializable for BannedNode {
     }
 }
 
-// Consumes [partially] a `UCursor` for deserializing a `BannedNode`
-// pub fn deserialize(pkt: &mut UCursor) -> Fallible<BannedNode> {
-// let view = pkt.read_into_view(1)?;
-// let buf = view.as_slice();
-//
-// let banned_node = match buf {
-// b"0" => BannedNode::ById({
-// let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-// ensure!(
-// pkt.len() >= pkt.position() + min_packet_size as u64,
-// "Node ID chunk needs {} bytes",
-// min_packet_size
-// );
-//
-// let view = pkt.read_into_view(min_packet_size)?;
-// let buf = view.as_slice();
-// P2PNodeId::from_str(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?
-// }),
-// b"1" => BannedNode::ByAddr(deserialize_ip(pkt)?),
-// _ => bail!("Unrecognized slice for deserializing BannedNode"),
-// };
-//
-// Ok(banned_node)
-// }
-
 #[cfg(test)]
 pub mod tests {
     use super::BannedNode;
