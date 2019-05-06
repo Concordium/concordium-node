@@ -56,8 +56,8 @@ impl Transactions {
 
         let mut curr_pos = 0;
 
-        let transaction_count = (&bytes[curr_pos..][..TRANSACTION_COUNT])
-            .read_u64::<NetworkEndian>()?;
+        let transaction_count =
+            (&bytes[curr_pos..][..TRANSACTION_COUNT]).read_u64::<NetworkEndian>()?;
         curr_pos += TRANSACTION_COUNT;
 
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));

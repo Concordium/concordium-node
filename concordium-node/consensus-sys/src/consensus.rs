@@ -262,9 +262,7 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_block).send(block))
     }
 
-    pub fn recv_block(self) -> Fallible<Block> {
-        into_err!(safe_lock!(self.receiver_block).recv())
-    }
+    pub fn recv_block(self) -> Fallible<Block> { into_err!(safe_lock!(self.receiver_block).recv()) }
 
     pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<Block> {
         into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))

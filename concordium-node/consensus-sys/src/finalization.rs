@@ -83,8 +83,8 @@ impl FinalizationMessageHeader {
         let session_id = SessionId::deserialize(&bytes[curr_pos..][..SESSION_ID])?;
         curr_pos += SESSION_ID;
 
-        let finalization_index = (&bytes[curr_pos..][..FINALIZATION_INDEX])
-            .read_u64::<NetworkEndian>()?;
+        let finalization_index =
+            (&bytes[curr_pos..][..FINALIZATION_INDEX]).read_u64::<NetworkEndian>()?;
         curr_pos += FINALIZATION_INDEX;
 
         let delta = (&bytes[curr_pos..][..DELTA]).read_u64::<NetworkEndian>()?;
@@ -225,8 +225,7 @@ impl AbbaInput {
 
         let mut curr_pos = 0;
 
-        let phase = (&bytes[curr_pos..][..PHASE])
-            .read_u32::<NetworkEndian>()?;
+        let phase = (&bytes[curr_pos..][..PHASE]).read_u32::<NetworkEndian>()?;
         curr_pos += PHASE;
 
         let ticket = Encoded::new(&bytes[curr_pos..][..TICKET]);
@@ -341,8 +340,8 @@ impl FinalizationRecord {
 
         let mut curr_pos = 0;
 
-        let finalization_index = (&bytes[curr_pos..][..FINALIZATION_INDEX])
-            .read_u64::<NetworkEndian>()?;
+        let finalization_index =
+            (&bytes[curr_pos..][..FINALIZATION_INDEX]).read_u64::<NetworkEndian>()?;
         curr_pos += FINALIZATION_INDEX;
 
         let block_pointer = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
@@ -393,8 +392,8 @@ impl FinalizationProof {
 
         let mut curr_pos = 0;
 
-        let signature_count = (&bytes[curr_pos..][..SIGNATURE_COUNT])
-            .read_u64::<NetworkEndian>()?;
+        let signature_count =
+            (&bytes[curr_pos..][..SIGNATURE_COUNT]).read_u64::<NetworkEndian>()?;
         curr_pos += SIGNATURE_COUNT;
 
         let mut signatures = Vec::with_capacity(signature_count as usize);

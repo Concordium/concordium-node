@@ -119,15 +119,13 @@ impl Block {
 
         let mut curr_pos = 0;
 
-        let slot = (&bytes[curr_pos..][..SLOT])
-            .read_u64::<NetworkEndian>()?;
+        let slot = (&bytes[curr_pos..][..SLOT]).read_u64::<NetworkEndian>()?;
         curr_pos += SLOT;
 
         let pointer = HashBytes::new(&bytes[curr_pos..][..POINTER]);
         curr_pos += POINTER;
 
-        let baker_id = (&bytes[curr_pos..][..BAKER_ID])
-            .read_u64::<NetworkEndian>()?;
+        let baker_id = (&bytes[curr_pos..][..BAKER_ID]).read_u64::<NetworkEndian>()?;
         curr_pos += BAKER_ID;
 
         let proof = Encoded::new(&bytes[curr_pos..][..PROOF_LENGTH]);

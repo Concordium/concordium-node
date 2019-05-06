@@ -454,16 +454,13 @@ fn setup_higher_process_output(
                             Ok(_) => match baker.send_block(&block) {
                                 0i64 => info!("Sent block from network to baker"),
                                 x => error!(
-                                    "Can't send block from network to baker due to error code \
-                                     #{}",
+                                    "Can't send block from network to baker due to error code #{}",
                                     x
                                 ),
                             },
-                            Err(err) => {
-                                error!("Can't store block in transmission list {}", err)
-                            }
+                            Err(err) => error!("Can't store block in transmission list {}", err),
                         }
-                    },
+                    }
                     PACKET_TYPE_CONSENSUS_TRANSACTION => {
                         baker.send_transaction(content);
                         info!("Sent transaction to baker");
@@ -476,9 +473,8 @@ fn setup_higher_process_output(
                             &content,
                         ) {
                             Ok(_) => {
-                                baker.send_finalization(
-                                    &FinalizationMessage::deserialize(content)?,
-                                );
+                                baker
+                                    .send_finalization(&FinalizationMessage::deserialize(content)?);
                                 info!("Sent finalization package to consensus layer");
                             }
                             Err(err) => {
@@ -976,16 +972,12 @@ fn get_baker_data(
         private_loc.push(format!("baker_private_{}.dat", baker_id))
     };
 
-    let (generated_genesis, generated_private_data) = if !genesis_loc.exists()
-        || !private_loc.exists()
-    {
-        consensus::ConsensusContainer::generate_data(
-            conf.baker_genesis,
-            conf.baker_num_bakers,
-        )?
-    } else {
-        (vec![], HashMap::new())
-    };
+    let (generated_genesis, generated_private_data) =
+        if !genesis_loc.exists() || !private_loc.exists() {
+            consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers)?
+        } else {
+            (vec![], HashMap::new())
+        };
 
     let given_genesis = if !genesis_loc.exists() {
         match OpenOptions::new()
