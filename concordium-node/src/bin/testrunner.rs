@@ -384,7 +384,7 @@ fn setup_process_output(
                                     None,
                                     pac.network_id,
                                     Some(pac.message_id.to_owned()),
-                                    (*pac.message).to_owned(),
+                                    pac.message.to_owned(),
                                     true,
                                 )
                                 .map_err(|e| error!("Error sending message {}", e))

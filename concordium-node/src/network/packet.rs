@@ -40,7 +40,7 @@ pub struct NetworkPacket {
     pub message_id: String,
     pub network_id: NetworkId,
 
-    pub message: Box<UCursor>,
+    pub message: UCursor,
 }
 
 impl NetworkPacketBuilder {
@@ -128,7 +128,7 @@ impl NetworkPacket {
 
     pub fn reader(&self) -> Chain<Cursor<Vec<u8>>, UCursor> {
         let header_reader = Cursor::new(self.header_as_vec());
-        header_reader.chain((*self.message).clone())
+        header_reader.chain(self.message.clone())
     }
 
     pub fn serialize(&self) -> Vec<u8> {

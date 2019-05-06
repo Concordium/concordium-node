@@ -88,7 +88,7 @@ fn deserialize_direct_message(
         .peer(peer)
         .message_id(msgid)
         .network_id(network_id)
-        .message(Box::new(content_cursor))
+        .message(content_cursor)
         .build_direct(receiver_id)?;
 
     Ok(NetworkMessage::NetworkPacket(
@@ -136,7 +136,7 @@ fn deserialize_broadcast_message(
             .peer(peer)
             .message_id(message_id)
             .network_id(network_id)
-            .message(Box::new(pkt.sub(pkt.position())?))
+            .message(pkt.sub(pkt.position())?)
             .build_broadcast()?,
         Some(timestamp),
         Some(get_current_stamp()),
@@ -674,7 +674,7 @@ mod unit_test {
                 ))
                 .message_id(NetworkPacket::generate_message_id())
                 .network_id(NetworkId::from(111))
-                .message(Box::new(UCursor::from(vec![])))
+                .message(UCursor::from(vec![]))
                 .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
 
             let mut h = pkt.serialize();

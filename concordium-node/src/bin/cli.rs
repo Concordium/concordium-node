@@ -555,7 +555,7 @@ fn setup_higher_process_output(
                         };
                         if let Err(e) = send_msg_to_baker(
                             &mut _baker_pkt_clone,
-                            (*pac.message).clone(),
+                            pac.message.clone(),
                             (*pac.message_id).to_string(),
                         ) {
                             error!("Send network message to baker has failed: {:?}", e);
