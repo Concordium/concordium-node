@@ -1,5 +1,5 @@
 use super::fails;
-use crate::common::UCursor;
+use concordium_common::UCursor;
 use failure::{bail, Fallible};
 use std::sync::{Arc, Mutex, RwLock};
 

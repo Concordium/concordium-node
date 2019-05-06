@@ -14,6 +14,7 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use concordium_common::{spawn_or_die, UCursor};
 use consensus_sys::{
     block::Block,
     consensus,
@@ -25,7 +26,7 @@ use p2p_client::{
     client::utils as client_utils,
     common::{
         functor::{FilterFunctor, Functorable},
-        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType,
     },
     configuration,
     db::P2PDB,
@@ -35,7 +36,6 @@ use p2p_client::{
     },
     p2p::*,
     rpc::RpcServerImpl,
-    spawn_or_die,
     stats_engine::StatsEngine,
     stats_export_service::{StatsExportService, StatsServiceMode},
     utils,

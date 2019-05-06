@@ -1,13 +1,14 @@
 use std::{
-    convert::TryFrom,
+    convert::{From, TryFrom},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::{self, FromStr},
 };
 
+use concordium_common::UCursor;
 use nom::{verbose_errors::Context, IResult};
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
     network::{
         protocol_message_type::ProtocolMessageType, NetworkId, NetworkMessage, NetworkPacket,
         NetworkPacketBuilder, NetworkRequest, NetworkResponse, PROTOCOL_MESSAGE_ID_LENGTH,
@@ -87,7 +88,7 @@ named!(
                 .peer( localhost_peer())
                 .message_id( msg_id.to_string())
                 .network_id( NetworkId::from(network_id))
-                .message( UCursor::from( content.to_vec()))
+                .message( Box::new(UCursor::from( content.to_vec())))
                 .build_direct( receiver_id )
                 .unwrap()
         )
@@ -178,14 +179,11 @@ mod unit_test {
     use nom::{verbose_errors::Context, IResult};
 
     use super::{localhost_peer, s11n_network_message};
-
-    use crate::{
-        common::{ContainerView, UCursor},
-        network::{
-            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkRequest,
-            NetworkResponse, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION,
-        },
+    use crate::network::{
+        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkRequest,
+        NetworkResponse, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION,
     };
+    use concordium_common::{ContainerView, UCursor};
 
     fn ut_s11n_nom_001_data() -> Vec<(String, IResult<&'static [u8], NetworkMessage>)> {
         let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
@@ -285,7 +283,7 @@ mod unit_test {
                             .peer(localhost_peer())
                             .message_id(direct_message_message_id)
                             .network_id(NetworkId::from(111u16))
-                            .message(UCursor::from(direct_message_content))
+                            .message(Box::new(UCursor::from(direct_message_content)))
                             .build_direct(localhost_peer().id())
                             .unwrap(),
                         Some(10),

@@ -1,11 +1,9 @@
-pub mod container_view;
 pub mod counter;
-pub mod ucursor;
-
-pub use self::{container_view::ContainerView, ucursor::UCursor};
 
 #[macro_use]
 pub mod functor;
+
+use concordium_common::UCursor;
 
 pub mod fails;
 
@@ -373,6 +371,7 @@ mod tests {
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
+    use concordium_common::{ContainerView, UCursor};
     use std::collections::HashSet;
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
