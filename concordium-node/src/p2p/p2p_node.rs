@@ -790,7 +790,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(Box::new(msg))
+                .message(msg)
                 .build_broadcast()?
         } else {
             let receiver =
@@ -800,7 +800,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(Box::new(msg))
+                .message(msg)
                 .build_direct(receiver)?
         };
 

@@ -214,7 +214,7 @@ mod integration_test {
                     .peer(p2p_peer.clone())
                     .message_id("MSG-ID-1".to_string())
                     .network_id(NetworkId::from(100))
-                    .message(Box::new(inner_msg.clone()))
+                    .message(inner_msg.clone())
                     .build_broadcast()
                     .unwrap(),
                 None,
@@ -225,7 +225,7 @@ mod integration_test {
                     .peer(p2p_peer)
                     .message_id("MSG-ID-2".to_string())
                     .network_id(NetworkId::from(100))
-                    .message(Box::new(inner_msg))
+                    .message(inner_msg)
                     .build_direct(node_id)
                     .unwrap(),
                 None,

@@ -578,7 +578,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
+            .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
@@ -607,7 +607,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
+            .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast()?;
 
         let serialized = msg.serialize();

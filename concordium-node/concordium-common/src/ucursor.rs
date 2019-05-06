@@ -12,7 +12,7 @@ use crate::ContainerView;
 #[derive(Debug)]
 pub struct UCursorFile {
     pub src_temp_file: Arc<NamedTempFile>,
-    pub file:          BufReader<File>,
+    pub file:          Box<BufReader<File>>,
     pub len:           u64,
     pub pos:           u64,
     pub offset:        u64,
@@ -25,7 +25,7 @@ impl UCursorFile {
 
         Ok(UCursorFile {
             src_temp_file: Arc::new(tmp_file),
-            file:          BufReader::new(file),
+            file:          Box::new(BufReader::new(file)),
             len:           0,
             pos:           0,
             offset:        0,
@@ -42,7 +42,7 @@ impl UCursorFile {
     fn try_clone(&self) -> Result<Self> {
         Ok(UCursorFile {
             src_temp_file: Arc::clone(&self.src_temp_file),
-            file:          BufReader::new(self.src_temp_file.reopen()?),
+            file:          Box::new(BufReader::new(self.src_temp_file.reopen()?)),
             len:           self.len,
             pos:           0,
             offset:        self.offset,
