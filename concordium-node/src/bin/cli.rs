@@ -966,26 +966,27 @@ fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) 
 fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
-) -> Result<(Vec<u8>, Vec<u8>), &'static str> {
+) -> Fallible<(Vec<u8>, Vec<u8>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push("genesis.dat");
+
     let mut private_loc = app_prefs.get_user_app_dir();
+
     if let Some(baker_id) = conf.baker_id {
         private_loc.push(format!("baker_private_{}.dat", baker_id))
     };
+
     let (generated_genesis, generated_private_data) = if !genesis_loc.exists()
         || !private_loc.exists()
     {
-        match consensus::ConsensusContainer::generate_data(
+        consensus::ConsensusContainer::generate_data(
             conf.baker_genesis,
             conf.baker_num_bakers,
-        ) {
-            Ok((genesis, private_data)) => (genesis, private_data),
-            Err(_) => return Err("Error generating genesis and/or private baker data via haskell!"),
-        }
+        )?
     } else {
         (vec![], HashMap::new())
     };
+
     let given_genesis = if !genesis_loc.exists() {
         match OpenOptions::new()
             .read(true)
@@ -995,9 +996,9 @@ fn get_baker_data(
         {
             Ok(mut file) => match file.write_all(&generated_genesis) {
                 Ok(_) => generated_genesis,
-                Err(_) => return Err("Couldn't write out genesis data"),
+                Err(_) => bail!("Couldn't write out genesis data"),
             },
-            Err(_) => return Err("Couldn't open up genesis file for writing"),
+            Err(_) => bail!("Couldn't open up genesis file for writing"),
         }
     } else {
         match OpenOptions::new().read(true).open(&genesis_loc) {
@@ -1005,12 +1006,13 @@ fn get_baker_data(
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
                     Ok(_) => read_data.clone(),
-                    Err(_) => return Err("Couldn't read genesis file properly"),
+                    Err(_) => bail!("Couldn't read genesis file properly"),
                 }
             }
-            _ => return Err("Unexpected"),
+            _ => bail!("Unexpected"),
         }
     };
+
     let given_private_data = if !private_loc.exists() {
         match OpenOptions::new()
             .read(true)
@@ -1022,13 +1024,13 @@ fn get_baker_data(
                 if let Some(baker_id) = conf.baker_id {
                     match file.write_all(&generated_private_data[&(baker_id as i64)]) {
                         Ok(_) => generated_private_data[&(baker_id as i64)].to_owned(),
-                        Err(_) => return Err("Couldn't write out private baker data"),
+                        Err(_) => bail!("Couldn't write out private baker data"),
                     }
                 } else {
-                    return Err("Couldn't write out private baker data");
+                    bail!("Couldn't write out private baker data");
                 }
             }
-            Err(_) => return Err("Couldn't open up private baker file for writing"),
+            Err(_) => bail!("Couldn't open up private baker file for writing"),
         }
     } else {
         match OpenOptions::new().read(true).open(&private_loc) {
@@ -1036,10 +1038,10 @@ fn get_baker_data(
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
                     Ok(_) => read_data,
-                    Err(_) => return Err("Couldn't open up private baker file for reading"),
+                    Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
-            _ => return Err("Unexpected"),
+            _ => bail!("Unexpected"),
         }
     };
     Ok((given_genesis, given_private_data))

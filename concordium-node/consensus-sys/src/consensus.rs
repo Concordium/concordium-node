@@ -1,5 +1,7 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
+use failure::{bail, Fallible};
+
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
@@ -256,64 +258,55 @@ impl Default for ConsensusOutQueue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, block: Block) -> Result<(), mpsc::SendError<Block>> {
-        safe_lock!(self.sender_block).send(block)
+    pub fn send_block(self, block: Block) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_block).send(block))
     }
 
-    pub fn recv_block(self) -> Result<Block, mpsc::RecvError> {
-        safe_lock!(self.receiver_block).recv()
+    pub fn recv_block(self) -> Fallible<Block> {
+        into_err!(safe_lock!(self.receiver_block).recv())
     }
 
-    pub fn recv_timeout_block(self, timeout: Duration) -> Result<Block, mpsc::RecvTimeoutError> {
-        safe_lock!(self.receiver_block).recv_timeout(timeout)
+    pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<Block> {
+        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
     }
 
-    pub fn try_recv_block(self) -> Result<Block, mpsc::TryRecvError> {
-        safe_lock!(self.receiver_block).try_recv()
+    pub fn try_recv_block(self) -> Fallible<Block> {
+        into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
-    pub fn send_finalization(
-        self,
-        msg: FinalizationMessage,
-    ) -> Result<(), mpsc::SendError<FinalizationMessage>> {
-        safe_lock!(self.sender_finalization).send(msg)
+    pub fn send_finalization(self, msg: FinalizationMessage) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_finalization).send(msg))
     }
 
-    pub fn recv_finalization(self) -> Result<FinalizationMessage, mpsc::RecvError> {
-        safe_lock!(self.receiver_finalization).recv()
+    pub fn recv_finalization(self) -> Fallible<FinalizationMessage> {
+        into_err!(safe_lock!(self.receiver_finalization).recv())
     }
 
-    pub fn recv_timeout_finalization(
-        self,
-        timeout: Duration,
-    ) -> Result<FinalizationMessage, mpsc::RecvTimeoutError> {
-        safe_lock!(self.receiver_finalization).recv_timeout(timeout)
+    pub fn recv_timeout_finalization(self, timeout: Duration) -> Fallible<FinalizationMessage> {
+        into_err!(safe_lock!(self.receiver_finalization).recv_timeout(timeout))
     }
 
-    pub fn try_recv_finalization(self) -> Result<FinalizationMessage, mpsc::TryRecvError> {
-        safe_lock!(self.receiver_finalization).try_recv()
+    pub fn try_recv_finalization(self) -> Fallible<FinalizationMessage> {
+        into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 
-    pub fn send_finalization_record(
-        self,
-        rec: FinalizationRecord,
-    ) -> Result<(), mpsc::SendError<FinalizationRecord>> {
-        safe_lock!(self.sender_finalization_record).send(rec)
+    pub fn send_finalization_record(self, rec: FinalizationRecord) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_finalization_record).send(rec))
     }
 
-    pub fn recv_finalization_record(self) -> Result<FinalizationRecord, mpsc::RecvError> {
-        safe_lock!(self.receiver_finalization_record).recv()
+    pub fn recv_finalization_record(self) -> Fallible<FinalizationRecord> {
+        into_err!(safe_lock!(self.receiver_finalization_record).recv())
     }
 
     pub fn recv_timeout_finalization_record(
         self,
         timeout: Duration,
-    ) -> Result<FinalizationRecord, mpsc::RecvTimeoutError> {
-        safe_lock!(self.receiver_finalization_record).recv_timeout(timeout)
+    ) -> Fallible<FinalizationRecord> {
+        into_err!(safe_lock!(self.receiver_finalization_record).recv_timeout(timeout))
     }
 
-    pub fn try_recv_finalization_record(self) -> Result<FinalizationRecord, mpsc::TryRecvError> {
-        safe_lock!(self.receiver_finalization_record).try_recv()
+    pub fn try_recv_finalization_record(self) -> Fallible<FinalizationRecord> {
+        into_err!(safe_lock!(self.receiver_finalization_record).try_recv())
     }
 
     pub fn clear(&self) {
@@ -424,7 +417,7 @@ impl ConsensusContainer {
     pub fn generate_data(
         genesis_time: u64,
         num_bakers: u64,
-    ) -> Result<(GenesisData, PrivateData), &'static str> {
+    ) -> Fallible<(GenesisData, PrivateData)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
@@ -448,16 +441,16 @@ impl ConsensusContainer {
         }
         let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.write() {
             Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
-            _ => return Err("Didn't get genesis from haskell"),
+            _ => bail!("Didn't get genesis from haskell"),
         };
         if let Ok(priv_data) = GENERATED_PRIVATE_DATA.read() {
             if priv_data.len() < num_bakers as usize {
-                return Err("Didn't get private data from haskell");
+                bail!("Didn't get private data from haskell");
             } else {
                 return Ok((genesis_data, priv_data.clone()));
             }
         } else {
-            return Err("Didn't get private data from haskell");
+            bail!("Didn't get private data from haskell");
         }
     }
 
