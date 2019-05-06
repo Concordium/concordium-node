@@ -9,8 +9,16 @@ extern crate grpciowin as grpcio;
 mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
-        common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
-        p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
+        common::{
+            functor::{FilterFunctor, Functorable},
+            PeerType,
+        },
+        configuration::Config,
+        db::P2PDB,
+        network::NetworkMessage,
+        p2p::p2p_node::P2PNode,
+        proto::*,
+        rpc::RpcServerImpl,
     };
     use std::{
         sync::{
@@ -59,7 +67,15 @@ mod tests {
                 100,
             );
 
-            let node = P2PNode::new($id, &config, pkt_in, Some(sender), peer_type, None);
+            let node = P2PNode::new(
+                $id,
+                &config,
+                pkt_in,
+                Some(sender),
+                peer_type,
+                None,
+                Arc::new(FilterFunctor::new("Broadcasting_checks")),
+            );
 
             let rpc_port = next_port_offset_rpc(1);
             config.cli.rpc.rpc_server_port = rpc_port;

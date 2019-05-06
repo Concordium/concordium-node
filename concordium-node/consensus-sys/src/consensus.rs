@@ -1,3 +1,5 @@
+use crate::block::*;
+
 use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
 use std::{
@@ -154,8 +156,8 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, data: &Block) -> i64 {
-        wrap_send_data_to_c!(self, data.serialize().unwrap(), receiveBlock)
+    pub fn send_block(&self, block: &Block) -> i64 {
+        wrap_send_data_to_c!(self, block.serialize().unwrap(), receiveBlock)
     }
 
     pub fn send_finalization(&self, data: Vec<u8>) {
@@ -384,7 +386,7 @@ impl ConsensusContainer {
 
     pub fn send_block(&self, block: &Block) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
-            if block.baker_id != *id {
+            if block.baker_id() != *id {
                 return baker.send_block(&block);
             }
         }
@@ -529,12 +531,15 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
         let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
         match block_type {
             0 => match Block::deserialize(s) {
-                Some(block) => match CALLBACK_QUEUE.clone().send_block(block) {
-                    Ok(_) => {
-                        debug!("Queueing {} block bytes", data_length);
+                Some(block) => {
+                    debug!("Got a block: {:?}", block);
+                    match CALLBACK_QUEUE.clone().send_block(block) {
+                        Ok(_) => {
+                            debug!("Queueing {} block bytes", data_length);
+                        }
+                        _ => error!("Didn't queue block message properly"),
                     }
-                    _ => error!("Didn't queue block message properly"),
-                },
+                }
                 _ => error!("Deserialization of block failed!"),
             },
             1 => match CALLBACK_QUEUE.clone().send_finalization(s.to_owned()) {
@@ -585,51 +590,6 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
     };
 }
 
-#[derive(Debug)]
-pub struct Nonce {
-    hash:  Vec<u8>,
-    proof: Vec<u8>,
-}
-
-impl Nonce {
-    pub fn new(hash: Vec<u8>, proof: Vec<u8>) -> Self { Nonce { hash, proof } }
-}
-
-#[derive(Debug)]
-pub struct Block {
-    slot_id:  u64,
-    baker_id: u64,
-    data:     Vec<u8>,
-}
-
-impl Block {
-    pub fn deserialize(data: &[u8]) -> Option<Self> {
-        let mut curr_pos = 0;
-        let mut slot_id_bytes = Cursor::new(&data[curr_pos..][..8]);
-        let slot_id = match slot_id_bytes.read_u64::<NetworkEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        curr_pos += 8 + 32;
-        let mut baker_id_bytes = Cursor::new(&data[curr_pos..][..8]);
-        let baker_id = match baker_id_bytes.read_u64::<NetworkEndian>() {
-            Ok(num) => num,
-            _ => return None,
-        };
-        Some(Block {
-            slot_id,
-            baker_id,
-            data: data.to_owned(),
-        })
-    }
-
-    pub fn serialize(&self) -> Result<Vec<u8>, &'static str> { Ok(self.data.to_owned()) }
-
-    pub fn slot_id(&self) -> u64 { self.slot_id }
-
-    pub fn baker_id(&self) -> u64 { self.baker_id }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,33 +609,40 @@ mod tests {
     fn setup() { INIT.call_once(|| env_logger::init()); }
 
     #[test]
-    pub fn serialization_deserialize_block_000() {
+    pub fn deserialize_serialize_block() {
         setup();
         let input = vec![
-            0, 0, 0, 0, 9, 60, 250, 52, 203, 177, 255, 13, 4, 179, 160, 197, 194, 34, 84, 186, 123,
-            247, 222, 246, 39, 60, 144, 3, 126, 183, 208, 197, 207, 80, 228, 15, 218, 177, 206,
-            219, 0, 0, 0, 0, 0, 0, 0, 4, 91, 79, 253, 56, 152, 63, 243, 146, 178, 101, 220, 59, 0,
-            215, 209, 152, 245, 237, 204, 118, 246, 80, 236, 206, 174, 33, 172, 241, 118, 132, 36,
-            208, 106, 143, 223, 92, 102, 126, 60, 231, 13, 232, 238, 120, 7, 245, 9, 213, 161, 61,
-            161, 174, 129, 171, 106, 110, 4, 122, 20, 198, 72, 119, 161, 12, 175, 220, 218, 40, 41,
-            62, 209, 135, 254, 161, 249, 131, 245, 195, 145, 0, 70, 170, 101, 248, 152, 252, 191,
-            72, 76, 111, 146, 107, 78, 212, 30, 212, 238, 60, 247, 236, 20, 142, 224, 186, 91, 159,
-            49, 191, 132, 52, 195, 121, 233, 85, 189, 48, 96, 175, 234, 112, 97, 36, 242, 144, 202,
-            66, 198, 109, 84, 249, 0, 78, 63, 162, 52, 1, 3, 24, 135, 151, 21, 93, 15, 160, 24, 40,
-            169, 25, 45, 145, 153, 30, 141, 28, 140, 200, 240, 63, 98, 215, 193, 186, 178, 84, 53,
-            198, 123, 147, 181, 167, 60, 105, 11, 81, 83, 58, 61, 203, 244, 191, 1, 27, 193, 163,
-            100, 53, 77, 177, 194, 175, 73, 5, 203, 177, 255, 13, 4, 179, 160, 197, 194, 34, 84,
-            186, 123, 247, 222, 246, 39, 60, 144, 3, 126, 183, 208, 197, 207, 80, 228, 15, 218,
-            177, 206, 219, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 25, 222, 218, 238, 169,
-            232, 56, 230, 13, 183, 57, 66, 109, 127, 52, 37, 103, 213, 230, 6, 146, 183, 79, 92,
-            57, 134, 242, 175, 212, 247, 179, 156, 87, 113, 25, 89, 234, 196, 242, 52, 204, 84,
-            139, 223, 8, 38, 198, 13, 210, 197, 193, 159, 232, 175, 181, 172, 169, 164, 174, 44,
-            113, 186, 202, 1,
+            0, 0, 0, 0, 9, 71, 59, 160, 107, 46, 201, 51, 188, 160, 233, 71, 192, 78, 24, 191, 100,
+            186, 65, 60, 90, 108, 200, 104, 202, 158, 140, 155, 148, 115, 240, 37, 85, 11, 195,
+            184, 0, 0, 0, 0, 0, 0, 0, 3, 249, 115, 148, 130, 93, 224, 16, 199, 50, 255, 202, 188,
+            58, 150, 46, 64, 74, 177, 41, 17, 6, 102, 146, 193, 84, 147, 162, 207, 152, 125, 207,
+            238, 180, 60, 243, 189, 229, 69, 102, 67, 142, 34, 190, 111, 177, 145, 1, 186, 175,
+            254, 250, 124, 165, 84, 112, 155, 108, 235, 188, 162, 150, 135, 64, 91, 134, 199, 138,
+            151, 218, 241, 89, 221, 169, 44, 130, 126, 71, 141, 121, 2, 213, 146, 61, 42, 124, 76,
+            107, 127, 34, 196, 225, 168, 233, 119, 112, 239, 161, 210, 254, 163, 27, 192, 169, 73,
+            233, 54, 198, 132, 168, 86, 111, 86, 255, 157, 33, 252, 26, 161, 168, 145, 3, 49, 18,
+            202, 63, 255, 47, 30, 98, 111, 88, 247, 226, 184, 153, 185, 89, 253, 190, 9, 63, 19,
+            176, 63, 122, 244, 30, 254, 101, 158, 61, 193, 192, 17, 91, 160, 125, 106, 120, 65,
+            117, 17, 250, 44, 36, 106, 231, 166, 195, 244, 86, 198, 44, 228, 72, 16, 158, 181, 160,
+            7, 240, 42, 27, 132, 41, 234, 174, 11, 161, 22, 82, 8, 224, 164, 225, 197, 216, 227,
+            183, 11, 150, 128, 57, 253, 75, 65, 143, 41, 189, 35, 36, 110, 11, 180, 201, 8, 167,
+            119, 192, 146, 14, 243, 204, 161, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 99,
+            203, 126, 157, 148, 130, 196, 64, 225, 182, 205, 189, 78, 14, 214, 105, 24, 6, 53, 104,
+            155, 174, 53, 46, 58, 212, 36, 140, 59, 24, 250, 184, 116, 58, 158, 209, 219, 120, 167,
+            80, 250, 12, 155, 181, 159, 38, 21, 76, 17, 163, 120, 85, 98, 161, 153, 200, 241, 198,
+            143, 204, 245, 171, 15, 7,
         ];
         let deserialized = Block::deserialize(&input);
-        assert!(&deserialized.is_some());
+        assert!(deserialized.is_some());
         let block = deserialized.unwrap();
-        assert_eq!(&block.baker_id, &4);
+        assert_eq!(&block.baker_id(), &3);
+
+        let serialized = Block::serialize(&block);
+        assert!(serialized.is_ok());
+        let output = serialized.unwrap();
+        println!("{:?}", output);
+        assert_eq!(output.len(), 352);
+        assert_eq!(output, input);
     }
 
     macro_rules! bakers_test {

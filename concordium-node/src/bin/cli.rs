@@ -14,12 +14,15 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use consensus_sys::consensus;
+use consensus_sys::{block::Block, consensus};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{get_current_stamp, P2PNodeId, PeerType, UCursor},
+    common::{
+        functor::{FilterFunctor, Functorable},
+        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType, UCursor,
+    },
     configuration,
     db::P2PDB,
     network::{
@@ -33,17 +36,15 @@ use p2p_client::{
     utils,
 };
 
-#[cfg(feature = "instrumentation")]
-use p2p_client::safe_read;
-
 use std::{
     collections::HashMap,
     fs::OpenOptions,
     io::{Read, Write},
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
+    time::Duration,
 };
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
@@ -235,29 +236,6 @@ fn setup_baker_guards(
     }
 }
 
-#[cfg(feature = "instrumentation")]
-fn instantiate_prometheus(
-    conf: &configuration::Config,
-) -> Fallible<Option<Arc<RwLock<StatsExportService>>>> {
-    let prom = if conf.prometheus.prometheus_server {
-        info!("Enabling prometheus server");
-        let mut srv = StatsExportService::new(StatsServiceMode::NodeMode)?;
-        srv.start_server(SocketAddr::new(
-            conf.prometheus.prometheus_listen_addr.parse()?,
-            conf.prometheus.prometheus_listen_port,
-        ));
-
-        Some(Arc::new(RwLock::new(srv)))
-    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
-        info!("Enabling prometheus push gateway at {}", push_gateway);
-        let srv = StatsExportService::new(StatsServiceMode::NodeMode)?;
-        Some(Arc::new(RwLock::new(srv)))
-    } else {
-        None
-    };
-    Ok(prom)
-}
-
 fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
@@ -282,6 +260,8 @@ fn instantiate_node(
         None
     };
 
+    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
+
     // Thread #1: Read P2PEvents from P2PNode
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
@@ -297,6 +277,7 @@ fn instantiate_node(
             Some(sender),
             PeerType::Node,
             arc_stats_export_service,
+            Arc::clone(&broadcasting_checks),
         )
     } else {
         P2PNode::new(
@@ -306,6 +287,7 @@ fn instantiate_node(
             None,
             PeerType::Node,
             arc_stats_export_service,
+            Arc::clone(&broadcasting_checks),
         )
     };
     (node, pkt_out)
@@ -342,13 +324,84 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
     }
 }
 
-fn setup_process_output(
+fn setup_lower_process_output(
+    node: &P2PNode,
+    conf: &configuration::Config,
+    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    db: P2PDB,
+) -> mpsc::Receiver<Arc<NetworkMessage>> {
+    let mut _node_self_clone = node.clone();
+
+    let (pkt_higher_in, pkt_higher_out) = mpsc::channel::<Arc<NetworkMessage>>();
+
+    let _no_trust_bans = conf.common.no_trust_bans;
+    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
+    let _desired_nodes_clone = conf.connection.desired_nodes;
+    let _guard_pkt = thread::spawn(move || loop {
+        if let Ok(full_msg) = pkt_out.recv() {
+            match *full_msg {
+                NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
+                    Ok(_) => debug!("Relayed message to higher queue"),
+                    Err(err) => error!("Could not relay message to higher queue {}", err),
+                },
+                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
+                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                }
+                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
+                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                }
+                NetworkMessage::NetworkResponse(
+                    NetworkResponse::PeerList(ref peer, ref peers),
+                    ..
+                ) => {
+                    info!("Received PeerList response, attempting to satisfy desired peers");
+                    let mut new_peers = 0;
+                    let peer_count = _node_self_clone
+                        .get_peer_stats(&[])
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count();
+                    for peer_node in peers {
+                        debug!(
+                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                            peer.id(),
+                            peer.ip(),
+                            peer.port(),
+                            peer_node.id(),
+                            peer_node.ip(),
+                            peer_node.port()
+                        );
+                        if _node_self_clone
+                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                            .map_err(|e| info!("{}", e))
+                            .is_ok()
+                        {
+                            new_peers += 1;
+                        }
+                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
+                            break;
+                        }
+                    }
+                }
+                NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
+                    match pkt_higher_in.send(full_msg) {
+                        Ok(_) => debug!("Relayed message to higher queue"),
+                        Err(err) => error!("Could not relay message to higher queue {}", err),
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+    pkt_higher_out
+}
+
+fn setup_higher_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
-    db: P2PDB,
 ) {
     let mut _node_self_clone = node.clone();
 
@@ -380,7 +433,7 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => match consensus::Block::deserialize(content) {
+                    PACKET_TYPE_CONSENSUS_BLOCK => match Block::deserialize(content) {
                         Some(block) => {
                             match client_utils::add_transmission_to_seenlist(
                                 client_utils::SeenTransmissionType::Block,
@@ -507,42 +560,6 @@ fn setup_process_output(
                             error!("Send network message to baker has failed: {:?}", e);
                         }
                     }
-
-                    NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
-                        utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                    }
-                    NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
-                        utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                    }
-                    NetworkMessage::NetworkResponse(
-                        NetworkResponse::PeerList(ref peer, ref peers),
-                        ..
-                    ) => {
-                        info!("Received PeerList response, attempting to satisfy desired peers");
-                        let mut new_peers = 0;
-                        let stats = _node_self_clone.get_peer_stats(&[]);
-                        for peer_node in peers {
-                            debug!(
-                                "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                                peer.id(),
-                                peer.ip(),
-                                peer.port(),
-                                peer_node.id(),
-                                peer_node.ip(),
-                                peer_node.port()
-                            );
-                            if _node_self_clone
-                                .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                                .map_err(|e| info!("{}", e))
-                                .is_ok()
-                            {
-                                new_peers += 1;
-                            }
-                            if new_peers + stats.len() as u8 >= _desired_nodes_clone {
-                                break;
-                            }
-                        }
-                    }
                     NetworkMessage::NetworkRequest(
                         NetworkRequest::Retransmit(ref peer, since_stamp, network_id),
                         ..
@@ -554,11 +571,12 @@ fn setup_process_output(
                         .map_err(|err| {
                             error!("Can't get list of block packets to retransmit {}", err)
                         }) {
-                            res.iter().for_each(|pkt| {
+                            res.iter().for_each(|(msg_id, pkt)| {
                                 send_retransmit_packet(
                                     &mut _node_self_clone,
                                     peer.id(),
                                     network_id,
+                                    msg_id,
                                     PACKET_TYPE_CONSENSUS_BLOCK,
                                     pkt,
                                 );
@@ -571,11 +589,12 @@ fn setup_process_output(
                         .map_err(|err| {
                             error!("Can't get list of finalizations to retransmit {}", err)
                         }) {
-                            res.iter().for_each(|pkt| {
+                            res.iter().for_each(|(msg_id, pkt)| {
                                 send_retransmit_packet(
                                     &mut _node_self_clone,
                                     peer.id(),
                                     network_id,
+                                    msg_id,
                                     PACKET_TYPE_CONSENSUS_FINALIZATION,
                                     pkt,
                                 );
@@ -591,11 +610,12 @@ fn setup_process_output(
                                 err
                             )
                         }) {
-                            res.iter().for_each(|pkt| {
+                            res.iter().for_each(|(msg_id, pkt)| {
                                 send_retransmit_packet(
                                     &mut _node_self_clone,
                                     peer.id(),
                                     network_id,
+                                    msg_id,
                                     PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
                                     pkt,
                                 );
@@ -630,7 +650,7 @@ fn main() -> Fallible<()> {
     let bootstrap_nodes = utils::get_bootstrap_nodes(
         conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
-        conf.connection.no_dnssec,
+        conf.connection.dnssec_disabled,
         &conf.connection.bootstrap_node,
     );
 
@@ -639,27 +659,21 @@ fn main() -> Fallible<()> {
     db_path.push("p2p.db");
     let db = P2PDB::new(db_path.as_path());
 
-    // Instantiate prometheus
-    #[cfg(feature = "instrumentation")]
-    let stats_export_service = instantiate_prometheus(&conf);
-    #[cfg(not(feature = "instrumentation"))]
-    let stats_export_service: Fallible<Option<Arc<RwLock<StatsExportService>>>> =
-        Ok(Some(Arc::new(RwLock::new(StatsExportService::new(
-            StatsServiceMode::NodeMode,
-        )))));
-
-    let stats_export_service = stats_export_service.unwrap_or_else(|e| {
-        error!(
-            "I was not able to instantiate an stats export service: {}",
-            e
-        );
-        None
-    });
+    // Instantiate stats export engine
+    let stats_export_service =
+        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)
+            .unwrap_or_else(|e| {
+                error!(
+                    "I was not able to instantiate an stats export service: {}",
+                    e
+                );
+                None
+            });
 
     info!("Debugging enabled: {}", conf.common.debug);
 
     // Instantiate the p2p node
-    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+    let (mut node, pkt_lower_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
     // Banning nodes in database
     match db.get_banlist() {
@@ -675,27 +689,9 @@ fn main() -> Fallible<()> {
         }
     };
 
-    // Starting baker
-    let mut baker = start_baker(&conf.cli.baker, &app_prefs);
-
-    // Starting rpc server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
-        serv.start_server()?;
-        Some(serv)
-    } else {
-        None
-    };
-
-    // Connect outgoing messages to be forwarded into the baker
-    // or editing the db, or triggering new connections
-    //
-    // Thread #2: Read P2PNode output
-    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out, db);
-
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
     // Start the P2PNode
     //
@@ -712,10 +708,84 @@ fn main() -> Fallible<()> {
         }
     }
 
+    // Connect outgoing messages to handle bans, peer lists - and forward the rest
+    // to the higher packet queue (baker messages, retransmits, etc).
+    //
+    // Thread #4: Read P2PNode output
+    let pkt_higher_out = setup_lower_process_output(&node, &conf, pkt_lower_out, db.clone());
+
+    let mut baker = if conf.cli.baker.baker_id.is_some() {
+        // Wait until we have at least a certain percentage of peers out of desired
+        // before starting the baker
+        let needed_peers = (f64::from(conf.connection.desired_nodes)
+            * (f64::from(conf.cli.baker.baker_min_peer_satisfaction_percentage) / 100.0))
+            .floor();
+
+        let network_ids: Vec<NetworkId> = conf
+            .common
+            .network_ids
+            .iter()
+            .map(|x| NetworkId::from(x.to_owned()))
+            .collect();
+
+        let mut peer_count_opt = Some(
+            node.get_peer_stats(&network_ids)
+                .iter()
+                .filter(|x| x.peer_type == PeerType::Node)
+                .count(),
+        );
+
+        while let Some(peer_count) = peer_count_opt {
+            if peer_count < needed_peers as usize {
+                // Sleep until we've gotten more peers
+                info!(
+                    "Waiting for {} peers before starting baker. Currently have {}",
+                    needed_peers, peer_count,
+                );
+
+                thread::sleep(Duration::from_secs(5));
+
+                peer_count_opt = Some(
+                    node.get_peer_stats(&network_ids)
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count(),
+                );
+            } else {
+                peer_count_opt = None;
+            }
+        }
+
+        // We've gotten enough peers. We'll let it start the baker now.
+        info!("We've gotten enough peers. Beginning baker startup!");
+        // Starting baker
+        start_baker(&conf.cli.baker, &app_prefs)
+    } else {
+        None
+    };
+
+    // Starting rpc server
+    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
+        serv.start_server()?;
+        Some(serv)
+    } else {
+        None
+    };
+
+    // Connect outgoing messages to be forwarded into the baker and RPC streams.
+    //
+    // Thread #5: Read P2PNode output
+    setup_higher_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_higher_out);
+
     // Create listeners on baker output to forward to P2PNode
     //
-    // Threads #4, #5, #6
+    // Threads #6, #7, #8
     setup_baker_guards(&mut baker, &node, &conf);
+
+    // Create the temporary guard to keep requesting retransmit for a period during
+    // first startup
+    replaceme_retransmit_auto_hook(&node, &conf);
 
     // TPS test
     start_tps_test(&conf, &node);
@@ -767,11 +837,10 @@ fn start_baker(
     })
 }
 
-fn bootstrap(bootstrap_nodes: &Result<Vec<(IpAddr, u16)>, &'static str>, node: &mut P2PNode) {
+fn bootstrap(bootstrap_nodes: &Result<Vec<SocketAddr>, &'static str>, node: &mut P2PNode) {
     match bootstrap_nodes {
         Ok(nodes) => {
-            for &(ip, port) in nodes {
-                let addr = SocketAddr::new(ip, port);
+            for &addr in nodes {
                 info!("Found bootstrap node: {}", addr);
                 node.connect(PeerType::Bootstrapper, addr, None)
                     .unwrap_or_else(|e| error!("{}", e));
@@ -787,19 +856,21 @@ fn create_connections_from_config(
     node: &mut P2PNode,
 ) {
     for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.no_dnssec) {
-            Some((ip, port)) => {
-                info!("Connecting to peer {}", &connect_to);
-                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
-                    .unwrap_or_else(|e| error!("{}", e));
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.dnssec_disabled) {
+            Ok(addrs) => {
+                for addr in addrs {
+                    info!("Connecting to peer {}", &connect_to);
+                    node.connect(PeerType::Node, addr, None)
+                        .unwrap_or_else(|e| error!("{}", e));
+                }
             }
-            None => error!("Can't parse IP to connect to '{}'", &connect_to),
+            Err(err) => error!("{}", err),
         }
     }
 }
 
 #[cfg(feature = "instrumentation")]
-fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &String, pac: &NetworkPacket) {
+fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
     info!("Sending information to test runner");
     match reqwest::get(&format!(
         "{}/register/{}/{}",
@@ -817,36 +888,11 @@ fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &String, pac: &Net
 #[cfg(not(feature = "instrumentation"))]
 fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
-#[cfg(feature = "instrumentation")]
-fn start_push_gateway(
-    conf: &configuration::PrometheusConfig,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
-    id: P2PNodeId,
-) -> Fallible<()> {
-    if let Some(ref service) = stats_export_service {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
-            } else {
-                id.to_string()
-            };
-            safe_read!(service)?.start_push_to_gateway(
-                prom_push_addy.clone(),
-                conf.prometheus_push_interval,
-                conf.prometheus_job_name.clone(),
-                instance_name,
-                conf.prometheus_push_username.clone(),
-                conf.prometheus_push_password.clone(),
-            )
-        }
-    }
-    Ok(())
-}
-
 fn send_retransmit_packet(
     node: &mut P2PNode,
     receiver: P2PNodeId,
     network_id: NetworkId,
+    message_id: &str,
     payload_type: u16,
     data: &[u8],
 ) {
@@ -854,13 +900,54 @@ fn send_retransmit_packet(
     match out_bytes.write_u16::<BigEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
-            match node.send_message(Some(receiver), network_id, None, out_bytes, false) {
+            match node.send_message(
+                Some(receiver),
+                network_id,
+                Some(message_id.to_owned()),
+                out_bytes,
+                false,
+            ) {
                 Ok(_) => info!("Retransmitted packet of type {}", payload_type),
                 Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
             }
         }
         Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
     }
+}
+
+fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) {
+    let _retransmit_times = conf.cli.baker.baker_retransmit_request_times;
+    let _retransmit_sleep_time = conf.cli.baker.baker_retransmit_request_interval;
+    let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
+    let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
+    let mut _node_clone = node.clone();
+    thread::spawn(move || {
+        for slot in 0.._retransmit_times {
+            info!(
+                "Retransmit Request #{}: Sleeping {} seconds before next retransmit request",
+                slot, _retransmit_sleep_time
+            );
+            thread::sleep(Duration::from_secs(u64::from(_retransmit_sleep_time)));
+            _node_clone
+                .get_peer_stats(&[])
+                .iter()
+                .filter(|peer| peer.peer_type == PeerType::Node)
+                .for_each(|peer| {
+                    let p2p_peer = P2PPeerBuilder::default()
+                        .id(P2PNodeId::from_str(&peer.id).unwrap())
+                        .addr(peer.addr)
+                        .peer_type(peer.peer_type)
+                        .build()
+                        .unwrap();
+                    _node_clone.send_retransmit(
+                        p2p_peer,
+                        p2p_client::common::get_current_stamp()
+                            - u64::from(_retransmit_back_in_time),
+                        _network_id,
+                    );
+                });
+        }
+    });
 }
 
 fn get_baker_data(

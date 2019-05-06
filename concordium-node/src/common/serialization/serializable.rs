@@ -22,6 +22,15 @@ impl Serializable for u8 {
     }
 }
 
+impl Serializable for u16 {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u16(*self)
+    }
+}
+
 impl Serializable for String {
     #[inline]
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
@@ -66,7 +75,8 @@ impl Serializable for Ipv4Addr {
     where
         A: WriteArchive, {
         archive.write_u8(4u8)?;
-        archive.write_slice(&self.octets())
+        archive.write(&self.octets())?;
+        Ok(())
     }
 }
 

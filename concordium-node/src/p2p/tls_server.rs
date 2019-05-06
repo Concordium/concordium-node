@@ -19,13 +19,13 @@ use webpki::DNSNameRef;
 
 use crate::{
     common::{
-        functor::afunctor::{AFunctor, AFunctorCW},
+        functor::{UnitFunction, UnitFunctor, Functorable},
         get_current_stamp,
         serialization::Serializable,
         P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
-    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
+    network::{Buckets, NetworkId, NetworkRequest, NetworkMessage},
     p2p::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
         tls_server_private::TlsServerPrivate,
@@ -33,8 +33,8 @@ use crate::{
     stats_export_service::StatsExportService,
 };
 
-pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
-pub type PreHandshake = AFunctor<SocketAddr>;
+pub type PreHandshakeCW = UnitFunction<SocketAddr>;
+pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
     server:                  Option<TcpListener>,
@@ -360,13 +360,9 @@ impl TlsServer {
         }
     }
 
-    pub fn conn_event(
-        &mut self,
-        poll: &mut Poll,
-        event: &Event,
-        packet_queue: &Sender<Arc<NetworkMessage>>,
-    ) -> Fallible<()> {
-        write_or_die!(self.dptr).conn_event(poll, event, packet_queue)
+    #[inline]
+    pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
+        write_or_die!(self.dptr).conn_event(event)
     }
 
     pub fn cleanup_connections(&self, poll: &mut Poll) -> Fallible<()> {

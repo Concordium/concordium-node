@@ -1,8 +1,9 @@
+use crate::common::functor::FuncResult;
 use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FunctorResult, get_current_stamp,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
         serialization::Serializable,
     },
     connection::connection_private::ConnectionPrivate,
@@ -29,7 +30,7 @@ macro_rules! reject_handshake {
 pub fn default_network_request_ping_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     _req: &NetworkRequest,
-) -> FunctorResult {
+) -> FuncResult<()> {
     priv_conn.borrow_mut().update_last_seen();
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -64,7 +65,7 @@ pub fn default_network_request_ping_handle(
 pub fn default_network_request_find_node_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkRequest::FindNode(..) = req {
         priv_conn.borrow_mut().update_last_seen();
 
@@ -104,7 +105,7 @@ pub fn default_network_request_find_node_handle(
 pub fn default_network_request_get_peers(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkRequest::GetPeers(ref sender, ref networks) = req {
         debug!("Got request for GetPeers");
 
@@ -147,7 +148,7 @@ pub fn default_network_request_get_peers(
 pub fn default_network_response_find_node(
     priv_conn: &RefCell<ConnectionPrivate>,
     res: &NetworkResponse,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkResponse::FindNode(_, ref peers) = res {
         debug!("Got response to FindNode");
 
@@ -170,7 +171,7 @@ pub fn default_network_response_find_node(
 pub fn default_network_response_pong(
     priv_conn: &RefCell<ConnectionPrivate>,
     _res: &NetworkResponse,
-) -> FunctorResult {
+) -> FuncResult<()> {
     let ping: u64 = priv_conn.borrow().sent_ping;
     let curr: u64 = get_current_stamp();
 
@@ -185,7 +186,7 @@ pub fn default_network_response_pong(
 pub fn default_network_response_peer_list(
     priv_conn: &RefCell<ConnectionPrivate>,
     res: &NetworkResponse,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkResponse::PeerList(_, ref peers) = res {
         let priv_conn_borrow = priv_conn.borrow();
         let mut locked_buckets = safe_write!(priv_conn_borrow.buckets)?;
@@ -201,7 +202,7 @@ pub fn default_network_response_peer_list(
 ///     - Store target peer info and allocates buckets for this connection.
 ///     - Statistics: Export to Stats Exporter Service
 ///     - Log: Join to network
-pub fn default_network_response_handshake(res: &NetworkResponse) -> FunctorResult {
+pub fn default_network_response_handshake(res: &NetworkResponse) -> FuncResult<()> {
     reject_handshake!(NetworkResponse, res)
 }
 
@@ -209,7 +210,7 @@ pub fn default_network_response_handshake(res: &NetworkResponse) -> FunctorResul
 pub fn default_network_request_join_network(
     priv_conn: &RefCell<ConnectionPrivate>,
     res: &NetworkRequest,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkRequest::JoinNetwork(_, network) = res {
         priv_conn.borrow_mut().add_remote_end_network(*network);
 
@@ -234,7 +235,7 @@ pub fn default_network_request_join_network(
 pub fn default_network_request_leave_network(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkRequest::LeaveNetwork(sender, network) = req {
         priv_conn.borrow_mut().remove_remote_end_network(*network);
         let priv_conn_borrow = priv_conn.borrow();
@@ -257,12 +258,12 @@ pub fn default_network_request_leave_network(
 ///     - It replies with a handshake response and a ping.
 ///     - It adds the new network, and updates its buckets.
 ///     - Finally, it sends its peer list.
-pub fn default_network_request_handshake(req: &NetworkRequest) -> FunctorResult {
+pub fn default_network_request_handshake(req: &NetworkRequest) -> FuncResult<()> {
     reject_handshake!(NetworkRequest, req)
 }
 
 /// Unknown messages only updates statistic information.
-pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
+pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> FuncResult<()> {
     debug!("Unknown message received!");
 
     {
@@ -283,7 +284,7 @@ pub fn default_unknown_message(priv_conn: &RefCell<ConnectionPrivate>) -> Functo
 }
 
 /// Invalid messages only updates statistic information.
-pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
+pub fn default_invalid_message(priv_conn: &RefCell<ConnectionPrivate>) -> FuncResult<()> {
     {
         let mut priv_conn_mut = priv_conn.borrow_mut();
 

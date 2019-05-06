@@ -1,17 +1,3 @@
-macro_rules! serialize_message {
-    ($msg_type:expr, $content:expr) => {
-        format!(
-            "{}{}{}{}{}",
-            crate::network::PROTOCOL_NAME,
-            crate::network::PROTOCOL_VERSION,
-            crate::common::get_current_stamp_b64(),
-            $msg_type,
-            $content
-        )
-        .into_bytes()
-    };
-}
-
 #[macro_use]
 pub mod serialization;
 pub mod buckets;

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::functor::FunctorResult,
+    common::functor::FuncResult,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
@@ -17,7 +17,7 @@ use crate::{
 pub fn forward_network_response(
     res: &NetworkResponse,
     queue: &Sender<Arc<NetworkMessage>>,
-) -> FunctorResult {
+) -> FuncResult<()> {
     let outer = Arc::new(NetworkMessage::NetworkResponse(res.to_owned(), None, None));
 
     if let Err(queue_error) = queue.send(outer) {
@@ -31,7 +31,7 @@ pub fn forward_network_response(
 pub fn forward_network_request(
     req: &NetworkRequest,
     packet_queue: &Sender<Arc<NetworkMessage>>,
-) -> FunctorResult {
+) -> FuncResult<()> {
     let outer = Arc::new(NetworkMessage::NetworkRequest(req.to_owned(), None, None));
 
     if let Err(e) = packet_queue.send(outer) {
@@ -50,11 +50,11 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &Arc<Sender<Arc<NetworkMessage>>>,
+    send_queue: &Sender<Arc<NetworkMessage>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
-) -> FunctorResult {
+) -> FuncResult<()> {
     let drop_msg = match pac.packet_type {
         NetworkPacketType::DirectMessage(..) => "Dropping duplicate direct packet",
         NetworkPacketType::BroadcastedMessage => "Dropping duplicate broadcast packet",
@@ -99,11 +99,11 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &Arc<Sender<Arc<NetworkMessage>>>,
+    send_queue: &Sender<Arc<NetworkMessage>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
-) -> FunctorResult {
+) -> FuncResult<()> {
     debug!("### Forward Broadcast Message: msgid: {}", pac.message_id);
     if safe_read!(own_networks)?.contains(&pac.network_id) {
         debug!("Received direct message of size {}", pac.message.len());

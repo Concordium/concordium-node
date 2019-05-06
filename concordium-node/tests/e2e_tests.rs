@@ -7,7 +7,10 @@ extern crate log;
 mod tests {
     use failure::{bail, Fallible};
     use p2p_client::{
-        common::{PeerType, UCursor},
+        common::{
+            functor::{FilterFunctor, Functorable},
+            PeerType, UCursor,
+        },
         configuration::Config,
         connection::MessageManager,
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
@@ -36,7 +39,10 @@ mod tests {
         };
 
         use p2p_client::{
-            common::{PeerType, UCursor},
+            common::{
+                functor::{FilterFunctor, Functorable},
+                PeerType, UCursor,
+            },
             configuration::Config,
             connection::MessageManager,
             network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
@@ -133,9 +139,9 @@ mod tests {
             let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
             config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
-            let export_service = Arc::new(RwLock::new(StatsExportService::new(
-                StatsServiceMode::NodeMode,
-            )));
+            let export_service = Arc::new(RwLock::new(
+                StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
+            ));
             let mut node = P2PNode::new(
                 None,
                 &config,
@@ -143,6 +149,7 @@ mod tests {
                 None,
                 PeerType::Node,
                 Some(export_service),
+                Arc::new(FilterFunctor::new("Broadcasting_checks")),
             );
 
             let mh = node.message_handler();
@@ -966,7 +973,15 @@ mod tests {
 
         let (net_tx, _) = std::sync::mpsc::channel();
         let config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
-        let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
+        let mut node = P2PNode::new(
+            None,
+            &config,
+            net_tx,
+            None,
+            PeerType::Node,
+            None,
+            Arc::new(FilterFunctor::new("Broadcasting_checks")),
+        );
 
         assert_eq!(true, node.close_and_join().is_err());
         assert_eq!(true, node.close_and_join().is_err());

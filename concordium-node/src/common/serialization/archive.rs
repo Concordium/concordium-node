@@ -1,8 +1,15 @@
-use crate::common::{P2PPeer, RemotePeer};
+use crate::common::{
+    serialization::{ Deserializable },
+    P2PPeer, RemotePeer
+};
 
 use failure::{err_msg, Fallible};
 
-use std::{net::IpAddr, str};
+use std::{
+    net::IpAddr,
+    fmt::Display,
+    str
+};
 
 pub trait WriteArchive: Sized + std::io::Write {
     // Write
@@ -11,12 +18,11 @@ pub trait WriteArchive: Sized + std::io::Write {
     fn write_u32(&mut self, data: u32) -> Fallible<()>;
     fn write_u64(&mut self, data: u64) -> Fallible<()>;
 
-    fn write_slice(&mut self, data: &[u8]) -> Fallible<()>;
-
     fn write_str<T: AsRef<str>>(&mut self, s: T) -> Fallible<()> {
         let s_ref = s.as_ref();
         self.write_u32(s_ref.len() as u32)?;
-        self.write_slice(s_ref.as_bytes())
+        self.write(s_ref.as_bytes())?;
+        Ok(())
     }
 }
 
@@ -37,24 +43,35 @@ pub trait ReadArchive: Sized + std::io::Read {
     fn read_u64(&mut self) -> Fallible<u64>;
 
     fn read_n_bytes(&mut self, len: u32) -> Fallible<Vec<u8>>;
-    fn read_into_byte_slice(&mut self, output: &mut [u8]) -> Fallible<()>;
 
     /// #TODO
     /// Should it be read as 'str'?
     fn read_string(&mut self) -> Fallible<String> {
-        let str_len = self.read_u32()?;
-        let str_buf = String::from_utf8(self.read_n_bytes(str_len)?)?;
-        Ok(str_buf)
+        let len = self.read_u32()?;
+        let mut buf = vec![0u8; len as usize];
+        self.read( buf.as_mut_slice())?;
+
+        Ok( String::from_utf8(buf)?)
     }
 
     // Utilitis for parsing.
-    #[inline]
-    fn tag_str<T: AsRef<str>>(&mut self, tag: T) -> Fallible<()> {
-        let value = self.read_string()?;
-        if value.as_str() == tag.as_ref() {
+    fn tag<T>(&mut self, tag: T) -> Fallible<()>
+        where T: Deserializable + PartialEq + Display {
+        let other: T = T::deserialize(self)?;
+        if tag == other {
             Ok(())
         } else {
-            bail!("Expected tag `{}` but found `{}`", tag.as_ref(), value)
+            bail!("Expected tag `{}` but found `{}`", tag, other)
+        }
+    }
+
+    fn tag_slice(&mut self, tag: &[u8]) -> Fallible<()> {
+        let mut buf = vec![0u8; tag.len()];
+        self.read( buf.as_mut_slice())?;
+        if tag == buf.as_slice() {
+            Ok(())
+        } else {
+            bail!("Expected tag `{:?}` but found `{:?}`", tag, buf.as_slice())
         }
     }
 }

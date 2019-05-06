@@ -628,10 +628,9 @@ mod tests {
         let mut ping_data = serialize_into_memory!(ping).unwrap();
 
         // Force and error in version protocol:
-        //  + 4 bytes (size of string)
         //  + 13 bytes (PROTOCOL_NAME)
         //  + 1 byte due to endianess (Version is stored as u16)
-        ping_data[4 + 13 + 1] = (PROTOCOL_VERSION + 1) as u8;
+        ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
 
         let deserialized = deserialize_from_memory!(
             NetworkMessage,
@@ -653,8 +652,7 @@ mod tests {
         let mut ping_data = serialize_into_memory!(ping).unwrap();
 
         // Force and error in protocol name:
-        //  + 4 bytes (size of string)
-        ping_data[4 + 1] = b'X';
+        ping_data[1] = b'X';
 
         let deserialized = deserialize_from_memory!(
             NetworkMessage,

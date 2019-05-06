@@ -25,7 +25,7 @@ fi
 # We should now have built the binaries. Let us extract them
 rm -rf win_build
 mkdir -p win_build
-docker run --rm -v $(pwd)/win_build:/target concordium/windowsbuild /bin/bash -c "cp target/x86_64-pc-windows-gnu/debug/*.exe /target/"
+docker run --rm -v $(pwd)/win_build:/target concordium/windowsbuild /bin/bash -c "cp target/x86_64-pc-windows-gnu/debug/*.exe /target/ && cd deps/internal/crypto/rust-src && ~/.cargo/bin/cargo build --target=x86_64-pc-windows-gnu && cp target/x86_64-pc-windows-gnu/debug/*.dll /target/"
 cp deps/windows/vendor/* win_build/
 cp deps/windows/libunbound/lib/*.dll win_build/
 cp deps/windows/openssl-1.1.1a-win64-mingw/*.dll win_build/

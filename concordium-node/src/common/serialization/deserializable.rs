@@ -27,6 +27,15 @@ impl Deserializable for u8 {
     }
 }
 
+impl Deserializable for u16 {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<u16>
+    where
+        A: ReadArchive, {
+        archive.read_u16()
+    }
+}
+
 impl<T> Deserializable for Box<T>
 where
     T: Deserializable,
@@ -61,7 +70,7 @@ impl Deserializable for Ipv4Addr {
     where
         A: ReadArchive, {
         let mut octects: [u8; 4] = unsafe { std::mem::uninitialized() };
-        archive.read_into_byte_slice(&mut octects)?;
+        archive.read(&mut octects)?;
         Ok(Ipv4Addr::from(octects))
     }
 }

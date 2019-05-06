@@ -75,7 +75,8 @@ impl Serializable for NetworkMessage {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_str(PROTOCOL_NAME)?;
+
+        archive.write(PROTOCOL_NAME.as_bytes())?;
         archive.write_u16(PROTOCOL_VERSION)?;
         archive.write_u64(get_current_stamp as u64)?;
         archive.write_u8(self.protocol_type() as u8)?;
@@ -94,14 +95,10 @@ impl Deserializable for NetworkMessage {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkMessage>
     where
         A: ReadArchive, {
-        archive.tag_str(PROTOCOL_NAME)?;
-        archive.read_u16().and_then(|version| {
-            if version == PROTOCOL_VERSION {
-                Ok(())
-            } else {
-                bail!("Incompatible protocol version")
-            }
-        })?;
+
+        archive.tag_slice(PROTOCOL_NAME.as_bytes())?;
+        archive.tag( PROTOCOL_VERSION)?;
+
         let timestamp: u64 = archive.read_u64()?;
         let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
         let message = match protocol_type {

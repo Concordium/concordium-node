@@ -10,6 +10,7 @@ mod connection_private;
 pub mod fails;
 mod handler_utils;
 
+use crate::common::functor::FuncResult;
 use rustls::Session;
 
 /// It is a common trait for `rustls::ClientSession` and `rustls::ServerSession`
@@ -26,13 +27,12 @@ pub use self::{
     seen_messages_list::SeenMessagesList,
 };
 
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use bytes::{BufMut, BytesMut};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use bytes::BytesMut;
 use std::{
     cell::RefCell,
     collections::HashSet,
     convert::TryFrom,
-    io::Cursor,
     net::{Shutdown, SocketAddr},
     rc::Rc,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
@@ -46,14 +46,15 @@ use failure::{bail, Error, Fallible};
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
-        functor::{AFunctorCW, FunctorError, FunctorResult},
+        functor::{FunctorResult, UnitFunction},
         get_current_stamp,
         serialization::{Deserializable, IOReadArchiveAdapter},
         P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
-        PROTOCOL_HEADER_LENGTH, PROTOCOL_MESSAGE_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        PROTOCOL_HEADER_LENGTH, PROTOCOL_MAX_MESSAGE_SIZE, PROTOCOL_MESSAGE_LENGTH,
+        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_WHOLE_PACKET_SIZE,
     },
     stats_export_service::StatsExportService,
 };
@@ -78,37 +79,8 @@ macro_rules! handle_by_private {
     }};
 }
 
-macro_rules! drop_conn_if_unwanted {
-    ($process:expr, $self:ident) => {
-        if let Err(e) = $process {
-            match e.downcast::<fails::UnwantedMessageError>() {
-                Ok(f) => {
-                    error!("Dropping connection: {}", f);
-                    $self.close();
-                }
-                Err(e) => {
-                    if let Ok(f) = e.downcast::<FunctorError>() {
-                        f.errors.iter().for_each(|x| {
-                            if x.to_string().contains("SendError(..)") {
-                                trace!("Send Error in incoming plaintext");
-                            } else {
-                                error!("{}", x);
-                            }
-                        });
-                    }
-                }
-            }
-        } else if $self.status == ConnectionStatus::Untrusted {
-            $self.setup_message_handler();
-            debug!(
-                "Succesfully executed handshake between {:?} and {:?}",
-                $self.local_peer(),
-                $self.remote_peer()
-            );
-            $self.status = ConnectionStatus::Established;
-        }
-    };
-}
+const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
+const PACKAGE_MAX_BUFFER_SZ: usize = 4096;
 
 #[derive(PartialEq)]
 pub enum ConnectionStatus {
@@ -148,9 +120,8 @@ impl ConnectionBuilder {
                 token,
                 closing: false,
                 closed: false,
-                currently_read: 0,
                 expected_size: 0,
-                pkt_buffer: None,
+                pkt_buffer: BytesMut::with_capacity(PACKAGE_INITIAL_BUFFER_SZ),
                 messages_received: 0,
                 messages_sent: 0,
                 pkt_validated: false,
@@ -240,11 +211,10 @@ pub struct Connection {
     token:                   Token,
     pub closing:             bool,
     closed:                  bool,
-    currently_read:          u32,
     pkt_validated:           bool,
     pkt_valid:               bool,
     expected_size:           u32,
-    pkt_buffer:              Option<BytesMut>,
+    pkt_buffer:              BytesMut,
     messages_sent:           u64,
     messages_received:       u64,
     last_ping_sent:          u64,
@@ -285,10 +255,10 @@ impl Connection {
     // Setup message handler
     // ============================
 
-    fn make_update_last_seen_handler<T>(&self) -> AFunctorCW<T> {
+    fn make_update_last_seen_handler<T>(&self) -> UnitFunction<T> {
         let priv_conn = Rc::clone(&self.dptr);
 
-        make_atomic_callback!(move |_: &T| -> FunctorResult {
+        make_atomic_callback!(move |_: &T| -> FuncResult<()> {
             priv_conn.borrow_mut().update_last_seen();
             Ok(())
         })
@@ -425,16 +395,6 @@ impl Connection {
 
     pub fn last_seen(&self) -> u64 { self.dptr.borrow().last_seen() }
 
-    fn append_buffer(&mut self, new_data: &[u8]) {
-        if let Some(ref mut buf) = self.pkt_buffer {
-            buf.reserve(new_data.len());
-            buf.put_slice(new_data);
-            self.currently_read += new_data.len() as u32;
-        }
-    }
-
-    fn update_buffer_read_stats(&mut self, buf_len: u32) { self.currently_read += buf_len; }
-
     pub fn local_peer(&self) -> P2PPeer { self.dptr.borrow().local_peer.clone() }
 
     pub fn remote_peer(&self) -> RemotePeer { self.dptr.borrow().remote_peer().to_owned() }
@@ -444,12 +404,8 @@ impl Connection {
     pub fn get_messages_sent(&self) -> u64 { self.messages_sent }
 
     fn clear_buffer(&mut self) {
-        if let Some(ref mut buf) = self.pkt_buffer {
-            buf.clear();
-        }
-        self.currently_read = 0;
+        self.pkt_buffer.clear();
         self.expected_size = 0;
-        self.pkt_buffer = None;
         self.pkt_valid = false;
         self.pkt_validated = false;
     }
@@ -464,8 +420,16 @@ impl Connection {
 
     pub fn failed_pkts(&self) -> u32 { self.dptr.borrow().failed_pkts }
 
-    fn setup_buffer(&mut self) {
-        self.pkt_buffer = Some(BytesMut::with_capacity(1024));
+    fn setup_buffer(&mut self, expected_size: u32) {
+        // It resets packet buffer, to keep memory footprint low per connection.
+        // Otherwise, it reuses the current buffer.
+        if self.pkt_buffer.capacity() > PACKAGE_MAX_BUFFER_SZ {
+            self.pkt_buffer = BytesMut::with_capacity(PACKAGE_INITIAL_BUFFER_SZ);
+        } else {
+            self.pkt_buffer.clear();
+        }
+
+        self.expected_size = expected_size;
         self.pkt_valid = false;
         self.pkt_validated = false;
     }
@@ -492,12 +456,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn ready(
-        &mut self,
-        poll: &mut Poll,
-        ev: &Event,
-        packets_queue: &Sender<Arc<NetworkMessage>>,
-    ) -> Fallible<()> {
+    pub fn ready(&mut self, ev: &Event) -> Fallible<()> {
         let ev_readiness = ev.readiness();
 
         if ev_readiness.is_readable() {
@@ -506,7 +465,7 @@ impl Connection {
                 if size == 0 {
                     break;
                 }
-                self.try_plain_read(poll, packets_queue)?;
+                self.try_plain_read()?;
             }
         }
 
@@ -554,23 +513,25 @@ impl Connection {
         }
     }
 
-    fn try_plain_read(
-        &mut self,
-        poll: &mut Poll,
-        packets_queue: &Sender<Arc<NetworkMessage>>,
-    ) -> Fallible<()> {
+    fn try_plain_read(&mut self) -> Fallible<()> {
         // Read and process all available plaintext.
-        let mut buf = Vec::new();
+        let mut read_buffer = Vec::new();
 
-        let read_status = self.dptr.borrow_mut().tls_session.read_to_end(&mut buf);
+        let read_status = self
+            .dptr
+            .borrow_mut()
+            .tls_session
+            .read_to_end(&mut read_buffer);
         match read_status {
             Ok(_) => {
-                if !buf.is_empty() {
-                    trace!("plaintext read {:?}", buf.len());
-                    self.incoming_plaintext(poll, packets_queue, &buf)
-                } else {
-                    Ok(())
+                trace!("plaintext read {:?}", read_buffer.len());
+
+                let mut buf = read_buffer.as_slice();
+                while !buf.is_empty() {
+                    buf = self.incoming_plaintext(buf);
                 }
+
+                Ok(())
             }
             Err(read_err) => {
                 self.closing = true;
@@ -586,7 +547,7 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult {
+    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult<()> {
         let buf_cursor = UCursor::from(buf);
 
         let mut archive = IOReadArchiveAdapter::new(
@@ -594,7 +555,8 @@ impl Connection {
             self.remote_peer().clone(),
             self.remote_addr().ip(),
         );
-        let message = NetworkMessage::deserialize(&mut archive)?;
+        let message = NetworkMessage::deserialize(&mut archive)
+            .map_err( |e| vec![e])?;
         let outer = Arc::new(message);
 
         self.messages_received += 1;
@@ -625,141 +587,138 @@ impl Connection {
     }
 
     fn validate_packet(&mut self) {
-        if !self.pkt_validated() {
-            let buff = if let Some(ref bytebuf) = self.pkt_buffer {
-                if bytebuf.len() >= PROTOCOL_MESSAGE_LENGTH {
-                    Some(bytebuf[PROTOCOL_HEADER_LENGTH..][..PROTOCOL_MESSAGE_TYPE_LENGTH].to_vec())
-                } else {
-                    None
-                }
+        if !self.pkt_validated() && self.pkt_buffer.len() >= PROTOCOL_MESSAGE_LENGTH {
+            let pkt_header: &[u8] =
+                &self.pkt_buffer[PROTOCOL_HEADER_LENGTH..][..PROTOCOL_MESSAGE_TYPE_LENGTH];
+
+            if self.validate_packet_type(pkt_header).is_err() {
+                info!("Received network packet message, not wanted - disconnecting peer");
+                self.clear_buffer();
+                self.close();
             } else {
-                None
-            };
-            if let Some(ref bufdata) = buff {
-                if self.validate_packet_type(bufdata).is_err() {
-                    info!("Received network packet message, not wanted - disconnecting peer");
-                    self.clear_buffer();
-                    self.close();
-                } else {
-                    self.set_valid();
-                    self.set_validated();
-                }
+                self.set_valid();
+                self.set_validated();
             }
         }
     }
 
-    fn read_with_matching_sizes(
-        &mut self,
-        poll: &mut Poll,
-        packets_queue: &Sender<Arc<NetworkMessage>>,
-        buf: &[u8],
-    ) -> Fallible<()> {
-        trace!("Completed packet with {} size", self.currently_read);
-        if self.pkt_valid() || !self.pkt_validated() {
-            let mut buffered = Vec::new();
-            if let Some(ref mut buf) = self.pkt_buffer {
-                buffered = buf[..].to_vec();
-            }
-            self.validate_packet_type(&buffered)?;
-            drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
-        }
+    /// It appends data from `buf` into `self.pkt_buffer` taking account the
+    /// `expected_size` for this message.
+    /// As soon as message is completed, it is processed.
+    ///
+    /// # Return
+    /// An slice with pending bytes from `buf` to be processed.
+    fn append_and_process_message<'a>(&mut self, buf: &'a [u8]) -> &'a [u8] {
+        // 1. We know message size: Append and check for packet completion
+        let pending_read = self.expected_size - self.pkt_buffer.len() as u32;
+        let max_to_append = std::cmp::min(buf.len(), pending_read as usize);
 
-        self.clear_buffer();
-        self.incoming_plaintext(poll, packets_queue, buf)?;
-        Ok(())
-    }
+        self.pkt_buffer.extend_from_slice(&buf[..max_to_append]);
+        trace!(
+            "Append packet with {} bytes, new size is {} bytes",
+            max_to_append,
+            self.pkt_buffer.len()
+        );
 
-    fn read_with_less_than_needed(&mut self, buf: &[u8]) -> Fallible<()> {
-        if self.pkt_valid() || !self.pkt_validated() {
-            self.append_buffer(&buf);
-        } else {
-            self.update_buffer_read_stats(buf.len() as u32);
-        }
-        if self.expected_size == self.currently_read {
-            trace!("Completed packet with {} size", self.currently_read);
+        if self.pkt_buffer.len() == self.expected_size as usize {
+            trace!("Completed packet with {} size", self.pkt_buffer.len());
+            self.validate_packet();
             if self.pkt_valid() || !self.pkt_validated() {
-                let mut buffered = Vec::new();
-                if let Some(ref mut buf) = self.pkt_buffer {
-                    buffered = buf[..].to_vec();
-                }
-                self.validate_packet_type(&buffered)?;
-                drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
+                let res = self.process_complete_packet(self.pkt_buffer.to_vec());
+                self.drop_conn_if_unwanted(res)
             }
             self.clear_buffer();
         }
-        Ok(())
+
+        &buf[max_to_append..]
     }
 
-    fn read_with_more_than_needed(
-        &mut self,
-        poll: &mut Poll,
-        packets_queue: &Sender<Arc<NetworkMessage>>,
-        buf: &[u8],
-    ) -> Fallible<()> {
-        trace!("Got more buffer than needed");
-        let to_take = self.expected_size - self.currently_read;
-        if self.pkt_valid() || !self.pkt_validated() {
-            self.append_buffer(&buf[..to_take as usize]);
-            let mut buffered = Vec::new();
-            if let Some(ref mut buf) = self.pkt_buffer {
-                buffered = buf[..].to_vec();
+    fn drop_conn_if_unwanted(&mut self, process_result: FunctorResult<()>) {
+        if let Err(e) = process_result {
+            if let Some(f) = e
+                .errors
+                .iter()
+                .find(|ref x| x.downcast_ref::<fails::UnwantedMessageError>().is_some())
+            {
+                error!("Dropping connection: {}", f);
+                self.close();
+            } else {
+                e.errors.iter().for_each(|x| error!("{}", x));
             }
-            self.validate_packet_type(&buffered)?;
-            drop_conn_if_unwanted!(self.process_complete_packet(buffered), self)
+        } else if self.status == ConnectionStatus::Untrusted {
+            self.setup_message_handler();
+            debug!(
+                "Succesfully executed handshake between {:?} and {:?}",
+                self.local_peer(),
+                self.remote_peer()
+            );
+            self.status = ConnectionStatus::Established;
         }
-        self.clear_buffer();
-        self.incoming_plaintext(poll, &packets_queue, &buf[to_take as usize..])?;
-        Ok(())
     }
 
-    fn read_packet_size(
-        &mut self,
-        poll: &mut Poll,
-        packets_queue: &Sender<Arc<NetworkMessage>>,
-        buf: &[u8],
-    ) -> Fallible<()> {
-        trace!("Trying to read size");
-        let _buf = &buf[..4].to_vec();
-        let mut size_bytes = Cursor::new(_buf);
-        self.expected_size = size_bytes
-            .read_u32::<NetworkEndian>()
-            .expect("Couldn't read from buffer on incoming plaintext");
-        if self.expected_size > 268_435_456 {
-            error!("Packet can't be bigger than 256MB");
-            self.expected_size = 0;
-            self.incoming_plaintext(poll, &packets_queue, &buf[4..])?;
-        } else {
-            self.setup_buffer();
-            if buf.len() > 4 {
-                trace!("Got enough to read it...");
-                self.incoming_plaintext(poll, &packets_queue, &buf[4..])?;
+    /// It tries to load the expected size for the next message.
+    fn append_and_check_size<'a>(&mut self, buf: &'a [u8]) -> &'a [u8] {
+        let mut message_offset = 0;
+
+        // Prefetch 'expected size' into `pkt_buffer`.
+        if self.pkt_buffer.len() < PROTOCOL_WHOLE_PACKET_SIZE {
+            message_offset = std::cmp::min(
+                buf.len(),
+                PROTOCOL_WHOLE_PACKET_SIZE - self.pkt_buffer.len(),
+            );
+            self.pkt_buffer.extend_from_slice(&buf[..message_offset]);
+        }
+
+        // If we've got enough after prefetching, then we could got further
+        if self.pkt_buffer.len() >= PROTOCOL_WHOLE_PACKET_SIZE {
+            trace!(
+                "Trying to read size from raw buffer of {} bytes",
+                self.pkt_buffer.len()
+            );
+
+            #[cfg(test)]
+            const_assert!(PROTOCOL_WHOLE_PACKET_SIZE >= 4);
+            let expected_size =
+                NetworkEndian::read_u32(&self.pkt_buffer[..PROTOCOL_WHOLE_PACKET_SIZE]);
+
+            if self.expected_size as usize <= PROTOCOL_MAX_MESSAGE_SIZE {
+                // Clean buffer and start to process know-size message.
+                self.setup_buffer(expected_size);
+                trace!("New message with expected size {} bytes", expected_size);
+
+                self.append_and_process_message(&buf[message_offset..])
+            } else {
+                // force to drop connection, because remote peer is breaking the protocol.
+                error!(
+                    "Expected Message size is more that {} bytes, dropping that connection",
+                    self.expected_size
+                );
+                self.close();
+                &[]
             }
-        };
-        Ok(())
+        } else {
+            debug!(
+                "We received only {} bytes, but we need at least {}",
+                self.pkt_buffer.len(),
+                PROTOCOL_MAX_MESSAGE_SIZE
+            );
+            &[]
+        }
     }
 
-    fn incoming_plaintext(
-        &mut self,
-        poll: &mut Poll,
-        packets_queue: &Sender<Arc<NetworkMessage>>,
-        buf: &[u8],
-    ) -> Fallible<()> {
+    /// It tries to build a complete message before process it.
+    /// This call should be used iteratively because it only works build a
+    /// process one message at a time.
+    ///
+    /// # Return
+    /// A slice of pending bytes to be processed.
+    fn incoming_plaintext<'a>(&mut self, buf: &'a [u8]) -> &'a [u8] {
         trace!("Received plaintext");
-        self.validate_packet();
-        if self.expected_size > 0 && self.currently_read == self.expected_size {
-            self.read_with_matching_sizes(poll, packets_queue, buf)
-        } else if self.expected_size > 0
-            && buf.len() <= (self.expected_size as usize - self.currently_read as usize)
-        {
-            self.read_with_less_than_needed(buf)
-        } else if self.expected_size > 0
-            && buf.len() > (self.expected_size as usize - self.currently_read as usize)
-        {
-            self.read_with_more_than_needed(poll, packets_queue, buf)
-        } else if buf.len() >= 4 {
-            self.read_packet_size(poll, packets_queue, buf)
+
+        if self.expected_size > 0 {
+            self.append_and_process_message(buf)
         } else {
-            bail!(fails::NotEnoughBytesToRead)
+            self.append_and_check_size(buf)
         }
     }
 
@@ -776,9 +735,10 @@ impl Connection {
 
     /// It tries to write into socket all pending to write.
     /// It returns how many bytes were writte into the socket.
+    #[cfg(not(target_os = "windows"))]
     fn flush_tls(&mut self) -> Fallible<usize> {
         let wants_write =
-            self.dptr.borrow().tls_session.wants_write() && !self.closed && !self.closing;
+            !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
             debug!(
                 "{}/{} is attempting to write to socket {:?}",
@@ -791,18 +751,42 @@ impl Connection {
             let mut lptr = self.dptr.borrow_mut();
             match lptr.tls_session.writev_tls(&mut wr) {
                 Err(e) => match e.kind() {
-                    std::io::ErrorKind::WouldBlock => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
-                    std::io::ErrorKind::WriteZero => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
-                    std::io::ErrorKind::Interrupted => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::Interrupted => into_err!(Err(e)),
                     _ => {
                         self.closed = true;
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
+                        into_err!(Err(e))
+                    }
+                },
+                Ok(size) => Ok(size),
+            }
+        } else {
+            Ok(0)
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn flush_tls(&mut self) -> Fallible<usize> {
+        let wants_write =
+            !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
+        if wants_write {
+            debug!(
+                "{}/{} is attempting to write to socket {:?}",
+                self.local_id(),
+                self.local_addr(),
+                self.socket
+            );
+
+            let mut lptr = self.dptr.borrow_mut();
+            match lptr.tls_session.write_tls(&mut self.socket) {
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::Interrupted => into_err!(Err(e)),
+                    _ => {
+                        self.closed = true;
+                        into_err!(Err(e))
                     }
                 },
                 Ok(size) => Ok(size),
@@ -835,4 +819,49 @@ impl Connection {
     }
 
     pub fn token(&self) -> Token { self.token }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PACKAGE_INITIAL_BUFFER_SZ, PACKAGE_MAX_BUFFER_SZ};
+    use bytes::BytesMut;
+    use rand::{distributions::Standard, thread_rng, Rng};
+
+    pub struct BytesMutConn {
+        pkt_buffer: BytesMut,
+    }
+
+    /// Simulate allocation/deallocation of `Connection.pkt_buffer`.
+    fn check_bytes_mut_drop(pkt_size: usize) {
+        assert!(pkt_size > PACKAGE_MAX_BUFFER_SZ);
+
+        // 1. Allocate buffer with initial capacity.
+        let mut a1 = BytesMutConn {
+            pkt_buffer: BytesMut::with_capacity(PACKAGE_INITIAL_BUFFER_SZ),
+        };
+
+        // 2. Simulate reception of X bytes.
+        let content: Vec<u8> = thread_rng().sample_iter(&Standard).take(pkt_size).collect();
+
+        for chunk in content.chunks(1024) {
+            a1.pkt_buffer.extend_from_slice(chunk);
+        }
+        assert_eq!(pkt_size, a1.pkt_buffer.len());
+        assert!(a1.pkt_buffer.capacity() >= pkt_size);
+
+        // 3. Reset
+        a1.pkt_buffer = BytesMut::with_capacity(PACKAGE_INITIAL_BUFFER_SZ);
+        assert_eq!(PACKAGE_INITIAL_BUFFER_SZ, a1.pkt_buffer.capacity());
+        assert_eq!(0, a1.pkt_buffer.len());
+    }
+
+    #[test]
+    fn check_bytes_mut_drop_128k() { check_bytes_mut_drop(128 * 1024); }
+
+    #[test]
+    fn check_bytes_mut_drop_512k() { check_bytes_mut_drop(512 * 1024); }
+
+    #[test]
+    fn check_bytes_mut_drop_8m() { check_bytes_mut_drop(8 * 1024 * 1024); }
+
 }

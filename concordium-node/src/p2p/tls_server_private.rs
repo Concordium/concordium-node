@@ -5,13 +5,13 @@ use std::{
     collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
     rc::Rc,
-    sync::{mpsc::Sender, Arc, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use crate::{
     common::{get_current_stamp, serialization::Serializable, P2PNodeId, PeerType, RemotePeer},
     connection::Connection,
-    network::{NetworkId, NetworkMessage, NetworkRequest},
+    network::{NetworkId, NetworkRequest, NetworkMessage},
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
         peer_statistics::PeerStatistic,
@@ -191,17 +191,12 @@ impl TlsServerPrivate {
         self.connections.push(Rc::new(RefCell::new(conn)));
     }
 
-    pub fn conn_event(
-        &mut self,
-        poll: &mut Poll,
-        event: &Event,
-        packet_queue: &Sender<Arc<NetworkMessage>>,
-    ) -> Fallible<()> {
+    pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
         let token = event.token();
 
         if let Some(rc_conn) = self.find_connection_by_token(token) {
             let mut conn = rc_conn.borrow_mut();
-            conn.ready(poll, event, packet_queue)?;
+            conn.ready(event)?;
         } else {
             bail!(fails::PeerNotFoundError)
         }

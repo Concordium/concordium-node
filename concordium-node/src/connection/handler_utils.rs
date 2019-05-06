@@ -4,7 +4,7 @@ use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER,
-        functor::{FunctorError, FunctorResult},
+        functor::{FuncResult, FunctorError},
         get_current_stamp,
         serialization::Serializable,
         P2PPeer,
@@ -20,20 +20,20 @@ use failure::{Backtrace, Error, Fallible};
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
 pub fn make_msg_error(e: &'static str) -> FunctorError {
-    FunctorError::new(vec![Error::from(fails::MessageProcessError {
+    FunctorError::from(vec![Error::from(fails::MessageProcessError {
         message:   e,
         backtrace: Backtrace::new(),
     })])
 }
 pub fn make_fn_error_peer(e: &'static str) -> FunctorError {
-    FunctorError::new(vec![Error::from(fails::PeerError { message: e })])
+    FunctorError::from(vec![Error::from(fails::PeerError { message: e })])
 }
 
 pub fn make_log_error(e: &'static str) -> FunctorError {
-    FunctorError::new(vec![Error::from(fails::LogError { message: e })])
+    FunctorError::from(vec![Error::from(fails::LogError { message: e })])
 }
 
-pub fn serialize_bytes(session: &mut dyn CommonSession, pkt: &[u8]) -> FunctorResult {
+pub fn serialize_bytes(session: &mut dyn CommonSession, pkt: &[u8]) -> FuncResult<()> {
     // Write size of pkt into 4 bytes vector.
     let mut size_vec = Vec::with_capacity(4);
     size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
@@ -49,7 +49,7 @@ pub fn log_as_joined_network(
     event_log: &Option<Sender<P2PEvent>>,
     peer: &P2PPeer,
     networks: &HashSet<NetworkId>,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let Some(ref log) = event_log {
         for net_id in networks.iter() {
             log.send(P2PEvent::JoinedNetwork(peer.to_owned(), *net_id))
@@ -64,7 +64,7 @@ pub fn log_as_leave_network(
     event_log: &Option<Sender<P2PEvent>>,
     sender: &P2PPeer,
     network: NetworkId,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let Some(ref log) = event_log {
         log.send(P2PEvent::LeftNetwork(sender.to_owned(), network))
             .map_err(|_| make_log_error("Left Network Event cannot be sent to log"))?;
@@ -73,7 +73,7 @@ pub fn log_as_leave_network(
 }
 
 /// It sends handshake message and a ping message.
-pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FunctorResult {
+pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncResult<()> {
     let (my_nets, local_peer) = {
         let priv_conn_borrow = priv_conn.borrow();
         let remote_end_networks = priv_conn_borrow.remote_end_networks.clone();
@@ -110,7 +110,7 @@ pub fn send_peer_list(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
     nets: &HashSet<NetworkId>,
-) -> FunctorResult {
+) -> FuncResult<()> {
     debug!(
         "Running in bootstrapper mode, so instantly sending peers {} random peers",
         BOOTSTRAP_PEER_COUNT
@@ -150,7 +150,7 @@ pub fn send_retransmit_request(
     priv_conn: &RefCell<ConnectionPrivate>,
     since_stamp: u64,
     network_id: NetworkId,
-) -> FunctorResult {
+) -> FuncResult<()> {
     let retransmit = NetworkMessage::NetworkRequest(
         NetworkRequest::Retransmit(
             priv_conn.borrow().local_peer.to_owned(),
@@ -176,7 +176,7 @@ pub fn update_buckets(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,
     nets: HashSet<NetworkId>,
-) -> FunctorResult {
+) -> FuncResult<()> {
     let priv_conn_borrow = priv_conn.borrow();
     let buckets = &priv_conn_borrow.buckets;
 

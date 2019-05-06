@@ -72,12 +72,6 @@ where
     fn write_u64(&mut self, data: u64) -> Fallible<()> {
         write_into_writer!(NetworkEndian::write_u64, 8, data, self.io_writer)
     }
-
-    #[inline]
-    fn write_slice(&mut self, data: &[u8]) -> Fallible<()> {
-        self.io_writer.write(data)?;
-        Ok(())
-    }
 }
 
 impl<T> std::io::Write for IOWriteArchiveAdapter<T>
@@ -164,11 +158,6 @@ where
         unsafe { buf.set_len(len as usize) };
         self.io_reader.read_exact(buf.as_mut_slice())?;
         Ok(buf)
-    }
-
-    #[inline]
-    fn read_into_byte_slice(&mut self, output: &mut [u8]) -> Fallible<()> {
-        into_err!(self.io_reader.read_exact(output))
     }
 }
 
