@@ -140,7 +140,7 @@ mod unit_test {
     use failure::Fallible;
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
     use std::{
-        io::Write,
+        io::{ Write, SeekFrom, Seek},
         net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
     };
@@ -148,7 +148,7 @@ mod unit_test {
     use super::*;
     use crate::{
         common::{
-            serialization::{Deserializable, IOReadArchiveAdapter},
+            serialization::{Deserializable, ReadArchiveAdapter, WriteArchiveAdapter},
             P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer, UCursor,
         },
         network::{NetworkId, NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
@@ -171,33 +171,8 @@ mod unit_test {
     }
 
     fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
-        // Create header
-        let header = {
-            let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
-            let pkt = NetworkPacketBuilder::default()
-                .peer(P2PPeer::from(
-                    PeerType::Node,
-                    p2p_node_id,
-                    SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-                ))
-                .message_id(NetworkPacket::generate_message_id())
-                .network_id(NetworkId::from(111))
-                .message(Box::new(UCursor::from(vec![])))
-                .build_direct(P2PNodeId::from_str("100000002dd2b6ed")?)?;
-
-            let mut h = serialize_into_memory!(pkt)?;
-
-            // chop the last 10 bytes which are the length of the message
-            h.truncate(h.len() - 10);
-            h
-        };
-
-        // Write header and content size
-        let mut cursor = UCursor::build_from_temp_file()?;
-        cursor.write_all(header.as_slice())?;
-        cursor.write_all(format!("{:010}", content_size).as_bytes())?;
-
-        // Write content
+        // 1. Generate payload on disk
+        let mut payload = UCursor::build_from_temp_file()?;
         let mut pending_content_size = content_size;
         while pending_content_size != 0 {
             let chunk: String = thread_rng()
@@ -206,11 +181,33 @@ mod unit_test {
                 .collect();
             pending_content_size -= chunk.len();
 
-            cursor.write_all(chunk.as_bytes())?;
+            payload.write_all(chunk.as_bytes())?;
         }
 
-        assert_eq!(cursor.len(), (content_size + 10 + header.len()) as u64);
-        Ok(cursor)
+        payload.seek( SeekFrom::Start(0))?;
+
+        // 2. Generate packet.
+        let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
+        let pkt = NetworkPacketBuilder::default()
+                .peer(P2PPeer::from(
+                    PeerType::Node,
+                    p2p_node_id.clone(),
+                    SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
+                ))
+                .message_id(NetworkPacket::generate_message_id())
+                .network_id(NetworkId::from(111))
+                .message(Box::new(payload))
+                .build_direct(p2p_node_id)?;
+        let message = NetworkMessage::NetworkPacket( pkt, Some(get_current_stamp()), None);
+
+        // 3. Serialize package into archive (on disk)
+        let archive_cursor = UCursor::build_from_temp_file()?;
+        let mut archive = WriteArchiveAdapter::from( archive_cursor);
+        message.serialize( &mut archive)?;
+
+        let mut out_cursor = archive.into_inner();
+        out_cursor.seek( SeekFrom::Start(0))?;
+        Ok(out_cursor)
     }
 
     fn ut_s11n_001_direct_message_from_disk(content_size: usize) -> Fallible<()> {
@@ -224,7 +221,7 @@ mod unit_test {
             .addr(SocketAddr::new(local_ip, 8888))
             .build()?;
 
-        let mut archive = IOReadArchiveAdapter::new(
+        let mut archive = ReadArchiveAdapter::new(
             cursor_on_disk,
             RemotePeer::PostHandshake(local_peer.clone()),
             local_ip,

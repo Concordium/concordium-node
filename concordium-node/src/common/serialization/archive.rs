@@ -44,6 +44,7 @@ pub trait ReadArchive: Sized + std::io::Read {
 
     fn read_n_bytes(&mut self, len: u32) -> Fallible<Vec<u8>>;
 
+
     /// #TODO
     /// Should it be read as 'str'?
     fn read_string(&mut self) -> Fallible<String> {

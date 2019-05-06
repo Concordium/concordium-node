@@ -17,14 +17,14 @@ macro_rules! serialize_into_memory {
     ($src:expr) => {
         (|| -> Fallible<Vec<u8>> {
             let mut archive =
-                $crate::common::serialization::IOWriteArchiveAdapter::from(Vec::new());
+                $crate::common::serialization::WriteArchiveAdapter::from(Vec::new());
             $src.serialize(&mut archive)?;
             Ok(archive.into_inner())
         })()
     };
     ($src:expr, $capacity:expr) => {
         (|| -> Fallible<Vec<u8>> {
-            let mut archive = $crate::common::serialization::IOWriteArchiveAdapter::from(
+            let mut archive = $crate::common::serialization::WriteArchiveAdapter::from(
                 Vec::with_capacity($capacity),
             );
             $src.serialize(&mut archive)?;
@@ -40,7 +40,7 @@ macro_rules! deserialize_from_memory {
             let cursor =
                 $crate::common::UCursor::build_from_view($crate::common::ContainerView::from($src));
             let mut archive =
-                $crate::common::serialization::IOReadArchiveAdapter::new(cursor, $peer, $ip);
+                $crate::common::serialization::ReadArchiveAdapter::new(cursor, $peer, $ip);
             $target_type::deserialize(&mut archive)
         })()
     };
@@ -53,10 +53,10 @@ impl ReadArchiveBuilder {
         src: Vec<u8>,
         peer: RemotePeer,
         ip: IpAddr,
-    ) -> serialization::IOReadArchiveAdapter<UCursor> {
+    ) -> serialization::ReadArchiveAdapter<UCursor> {
         let view = ContainerView::from(src);
         let cursor = UCursor::build_from_view(view);
-        serialization::IOReadArchiveAdapter::new(cursor, peer, ip)
+        serialization::ReadArchiveAdapter::new(cursor, peer, ip)
     }
 }
 
@@ -363,12 +363,13 @@ mod tests {
             }
         }};
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
-            assert!(match $deserialized {
+            match $deserialized {
                 NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
-                    $zk == zk2 && $nets == nets2
+                    assert_eq!( $zk, zk2);
+                    assert_eq!( $nets, nets2);
                 }
-                _ => false,
-            })
+                _ => panic!("invalid network message"),
+            }
         }};
     }
 

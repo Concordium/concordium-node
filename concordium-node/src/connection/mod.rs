@@ -48,7 +48,7 @@ use crate::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
         functor::{FunctorResult, UnitFunction},
         get_current_stamp,
-        serialization::{Deserializable, IOReadArchiveAdapter},
+        serialization::{Deserializable, ReadArchiveAdapter},
         P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
     },
     network::{
@@ -550,7 +550,7 @@ impl Connection {
     fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult<()> {
         let buf_cursor = UCursor::from(buf);
 
-        let mut archive = IOReadArchiveAdapter::new(
+        let mut archive = ReadArchiveAdapter::new(
             buf_cursor,
             self.remote_peer().clone(),
             self.remote_addr().ip(),
