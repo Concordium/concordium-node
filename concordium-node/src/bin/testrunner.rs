@@ -437,7 +437,7 @@ fn main() -> Fallible<()> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     let dns_resolvers =
         utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
@@ -465,7 +465,7 @@ fn main() -> Fallible<()> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };

@@ -782,7 +782,7 @@ impl P2PNode {
         msg: UCursor,
         broadcast: bool,
     ) -> Fallible<()> {
-        debug!("Queueing message!");
+        trace!("Queueing message!");
 
         // Create packet.
         let packet = if broadcast {

@@ -130,7 +130,7 @@ impl RpcServerImpl {
             if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
                 let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
 
-                info!("Sending direct message to: {}", id);
+                trace!("Sending direct message to: {}", id);
                 r.set_value(
                     safe_lock!(self.node)?
                         .send_message(Some(id), network_id, None, msg, false)
@@ -138,7 +138,7 @@ impl RpcServerImpl {
                         .is_ok(),
                 );
             } else if req.get_broadcast().get_value() {
-                info!("Sending broadcast message");
+                trace!("Sending broadcast message");
                 r.set_value(
                     safe_lock!(self.node)?
                         .send_message(None, network_id, None, msg, true)

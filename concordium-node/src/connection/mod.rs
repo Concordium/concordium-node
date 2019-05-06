@@ -475,7 +475,7 @@ impl Connection {
         if ev_readiness.is_writable() {
             let written_bytes = self.flush_tls()?;
             if written_bytes > 0 {
-                debug!(
+                trace!(
                     "EV readiness is WRITABLE, {} bytes were written",
                     written_bytes
                 );
@@ -738,7 +738,7 @@ impl Connection {
         let wants_write =
             !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
-            debug!(
+            trace!(
                 "{}/{} is attempting to write to socket {:?}",
                 self.local_id(),
                 self.local_addr(),
@@ -769,7 +769,7 @@ impl Connection {
         let wants_write =
             !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
-            debug!(
+            trace!(
                 "{}/{} is attempting to write to socket {:?}",
                 self.local_id(),
                 self.local_addr(),
