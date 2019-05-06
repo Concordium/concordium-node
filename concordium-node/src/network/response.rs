@@ -39,8 +39,7 @@ impl Serializable for NetworkResponse {
             NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
                 peers.serialize(archive)
             }
-            NetworkResponse::Handshake(me, networks, zk) => {
-                me.serialize(archive)?;
+            NetworkResponse::Handshake(_, networks, zk) => {
                 networks.serialize(archive)?;
                 zk.serialize(archive)
             }
