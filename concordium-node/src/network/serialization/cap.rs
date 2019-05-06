@@ -83,7 +83,7 @@ mod s11n {
             .peer(peer.to_owned())
             .message_id(msg_id.to_string())
             .network_id(NetworkId::from(network_id))
-            .message(Box::new(UCursor::from(msg.to_vec())))
+            .message(UCursor::from(msg.to_vec()))
             .build_direct(receiver_id)
             .map_err(|err| ::capnp::Error::failed(err.to_string()))?;
 
@@ -462,7 +462,7 @@ mod unit_test {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(111u16))
-                    .message(Box::new(UCursor::from(direct_message_content)))
+                    .message(UCursor::from(direct_message_content))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
