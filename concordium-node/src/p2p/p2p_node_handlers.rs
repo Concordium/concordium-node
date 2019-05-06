@@ -104,7 +104,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
-    trace!("### Forward Broadcast Message: msgid: {}", pac.message_id);
+    trace!("Forward Broadcast Message: msgid: {}", pac.message_id);
     if safe_read!(own_networks)?.contains(&pac.network_id) {
         trace!("Received direct message of size {}", pac.message.len());
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
