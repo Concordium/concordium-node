@@ -74,23 +74,25 @@ type MissingByFinalizationIndexCallback = PeerID -> Word64 -> IO ()
 -- The first argument represents the Identifier which shows in which module the message has been emited.
 -- The current mapping is as follows:
 --
--- +----------+-------+
--- |Identifier|Module |
--- +==========+=======+
--- |1         |Runner |
--- +----------+-------+
--- |2         |Afgjort|
--- +----------+-------+
--- |3         |Birk   |
--- +----------+-------+
--- |4         |Crypto |
--- +----------+-------+
--- |5         |Kontrol|
--- +----------+-------+
--- |6         |Skov   |
--- +----------+-------+
--- |Other     |Baker  |
--- +----------+-------+
+-- +----------+---------+
+-- |Identifier|Module   |
+-- +==========+=========+
+-- |1         |Runner   |
+-- +----------+---------+
+-- |2         |Afgjort  |
+-- +----------+---------+
+-- |3         |Birk     |
+-- +----------+---------+
+-- |4         |Crypto   |
+-- +----------+---------+
+-- |5         |Kontrol  |
+-- +----------+---------+
+-- |6         |Skov     |
+-- +----------+---------+
+-- |7         |Baker    |
+-- +----------+---------+
+-- |8         |External |
+-- +----------+---------+
 --
 -- The second argument represents the Log Level which is interpreted as follows:
 --
@@ -103,7 +105,9 @@ type MissingByFinalizationIndexCallback = PeerID -> Word64 -> IO ()
 -- +-----+--------+
 -- |3    |Info    |
 -- +-----+--------+
--- |Other|Debug   |
+-- |4    |Debug   |
+-- +-----+--------+
+-- |Other|Trace   |
 -- +-----+--------+
 --
 -- The third argument is the log message that is emited.
