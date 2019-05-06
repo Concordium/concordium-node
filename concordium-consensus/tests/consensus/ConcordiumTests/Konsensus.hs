@@ -216,10 +216,11 @@ runKonsensusTest steps states events
                     let states' = states & ix rcpt . _3 .~ fs'
                     runKonsensusTest (steps - 1) states' (events'' <> events')
     where
-        handleMessages :: [Int] -> [FinalizationOutputEvent] -> EventPool
+        handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
         handleMessages _ [] = Seq.empty
-        handleMessages targets (BroadcastFinalizationMessage fmsg : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
-        handleMessages targets (BroadcastFinalizationRecord frec : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (SkovFinalization (BroadcastFinalizationMessage fmsg) : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
             let (_, fs', Endo evs) = runDummy (runFSM a fi fs)
             return (fs', handleMessages btargets (evs []))
@@ -249,10 +250,11 @@ runKonsensusTestSimple steps states events
             let states' = states & ix rcpt . _3 .~ fs'
             runKonsensusTestSimple (steps - 1) states' (events'' <> events')
     where
-        handleMessages :: [Int] -> [FinalizationOutputEvent] -> EventPool
+        handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
         handleMessages _ [] = Seq.empty
-        handleMessages targets (BroadcastFinalizationMessage fmsg : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
-        handleMessages targets (BroadcastFinalizationRecord frec : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (SkovFinalization (BroadcastFinalizationMessage fmsg) : r) = Seq.fromList [(rcpt, EFinalization fmsg) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
+        handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
             let (_, fs', Endo evs) = runDummy (runFSM a fi fs)
             return (fs', handleMessages btargets (evs []))

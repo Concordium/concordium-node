@@ -45,7 +45,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan InMessage -> [Transaction] -> IO ()
+sendTransactions :: Chan (InMessage a) -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived t)
         -- r <- randomRIO (5000, 15000)
@@ -60,7 +60,7 @@ makeBaker bid lot = do
         let spk = Sig.verifyKey sk in 
             return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
-relay :: HasCallStack => Chan OutMessage -> IORef SkovFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan InMessage] -> IO ()
+relay :: HasCallStack => Chan (OutMessage src) -> IORef SkovFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sfsRef monitor outps = loop
     where
         loop = do
@@ -78,7 +78,7 @@ relay inp sfsRef monitor outps = loop
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgBlockReceived block)
+                        writeChan outp (MsgBlockReceived () block)
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -86,7 +86,7 @@ relay inp sfsRef monitor outps = loop
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgFinalizationReceived bs)
+                        writeChan outp (MsgFinalizationReceived () bs)
                 MsgFinalizationRecord fr -> do
                     writeChan monitor (Right fr)
                     forM_ outps $ \outp -> forkIO $ do
@@ -95,7 +95,8 @@ relay inp sfsRef monitor outps = loop
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgFinalizationRecordReceived fr)
+                        writeChan outp (MsgFinalizationRecordReceived () fr)
+                _ -> return ()
             loop
 
 removeEach :: [a] -> [(a,[a])]
@@ -112,7 +113,7 @@ gsToString gs = intercalate "\\l" . map show $ keys
 
 main :: IO ()
 main = do
-    let n = 5
+    let n = 10
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns

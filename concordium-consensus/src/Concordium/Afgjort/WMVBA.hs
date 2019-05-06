@@ -1,8 +1,8 @@
 {-# LANGUAGE TemplateHaskell, ScopedTypeVariables, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, GeneralizedNewtypeDeriving, LambdaCase, TupleSections #-}
 module Concordium.Afgjort.WMVBA (
     WMVBAMessage(..),
-    putWMVBAMessage,
-    getWMVBAMessage,
+    messageValues,
+    messageParties,
     WMVBAState,
     initialWMVBAState,
     WMVBAInstance(WMVBAInstance),
@@ -30,15 +30,31 @@ import Data.Serialize.Put
 import Data.Serialize.Get
 
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
 
-data WMVBAMessage val party
-    = WMVBAFreezeMessage (FreezeMessage val)
-    | WMVBAABBAMessage (ABBAMessage party)
-    | WMVBAWitnessCreatorMessage val
+data WMVBAMessage
+    = WMVBAFreezeMessage FreezeMessage
+    | WMVBAABBAMessage ABBAMessage
+    | WMVBAWitnessCreatorMessage Val
+    deriving (Eq, Ord)
 
-instance (Show val, Show party) => Show (WMVBAMessage val party) where
+messageValues :: WMVBAMessage -> [Val]
+messageValues (WMVBAFreezeMessage (Proposal val)) = [val]
+messageValues (WMVBAFreezeMessage (Vote (Just val))) = [val]
+messageValues (WMVBAFreezeMessage (Vote Nothing)) = []
+messageValues (WMVBAABBAMessage _) = []
+messageValues (WMVBAWitnessCreatorMessage val) = [val]
+
+messageParties :: WMVBAMessage -> [Party]
+messageParties (WMVBAFreezeMessage _) = []
+messageParties (WMVBAABBAMessage (CSSSeen _ party _)) = [party]
+messageParties (WMVBAABBAMessage (CSSDoneReporting _ choices)) = Map.keys choices
+messageParties (WMVBAABBAMessage _) = []
+messageParties (WMVBAWitnessCreatorMessage _) = []
+
+instance Show WMVBAMessage where
     show (WMVBAFreezeMessage (Proposal val)) = "Propose " ++ show val
     show (WMVBAFreezeMessage (Vote v)) = "Vote " ++ show v
     show (WMVBAABBAMessage (Justified phase b _ticket)) = "Justified@" ++ show phase ++ ": " ++ show b
@@ -47,25 +63,22 @@ instance (Show val, Show party) => Show (WMVBAMessage val party) where
     show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
     show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
 
-putWMVBAMessage :: Putter val -> Putter party -> Putter (WMVBAMessage val party)
-putWMVBAMessage putVal putParty = enc
-    where
-        enc (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
-        enc (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
-        enc (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
-        enc (WMVBAABBAMessage (Justified phase False ticket)) = putWord8 3 >> putWord32be phase >> S.put ticket
-        enc (WMVBAABBAMessage (Justified phase True ticket)) = putWord8 4 >> putWord32be phase >> S.put ticket
-        enc (WMVBAABBAMessage (CSSSeen phase party False)) = putWord8 5 >> putWord32be phase >> putParty party
-        enc (WMVBAABBAMessage (CSSSeen phase party True)) = putWord8 6 >> putWord32be phase >> putParty party
-        enc (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 7 >> putWord32be phase >> putListOf putParty (fst <$> choseFalse) >> putListOf putParty (fst <$> choseTrue)
-            where
-                (choseTrue, choseFalse) = List.partition snd $ Map.toAscList choices
-        enc (WMVBAABBAMessage (WeAreDone False)) = putWord8 8
-        enc (WMVBAABBAMessage (WeAreDone True)) = putWord8 9
-        enc (WMVBAWitnessCreatorMessage val) = putWord8 10 >> putVal val
+instance S.Serialize WMVBAMessage where
+    put (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
+    put (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
+    put (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
+    put (WMVBAABBAMessage (Justified phase False ticket)) = putWord8 3 >> putWord32be phase >> S.put ticket
+    put (WMVBAABBAMessage (Justified phase True ticket)) = putWord8 4 >> putWord32be phase >> S.put ticket
+    put (WMVBAABBAMessage (CSSSeen phase party False)) = putWord8 5 >> putWord32be phase >> putParty party
+    put (WMVBAABBAMessage (CSSSeen phase party True)) = putWord8 6 >> putWord32be phase >> putParty party
+    put (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 7 >> putWord32be phase >> putListOf putParty (fst <$> choseFalse) >> putListOf putParty (fst <$> choseTrue)
+        where
+            (choseTrue, choseFalse) = List.partition snd $ Map.toAscList choices
+    put (WMVBAABBAMessage (WeAreDone False)) = putWord8 8
+    put (WMVBAABBAMessage (WeAreDone True)) = putWord8 9
+    put (WMVBAWitnessCreatorMessage val) = putWord8 10 >> putVal val
 
-getWMVBAMessage :: (Ord party) => Get val -> Get party -> Get (WMVBAMessage val party)
-getWMVBAMessage getVal getParty = getWord8 >>= \case
+    get = getWord8 >>= \case
         0 -> WMVBAFreezeMessage . Proposal <$> getVal
         1 -> return $ WMVBAFreezeMessage (Vote Nothing)
         2 -> WMVBAFreezeMessage . Vote . Just <$> getVal
@@ -97,15 +110,15 @@ getWMVBAMessage getVal getParty = getWord8 >>= \case
 
 data OutcomeState val = OSAwaiting | OSFrozen val | OSABBASuccess | OSDone deriving (Show)
 
-data WMVBAState val party sig = WMVBAState {
-    _freezeState :: FreezeState val party,
-    _abbaState :: ABBAState party,
-    _justifiedDecision :: OutcomeState val,
-    _justifications :: Map val (Int, Map party sig)
+data WMVBAState sig = WMVBAState {
+    _freezeState :: FreezeState,
+    _abbaState :: ABBAState,
+    _justifiedDecision :: OutcomeState Val,
+    _justifications :: Map Val (Int, Map Party sig)
 } deriving (Show)
 makeLenses ''WMVBAState
 
-initialWMVBAState :: WMVBAState val party sig
+initialWMVBAState :: WMVBAState sig
 initialWMVBAState = WMVBAState {
     _freezeState = initialFreezeState,
     _abbaState = initialABBAState,
@@ -113,52 +126,52 @@ initialWMVBAState = WMVBAState {
     _justifications = Map.empty
 }
 
-data WMVBAInstance val party sig = WMVBAInstance {
+data WMVBAInstance sig = WMVBAInstance {
     baid :: BS.ByteString,
     totalWeight :: Int,
     corruptWeight :: Int,
-    partyWeight :: party -> Int,
-    publicKeys :: party -> VRF.PublicKey,
-    me :: party,
+    partyWeight :: Party -> Int,
+    publicKeys :: Party -> VRF.PublicKey,
+    me :: Party,
     privateKey :: VRF.KeyPair
 }
 
-toFreezeInstance :: WMVBAInstance val party sig -> FreezeInstance party
+toFreezeInstance :: WMVBAInstance sig -> FreezeInstance
 toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ me _) = FreezeInstance totalWeight corruptWeight partyWeight me
 
-toABBAInstance :: WMVBAInstance val party sig -> ABBAInstance party
+toABBAInstance :: WMVBAInstance sig -> ABBAInstance
 toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey) = ABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
 
-class (MonadState (WMVBAState val party sig) m, MonadReader (WMVBAInstance val party sig) m) => WMVBAMonad val party sig m where
-    sendWMVBAMessage :: WMVBAMessage val party -> m ()
-    wmvbaComplete :: Maybe (val, [(party, sig)]) -> m ()
+class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m) => WMVBAMonad sig m where
+    sendWMVBAMessage :: WMVBAMessage -> m ()
+    wmvbaComplete :: Maybe (Val, [(Party, sig)]) -> m ()
 
-data WMVBAOutputEvent val party sig
-    = SendWMVBAMessage (WMVBAMessage val party)
-    | WMVBAComplete (Maybe (val, [(party, sig)]))
+data WMVBAOutputEvent sig
+    = SendWMVBAMessage WMVBAMessage
+    | WMVBAComplete (Maybe (Val, [(Party, sig)]))
 
-newtype WMVBA val party sig a = WMVBA {
-    runWMVBA' :: RWS (WMVBAInstance val party sig) (Endo [WMVBAOutputEvent val party sig]) (WMVBAState val party sig) a
+newtype WMVBA sig a = WMVBA {
+    runWMVBA' :: RWS (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) a
 } deriving (Functor, Applicative, Monad)
 
-runWMVBA :: WMVBA val party sig a -> WMVBAInstance val party sig -> WMVBAState val party sig -> (a, WMVBAState val party sig, [WMVBAOutputEvent val party sig])
+runWMVBA :: WMVBA sig a -> WMVBAInstance sig -> WMVBAState sig -> (a, WMVBAState sig, [WMVBAOutputEvent sig])
 runWMVBA z i s = runRWS (runWMVBA' z) i s & _3 %~ (\(Endo f) -> f [])
 
-instance MonadReader (WMVBAInstance val party sig) (WMVBA val party sig) where
+instance MonadReader (WMVBAInstance sig) (WMVBA sig) where
     ask = WMVBA ask
     reader = WMVBA . reader
     local f = WMVBA . local f . runWMVBA'
 
-instance MonadState (WMVBAState val party sig) (WMVBA val party sig) where
+instance MonadState (WMVBAState sig) (WMVBA sig) where
     get = WMVBA get
     put = WMVBA . put
     state = WMVBA . state
 
-instance WMVBAMonad val party sig (WMVBA val party sig) where
+instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
 
-liftFreeze :: (WMVBAMonad val party sig m, Ord party, Show party) => Freeze val party a -> m a
+liftFreeze :: (WMVBAMonad sig m) => Freeze a -> m a
 liftFreeze a = do
         freezestate <- use freezeState
         freezecontext <- toFreezeInstance <$> ask
@@ -185,7 +198,7 @@ liftFreeze a = do
                     _ -> return ()
             handleEvents r
 
-liftABBA :: (WMVBAMonad val party sig m) => ABBA party a -> m a
+liftABBA :: (WMVBAMonad sig m) => ABBA a -> m a
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
@@ -211,11 +224,11 @@ liftABBA a = do
             handleEvents r
 
 -- |Record that an input is justified.
-justifyWMVBAInput :: forall val party sig m. (WMVBAMonad val party sig m, Ord val, Ord party, Show party) => val -> m ()
+justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
 justifyWMVBAInput val = liftFreeze $ justifyCandidate val
 
 -- |Handle an incoming 'WMVBAMessage'.
-receiveWMVBAMessage :: (WMVBAMonad val party sig m, Ord val, Ord party, Eq sig, Show party) => party -> sig -> WMVBAMessage val party -> m ()
+receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()
 receiveWMVBAMessage src _ (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg
 receiveWMVBAMessage src _ (WMVBAABBAMessage msg) = do
         liftABBA $ receiveABBAMessage src msg
@@ -232,5 +245,5 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage v) = do
 
 -- |Start the WMVBA for us with a given input.  This should only be called once
 -- per instance, and the input should already be justified.
-startWMVBA :: (WMVBAMonad val party sig m) => val -> m ()
+startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
 startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
