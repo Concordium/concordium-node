@@ -6,8 +6,6 @@ extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate concordium_common;
-#[macro_use]
 extern crate failure;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
@@ -16,12 +14,12 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use concordium_common::{spawn_or_die, UCursor};
 use consensus_sys::{
     block::Block,
     consensus,
     finalization::{FinalizationMessage, FinalizationRecord},
 };
-use concordium_common::UCursor;
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
