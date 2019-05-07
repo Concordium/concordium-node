@@ -79,7 +79,7 @@ impl SessionId {
             incarnation,
         };
 
-        check_serialization!(sess, bytes);
+        check_serialization!(sess, cursor);
 
         Ok(sess)
     }

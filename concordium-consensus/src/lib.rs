@@ -12,10 +12,12 @@ extern crate log;
 extern crate concordium_common;
 
 macro_rules! check_serialization {
-    ($target:expr, $source:expr) => {
+    ($target:expr, $cursor:expr) => {
+        debug_assert_eq!($cursor.position(), $cursor.get_ref().len() as u64);
+
         debug_assert_eq!(
-            $target.serialize().as_slice(),
-            $source,
+            &$target.serialize(),
+            $cursor.get_ref(),
             "Invalid serialization of {:?}",
             $target
         );

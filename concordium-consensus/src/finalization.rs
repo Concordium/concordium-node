@@ -44,7 +44,7 @@ impl FinalizationMessage {
             signature,
         };
 
-        check_serialization!(msg, bytes);
+        check_serialization!(msg, cursor);
 
         Ok(msg)
     }
@@ -91,7 +91,7 @@ impl FinalizationMessageHeader {
             sender,
         };
 
-        check_serialization!(header, bytes);
+        check_serialization!(header, cursor);
 
         Ok(header)
     }
@@ -154,7 +154,7 @@ impl WmvbaMessage {
             ),
         };
 
-        check_serialization!(msg, bytes);
+        check_serialization!(msg, cursor);
 
         Ok(msg)
     }
@@ -216,7 +216,7 @@ impl AbbaInput {
             justified,
         };
 
-        check_serialization!(abba, bytes);
+        check_serialization!(abba, cursor);
 
         Ok(abba)
     }
@@ -251,7 +251,7 @@ impl CssSeen {
 
         let css = CssSeen { phase, party, saw };
 
-        check_serialization!(css, bytes);
+        check_serialization!(css, cursor);
 
         Ok(css)
     }
@@ -291,7 +291,7 @@ impl CssDoneReporting {
 
         let cssr = CssDoneReporting { phase, rest };
 
-        check_serialization!(cssr, bytes);
+        check_serialization!(cssr, cursor);
 
         Ok(cssr)
     }
@@ -335,7 +335,7 @@ impl FinalizationRecord {
             delay,
         };
 
-        check_serialization!(rec, bytes);
+        check_serialization!(rec, cursor);
 
         Ok(rec)
     }
@@ -350,7 +350,7 @@ impl FinalizationRecord {
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
-        let _ = cursor.write_all(&self.block_pointer);
+        let _ = cursor.write_all(&proof);
         let _ = cursor.write_u64::<NetworkEndian>(self.delay);
 
         cursor.into_inner().into_vec()
@@ -381,7 +381,7 @@ impl FinalizationProof {
 
         let proof = FinalizationProof(signatures);
 
-        check_serialization!(proof, bytes);
+        check_serialization!(proof, cursor);
 
         Ok(proof)
     }

@@ -69,7 +69,7 @@ impl Transactions {
             }
         }
 
-        check_serialization!(transactions, bytes);
+        check_serialization!(transactions, cursor);
 
         Ok(transactions)
     }

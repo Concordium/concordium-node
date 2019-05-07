@@ -142,7 +142,7 @@ impl Block {
             }),
         };
 
-        check_serialization!(block, bytes);
+        check_serialization!(block, cursor);
 
         Ok(block)
     }
