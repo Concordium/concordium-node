@@ -1,12 +1,12 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Write},
 };
 
 use crate::{block::*, common::*};
@@ -76,16 +76,16 @@ impl Transactions {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut transaction_count = [0u8; 8];
-        NetworkEndian::write_u64(&mut transaction_count, self.0.len() as u64);
+        // FIXME: estimate Transaction size
+        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT + (self.0.len() * 0));
 
-        let mut transactions_bytes = Vec::new(); // TODO: estimate capacity
+        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
         for transaction in &self.0 {
-            transactions_bytes.extend_from_slice(&transaction.serialize());
+            let _ = cursor.write_all(&transaction.serialize());
         }
 
-        [&transaction_count, transactions_bytes.as_slice()].concat()
+        cursor.into_inner().into_vec()
     }
 }
 

@@ -1,10 +1,10 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::Utc;
 use failure::Fallible;
 
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 
 use crate::{common::*, parameters::*, transaction::*};
 
@@ -151,29 +151,22 @@ impl Block {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut ret = Vec::new(); // FIXME: estimate capacity
+        let transactions = Transactions::serialize(self.transactions_ref());
 
-        let mut slot = [0u8; SLOT];
-        NetworkEndian::write_u64(&mut slot, self.slot);
-        ret.extend_from_slice(&slot);
+        let target_size = SLOT + POINTER + BAKER_ID + PROOF_LENGTH + NONCE + LAST_FINALIZED +
+            transactions.len() + SIGNATURE;
+        let mut cursor = create_serialization_cursor(target_size);
 
-        ret.extend_from_slice(&self.pointer());
+        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
+        let _ = cursor.write_all(self.pointer_ref());
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id());
+        let _ = cursor.write_all(self.proof_ref());
+        let _ = cursor.write_all(self.nonce_ref());
+        let _ = cursor.write_all(&self.last_finalized());
+        let _ = cursor.write_all(&transactions);
+        let _ = cursor.write_all(self.signature_ref());
 
-        let mut baker_id = [0u8; BAKER_ID];
-        NetworkEndian::write_u64(&mut baker_id, self.baker_id());
-        ret.extend_from_slice(&baker_id);
-
-        ret.extend_from_slice(&self.proof());
-
-        ret.extend_from_slice(&self.nonce());
-
-        ret.extend_from_slice(&self.last_finalized()); // check
-
-        ret.extend_from_slice(&Transactions::serialize(self.transactions_ref()));
-
-        ret.extend_from_slice(&self.signature());
-
-        ret
+        cursor.into_inner().into_vec()
     }
 
     pub fn slot_id(&self) -> Slot { self.slot }

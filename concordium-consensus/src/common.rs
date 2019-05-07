@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
 use std::{fmt, hash::Hash, io::{Cursor, Read, Write}, num::NonZeroU64, ops::Deref};
@@ -81,13 +81,12 @@ impl SessionId {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut bytes = [0u8; BLOCK_HASH + INCARNATION];
+        let mut cursor = create_serialization_cursor(BLOCK_HASH + INCARNATION);
 
-        let _ = (&mut bytes[..BLOCK_HASH]).write(&self.genesis_block);
+        let _ = cursor.write_all(&self.genesis_block);
+        let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
 
-        NetworkEndian::write_u64(&mut bytes[BLOCK_HASH..], self.incarnation);
-
-        bytes.to_vec()
+        cursor.into_inner().to_vec()
     }
 }
 
@@ -111,6 +110,13 @@ impl Deref for Encoded {
 
 impl fmt::Debug for Encoded {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len()) }
+}
+
+pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
+    let mut buf = Vec::with_capacity(size);
+    buf.resize(size, 0);
+
+    Cursor::new(buf.into_boxed_slice())
 }
 
 // temporary type placeholders

@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::io::{Cursor, Read, Write};
@@ -98,24 +98,14 @@ impl FinalizationMessageHeader {
     pub fn serialize(&self) -> Vec<u8> {
         // debug_serialization!(self);
 
-        let mut bytes = [0u8; SESSION_ID + INDEX + DELTA + SENDER];
-        let mut curr_pos = 0;
+        let mut cursor = create_serialization_cursor(SESSION_ID + INDEX + DELTA + SENDER);
 
-        let _ = (&mut bytes[curr_pos..][..SESSION_ID]).write(&self.session_id.serialize());
-        curr_pos += SESSION_ID;
+        let _ = cursor.write_all(&self.session_id.serialize());
+        let _ = cursor.write_u64::<NetworkEndian>(self.index);
+        let _ = cursor.write_u64::<NetworkEndian>(self.delta);
+        let _ = cursor.write_u32::<NetworkEndian>(self.sender);
 
-        NetworkEndian::write_u64(
-            &mut bytes[curr_pos..][..INDEX],
-            self.index,
-        );
-        curr_pos += INDEX;
-
-        NetworkEndian::write_u64(&mut bytes[curr_pos..][..DELTA], self.delta);
-        curr_pos += DELTA;
-
-        NetworkEndian::write_u32(&mut bytes[curr_pos..][..SENDER], self.sender);
-
-        bytes.to_vec()
+        cursor.into_inner().into_vec()
     }
 }
 
@@ -229,12 +219,12 @@ impl AbbaInput {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut bytes = [0u8; PHASE + TICKET];
+        let mut cursor = create_serialization_cursor(PHASE + TICKET);
 
-        NetworkEndian::write_u32(&mut bytes[..PHASE], self.phase);
-        let _ = (&mut bytes[PHASE..][..TICKET]).write(&self.ticket);
+        let _ = cursor.write_u32::<NetworkEndian>(self.phase);
+        let _ = cursor.write_all(&self.ticket);
 
-        bytes.to_vec()
+        cursor.into_inner().into_vec()
     }
 }
 
@@ -264,12 +254,12 @@ impl CssSeen {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut bytes = [0u8; PHASE + PARTY];
+        let mut cursor = create_serialization_cursor(PHASE + PARTY);
 
-        NetworkEndian::write_u32(&mut bytes[..PHASE], self.phase);
-        NetworkEndian::write_u32(&mut bytes[PHASE..][..PARTY], self.party);
+        let _ = cursor.write_u32::<NetworkEndian>(self.phase);
+        let _ = cursor.write_u32::<NetworkEndian>(self.party);
 
-        bytes.to_vec()
+        cursor.into_inner().into_vec()
     }
 }
 
@@ -304,11 +294,12 @@ impl CssDoneReporting {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut phase_bytes = [0u8; PHASE];
+        let mut cursor = create_serialization_cursor(PHASE + self.rest.len());
 
-        NetworkEndian::write_u32(&mut phase_bytes, self.phase);
+        let _ = cursor.write_u32::<NetworkEndian>(self.phase);
+        let _ = cursor.write_all(&self.rest);
 
-        [&phase_bytes, self.rest.as_ref()].concat()
+        cursor.into_inner().into_vec()
     }
 }
 
@@ -347,19 +338,17 @@ impl FinalizationRecord {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut index_bytes = [0u8; INDEX];
-        NetworkEndian::write_u64(&mut index_bytes, self.index);
+        let proof = self.proof.serialize();
 
-        let mut delay_bytes = [0u8; DELAY];
-        NetworkEndian::write_u64(&mut delay_bytes, self.delay);
+        let mut cursor = create_serialization_cursor(INDEX + self.block_pointer.len() + proof.len()
+            + DELAY);
 
-        [
-            &index_bytes,
-            self.block_pointer.as_ref(),
-            self.proof.serialize().as_slice(),
-            &delay_bytes,
-        ]
-        .concat()
+        let _ = cursor.write_u64::<NetworkEndian>(self.index);
+        let _ = cursor.write_all(&self.block_pointer);
+        let _ = cursor.write_all(&self.block_pointer);
+        let _ = cursor.write_u64::<NetworkEndian>(self.delay);
+
+        cursor.into_inner().into_vec()
     }
 }
 
@@ -394,20 +383,16 @@ impl FinalizationProof {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut signature_count_bytes = [0u8; SIGNATURE_COUNT];
-        NetworkEndian::write_u64(&mut signature_count_bytes, self.0.len() as u64);
+        let mut cursor = create_serialization_cursor(self.0.len() * (4 + SIGNATURE));
 
-        let mut bytes = Vec::with_capacity(self.0.len() as usize * (4 + SIGNATURE));
-        bytes.extend_from_slice(&signature_count_bytes);
+        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
+        // FIXME: determine the use and apply a more informative name
         for (tbd, signature) in &self.0 {
-            let mut tbd_bytes = [0u8; 4];
-            NetworkEndian::write_u32(&mut tbd_bytes, *tbd);
-
-            bytes.extend_from_slice(&tbd_bytes);
-            bytes.extend_from_slice(signature);
+            let _ = cursor.write_u32::<NetworkEndian>(*tbd);
+            let _ = cursor.write_all(signature);
         }
 
-        bytes
+        cursor.into_inner().into_vec()
     }
 }
