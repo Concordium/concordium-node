@@ -41,6 +41,8 @@ stages:
     - cargo test --all --verbose --color=always --features=instrumentation
     - echo "Running tests with s11n extras features enabled"
     - cargo test --all --verbose --color=always --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor
+    - echo "Compile but don't run benches"
+    - cargo bench --no-run --features=s11n_nom,s11n_serde_json,s11n_serde_cbor,s11n_capnp,instrumentation --verbose --color=always
     - cp -rf /root/.stack/* stack/
 
 .generic-lint:

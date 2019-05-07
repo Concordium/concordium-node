@@ -461,7 +461,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(111u16))
-                    .message(content_cursors)
+                    .message(content_cursor)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
