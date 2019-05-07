@@ -119,7 +119,7 @@ impl fmt::Debug for Encoded {
 }
 
 pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
-    let mut buf = vec![0; size];
+    let buf = vec![0; size];
 
     Cursor::new(buf.into_boxed_slice())
 }
