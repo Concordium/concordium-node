@@ -33,7 +33,7 @@ pub fn make_direct_message_header(content_size: usize) -> Vec<u8> {
         ))
         .message_id(NetworkPacket::generate_message_id())
         .network_id(NetworkId::from(111u16))
-        .message(Box::new(UCursor::from(vec![])))
+        .message(UCursor::from(vec![]))
         .build_direct(P2PNodeId::from_str("100000002dd2b6ed").unwrap())
         .unwrap();
 
@@ -246,7 +246,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(100u16))
-                    .message(Box::new(UCursor::from(content.into_bytes())))
+                    .message(UCursor::from(content.into_bytes()))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
@@ -321,7 +321,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(100u16))
-                    .message(Box::new(content_cursor))
+                    .message(content_cursor)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
@@ -461,7 +461,7 @@ mod serialization {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(111u16))
-                    .message(Box::new(content_cursor))
+                    .message(content_cursors)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),
