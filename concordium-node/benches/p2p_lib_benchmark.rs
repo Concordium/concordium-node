@@ -221,10 +221,8 @@ mod network {
 
         fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
             let me = localhost_peer();
-            let mut peers = Vec::with_capacity(size);
-            for _i in 0..size {
-                peers.push(localhost_peer());
-            }
+            let mut peers = vec![];
+            peers.resize_with(size, || localhost_peer());
 
             let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
             let peer_list_msg = NetworkResponse::PeerList(me.clone(), peers);
