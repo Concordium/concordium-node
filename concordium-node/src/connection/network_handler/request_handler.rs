@@ -1,7 +1,5 @@
-use crate::{
-    common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor},
-    network::{request::NetworkRequest as NRequest, NetworkRequest},
-};
+use crate::network::{request::NetworkRequest as NRequest, NetworkRequest};
+use concordium_common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor};
 
 pub struct RequestHandler {
     pub ping_handler:          UnitFunctor<NRequest>,

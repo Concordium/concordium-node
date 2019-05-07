@@ -5,7 +5,6 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-#[macro_use]
 extern crate p2p_client;
 #[macro_use]
 extern crate concordium_common;
@@ -15,14 +14,12 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use concordium_common::functor::{FilterFunctor, Functorable};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
-    common::{
-        functor::{FilterFunctor, Functorable},
-        P2PNodeId, PeerType,
-    },
+    common::{P2PNodeId, PeerType},
     configuration,
     connection::MessageManager,
     db::P2PDB,

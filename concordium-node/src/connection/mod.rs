@@ -10,7 +10,7 @@ mod connection_private;
 pub mod fails;
 mod handler_utils;
 
-use crate::common::functor::FuncResult;
+use concordium_common::functor::FuncResult;
 use rustls::Session;
 
 /// It is a common trait for `rustls::ClientSession` and `rustls::ServerSession`
@@ -43,13 +43,15 @@ use rustls::{ClientSession, ServerSession};
 
 use failure::{bail, Error, Fallible};
 
-use concordium_common::UCursor;
+use concordium_common::{
+    functor::{FunctorResult, UnitFunction},
+    UCursor,
+};
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
-        functor::{FunctorResult, UnitFunction},
-        get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,

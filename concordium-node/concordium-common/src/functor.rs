@@ -1,4 +1,5 @@
-use failure::{Error, Fail};
+use crate::fails::FunctorError;
+use failure::Error;
 use std::sync::{Arc, RwLock};
 
 /// Helper macro to create callbacks from raw function pointers or closures.
@@ -7,29 +8,6 @@ macro_rules! make_atomic_callback {
     ($callback:expr) => {
         Arc::new(RwLock::new(Box::new($callback)))
     };
-}
-
-#[derive(Debug, Fail)]
-#[fail(display = "Error running functor: {:?}", errors)]
-/// Error returned from the execution of a Functor.
-///
-/// Contains a list of errors. It can be created through a vector of `Error`s,
-/// from a single `Error` or pushed back more items.
-pub struct FunctorError {
-    pub errors: Vec<Error>,
-}
-
-impl FunctorError {
-    /// Create a `FunctorError` from a single `Error`
-    pub fn create(e: impl Into<Error>) -> FunctorError {
-        FunctorError {
-            errors: vec![e.into()],
-        }
-    }
-}
-
-impl From<Vec<Error>> for FunctorError {
-    fn from(v: Vec<Error>) -> Self { FunctorError { errors: v } }
 }
 
 /// Result of the execution of a Functor
@@ -81,6 +59,7 @@ pub trait Functorable<T> {
     fn run_callbacks(&self, message: &T) -> FunctorResult<Self::OkValue>;
 }
 
+#[macro_export]
 /// Creates a handler for executing a stack of functions over a given value
 ///
 /// After populated with functions `Fn(&T) -> FuncResult<R>`, a given
@@ -202,14 +181,14 @@ An empty functor returns always `Ok(())`.
 
 # Examples
 ```
-extern crate p2p_client;
-use p2p_client::common::functor::{Functorable, UnitFunctor};
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
-
+# extern crate concordium_common;
+# use concordium_common::functor::{Functorable, UnitFunctor};
+# use std::{
+#    cell::RefCell,
+#    rc::Rc,
+#    sync::{Arc, RwLock},
+# };
+#
 let acc = Rc::new(RefCell::new(58));
 let acc_1 = Rc::clone(&acc);
 let acc_2 = Rc::clone(&acc);
@@ -251,14 +230,14 @@ An empty functor returns always `true`.
 
 # Example
 ```
-extern crate p2p_client;
-use p2p_client::common::functor::{Functorable, FilterFunctor};
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
-
+# extern crate concordium_common;
+# use concordium_common::functor::{FilterFunctor, Functorable};
+# use std::{
+#     cell::RefCell,
+#     rc::Rc,
+#     sync::{Arc, RwLock},
+# };
+#
 let true_shd_counter = Rc::new(RefCell::new(0));
 let true_shd_counter_1 = Rc::clone(&true_shd_counter);
 let true_shd_counter_2 = Rc::clone(&true_shd_counter);
@@ -307,7 +286,7 @@ impl<T: 'static> FilterFunctor<T> {
 
 #[cfg(test)]
 mod unit_functor_unit_test {
-    use crate::common::functor::{FuncResult, Functorable, UnitFunctor};
+    use crate::functor::{FuncResult, Functorable, UnitFunctor};
     use std::{
         cell::RefCell,
         rc::Rc,
@@ -383,7 +362,7 @@ mod unit_functor_unit_test {
 
 #[cfg(test)]
 mod filter_functor_unit_test {
-    use crate::common::functor::{FilterFunctor, FuncResult, Functorable};
+    use crate::functor::{FilterFunctor, FuncResult, Functorable};
     use std::{
         cell::RefCell,
         rc::Rc,

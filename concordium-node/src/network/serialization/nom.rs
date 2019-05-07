@@ -88,7 +88,7 @@ named!(
                 .peer( localhost_peer())
                 .message_id( msg_id.to_string())
                 .network_id( NetworkId::from(network_id))
-                .message( Box::new(UCursor::from( content.to_vec())))
+                .message( UCursor::from( content.to_vec()))
                 .build_direct( receiver_id )
                 .unwrap()
         )

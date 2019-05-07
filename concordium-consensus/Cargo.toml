@@ -1,5 +1,5 @@
 [package]
-name = "consensus-sys"
+name = "concordium-consensus"
 version = "0.0.1"
 description = "consensus prototype wrapper"
 authors = ["Concordium AG <info@concordium.com>"]

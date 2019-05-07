@@ -1,16 +1,15 @@
-use std::{
-    collections::HashSet,
-    sync::{mpsc::Sender, Arc, RwLock},
-};
-
 use crate::{
-    common::functor::FuncResult,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
         NetworkResponse,
     },
     stats_export_service::StatsExportService,
+};
+use concordium_common::functor::FuncResult;
+use std::{
+    collections::HashSet,
+    sync::{mpsc::Sender, Arc, RwLock},
 };
 
 /// It forwards network response message into `queue`.

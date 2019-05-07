@@ -1,17 +1,16 @@
-#[macro_use]
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{safe_write, UCursor};
+    use concordium_common::{
+        functor::{FilterFunctor, Functorable},
+        make_atomic_callback, safe_write, UCursor,
+    };
     use failure::{bail, Fallible};
     use p2p_client::{
-        common::{
-            functor::{FilterFunctor, Functorable},
-            PeerType,
-        },
+        common::PeerType,
         configuration::Config,
         connection::MessageManager,
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
@@ -28,13 +27,13 @@ mod tests {
     };
 
     mod utils {
-        use concordium_common::{safe_write, UCursor};
+        use concordium_common::{
+            functor::{FilterFunctor, Functorable},
+            make_atomic_callback, safe_write, UCursor,
+        };
         use failure::Fallible;
         use p2p_client::{
-            common::{
-                functor::{FilterFunctor, Functorable},
-                PeerType,
-            },
+            common::PeerType,
             configuration::Config,
             connection::MessageManager,
             network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
