@@ -1,4 +1,4 @@
-use failure::{Backtrace, Fail};
+use failure::{Backtrace, Error, Fail};
 
 #[derive(Debug, Fail)]
 #[fail(display = "Resource was poisoned")]
@@ -172,4 +172,27 @@ macro_rules! spawn_or_die {
             .spawn($func)
             .expect("OS refused to create a new thread")
     };
+}
+
+#[derive(Debug, Fail)]
+#[fail(display = "Error running functor: {:?}", errors)]
+/// Error returned from the execution of a Functor.
+///
+/// Contains a list of errors. It can be created through a vector of `Error`s,
+/// from a single `Error` or pushed back more items.
+pub struct FunctorError {
+    pub errors: Vec<Error>,
+}
+
+impl FunctorError {
+    /// Create a `FunctorError` from a single `Error`
+    pub fn create(e: impl Into<Error>) -> FunctorError {
+        FunctorError {
+            errors: vec![e.into()],
+        }
+    }
+}
+
+impl From<Vec<Error>> for FunctorError {
+    fn from(v: Vec<Error>) -> Self { FunctorError { errors: v } }
 }

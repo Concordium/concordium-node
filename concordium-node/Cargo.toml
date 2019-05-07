@@ -21,7 +21,7 @@ instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json
 
 [dependencies]
 # Internal dependencies
-consensus-sys = { path = "consensus-sys" }
+concordium-consensus = { path = "concordium-consensus" }
 concordium-dns = { path = "concordium-dns" }
 ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }

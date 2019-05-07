@@ -1,4 +1,5 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use failure::Fallible;
 
 use std::{fmt, hash::Hash, io::Write, num::NonZeroU64, ops::Deref};
 
@@ -59,7 +60,7 @@ pub struct SessionId {
 }
 
 impl SessionId {
-    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("SessionId", bytes);
 
         let mut curr_pos = 0;
@@ -67,9 +68,7 @@ impl SessionId {
         let genesis_block = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
         curr_pos += BLOCK_HASH;
 
-        let incarnation = (&bytes[curr_pos..][..INCARNATION])
-            .read_u64::<NetworkEndian>()
-            .ok()?;
+        let incarnation = (&bytes[curr_pos..][..INCARNATION]).read_u64::<NetworkEndian>()?;
 
         let sess = SessionId {
             genesis_block,
@@ -78,7 +77,7 @@ impl SessionId {
 
         check_serialization!(sess, bytes);
 
-        Some(sess)
+        Ok(sess)
     }
 
     pub fn serialize(&self) -> Vec<u8> {

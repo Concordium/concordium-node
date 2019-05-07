@@ -7,19 +7,14 @@ extern crate grpciowin as grpcio;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::spawn_or_die;
+    use concordium_common::{
+        functor::{FilterFunctor, Functorable},
+        spawn_or_die,
+    };
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
-        common::{
-            functor::{FilterFunctor, Functorable},
-            PeerType,
-        },
-        configuration::Config,
-        db::P2PDB,
-        network::NetworkMessage,
-        p2p::p2p_node::P2PNode,
-        proto::*,
-        rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
+        p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
         sync::{

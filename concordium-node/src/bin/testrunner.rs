@@ -15,7 +15,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{lock_or_die, safe_lock, spawn_or_die};
+use concordium_common::{
+    functor::{FilterFunctor, Functorable},
+    lock_or_die, safe_lock, spawn_or_die,
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use gotham::{
@@ -28,11 +31,7 @@ use gotham::{
 };
 use hyper::{Body, Response, StatusCode};
 use p2p_client::{
-    common::{
-        self,
-        functor::{FilterFunctor, Functorable},
-        PeerType,
-    },
+    common::{self, PeerType},
     configuration,
     db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},

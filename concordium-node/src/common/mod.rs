@@ -1,8 +1,5 @@
 pub mod counter;
 
-#[macro_use]
-pub mod functor;
-
 use concordium_common::UCursor;
 
 pub mod fails;
