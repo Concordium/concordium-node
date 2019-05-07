@@ -10,6 +10,7 @@ mod connection_private;
 pub mod fails;
 mod handler_utils;
 
+use concordium_common::functor::FuncResult;
 use rustls::Session;
 
 /// It is a common trait for `rustls::ClientSession` and `rustls::ServerSession`
@@ -42,11 +43,15 @@ use rustls::{ClientSession, ServerSession};
 
 use failure::{bail, Error, Fallible};
 
+use concordium_common::{
+    functor::{FunctorResult, UnitFunction},
+    UCursor,
+};
+
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
-        functor::{AFunctorCW, FunctorError, FunctorResult},
-        get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+        counter::TOTAL_MESSAGES_RECEIVED_COUNTER, get_current_stamp, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
@@ -74,38 +79,6 @@ macro_rules! handle_by_private {
         let dptr_cloned = Rc::clone(&$dptr);
         make_atomic_callback!(move |m: $message_type| { $fn(&dptr_cloned, m) })
     }};
-}
-
-macro_rules! drop_conn_if_unwanted {
-    ($process:expr, $self:ident) => {
-        if let Err(e) = $process {
-            match e.downcast::<fails::UnwantedMessageError>() {
-                Ok(f) => {
-                    error!("Dropping connection: {}", f);
-                    $self.close();
-                }
-                Err(e) => {
-                    if let Ok(f) = e.downcast::<FunctorError>() {
-                        f.errors.iter().for_each(|x| {
-                            if x.to_string().contains("SendError(..)") {
-                                trace!("Send Error in incoming plaintext");
-                            } else {
-                                error!("{}", x);
-                            }
-                        });
-                    }
-                }
-            }
-        } else if $self.status == ConnectionStatus::Untrusted {
-            $self.setup_message_handler();
-            debug!(
-                "Succesfully executed handshake between {:?} and {:?}",
-                $self.local_peer(),
-                $self.remote_peer()
-            );
-            $self.status = ConnectionStatus::Established;
-        }
-    };
 }
 
 const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
@@ -284,10 +257,10 @@ impl Connection {
     // Setup message handler
     // ============================
 
-    fn make_update_last_seen_handler<T>(&self) -> AFunctorCW<T> {
+    fn make_update_last_seen_handler<T>(&self) -> UnitFunction<T> {
         let priv_conn = Rc::clone(&self.dptr);
 
-        make_atomic_callback!(move |_: &T| -> FunctorResult {
+        make_atomic_callback!(move |_: &T| -> FuncResult<()> {
             priv_conn.borrow_mut().update_last_seen();
             Ok(())
         })
@@ -478,7 +451,10 @@ impl Connection {
 
     pub fn is_closed(&self) -> bool { self.closed }
 
-    pub fn close(&mut self) { self.closing = true; }
+    pub fn close(&mut self) {
+        self.dptr.borrow_mut().tls_session.send_close_notify();
+        self.closing = true;
+    }
 
     pub fn shutdown(&mut self) -> Fallible<()> {
         self.socket.shutdown(Shutdown::Both)?;
@@ -501,7 +477,7 @@ impl Connection {
         if ev_readiness.is_writable() {
             let written_bytes = self.flush_tls()?;
             if written_bytes > 0 {
-                debug!(
+                trace!(
                     "EV readiness is WRITABLE, {} bytes were written",
                     written_bytes
                 );
@@ -576,7 +552,7 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult {
+    fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult<()> {
         let buf_cursor = UCursor::from(buf);
         let outer = Arc::new(NetworkMessage::deserialize(
             self.remote_peer(),
@@ -648,12 +624,36 @@ impl Connection {
             trace!("Completed packet with {} size", self.pkt_buffer.len());
             self.validate_packet();
             if self.pkt_valid() || !self.pkt_validated() {
-                drop_conn_if_unwanted!(self.process_complete_packet(self.pkt_buffer.to_vec()), self)
+                let res = self.process_complete_packet(self.pkt_buffer.to_vec());
+                self.drop_conn_if_unwanted(res)
             }
             self.clear_buffer();
         }
 
         &buf[max_to_append..]
+    }
+
+    fn drop_conn_if_unwanted(&mut self, process_result: FunctorResult<()>) {
+        if let Err(e) = process_result {
+            if let Some(f) = e
+                .errors
+                .iter()
+                .find(|ref x| x.downcast_ref::<fails::UnwantedMessageError>().is_some())
+            {
+                error!("Dropping connection: {}", f);
+                self.close();
+            } else {
+                e.errors.iter().for_each(|x| error!("{}", x));
+            }
+        } else if self.status == ConnectionStatus::Untrusted {
+            self.setup_message_handler();
+            debug!(
+                "Succesfully executed handshake between {:?} and {:?}",
+                self.local_peer(),
+                self.remote_peer()
+            );
+            self.status = ConnectionStatus::Established;
+        }
     }
 
     /// It tries to load the expected size for the next message.
@@ -735,11 +735,12 @@ impl Connection {
 
     /// It tries to write into socket all pending to write.
     /// It returns how many bytes were writte into the socket.
+    #[cfg(not(target_os = "windows"))]
     fn flush_tls(&mut self) -> Fallible<usize> {
         let wants_write =
-            self.dptr.borrow().tls_session.wants_write() && !self.closed && !self.closing;
+            !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
-            debug!(
+            trace!(
                 "{}/{} is attempting to write to socket {:?}",
                 self.local_id(),
                 self.local_addr(),
@@ -750,18 +751,42 @@ impl Connection {
             let mut lptr = self.dptr.borrow_mut();
             match lptr.tls_session.writev_tls(&mut wr) {
                 Err(e) => match e.kind() {
-                    std::io::ErrorKind::WouldBlock => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
-                    std::io::ErrorKind::WriteZero => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
-                    std::io::ErrorKind::Interrupted => {
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
-                    }
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::Interrupted => into_err!(Err(e)),
                     _ => {
                         self.closed = true;
-                        Err(failure::Error::from_boxed_compat(Box::new(e)))
+                        into_err!(Err(e))
+                    }
+                },
+                Ok(size) => Ok(size),
+            }
+        } else {
+            Ok(0)
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn flush_tls(&mut self) -> Fallible<usize> {
+        let wants_write =
+            !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
+        if wants_write {
+            trace!(
+                "{}/{} is attempting to write to socket {:?}",
+                self.local_id(),
+                self.local_addr(),
+                self.socket
+            );
+
+            let mut lptr = self.dptr.borrow_mut();
+            match lptr.tls_session.write_tls(&mut self.socket) {
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::WriteZero
+                    | std::io::ErrorKind::Interrupted => into_err!(Err(e)),
+                    _ => {
+                        self.closed = true;
+                        into_err!(Err(e))
                     }
                 },
                 Ok(size) => Ok(size),

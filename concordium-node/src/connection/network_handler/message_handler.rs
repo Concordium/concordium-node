@@ -1,28 +1,28 @@
-use crate::{
-    common::functor::{AFunctor, AFunctorCW, FunctorResult},
-    network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
+use crate::network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
+use concordium_common::{
+    fails::FunctorError,
+    functor::{FuncResult, FunctorResult, Functorable, UnitFunction, UnitFunctor},
 };
 use std::{
     rc::Rc,
     sync::{Arc, RwLock},
 };
 
-pub type NetworkMessageCW = AFunctorCW<NetworkMessage>;
-pub type NetworkRequestCW = AFunctorCW<NetworkRequest>;
-pub type NetworkResponseCW = AFunctorCW<NetworkResponse>;
-pub type NetworkPacketCW = AFunctorCW<NetworkPacket>;
-pub type EmptyCW = AFunctorCW<()>;
+pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
+pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
+pub type NetworkResponseCW = UnitFunction<NetworkResponse>;
+pub type NetworkPacketCW = UnitFunction<NetworkPacket>;
+pub type EmptyCW = UnitFunction<()>;
 
 /// It is a handler for `NetworkMessage`.
-#[derive(Clone)]
 pub struct MessageHandler {
-    request_parser:  AFunctor<NetworkRequest>,
-    response_parser: AFunctor<NetworkResponse>,
-    packet_parser:   AFunctor<NetworkPacket>,
-    invalid_handler: Rc<(Fn() -> FunctorResult)>,
-    unknown_handler: Rc<(Fn() -> FunctorResult)>,
+    request_parser:  UnitFunctor<NetworkRequest>,
+    response_parser: UnitFunctor<NetworkResponse>,
+    packet_parser:   UnitFunctor<NetworkPacket>,
+    invalid_handler: Rc<(Fn() -> FuncResult<()>)>,
+    unknown_handler: Rc<(Fn() -> FuncResult<()>)>,
 
-    general_parser: AFunctor<NetworkMessage>,
+    general_parser: UnitFunctor<NetworkMessage>,
 }
 
 impl Default for MessageHandler {
@@ -32,10 +32,10 @@ impl Default for MessageHandler {
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {
-            request_parser:  AFunctor::<NetworkRequest>::new("Network::Request"),
-            response_parser: AFunctor::<NetworkResponse>::new("Network::Response"),
-            packet_parser:   AFunctor::<NetworkPacket>::new("Network::Package"),
-            general_parser:  AFunctor::<NetworkMessage>::new("General NetworkMessage"),
+            request_parser:  UnitFunctor::<NetworkRequest>::new("Network::Request"),
+            response_parser: UnitFunctor::<NetworkResponse>::new("Network::Response"),
+            packet_parser:   UnitFunctor::<NetworkPacket>::new("Network::Package"),
+            general_parser:  UnitFunctor::<NetworkMessage>::new("General NetworkMessage"),
             invalid_handler: Rc::new(|| Ok(())),
             unknown_handler: Rc::new(|| Ok(())),
         }
@@ -61,12 +61,12 @@ impl MessageHandler {
         self
     }
 
-    pub fn set_invalid_handler(&mut self, func: Rc<(Fn() -> FunctorResult)>) -> &mut Self {
+    pub fn set_invalid_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
         self.invalid_handler = func;
         self
     }
 
-    pub fn set_unknown_handler(&mut self, func: Rc<(Fn() -> FunctorResult)>) -> &mut Self {
+    pub fn set_unknown_handler(&mut self, func: Rc<(Fn() -> FuncResult<()>)>) -> &mut Self {
         self.unknown_handler = func;
         self
     }
@@ -92,7 +92,7 @@ impl MessageHandler {
         self
     }
 
-    pub fn process_message(&self, msg: &NetworkMessage) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkMessage) -> FunctorResult<()> {
         // General
         let general_status = self.general_parser.run_callbacks(msg);
 
@@ -101,8 +101,12 @@ impl MessageHandler {
             NetworkMessage::NetworkRequest(ref nr, _, _) => self.request_parser.run_callbacks(nr),
             NetworkMessage::NetworkResponse(ref nr, _, _) => self.response_parser.run_callbacks(nr),
             NetworkMessage::NetworkPacket(ref np, _, _) => self.packet_parser.run_callbacks(np),
-            NetworkMessage::UnknownMessage => (self.unknown_handler)(),
-            NetworkMessage::InvalidMessage => (self.invalid_handler)(),
+            NetworkMessage::UnknownMessage => {
+                (self.unknown_handler)().map_err(|x| FunctorError::from(vec![x]))
+            }
+            NetworkMessage::InvalidMessage => {
+                (self.invalid_handler)().map_err(|x| FunctorError::from(vec![x]))
+            }
         };
 
         general_status.and(specific_status)
@@ -116,21 +120,20 @@ pub trait MessageManager {
 #[cfg(test)]
 mod message_handler_unit_test {
     use crate::{
-        common::functor::FunctorResult,
+        common::{P2PPeerBuilder, PeerType},
         connection::MessageHandler,
         network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
     };
-
-    use crate::common::{P2PPeerBuilder, PeerType};
+    use concordium_common::functor::FuncResult;
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{Arc, RwLock},
     };
 
-    fn request_handler_func_1(_nr: &NetworkRequest) -> FunctorResult { Ok(()) }
-    fn request_handler_func_2(_nr: &NetworkRequest) -> FunctorResult { Ok(()) }
-    fn response_handler_func_1(_nr: &NetworkResponse) -> FunctorResult { Ok(()) }
-    fn packet_handler_func_1(_np: &NetworkPacket) -> FunctorResult { Ok(()) }
+    fn request_handler_func_1(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
+    fn request_handler_func_2(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
+    fn response_handler_func_1(_nr: &NetworkResponse) -> FuncResult<()> { Ok(()) }
+    fn packet_handler_func_1(_np: &NetworkPacket) -> FuncResult<()> { Ok(()) }
 
     #[test]
     pub fn test_message_handler_mix() {
@@ -160,13 +163,14 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use crate::{
-        common::{functor::FunctorResult, P2PNodeId, P2PPeerBuilder, PeerType, UCursor},
+        common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::{MessageHandler, PacketHandler},
         network::{
             NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
             NetworkRequest, NetworkResponse,
         },
     };
+    use concordium_common::{functor::FuncResult, UCursor};
 
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -175,6 +179,8 @@ mod integration_test {
             Arc, RwLock,
         },
     };
+
+    use failure::Error;
 
     static NETWORK_REQUEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
     static NETWORK_RESPONSE_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -206,7 +212,7 @@ mod integration_test {
                     .peer(p2p_peer.clone())
                     .message_id("MSG-ID-1".to_string())
                     .network_id(NetworkId::from(100))
-                    .message(Box::new(inner_msg.clone()))
+                    .message(inner_msg.clone())
                     .build_broadcast()
                     .unwrap(),
                 None,
@@ -217,7 +223,7 @@ mod integration_test {
                     .peer(p2p_peer)
                     .message_id("MSG-ID-2".to_string())
                     .network_id(NetworkId::from(100))
-                    .message(Box::new(inner_msg))
+                    .message(inner_msg)
                     .build_direct(node_id)
                     .unwrap(),
                 None,
@@ -229,11 +235,11 @@ mod integration_test {
     }
 
     /// Handler function for `NetworkRequest` elements that does nothing.
-    fn network_request_handler_1(_nr: &NetworkRequest) -> FunctorResult { Ok(()) }
+    fn network_request_handler_1(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
 
     /// Handler function for `NetworkRequest` elements. It only increases its
     /// counter.
-    fn network_request_handler_2(_nr: &NetworkRequest) -> FunctorResult {
+    fn network_request_handler_2(_nr: &NetworkRequest) -> FuncResult<()> {
         NETWORK_REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -270,7 +276,7 @@ mod integration_test {
             }))
             .add_packet_callback(make_atomic_callback!(move |p: &NetworkPacketEnum| {
                 NETWORK_PACKET_COUNTER.fetch_add(1, Ordering::SeqCst);
-                pkg_handler.process_message(p)
+                pkg_handler.process_message(p).map_err(Error::from)
             }));
 
         msg_handler

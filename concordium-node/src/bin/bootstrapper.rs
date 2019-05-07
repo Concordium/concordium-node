@@ -5,34 +5,30 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-#[macro_use]
 extern crate p2p_client;
+#[macro_use]
+extern crate concordium_common;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use concordium_common::functor::{FilterFunctor, Functorable};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
-    common::{functor::AFunctor, P2PNodeId, PeerType},
+    client::utils as client_utils,
+    common::{P2PNodeId, PeerType},
     configuration,
     connection::MessageManager,
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    safe_read,
-    stats_export_service::{StatsExportService, StatsServiceMode},
+    stats_export_service::StatsServiceMode,
     utils,
 };
-use std::{
-    sync::{mpsc, Arc, RwLock},
-    thread,
-};
-
-#[cfg(feature = "instrumentation")]
-use failure::Fallible;
+use std::sync::{mpsc, Arc, RwLock};
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
@@ -82,36 +78,24 @@ fn main() -> Result<(), Error> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    #[cfg(feature = "instrumentation")]
-    let stats_export_service = if conf.prometheus.prometheus_server {
-        use std::net::SocketAddr;
-        info!("Enabling prometheus server");
-        let mut srv = StatsExportService::new(StatsServiceMode::BootstrapperMode)?;
-        srv.start_server(SocketAddr::new(
-            conf.prometheus.prometheus_listen_addr.parse()?,
-            conf.prometheus.prometheus_listen_port,
-        ));
-        Some(Arc::new(RwLock::new(srv)))
-    } else if let Some(ref gateway) = conf.prometheus.prometheus_push_gateway {
-        info!("Enabling prometheus push gateway at {}", gateway);
-        let srv = StatsExportService::new(StatsServiceMode::BootstrapperMode)?;
-        Some(Arc::new(RwLock::new(srv)))
+    // Instantiate stats export engine
+    let stats_export_service =
+        client_utils::instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode)
+            .unwrap_or_else(|e| {
+                error!(
+                    "I was not able to instantiate an stats export service: {}",
+                    e
+                );
+                None
+            });
+
+    let arc_stats_export_service = if let Some(ref service) = stats_export_service {
+        Some(Arc::clone(service))
     } else {
         None
     };
 
-    #[cfg(not(feature = "instrumentation"))]
-    let stats_export_service = Some(Arc::new(RwLock::new(StatsExportService::new(
-        StatsServiceMode::NodeMode,
-    ))));
-
-    let arc_stats_export_service = if let Some(ref p) = stats_export_service {
-        Some(Arc::clone(p))
-    } else {
-        None
-    };
-
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     let id = match conf.common.id {
         Some(ref x) => x.to_owned(),
@@ -120,11 +104,11 @@ fn main() -> Result<(), Error> {
 
     let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-    let broadcasting_checks = Arc::new(AFunctor::new("Broadcasting_checks"));
+    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -159,7 +143,7 @@ fn main() -> Result<(), Error> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };
@@ -188,7 +172,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    start_push_gateway(
+    client_utils::start_push_gateway(
         &conf.prometheus,
         &stats_export_service,
         safe_read!(node)?.id(),
@@ -203,31 +187,8 @@ fn main() -> Result<(), Error> {
 
     write_or_die!(node).join().expect("Node thread panicked!");
 
-    Ok(())
-}
+    // Close stats server export if present
+    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
 
-#[cfg(feature = "instrumentation")]
-fn start_push_gateway(
-    conf: &configuration::PrometheusConfig,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
-    id: P2PNodeId,
-) -> Fallible<()> {
-    if let Some(ref service) = stats_export_service {
-        if let Some(ref prom_push_addy) = conf.prometheus_push_gateway {
-            let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
-                instance_id.clone()
-            } else {
-                id.to_string()
-            };
-            safe_read!(service)?.start_push_to_gateway(
-                prom_push_addy.clone(),
-                conf.prometheus_push_interval,
-                conf.prometheus_job_name.clone(),
-                instance_name,
-                conf.prometheus_push_username.clone(),
-                conf.prometheus_push_password.clone(),
-            )
-        }
-    }
     Ok(())
 }

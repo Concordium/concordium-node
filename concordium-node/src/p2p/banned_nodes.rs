@@ -1,7 +1,8 @@
 use crate::{
-    common::{deserialize_ip, serialize_ip, ucursor::UCursor, P2PNodeId},
+    common::{deserialize_ip, serialize_ip, P2PNodeId},
     network::PROTOCOL_NODE_ID_LENGTH,
 };
+use concordium_common::UCursor;
 use failure::{bail, Fallible};
 use std::{
     collections::HashSet,

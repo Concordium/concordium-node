@@ -1,5 +1,30 @@
-use crate::{p2p::banned_nodes::BannedNode, utils};
+use crate::{
+    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer},
+    configuration,
+    connection::{
+        Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
+        NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
+    },
+    crypto,
+    network::{
+        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
+    },
+    p2p::{
+        banned_nodes::BannedNode,
+        fails,
+        no_certificate_verification::NoCertificateVerification,
+        p2p_node_handlers::{
+            forward_network_packet_message, forward_network_request, forward_network_response,
+        },
+        peer_statistics::PeerStatistic,
+        tls_server::{TlsServer, TlsServerBuilder},
+    },
+    stats_export_service::StatsExportService,
+    utils,
+};
 use chrono::prelude::*;
+use concordium_common::{functor::FilterFunctor, UCursor};
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -24,32 +49,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::AFunctor, P2PNodeId, P2PPeer, PeerType,
-        RemotePeer, UCursor,
-    },
-    configuration,
-    connection::{
-        Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
-        NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
-    },
-    network::{
-        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
-    },
-    p2p::{
-        fails,
-        no_certificate_verification::NoCertificateVerification,
-        p2p_node_handlers::{
-            forward_network_packet_message, forward_network_request, forward_network_response,
-        },
-        peer_statistics::PeerStatistic,
-        tls_server::{TlsServer, TlsServerBuilder},
-    },
-    stats_export_service::StatsExportService,
-};
-
 const SERVER: Token = Token(0);
 
 #[derive(Clone)]
@@ -59,7 +58,7 @@ pub struct P2PNodeConfig {
     no_bootstrap_dns:        bool,
     bootstrappers_conf:      String,
     dns_resolvers:           Vec<String>,
-    dnssec:                  bool,
+    dnssec_disabled:         bool,
     bootstrap_node:          Vec<String>,
     minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
@@ -76,7 +75,7 @@ pub struct P2PNode {
     tls_server:           Arc<RwLock<TlsServer>>,
     poll:                 Arc<RwLock<Poll>>,
     id:                   P2PNodeId,
-    send_queue_in:        Arc<Sender<Arc<NetworkMessage>>>,
+    send_queue_in:        Sender<Arc<NetworkMessage>>,
     send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
     pub internal_addr:    SocketAddr,
     queue_to_super:       Sender<Arc<NetworkMessage>>,
@@ -90,7 +89,7 @@ pub struct P2PNode {
     pub max_nodes:        Option<u16>,
     pub print_peers:      bool,
     config:               P2PNodeConfig,
-    broadcasting_checks:  Arc<AFunctor<NetworkPacket>>,
+    broadcasting_checks:  Arc<FilterFunctor<NetworkPacket>>,
 }
 
 unsafe impl Send for P2PNode {}
@@ -103,7 +102,7 @@ impl P2PNode {
         event_log: Option<Sender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
-        broadcasting_checks: Arc<AFunctor<NetworkPacket>>,
+        broadcasting_checks: Arc<FilterFunctor<NetworkPacket>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
@@ -162,7 +161,7 @@ impl P2PNode {
         };
 
         // Generate key pair and cert
-        let (cert, private_key) = match utils::generate_certificate(&id.to_string()) {
+        let (cert, private_key) = match crypto::generate_certificate(&id.to_string()) {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {
@@ -267,8 +266,11 @@ impl P2PNode {
             desired_nodes_count:     conf.connection.desired_nodes,
             no_bootstrap_dns:        conf.connection.no_bootstrap_dns,
             bootstrappers_conf:      conf.connection.bootstrap_server.clone(),
-            dns_resolvers:           conf.connection.dns_resolver.clone(),
-            dnssec:                  !conf.connection.no_dnssec,
+            dns_resolvers:           utils::get_resolvers(
+                &conf.connection.resolv_conf,
+                &conf.connection.dns_resolver,
+            ),
+            dnssec_disabled:         conf.connection.dnssec_disabled,
             bootstrap_node:          conf.connection.bootstrap_node.clone(),
             minimum_per_bucket:      conf.common.min_peers_bucket,
             blind_trusted_broadcast: conf.connection.no_trust_broadcasts,
@@ -280,7 +282,7 @@ impl P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
             poll: Arc::new(RwLock::new(poll)),
             id,
-            send_queue_in: Arc::new(send_queue_in),
+            send_queue_in: send_queue_in.clone(),
             send_queue_out: Rc::new(send_queue_out),
             internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             queue_to_super: pkt_queue,
@@ -322,13 +324,13 @@ impl P2PNode {
         let own_networks = Arc::clone(&read_or_die!(self.tls_server).networks());
         let stats_export_service = self.stats_export_service.clone();
         let packet_queue = self.queue_to_super.clone();
-        let send_queue = Arc::clone(&self.send_queue_in);
+        let send_queue = self.send_queue_in.clone();
         let trusted_broadcast = self.config.blind_trusted_broadcast;
         let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
             if pac.packet_type == NetworkPacketType::BroadcastedMessage
-                && broadcasting_checks.run_callbacks(pac).is_ok()
+                && broadcasting_checks.run_filters(pac)
             {
                 forward_network_packet_message(
                     &seen_messages,
@@ -382,6 +384,7 @@ impl P2PNode {
     /// This function is called periodically to print information about current
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStatistic]) {
+        trace!("Printing out stats");
         if let Some(max_nodes) = self.max_nodes {
             info!(
                 "I currently have {}/{} nodes!",
@@ -401,6 +404,7 @@ impl P2PNode {
     }
 
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
+        trace!("Checking for needed peers");
         if self.peer_type != PeerType::Bootstrapper
             && !self.config.no_net
             && self.config.desired_nodes_count
@@ -415,19 +419,15 @@ impl P2PNode {
                     match utils::get_bootstrap_nodes(
                         self.config.bootstrappers_conf.clone(),
                         &self.config.dns_resolvers,
-                        self.config.dnssec,
+                        self.config.dnssec_disabled,
                         &self.config.bootstrap_node,
                     ) {
                         Ok(nodes) => {
-                            for (ip, port) in nodes {
-                                info!("Found bootstrap node IP: {} and port: {}", ip, port);
-                                self.connect(
-                                    PeerType::Bootstrapper,
-                                    SocketAddr::new(ip, port),
-                                    None,
-                                )
-                                .map_err(|e| info!("{}", e))
-                                .ok();
+                            for addr in nodes {
+                                info!("Found bootstrap node addr {}", addr);
+                                self.connect(PeerType::Bootstrapper, addr, None)
+                                    .map_err(|e| info!("{}", e))
+                                    .ok();
                             }
                         }
                         _ => error!("Can't find any bootstrap nodes - check DNS!"),
@@ -453,7 +453,7 @@ impl P2PNode {
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
 
-        let join_handle = std::thread::spawn(move || {
+        let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
             let mut events = Events::with_capacity(1024);
             let mut log_time = SystemTime::now();
 
@@ -621,6 +621,89 @@ impl P2PNode {
         };
     }
 
+    fn process_join_network(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+        let mut locked_tls_server = write_or_die!(self.tls_server);
+        locked_tls_server.send_over_all_connections(
+            &data,
+            &is_valid_connection_post_handshake,
+            &check_sent_status_fn,
+        );
+
+        if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
+            locked_tls_server.add_network(*network_id);
+        }
+    }
+
+    fn process_leave_network(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+
+        let mut locked_tls_server = write_or_die!(self.tls_server);
+        locked_tls_server.send_over_all_connections(
+            &data,
+            &is_valid_connection_post_handshake,
+            &check_sent_status_fn,
+        );
+
+        if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
+            locked_tls_server.remove_network(*network_id);
+        }
+    }
+
+    fn process_get_peers(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+        write_or_die!(self.tls_server).send_over_all_connections(
+            &data,
+            &is_valid_connection_post_handshake,
+            &check_sent_status_fn,
+        );
+    }
+
+    fn process_retransmit(&self, inner_pkt: &NetworkRequest) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        if let NetworkRequest::Retransmit(ref peer, ..) = inner_pkt {
+            let filter = |conn: &Connection| is_conn_peer_id(conn, peer.id());
+            write_or_die!(self.tls_server).send_over_all_connections(
+                &inner_pkt.serialize(),
+                &filter,
+                &check_sent_status_fn,
+            );
+        }
+    }
+
+    fn process_network_packet(&self, inner_pkt: &NetworkPacket) {
+        let check_sent_status_fn =
+            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+        let data = inner_pkt.serialize();
+        match inner_pkt.packet_type {
+            NetworkPacketType::DirectMessage(ref receiver) => {
+                let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
+                write_or_die!(self.tls_server).send_over_all_connections(
+                    &data,
+                    &filter,
+                    &check_sent_status_fn,
+                );
+            }
+            NetworkPacketType::BroadcastedMessage => {
+                let filter = |conn: &Connection| {
+                    is_valid_connection_in_broadcast(conn, &inner_pkt.peer, inner_pkt.network_id)
+                };
+                write_or_die!(self.tls_server).send_over_all_connections(
+                    &data,
+                    &filter,
+                    &check_sent_status_fn,
+                );
+            }
+        };
+    }
+
     pub fn process_messages(&mut self) {
         let messages = self.send_queue_out.try_iter();
         for outer_pkt in messages {
@@ -629,49 +712,19 @@ impl P2PNode {
                 let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
             };
             trace!("Got message to process!");
-            let check_sent_status_fn =
-                |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    let data = inner_pkt.serialize();
-                    match inner_pkt.packet_type {
-                        NetworkPacketType::DirectMessage(ref receiver) => {
-                            let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
-                            write_or_die!(self.tls_server).send_over_all_connections(
-                                &data,
-                                &filter,
-                                &check_sent_status_fn,
-                            );
-                        }
-                        NetworkPacketType::BroadcastedMessage => {
-                            let filter = |conn: &Connection| {
-                                is_valid_connection_in_broadcast(
-                                    conn,
-                                    &inner_pkt.peer,
-                                    inner_pkt.network_id,
-                                )
-                            };
-                            write_or_die!(self.tls_server).send_over_all_connections(
-                                &data,
-                                &filter,
-                                &check_sent_status_fn,
-                            );
-                        }
-                    };
+                    self.process_network_packet(inner_pkt)
                 }
+                NetworkMessage::NetworkRequest(
+                    ref inner_pkt @ NetworkRequest::Retransmit(..),
+                    ..
+                ) => self.process_retransmit(inner_pkt),
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::GetPeers(..),
                     ..
-                ) => {
-                    let data = inner_pkt.serialize();
-
-                    write_or_die!(self.tls_server).send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                    );
-                }
+                ) => self.process_get_peers(inner_pkt),
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::UnbanNode(..),
                     ..
@@ -682,37 +735,11 @@ impl P2PNode {
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::JoinNetwork(..),
                     ..
-                ) => {
-                    let data = inner_pkt.serialize();
-
-                    let mut locked_tls_server = write_or_die!(self.tls_server);
-                    locked_tls_server.send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                    );
-
-                    if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
-                        locked_tls_server.add_network(*network_id);
-                    }
-                }
+                ) => self.process_join_network(inner_pkt),
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::LeaveNetwork(..),
                     ..
-                ) => {
-                    let data = inner_pkt.serialize();
-
-                    let mut locked_tls_server = write_or_die!(self.tls_server);
-                    locked_tls_server.send_over_all_connections(
-                        &data,
-                        &is_valid_connection_post_handshake,
-                        &check_sent_status_fn,
-                    );
-
-                    if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
-                        locked_tls_server.remove_network(*network_id);
-                    }
-                }
+                ) => self.process_leave_network(inner_pkt),
                 _ => {}
             }
         }
@@ -755,7 +782,7 @@ impl P2PNode {
         msg: UCursor,
         broadcast: bool,
     ) -> Fallible<()> {
-        debug!("Queueing message!");
+        trace!("Queueing message!");
 
         // Create packet.
         let packet = if broadcast {
@@ -763,7 +790,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(Box::new(msg))
+                .message(msg)
                 .build_broadcast()?
         } else {
             let receiver =
@@ -773,7 +800,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(Box::new(msg))
+                .message(msg)
                 .build_direct(receiver)?
         };
 
@@ -846,6 +873,18 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
+    pub fn send_retransmit(&mut self, receiver: P2PPeer, since: u64, nid: NetworkId) {
+        send_or_die!(
+            self.send_queue_in,
+            Arc::new(NetworkMessage::NetworkRequest(
+                NetworkRequest::Retransmit(receiver, since, nid),
+                None,
+                None,
+            ))
+        );
+        self.queue_size_inc();
+    }
+
     pub fn get_peer_stats(&self, nids: &[NetworkId]) -> Vec<PeerStatistic> {
         read_or_die!(self.tls_server).get_peer_stats(nids)
     }
@@ -902,6 +941,7 @@ impl P2PNode {
     }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
+        trace!("Going to process MIO events");
         read_or_die!(self.poll).poll(events, Some(Duration::from_millis(1000)))?;
 
         if self.peer_type != PeerType::Bootstrapper {
@@ -940,6 +980,7 @@ impl P2PNode {
             tls_ref.cleanup_connections(&mut poll_ref)?;
         }
 
+        trace!("Processing new outbound messages");
         self.process_messages();
         Ok(())
     }

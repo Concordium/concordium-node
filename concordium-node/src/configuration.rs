@@ -117,6 +117,31 @@ pub struct BakerConfig {
         default_value = "0"
     )]
     pub baker_genesis: u64,
+    #[structopt(
+        long = "baker-min-peer-satisfaction-percentage",
+        help = "The minimum percentage of peers satisfied out of desired peers to start baking",
+        default_value = "50"
+    )]
+    pub baker_min_peer_satisfaction_percentage: u8,
+    #[structopt(
+        long = "retransmit-times",
+        help = "Times to request transmit from peers",
+        default_value = "10"
+    )]
+    pub baker_retransmit_request_times: u16,
+    #[structopt(
+        long = "retransmit-request-interval",
+        help = "Time in seconds between retransmit requests",
+        default_value = "120"
+    )]
+    pub baker_retransmit_request_interval: u16,
+    #[structopt(
+        long = "retransmit-request-since",
+        help = "Each retransmit will request messages since current time minus this amount of \
+                seconds in the past",
+        default_value = "300"
+    )]
+    pub baker_retransmit_request_since: u16,
 }
 
 #[derive(StructOpt, Debug)]
@@ -169,8 +194,12 @@ pub struct ConnectionConfig {
         help = "Peer to connect to upon startup (host/ip:port)"
     )]
     pub connect_to: Vec<String>,
-    #[structopt(long = "no-dnssec", help = "Do not perform DNSsec tests for lookups")]
-    pub no_dnssec: bool,
+    #[structopt(
+        long = "no-dnssec",
+        help = "Do not perform DNSsec tests for lookups. If flag is set, then no DNSSEC \
+                validation will be performed"
+    )]
+    pub dnssec_disabled: bool,
     #[structopt(long = "dns-resolver", help = "DNS resolver to use")]
     pub dns_resolver: Vec<String>,
     #[structopt(
@@ -347,7 +376,7 @@ impl Default for Config {
                 bootstrap_server:    "bootstrap.p2p.concordium.com".to_owned(),
                 no_trust_broadcasts: false,
                 connect_to:          vec![],
-                no_dnssec:           false,
+                dnssec_disabled:     false,
                 dns_resolver:        vec![],
                 bootstrap_node:      vec![],
                 resolv_conf:         "/etc/resolv.conf".to_owned(),
@@ -356,9 +385,13 @@ impl Default for Config {
                 no_network:      false,
                 test_runner_url: None,
                 baker:           BakerConfig {
-                    baker_id:         None,
+                    baker_id: None,
                     baker_num_bakers: 60,
-                    baker_genesis:    0,
+                    baker_genesis: 0,
+                    baker_min_peer_satisfaction_percentage: 50,
+                    baker_retransmit_request_interval: 120,
+                    baker_retransmit_request_since: 300,
+                    baker_retransmit_request_times: 10,
                 },
                 tps:             TpsConfig {
                     enable_tps_test:       false,

@@ -7,23 +7,19 @@ extern crate grpciowin as grpcio;
 
 #[cfg(test)]
 mod tests {
-    use consensus_sys::consensus::*;
+    use concordium_common::{
+        functor::{FilterFunctor, Functorable},
+        spawn_or_die,
+    };
+    use concordium_consensus::consensus::*;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
-        common::{functor::AFunctor, PeerType},
-        configuration::Config,
-        db::P2PDB,
-        network::NetworkMessage,
-        p2p::p2p_node::P2PNode,
-        proto::*,
-        rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
+        p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
-    use std::{
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            mpsc, Arc,
-        },
-        thread,
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
     };
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
@@ -63,7 +59,7 @@ mod tests {
         &consensus_container.start_baker(0, private_data[&0].clone());
 
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -81,7 +77,7 @@ mod tests {
             Some(sender),
             PeerType::Node,
             None,
-            Arc::new(AFunctor::new("Broadcasting_checks")),
+            Arc::new(FilterFunctor::new("Broadcasting_checks")),
         );
 
         let mut rpc_serv = RpcServerImpl::new(
