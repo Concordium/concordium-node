@@ -255,7 +255,7 @@ fn setup_baker_guards(
                                 consensus::PACKET_TYPE_CONSENSUS_FINALIZATION,
                             )
                             .expect("Can't write to buffer");
-                        out_bytes.extend(msg.serialize());
+                        out_bytes.extend(&*msg.serialize());
                         match &_node_ref_5.send_message(
                             Some(receiver_id),
                             _network_id,
