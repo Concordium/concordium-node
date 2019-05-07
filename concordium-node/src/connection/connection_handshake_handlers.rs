@@ -1,17 +1,17 @@
-use std::cell::RefCell;
-
 use super::{fails, handler_utils::*};
 use crate::{
-    common::{functor::FunctorResult, get_current_stamp, P2PPeer, PeerType},
+    common::{get_current_stamp, P2PPeer, PeerType},
     connection::connection_private::ConnectionPrivate,
     network::{NetworkRequest, NetworkResponse},
 };
+use concordium_common::functor::FuncResult;
 use failure::bail;
+use std::cell::RefCell;
 
 pub fn handshake_response_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkResponse,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = req {
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
@@ -51,7 +51,7 @@ pub fn handshake_response_handle(
 pub fn handshake_request_handle(
     priv_conn: &RefCell<ConnectionPrivate>,
     req: &NetworkRequest,
-) -> FunctorResult {
+) -> FuncResult<()> {
     if let NetworkRequest::Handshake(sender, nets, _) = req {
         debug!("Got request for Handshake");
 

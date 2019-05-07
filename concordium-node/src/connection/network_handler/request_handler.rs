@@ -1,18 +1,16 @@
-use crate::{
-    common::functor::{AFunctor, AFunctorCW, FunctorResult},
-    network::{request::NetworkRequest as NRequest, NetworkRequest},
-};
+use crate::network::{request::NetworkRequest as NRequest, NetworkRequest};
+use concordium_common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor};
 
 pub struct RequestHandler {
-    pub ping_handler:          AFunctor<NRequest>,
-    pub find_node_handler:     AFunctor<NRequest>,
-    pub ban_node_handler:      AFunctor<NRequest>,
-    pub unban_node_handler:    AFunctor<NRequest>,
-    pub handshake_handler:     AFunctor<NRequest>,
-    pub get_peers_handler:     AFunctor<NRequest>,
-    pub join_network_handler:  AFunctor<NRequest>,
-    pub leave_network_handler: AFunctor<NRequest>,
-    pub retransmit_handler:    AFunctor<NRequest>,
+    pub ping_handler:          UnitFunctor<NRequest>,
+    pub find_node_handler:     UnitFunctor<NRequest>,
+    pub ban_node_handler:      UnitFunctor<NRequest>,
+    pub unban_node_handler:    UnitFunctor<NRequest>,
+    pub handshake_handler:     UnitFunctor<NRequest>,
+    pub get_peers_handler:     UnitFunctor<NRequest>,
+    pub join_network_handler:  UnitFunctor<NRequest>,
+    pub leave_network_handler: UnitFunctor<NRequest>,
+    pub retransmit_handler:    UnitFunctor<NRequest>,
 }
 
 impl Default for RequestHandler {
@@ -22,64 +20,64 @@ impl Default for RequestHandler {
 impl RequestHandler {
     pub fn new() -> Self {
         RequestHandler {
-            ping_handler:          AFunctor::<NRequest>::new("Network::Request::Ping"),
-            find_node_handler:     AFunctor::new("Network::Request::FindNode"),
-            ban_node_handler:      AFunctor::new("Network::Request::BanNode"),
-            unban_node_handler:    AFunctor::new("Network::Request::UnbanNode"),
-            handshake_handler:     AFunctor::new("Network::Request::Handshake"),
-            get_peers_handler:     AFunctor::new("Network::Request::GetPeers"),
-            join_network_handler:  AFunctor::new("Network::Request::JoinNetwork"),
-            leave_network_handler: AFunctor::new("Network::Request::LeaveNetwork"),
-            retransmit_handler:    AFunctor::new("Network::Request::Retransmit"),
+            ping_handler:          UnitFunctor::new("Network::Request::Ping"),
+            find_node_handler:     UnitFunctor::new("Network::Request::FindNode"),
+            ban_node_handler:      UnitFunctor::new("Network::Request::BanNode"),
+            unban_node_handler:    UnitFunctor::new("Network::Request::UnbanNode"),
+            handshake_handler:     UnitFunctor::new("Network::Request::Handshake"),
+            get_peers_handler:     UnitFunctor::new("Network::Request::GetPeers"),
+            join_network_handler:  UnitFunctor::new("Network::Request::JoinNetwork"),
+            leave_network_handler: UnitFunctor::new("Network::Request::LeaveNetwork"),
+            retransmit_handler:    UnitFunctor::new("Network::Request::Retransmit"),
         }
     }
 
-    pub fn add_ping_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_ping_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.ping_handler.add_callback(callback);
         self
     }
 
-    pub fn add_find_node_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_find_node_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.find_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_ban_node_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_ban_node_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.ban_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_unban_node_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_unban_node_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.unban_node_handler.add_callback(callback);
         self
     }
 
-    pub fn add_handshake_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_handshake_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.handshake_handler.add_callback(callback);
         self
     }
 
-    pub fn add_get_peers_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_get_peers_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.get_peers_handler.add_callback(callback);
         self
     }
 
-    pub fn add_join_network_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_join_network_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.join_network_handler.add_callback(callback);
         self
     }
 
-    pub fn add_leave_network_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_leave_network_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.leave_network_handler.add_callback(callback);
         self
     }
 
-    pub fn add_retransmit_callback(&mut self, callback: AFunctorCW<NRequest>) -> &mut Self {
+    pub fn add_retransmit_callback(&mut self, callback: UnitFunction<NRequest>) -> &mut Self {
         self.retransmit_handler.add_callback(callback);
         self
     }
 
-    pub fn process_message(&self, msg: &NetworkRequest) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkRequest) -> FunctorResult<()> {
         match msg {
             ref ping_inner_pkt @ NetworkRequest::Ping(_) => {
                 self.ping_handler.run_callbacks(ping_inner_pkt)

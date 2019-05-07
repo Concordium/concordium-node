@@ -1,11 +1,12 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer, UCursor},
+    common::{P2PNodeId, P2PPeer},
     network::{
         NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
         PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
         PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
     },
 };
+use concordium_common::UCursor;
 
 use crate::{
     failure::{err_msg, Fallible},
@@ -40,7 +41,7 @@ pub struct NetworkPacket {
     pub message_id: String,
     pub network_id: NetworkId,
 
-    pub message: Box<UCursor>,
+    pub message: UCursor,
 }
 
 impl NetworkPacketBuilder {
@@ -128,7 +129,7 @@ impl NetworkPacket {
 
     pub fn reader(&self) -> Chain<Cursor<Vec<u8>>, UCursor> {
         let header_reader = Cursor::new(self.header_as_vec());
-        header_reader.chain((*self.message).clone())
+        header_reader.chain(self.message.clone())
     }
 
     pub fn serialize(&self) -> Vec<u8> {

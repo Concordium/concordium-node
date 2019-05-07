@@ -1,11 +1,6 @@
-pub mod container_view;
 pub mod counter;
-pub mod ucursor;
 
-pub use self::{container_view::ContainerView, ucursor::UCursor};
-
-#[macro_use]
-pub mod functor;
+use concordium_common::UCursor;
 
 pub mod fails;
 
@@ -288,7 +283,7 @@ impl P2PPeer {
         let buf = view.as_slice();
 
         let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-        debug!(
+        trace!(
             "deserialized {:?} to {:?}",
             &buf[..PROTOCOL_NODE_ID_LENGTH],
             node_id
@@ -373,6 +368,7 @@ mod tests {
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
+    use concordium_common::{ContainerView, UCursor};
     use std::collections::HashSet;
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
@@ -579,7 +575,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
+            .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
         let serialized = msg.serialize();
         let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
@@ -608,7 +604,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
+            .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast()?;
 
         let serialized = msg.serialize();

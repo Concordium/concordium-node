@@ -1,5 +1,5 @@
 use super::fails;
-use crate::common::UCursor;
+use concordium_common::UCursor;
 use failure::{bail, Fallible};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -85,13 +85,19 @@ impl SeenTransmissionsList {
         }
     }
 
-    pub fn get_transmissions_since(&self, since_timestamp: u64) -> Fallible<Vec<Vec<u8>>> {
+    pub fn get_transmissions_since(
+        &self,
+        since_timestamp: u64,
+    ) -> Fallible<Vec<(String, Vec<u8>)>> {
         if since_timestamp == 0 {
             Ok(safe_write!(self.seen_transmissions)?
                 .iter_mut()
                 .filter_map(|element| {
                     if element.seen_at > since_timestamp {
-                        element.read_payload().ok()
+                        element
+                            .read_payload()
+                            .map(|bytes| (element.seen_in_message_id.to_owned(), bytes))
+                            .ok()
                     } else {
                         None
                     }
@@ -102,7 +108,10 @@ impl SeenTransmissionsList {
                 .iter_mut()
                 .filter_map(|element| {
                     if element.seen_at > since_timestamp {
-                        element.read_payload().ok()
+                        element
+                            .read_payload()
+                            .map(|bytes| (element.seen_in_message_id.to_owned(), bytes))
+                            .ok()
                     } else {
                         None
                     }

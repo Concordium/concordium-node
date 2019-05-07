@@ -99,27 +99,25 @@ pub fn main() -> Fallible<()> {
             }
         };
     let json_value: Value = serde_json::from_str(&results)?;
-    if json_value["service_name"]
+    let start_time = if json_value["service_name"]
         .as_str()
         .map_or(false, |val| val == "TestRunner")
         && json_value["service_version"]
             .as_str()
             .map_or(false, |val| val == p2p_client::VERSION)
     {
-        if json_value["test_start_time"]
-            .as_u64()
-            .and_then(|start_time| {
-                json_value["packet_size"].as_u64().and_then(|packet_size| {
-                    json_value["measurements"]
-                        .as_array()
-                        .and_then(|m| get_measurements(start_time, m))
-                        .map(|m| process_measurement(start_time, packet_size, conf.csv, m))
-                })
-            })
-            .is_some()
-        {
-            return Ok(());
-        }
+        json_value["test_start_time"].as_u64()
+    } else {
+        None
     };
+    if let Some(local_start_time) = start_time {
+        json_value["packet_size"].as_u64().and_then(|packet_size| {
+            json_value["measurements"]
+                .as_array()
+                .and_then(|m| get_measurements(local_start_time, m))
+                .map(|m| process_measurement(local_start_time, packet_size, conf.csv, m))
+        });
+        return Ok(());
+    }
     Err(err_msg("invalid JSON format"))
 }

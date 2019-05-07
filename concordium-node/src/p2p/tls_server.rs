@@ -1,4 +1,5 @@
 use super::fails;
+use concordium_common::functor::{Functorable, UnitFunction, UnitFunctor};
 use failure::{bail, Fallible};
 use mio::{
     net::{TcpListener, TcpStream},
@@ -18,10 +19,7 @@ use std::{
 use webpki::DNSNameRef;
 
 use crate::{
-    common::{
-        functor::afunctor::{AFunctor, AFunctorCW},
-        P2PNodeId, P2PPeer, PeerType, RemotePeer,
-    },
+    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer},
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkRequest},
     p2p::{
@@ -31,8 +29,8 @@ use crate::{
     stats_export_service::StatsExportService,
 };
 
-pub type PreHandshakeCW = AFunctorCW<SocketAddr>;
-pub type PreHandshake = AFunctor<SocketAddr>;
+pub type PreHandshakeCW = UnitFunction<SocketAddr>;
+pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
     server:                  Option<TcpListener>,

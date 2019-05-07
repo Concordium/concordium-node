@@ -15,6 +15,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use concordium_common::{
+    functor::{FilterFunctor, Functorable},
+    lock_or_die, safe_lock, spawn_or_die,
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use gotham::{
@@ -27,24 +31,18 @@ use gotham::{
 };
 use hyper::{Body, Response, StatusCode};
 use p2p_client::{
-    common::{self, functor::AFunctor, PeerType},
+    common::{self, PeerType},
     configuration,
     db::P2PDB,
-    lock_or_die,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    safe_lock,
     stats_export_service::StatsExportService,
     utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
-use std::{
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex, RwLock,
-    },
-    thread,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex, RwLock,
 };
 
 #[derive(Clone, StateData)]
@@ -234,7 +232,7 @@ impl TestRunner {
     }
 
     fn router(&self) -> Router {
-        let state_data = TestRunnerStateData::new(self.node.clone(), self.nid.clone());
+        let state_data = TestRunnerStateData::new(self.node.clone(), self.nid);
         let middleware = StateMiddleware::new(state_data);
         let pipeline = single_middleware(middleware);
         let (chain, pipelines) = single_pipeline(pipeline);
@@ -323,7 +321,7 @@ fn instantiate_node(
 
     let node_sender = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -333,7 +331,7 @@ fn instantiate_node(
         None
     };
 
-    let broadcasting_checks = Arc::new(AFunctor::new("Broadcasting_checks"));
+    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
     let node = P2PNode::new(
         node_id,
@@ -359,7 +357,7 @@ fn setup_process_output(
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
+    let _guard_pkt = spawn_or_die!("Node output processing", move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => match pac.packet_type {
@@ -384,7 +382,7 @@ fn setup_process_output(
                                     None,
                                     pac.network_id,
                                     Some(pac.message_id.to_owned()),
-                                    (*pac.message).to_owned(),
+                                    pac.message.to_owned(),
                                     true,
                                 )
                                 .map_err(|e| error!("Error sending message {}", e))
@@ -401,8 +399,11 @@ fn setup_process_output(
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    let stats = _node_self_clone.get_peer_stats(&[]);
-
+                    let peer_count = _node_self_clone
+                        .get_peer_stats(&[])
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count();
                     for peer_node in peers {
                         if _node_self_clone
                             .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
@@ -411,7 +412,7 @@ fn setup_process_output(
                         {
                             new_peers += 1;
                         }
-                        if new_peers + stats.len() as u8 >= _desired_nodes_clone {
+                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
                             break;
                         }
                     }
@@ -435,7 +436,7 @@ fn main() -> Fallible<()> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     let dns_resolvers =
         utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
@@ -447,7 +448,7 @@ fn main() -> Fallible<()> {
     let bootstrap_nodes = utils::get_bootstrap_nodes(
         conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
-        conf.connection.no_dnssec,
+        conf.connection.dnssec_disabled,
         &conf.connection.bootstrap_node,
     );
 
@@ -463,7 +464,7 @@ fn main() -> Fallible<()> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };
@@ -478,14 +479,16 @@ fn main() -> Fallible<()> {
     setup_process_output(&node, &conf, pkt_out, db);
 
     for connect_to in conf.connection.connect_to {
-        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.no_dnssec) {
-            Some((ip, port)) => {
-                info!("Connecting to peer {}", &connect_to);
-                node.connect(PeerType::Node, SocketAddr::new(ip, port), None)
-                    .map_err(|e| error!("{}", e))
-                    .ok();
+        match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.dnssec_disabled) {
+            Ok(addrs) => {
+                for addr in addrs {
+                    info!("Connecting to peer {}", addr);
+                    node.connect(PeerType::Node, addr, None)
+                        .map_err(|e| error!("{}", e))
+                        .ok();
+                }
             }
-            None => error!("Can't parse IP to connect to '{}'", &connect_to),
+            Err(err) => error!("{}", err),
         }
     }
 
@@ -493,8 +496,7 @@ fn main() -> Fallible<()> {
         info!("Attempting to bootstrap");
         match bootstrap_nodes {
             Ok(nodes) => {
-                for (ip, port) in nodes {
-                    let addr = SocketAddr::new(ip, port);
+                for addr in nodes {
                     info!("Found bootstrap node: {}", addr);
                     node.connect(PeerType::Bootstrapper, addr, None)
                         .map_err(|e| error!("{}", e))

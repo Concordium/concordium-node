@@ -1,8 +1,7 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
-        use failure::Fallible;
         use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use std::{net::SocketAddr, thread, time, sync::Mutex};
+        use std::{cell::Cell, net::SocketAddr, thread, time, rc::Rc, sync::Mutex};
         use gotham::{
             handler::IntoResponse,
             helpers::http::response::create_response,
@@ -12,10 +11,12 @@ cfg_if! {
             state::{FromState, State},
         };
         use hyper::{Body, Response, StatusCode};
+        use tokio::runtime::{self, Runtime};
     } else {
         use std::sync::atomic::{AtomicUsize, Ordering};
     }
 }
+use failure::Fallible;
 use std::{fmt, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Copy)]
@@ -69,6 +70,7 @@ cfg_if! {
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             queue_resent: IntCounter,
+            tokio_runtime: Rc<Cell<Option<Runtime>>>
         }
     }
 }
@@ -155,12 +157,13 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             queue_resent: qrs,
+            tokio_runtime: Rc::new(Cell::new(None)),
         })
     }
 
     #[cfg(not(feature = "instrumentation"))]
-    pub fn new(mode: StatsServiceMode) -> Self {
-        StatsExportService {
+    pub fn new(mode: StatsServiceMode) -> Fallible<Self> {
+        Ok(StatsExportService {
             mode,
             pkts_received_counter: Arc::new(AtomicUsize::new(0)),
             pkts_sent_counter: Arc::new(AtomicUsize::new(0)),
@@ -171,7 +174,7 @@ impl StatsExportService {
             invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
             queue_size: Arc::new(AtomicUsize::new(0)),
             queue_resent: Arc::new(AtomicUsize::new(0)),
-        }
+        })
     }
 
     pub fn peers_inc(&mut self) {
@@ -314,11 +317,23 @@ impl StatsExportService {
     }
 
     #[cfg(feature = "instrumentation")]
-    pub fn start_server(&mut self, listen_addr: SocketAddr) -> thread::JoinHandle<()> {
+    pub fn start_server(&mut self, listen_addr: SocketAddr) {
         let self_clone = self.clone();
-        thread::spawn(move || {
-            gotham::start(listen_addr, self_clone.router());
-        })
+        let runtime = runtime::Builder::new()
+            .core_threads(num_cpus::get())
+            .name_prefix("gotham-worker-")
+            .build()
+            .unwrap();
+        gotham::start_on_executor(listen_addr, self_clone.router(), runtime.executor());
+        self.tokio_runtime.set(Some(runtime));
+    }
+
+    #[cfg(feature = "instrumentation")]
+    pub fn stop_server(&mut self) {
+        let inner = self.tokio_runtime.take();
+        if inner.is_some() {
+            inner.unwrap().shutdown_now();
+        }
     }
 
     #[cfg(feature = "instrumentation")]
@@ -333,7 +348,7 @@ impl StatsExportService {
     ) {
         let metrics_families = self.registry.gather();
         let _mode = self.mode.to_string();
-        let _th = thread::spawn(move || loop {
+        let _th = spawn_or_die!("Prometheus push", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
                 prometheus_push_password.clone().and_then(|password| {

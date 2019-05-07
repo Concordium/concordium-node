@@ -23,9 +23,10 @@ use crate::{
 use super::fails;
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
-const MAX_UNREACHABLE_MARK_TIME: u64 = 1000 * 60 * 60 * 24;
+const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
 const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
+const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 
 /// This class allows to share some information between `TlsServer` and its
 /// handler. This concept is similar to `d-Pointer` of C++ but it is used just
@@ -205,8 +206,10 @@ impl TlsServerPrivate {
     }
 
     pub fn cleanup_connections(&mut self, peer_type: PeerType, poll: &mut Poll) -> Fallible<()> {
+        trace!("Cleaning up connections");
         let curr_stamp = get_current_stamp();
 
+        trace!("Disconnecting already marked as going down");
         self.to_disconnect.borrow_mut().drain(..).for_each(|x| {
             if let Some(conn) = self.find_connection_by_id(x) {
                 conn.borrow_mut().close();
@@ -243,17 +246,7 @@ impl TlsServerPrivate {
             });
         }
 
-        let filter_predicate_bootstrapper = |conn: &Connection| -> bool {
-            peer_type == PeerType::Bootstrapper
-                && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp
-        };
-
-        let filter_predicate_node = |conn: &Connection| -> bool {
-            (conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
-                && conn.local_peer().peer_type() == PeerType::Node)
-                || conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
-        };
-
+        trace!("Filtering by non-fatal gone connections");
         let wrap_connection_already_gone_as_non_fatal =
             |token, res: Fallible<()>| -> Fallible<Token> {
                 use std::io::ErrorKind;
@@ -269,17 +262,43 @@ impl TlsServerPrivate {
                 }
             };
 
+        let filter_predicate_bootstrapper_no_activity_allowed_period = |conn: &Connection| -> bool {
+            peer_type == PeerType::Bootstrapper
+                && conn.is_post_handshake()
+                && conn.last_seen() + MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp
+        };
+
+        let filter_predicate_node_no_activity_allowed_period = |conn: &Connection| -> bool {
+            peer_type == PeerType::Node
+                && conn.is_post_handshake()
+                && conn.last_seen() + MAX_NORMAL_KEEP_ALIVE < curr_stamp
+        };
+
+        let filter_predicate_stable_conn_and_no_handshake = |conn: &Connection| -> bool {
+            conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
+                || !conn.is_post_handshake()
+                    && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+        };
+
+        trace!(
+            "Killing nodes who are marked for closing, didn't complete handshake fast enough, or \
+             lingered without sending us packets for too long"
+        );
         // Kill nodes which are no longer seen and also closing connections
         let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) = self.connections
             .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|rc_conn| {
                 let rc_conn_borrowed = rc_conn.borrow();
-                filter_predicate_bootstrapper(&rc_conn_borrowed) || filter_predicate_node(&rc_conn_borrowed) || rc_conn_borrowed.closing
+                rc_conn_borrowed.closing ||
+                    filter_predicate_stable_conn_and_no_handshake(&rc_conn_borrowed) ||
+                    filter_predicate_bootstrapper_no_activity_allowed_period(&rc_conn_borrowed) ||
+                    filter_predicate_node_no_activity_allowed_period(&rc_conn_borrowed)
             })
             .map(|rc_conn| {
                 // Deregister connection from the poll and shut down the socket
                 let mut conn = rc_conn.borrow_mut();
+                trace!("Going to kill {}:{}", conn.remote_addr().ip(), conn.remote_addr().port());
                 wrap_connection_already_gone_as_non_fatal(conn.token(),into_err!(poll.deregister(&conn.socket)))?;
                 wrap_connection_already_gone_as_non_fatal(conn.token(), conn.shutdown())?;
                 // Report number of peers to stats export engine
@@ -315,6 +334,7 @@ impl TlsServerPrivate {
     }
 
     pub fn liveness_check(&mut self) -> Fallible<()> {
+        trace!("Completing liveness check of peers");
         let curr_stamp = get_current_stamp();
 
         self.connections

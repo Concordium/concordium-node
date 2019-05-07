@@ -16,12 +16,13 @@ pub use self::p2p_node::P2PNode;
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{functor::AFunctor, P2PNodeId, PeerType},
+        common::{P2PNodeId, PeerType},
         configuration::Config,
         connection::P2PEvent,
         network::NetworkMessage,
         p2p::{banned_nodes::BannedNode, P2PNode},
     };
+    use concordium_common::functor::{FilterFunctor, Functorable};
     use failure::Fallible;
     use std::{
         str::FromStr,
@@ -29,7 +30,6 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,
         },
-        thread,
     };
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
@@ -47,7 +47,7 @@ mod tests {
             let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
             let (sender, receiver) = mpsc::channel();
-            let _guard = thread::spawn(move || loop {
+            let _guard = spawn_or_die!("Log loop", move || loop {
                 if let Ok(msg) = receiver.recv() {
                     match msg {
                         P2PEvent::ConnectEvent(addr) => info!("Received connection from {}", addr),
@@ -85,7 +85,7 @@ mod tests {
                 Some(sender),
                 node_type,
                 None,
-                Arc::new(AFunctor::new("Broadcasting_checks")),
+                Arc::new(FilterFunctor::new("Broadcasting_checks")),
             )
         };
         // Empty on init

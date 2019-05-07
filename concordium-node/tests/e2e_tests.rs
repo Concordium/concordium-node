@@ -1,13 +1,16 @@
-#[macro_use]
 extern crate p2p_client;
 #[macro_use]
 extern crate log;
 
 #[cfg(test)]
 mod tests {
+    use concordium_common::{
+        functor::{FilterFunctor, Functorable},
+        make_atomic_callback, safe_write, UCursor,
+    };
     use failure::{bail, Fallible};
     use p2p_client::{
-        common::{functor::AFunctor, PeerType, UCursor},
+        common::PeerType,
         configuration::Config,
         connection::MessageManager,
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
@@ -24,7 +27,19 @@ mod tests {
     };
 
     mod utils {
+        use concordium_common::{
+            functor::{FilterFunctor, Functorable},
+            make_atomic_callback, safe_write, UCursor,
+        };
         use failure::Fallible;
+        use p2p_client::{
+            common::PeerType,
+            configuration::Config,
+            connection::MessageManager,
+            network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
+            p2p::p2p_node::P2PNode,
+            stats_export_service::{StatsExportService, StatsServiceMode},
+        };
         use std::{
             cell::RefCell,
             sync::{
@@ -33,15 +48,6 @@ mod tests {
                 Arc, Once, RwLock, ONCE_INIT,
             },
             time,
-        };
-
-        use p2p_client::{
-            common::{functor::AFunctor, PeerType, UCursor},
-            configuration::Config,
-            connection::MessageManager,
-            network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
-            p2p::p2p_node::P2PNode,
-            stats_export_service::{StatsExportService, StatsServiceMode},
         };
 
         static INIT: Once = ONCE_INIT;
@@ -143,7 +149,7 @@ mod tests {
                 None,
                 PeerType::Node,
                 Some(export_service),
-                Arc::new(AFunctor::new("Broadcasting_checks")),
+                Arc::new(FilterFunctor::new("Broadcasting_checks")),
             );
 
             let mh = node.message_handler();
@@ -191,7 +197,7 @@ mod tests {
                 }
             }
 
-            Ok(*payload)
+            Ok(payload)
         }
 
         pub fn wait_direct_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCursor> {
@@ -206,7 +212,7 @@ mod tests {
                 }
             }
 
-            Ok(*payload)
+            Ok(payload)
         }
 
         pub fn wait_direct_message_timeout(
@@ -228,7 +234,7 @@ mod tests {
                 }
             }
 
-            payload.map(|e| *e)
+            payload
         }
 
         pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
@@ -975,7 +981,7 @@ mod tests {
             None,
             PeerType::Node,
             None,
-            Arc::new(AFunctor::new("Broadcasting_checks")),
+            Arc::new(FilterFunctor::new("Broadcasting_checks")),
         );
 
         assert_eq!(true, node.close_and_join().is_err());

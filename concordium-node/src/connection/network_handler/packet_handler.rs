@@ -1,13 +1,12 @@
 use crate::{
-    common::functor::{AFunctor, FunctorResult},
+    connection::network_handler::NetworkPacketCW,
     network::{NetworkPacket, NetworkPacketType},
 };
-
-use crate::connection::network_handler::NetworkPacketCW;
+use concordium_common::functor::{FunctorResult, Functorable, UnitFunctor};
 
 pub struct PacketHandler {
-    pub direct_parser:    AFunctor<NetworkPacket>,
-    pub broadcast_parser: AFunctor<NetworkPacket>,
+    pub direct_parser:    UnitFunctor<NetworkPacket>,
+    pub broadcast_parser: UnitFunctor<NetworkPacket>,
 }
 
 impl Default for PacketHandler {
@@ -17,8 +16,8 @@ impl Default for PacketHandler {
 impl PacketHandler {
     pub fn new() -> Self {
         PacketHandler {
-            direct_parser:    AFunctor::<NetworkPacket>::new("Network::Packet::Direct"),
-            broadcast_parser: AFunctor::<NetworkPacket>::new("Network::Packet::Broadcast"),
+            direct_parser:    UnitFunctor::new("Network::Packet::Direct"),
+            broadcast_parser: UnitFunctor::new("Network::Packet::Broadcast"),
         }
     }
 
@@ -33,7 +32,7 @@ impl PacketHandler {
     }
 
     /// It runs main parser and specific ones for the internal type of msg.
-    pub fn process_message(&self, msg: &NetworkPacket) -> FunctorResult {
+    pub fn process_message(&self, msg: &NetworkPacket) -> FunctorResult<()> {
         match msg.packet_type {
             NetworkPacketType::DirectMessage(_) => self.direct_parser.run_callbacks(&msg),
             NetworkPacketType::BroadcastedMessage => self.broadcast_parser.run_callbacks(&msg),

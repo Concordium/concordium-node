@@ -1,7 +1,7 @@
 [package]
-name = "dns"
+name = "concordium-dns"
 version = "0.0.1"
-description = "dns module"
+description = "concordium libunbound dns module"
 build = "build.rs"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]
