@@ -16,7 +16,7 @@ static A: System = System;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    spawn_or_die, UCursor,
+    lock_or_die, safe_lock, spawn_or_die, UCursor,
 };
 use concordium_consensus::{
     block::Block,
@@ -47,7 +47,7 @@ use std::{
     io::{Read, Write},
     net::SocketAddr,
     str::{self, FromStr},
-    sync::{mpsc, Arc, RwLock},
+    sync::{mpsc, Arc, Mutex, RwLock},
     thread,
     time::Duration,
 };
@@ -302,23 +302,29 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
-fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
+fn start_tps_test(conf: &configuration::Config, node: Arc<Mutex<P2PNode>>) {
     if let Some(ref tps_test_recv_id) = conf.cli.tps.tps_test_recv_id {
         let mut _id_clone = tps_test_recv_id.to_owned();
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
-        let mut _node_ref = node.clone();
+        let mut _node_ref = Arc::clone(&node);
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
         spawn_or_die!("TPS processing", move || {
             let mut done = false;
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
-                let node_list = _node_ref.get_peer_stats(&[_network_id]);
+                let node_list = lock_or_die!(_node_ref).get_peer_stats(&[_network_id]);
                 if !node_list.is_empty() {
                     let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                     for message in test_messages {
                         let out_bytes_len = message.len();
                         let to_send = P2PNodeId::from_str(&_id_clone).ok();
-                        match _node_ref.send_message(to_send, _network_id, None, message, false) {
+                        match lock_or_die!(_node_ref).send_message(
+                            to_send,
+                            _network_id,
+                            None,
+                            message,
+                            false,
+                        ) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
                             }
@@ -789,15 +795,19 @@ fn main() -> Fallible<()> {
     // Threads #6, #7, #8
     setup_baker_guards(&mut baker, &node, &conf);
 
+    let arc_node = Arc::new(Mutex::new(node));
+
     // Create the temporary guard to keep requesting retransmit for a period during
     // first startup
-    replaceme_retransmit_auto_hook(&node, &conf);
+    replaceme_retransmit_auto_hook(Arc::clone(&arc_node), &conf);
 
     // TPS test
-    start_tps_test(&conf, &node);
+    start_tps_test(&conf, Arc::clone(&arc_node));
 
     // Wait for node closing
-    node.join().expect("Node thread panicked!");
+    lock_or_die!(arc_node)
+        .join()
+        .expect("Node thread panicked!");
 
     // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {
@@ -924,12 +934,12 @@ fn send_retransmit_packet(
     }
 }
 
-fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) {
+fn replaceme_retransmit_auto_hook(node: Arc<Mutex<P2PNode>>, conf: &configuration::Config) {
     let _retransmit_times = conf.cli.baker.baker_retransmit_request_times;
     let _retransmit_sleep_time = conf.cli.baker.baker_retransmit_request_interval;
     let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
-    let mut _node_clone = node.clone();
+    let _node_clone = Arc::clone(&node);
     spawn_or_die!("Retransmit hook", move || {
         for slot in 0.._retransmit_times {
             info!(
@@ -937,7 +947,7 @@ fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) 
                 slot, _retransmit_sleep_time
             );
             thread::sleep(Duration::from_secs(u64::from(_retransmit_sleep_time)));
-            _node_clone
+            lock_or_die!(_node_clone)
                 .get_peer_stats(&[])
                 .iter()
                 .filter(|peer| peer.peer_type == PeerType::Node)
@@ -948,7 +958,7 @@ fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) 
                         .peer_type(peer.peer_type)
                         .build()
                         .unwrap();
-                    _node_clone.send_retransmit(
+                    lock_or_die!(_node_clone).send_retransmit(
                         p2p_peer,
                         p2p_client::common::get_current_stamp()
                             - u64::from(_retransmit_back_in_time),
