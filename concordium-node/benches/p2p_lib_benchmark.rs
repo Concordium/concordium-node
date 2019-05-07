@@ -623,10 +623,7 @@ criterion_group!(
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
 criterion_main!(
-<<<<<<< HEAD
     s11n_get_peers,
-=======
->>>>>>> Added callback for dropping peers if id is banned
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,
