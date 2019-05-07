@@ -1,8 +1,7 @@
-use crate::{
-    common::functor::{
-        FuncResult, FunctorError, FunctorResult, Functorable, UnitFunction, UnitFunctor,
-    },
-    network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
+use crate::network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
+use concordium_common::{
+    fails::FunctorError,
+    functor::{FuncResult, FunctorResult, Functorable, UnitFunction, UnitFunctor},
 };
 use std::{
     rc::Rc,
@@ -121,12 +120,11 @@ pub trait MessageManager {
 #[cfg(test)]
 mod message_handler_unit_test {
     use crate::{
-        common::functor::FuncResult,
+        common::{P2PPeerBuilder, PeerType},
         connection::MessageHandler,
         network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse},
     };
-
-    use crate::common::{P2PPeerBuilder, PeerType};
+    use concordium_common::functor::FuncResult;
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{Arc, RwLock},
@@ -165,13 +163,14 @@ mod message_handler_unit_test {
 #[cfg(test)]
 mod integration_test {
     use crate::{
-        common::{functor::FuncResult, P2PNodeId, P2PPeerBuilder, PeerType, UCursor},
+        common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::{MessageHandler, PacketHandler},
         network::{
             NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
             NetworkRequest, NetworkResponse,
         },
     };
+    use concordium_common::{functor::FuncResult, UCursor};
 
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -213,7 +212,7 @@ mod integration_test {
                     .peer(p2p_peer.clone())
                     .message_id("MSG-ID-1".to_string())
                     .network_id(NetworkId::from(100))
-                    .message(Box::new(inner_msg.clone()))
+                    .message(inner_msg.clone())
                     .build_broadcast()
                     .unwrap(),
                 None,
@@ -224,7 +223,7 @@ mod integration_test {
                     .peer(p2p_peer)
                     .message_id("MSG-ID-2".to_string())
                     .network_id(NetworkId::from(100))
-                    .message(Box::new(inner_msg))
+                    .message(inner_msg)
                     .build_direct(node_id)
                     .unwrap(),
                 None,

@@ -15,6 +15,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use concordium_common::{
+    functor::{FilterFunctor, Functorable},
+    lock_or_die, safe_lock, spawn_or_die,
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use gotham::{
@@ -27,27 +31,18 @@ use gotham::{
 };
 use hyper::{Body, Response, StatusCode};
 use p2p_client::{
-    common::{
-        self,
-        functor::{FilterFunctor, Functorable},
-        PeerType,
-    },
+    common::{self, PeerType},
     configuration,
     db::P2PDB,
-    lock_or_die,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    safe_lock,
     stats_export_service::StatsExportService,
     utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex, RwLock,
-    },
-    thread,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex, RwLock,
 };
 
 #[derive(Clone, StateData)]
@@ -326,7 +321,7 @@ fn instantiate_node(
 
     let node_sender = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -362,7 +357,7 @@ fn setup_process_output(
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
+    let _guard_pkt = spawn_or_die!("Node output processing", move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => match pac.packet_type {
@@ -387,7 +382,7 @@ fn setup_process_output(
                                     None,
                                     pac.network_id,
                                     Some(pac.message_id.to_owned()),
-                                    (*pac.message).to_owned(),
+                                    pac.message.to_owned(),
                                     true,
                                 )
                                 .map_err(|e| error!("Error sending message {}", e))
@@ -441,7 +436,7 @@ fn main() -> Fallible<()> {
 
     let db = P2PDB::new(db_path.as_path());
 
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     let dns_resolvers =
         utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
@@ -469,7 +464,7 @@ fn main() -> Fallible<()> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };

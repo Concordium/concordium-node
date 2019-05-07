@@ -1,4 +1,5 @@
 use super::fails;
+use concordium_common::functor::{Functorable, UnitFunction, UnitFunctor};
 use failure::{bail, Fallible};
 use mio::{
     net::{TcpListener, TcpStream},
@@ -18,12 +19,7 @@ use std::{
 use webpki::DNSNameRef;
 
 use crate::{
-    common::{
-        functor::{Functorable, UnitFunction, UnitFunctor},
-        get_current_stamp,
-        serialization::Serializable,
-        P2PNodeId, P2PPeer, PeerType, RemotePeer,
-    },
+    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer, get_current_stamp, serialization::Serializable},
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{

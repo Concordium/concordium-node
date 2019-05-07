@@ -5,35 +5,30 @@ extern crate grpciounix as grpcio;
 extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-#[macro_use]
 extern crate p2p_client;
+#[macro_use]
+extern crate concordium_common;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use concordium_common::functor::{FilterFunctor, Functorable};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
-    common::{
-        functor::{FilterFunctor, Functorable},
-        P2PNodeId, PeerType,
-    },
+    common::{P2PNodeId, PeerType},
     configuration,
     connection::MessageManager,
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    safe_read,
     stats_export_service::StatsServiceMode,
     utils,
 };
-use std::{
-    sync::{mpsc, Arc, RwLock},
-    thread,
-};
+use std::sync::{mpsc, Arc, RwLock};
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
@@ -100,7 +95,7 @@ fn main() -> Result<(), Error> {
         None
     };
 
-    info!("Debugging enabled {}", conf.common.debug);
+    info!("Debugging enabled: {}", conf.common.debug);
 
     let id = match conf.common.id {
         Some(ref x) => x.to_owned(),
@@ -113,7 +108,7 @@ fn main() -> Result<(), Error> {
 
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -148,7 +143,7 @@ fn main() -> Result<(), Error> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };
@@ -191,6 +186,9 @@ fn main() -> Result<(), Error> {
     }
 
     write_or_die!(node).join().expect("Node thread panicked!");
+
+    // Close stats server export if present
+    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
 
     Ok(())
 }

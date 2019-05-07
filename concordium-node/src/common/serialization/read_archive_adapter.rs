@@ -1,9 +1,10 @@
-use crate::common::{ UCursor, ContainerView, serialization::ReadArchive, RemotePeer};
+use crate::common::{ serialization::ReadArchive, RemotePeer};
 
-use byteorder::{ByteOrder, LittleEndian};
+use concordium_common::{ UCursor, ContainerView};
+use byteorder::{LittleEndian, ReadBytesExt};
 use failure::Fallible;
 
-use std::{io::Read, net::IpAddr};
+use std::{net::IpAddr};
 
 pub struct ReadArchiveAdapter {
     io_reader:   UCursor,
@@ -28,13 +29,6 @@ impl ReadArchiveAdapter
     pub fn inner(&self) -> &UCursor { &self.io_reader }
 }
 
-macro_rules! read_from_reader {
-    ($read_func:expr, $buf_size:expr, $reader:expr) => {{
-        let vw = $reader.read_into_view($buf_size)?;
-        Ok($read_func(vw.as_slice()))
-    }};
-}
-
 impl ReadArchive for ReadArchiveAdapter
 {
     #[inline]
@@ -45,27 +39,22 @@ impl ReadArchive for ReadArchiveAdapter
 
     #[inline]
     fn read_u8(&mut self) -> Fallible<u8> {
-        let mut buf: [u8; 1] = unsafe { std::mem::uninitialized() };
-        self.io_reader.read(&mut buf)?;
-        Ok(buf[0])
+        into_err!(self.io_reader.read_u8())
     }
 
     #[inline]
     fn read_u16(&mut self) -> Fallible<u16> {
-        // read_from_reader!(NetworkEndian::read_u16, 2, self.io_reader)
-        read_from_reader!(LittleEndian::read_u16, 2, self.io_reader)
+        into_err!(self.io_reader.read_u16::<LittleEndian>())
     }
 
     #[inline]
     fn read_u32(&mut self) -> Fallible<u32> {
-        // read_from_reader!(NetworkEndian::read_u32, 4, self.io_reader)
-        read_from_reader!(LittleEndian::read_u32, 4, self.io_reader)
+        into_err!(self.io_reader.read_u32::<LittleEndian>())
     }
 
     #[inline]
     fn read_u64(&mut self) -> Fallible<u64> {
-        // read_from_reader!(NetworkEndian::read_u64, 8, self.io_reader)
-        read_from_reader!(LittleEndian::read_u64, 8, self.io_reader)
+        into_err!(self.io_reader.read_u64::<LittleEndian>())
     }
 
     #[inline]

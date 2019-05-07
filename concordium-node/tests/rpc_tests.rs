@@ -7,25 +7,20 @@ extern crate grpciowin as grpcio;
 
 #[cfg(test)]
 mod tests {
+    use concordium_common::{
+        functor::{FilterFunctor, Functorable},
+        spawn_or_die,
+    };
     use grpcio::{ChannelBuilder, EnvBuilder, RpcStatusCode};
     use p2p_client::{
-        common::{
-            functor::{FilterFunctor, Functorable},
-            PeerType,
-        },
-        configuration::Config,
-        db::P2PDB,
-        network::NetworkMessage,
-        p2p::p2p_node::P2PNode,
-        proto::*,
-        rpc::RpcServerImpl,
+        common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
+        p2p::p2p_node::P2PNode, proto::*, rpc::RpcServerImpl,
     };
     use std::{
         sync::{
             atomic::{AtomicUsize, Ordering},
             mpsc, Arc,
         },
-        thread,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -49,7 +44,7 @@ mod tests {
             let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
             let (sender, receiver) = mpsc::channel();
-            let _guard = thread::spawn(move || loop {
+            let _guard = spawn_or_die!("Log loop", move || loop {
                 if let Ok(msg) = receiver.recv() {
                     info!("{}", msg);
                 }

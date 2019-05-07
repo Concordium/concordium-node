@@ -7,6 +7,7 @@ use crate::{
     failure::Fallible,
     network::{AsProtocolMessageType, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION},
 };
+
 use std::convert::TryFrom;
 
 #[cfg(feature = "s11n_nom")]
@@ -147,10 +148,11 @@ mod unit_test {
     use crate::{
         common::{
             serialization::{Deserializable, ReadArchiveAdapter, WriteArchiveAdapter},
-            P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer, UCursor,
+            P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, RemotePeer,
         },
         network::{NetworkId, NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
     };
+    use concordium_common::UCursor;
 
     #[test]
     fn ut_s11n_001_direct_message_from_disk_16m() -> Fallible<()> {
@@ -196,7 +198,7 @@ mod unit_test {
             ))
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(111))
-            .message(Box::new(payload))
+            .message(payload)
             .build_direct(p2p_node_id)?;
         let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
 

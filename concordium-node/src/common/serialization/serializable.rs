@@ -1,5 +1,6 @@
 use crate::common::serialization::WriteArchive;
 
+use concordium_common::{ UCursor };
 use failure::Fallible;
 
 use std::ops::Deref;
@@ -156,3 +157,24 @@ where
         serialize_from_iterator(self.iter(), archive)
     }
 }
+
+// Concordium-common
+// ==============================================================================================
+
+impl Serializable for UCursor {
+
+    /// It makes a `deep-copy` of the `UCursor` into `Archive`.
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        let mut self_from = self.sub(self.position())?;
+        let self_from_len = self_from.len();
+
+        archive.write_u64( self_from_len)?;
+        std::io::copy(&mut self_from, archive)?;
+
+        Ok(())
+    }
+}
+
+

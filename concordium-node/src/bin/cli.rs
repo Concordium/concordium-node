@@ -14,15 +14,20 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use consensus_sys::{block::Block, consensus};
+use concordium_common::{
+    functor::{FilterFunctor, Functorable},
+    spawn_or_die, UCursor,
+};
+use concordium_consensus::{
+    block::Block,
+    consensus,
+    finalization::{FinalizationMessage, FinalizationRecord},
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{
-        functor::{FilterFunctor, Functorable},
-        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType, UCursor,
-    },
+    common::{get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType},
     configuration,
     db::P2PDB,
     network::{
@@ -104,51 +109,54 @@ fn setup_baker_guards(
         let mut _baker_clone = baker.to_owned();
         let mut _node_ref = node.clone();
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-        thread::spawn(move || loop {
+        spawn_or_die!("Process baker blocks output", move || loop {
             match _baker_clone.out_queue().recv_block() {
-                Ok(x) => match x.serialize() {
-                    Ok(bytes) => {
-                        let mut out_bytes = vec![];
-                        let msg_id = NetworkPacket::generate_message_id();
-                        match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
-                            Ok(_) => {
-                                out_bytes.extend(&bytes);
-                                match &_node_ref.send_message(
-                                    None,
-                                    _network_id,
-                                    Some(msg_id.clone()),
-                                    out_bytes,
-                                    true,
-                                ) {
-                                    Ok(_) => {
-                                        client_utils::add_transmission_to_seenlist(
-                                            client_utils::SeenTransmissionType::Block,
-                                            msg_id,
-                                            get_current_stamp(),
-                                            &bytes,
-                                        )
-                                        .map_err(|err| {
-                                            error!("Can't store block in transmission list {}", err)
-                                        })
-                                        .ok();
-                                        info!("Broadcasted block {}/{}", x.slot_id(), x.baker_id())
-                                    }
-                                    Err(_) => error!("Couldn't broadcast block!"),
+                Ok(block) => {
+                    let bytes = block.serialize();
+                    let mut out_bytes = vec![];
+                    let msg_id = NetworkPacket::generate_message_id();
+                    match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
+                        Ok(_) => {
+                            out_bytes.extend(&bytes);
+                            match &_node_ref.send_message(
+                                None,
+                                _network_id,
+                                Some(msg_id.clone()),
+                                out_bytes,
+                                true,
+                            ) {
+                                Ok(_) => {
+                                    client_utils::add_transmission_to_seenlist(
+                                        client_utils::SeenTransmissionType::Block,
+                                        msg_id,
+                                        get_current_stamp(),
+                                        &bytes,
+                                    )
+                                    .map_err(|err| {
+                                        error!("Can't store block in transmission list {}", err)
+                                    })
+                                    .ok();
+                                    info!(
+                                        "Broadcasted block {}/{}",
+                                        block.slot_id(),
+                                        block.baker_id()
+                                    )
                                 }
+                                Err(_) => error!("Couldn't broadcast block!"),
                             }
-                            Err(_) => error!("Can't write type to packet"),
                         }
+                        Err(_) => error!("Can't write type to packet"),
                     }
-                    Err(_) => error!("Couldn't serialize block {:?}", x),
-                },
+                }
                 _ => error!("Error receiving block from baker"),
             }
         });
         let _baker_clone_2 = baker.to_owned();
         let mut _node_ref_2 = node.clone();
-        thread::spawn(move || loop {
+        spawn_or_die!("Process baker finalization output", move || loop {
             match _baker_clone_2.out_queue().recv_finalization() {
-                Ok(bytes) => {
+                Ok(msg) => {
+                    let bytes = msg.serialize();
                     let mut out_bytes = vec![];
                     let msg_id = NetworkPacket::generate_message_id();
                     match out_bytes
@@ -190,9 +198,10 @@ fn setup_baker_guards(
         });
         let _baker_clone_3 = baker.to_owned();
         let mut _node_ref_3 = node.clone();
-        thread::spawn(move || loop {
+        spawn_or_die!("Process baker finalization records output", move || loop {
             match _baker_clone_3.out_queue().recv_finalization_record() {
-                Ok(bytes) => {
+                Ok(rec) => {
+                    let bytes = rec.serialize();
                     let mut out_bytes = vec![];
                     let msg_id = NetworkPacket::generate_message_id();
                     match out_bytes
@@ -265,7 +274,7 @@ fn instantiate_node(
     // Thread #1: Read P2PEvents from P2PNode
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
-        let _guard = thread::spawn(move || loop {
+        let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
@@ -299,7 +308,7 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
         let mut _node_ref = node.clone();
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
-        thread::spawn(move || {
+        spawn_or_die!("TPS processing", move || {
             let mut done = false;
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
@@ -337,11 +346,11 @@ fn setup_lower_process_output(
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = thread::spawn(move || loop {
+    let _guard_pkt = spawn_or_die!("Lower queue processing", move || loop {
         if let Ok(full_msg) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
-                    Ok(_) => debug!("Relayed message to higher queue"),
+                    Ok(_) => trace!("Relayed message to higher queue"),
                     Err(err) => error!("Could not relay message to higher queue {}", err),
                 },
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
@@ -354,7 +363,7 @@ fn setup_lower_process_output(
                     NetworkResponse::PeerList(ref peer, ref peers),
                     ..
                 ) => {
-                    info!("Received PeerList response, attempting to satisfy desired peers");
+                    debug!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
                     let peer_count = _node_self_clone
                         .get_peer_stats(&[])
@@ -362,7 +371,7 @@ fn setup_lower_process_output(
                         .filter(|x| x.peer_type == PeerType::Node)
                         .count();
                     for peer_node in peers {
-                        debug!(
+                        info!(
                             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
                             peer.id(),
                             peer.ip(),
@@ -385,7 +394,7 @@ fn setup_lower_process_output(
                 }
                 NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
                     match pkt_higher_in.send(full_msg) {
-                        Ok(_) => debug!("Relayed message to higher queue"),
+                        Ok(_) => trace!("Relayed message to higher queue"),
                         Err(err) => error!("Could not relay message to higher queue {}", err),
                     }
                 }
@@ -415,7 +424,7 @@ fn setup_higher_process_output(
     let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
     let mut _msg_count = 0;
     let _tps_message_count = conf.cli.tps.tps_message_count;
-    let _guard_pkt = thread::spawn(move || {
+    let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         fn send_msg_to_baker(
             baker_ins: &mut Option<consensus::ConsensusContainer>,
             mut msg: UCursor,
@@ -433,31 +442,25 @@ fn setup_higher_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => match Block::deserialize(content) {
-                        Some(block) => {
-                            match client_utils::add_transmission_to_seenlist(
-                                client_utils::SeenTransmissionType::Block,
-                                message_id,
-                                get_current_stamp(),
-                                &content,
-                            ) {
-                                Ok(_) => match baker.send_block(&block) {
-                                    0i64 => info!("Sent block from network to baker"),
-                                    x => error!(
-                                        "Can't send block from network to baker due to error code \
-                                         #{}",
-                                        x
-                                    ),
-                                },
-                                Err(err) => {
-                                    error!("Can't store block in transmission list {}", err)
-                                }
-                            }
+                    PACKET_TYPE_CONSENSUS_BLOCK => {
+                        let block = Block::deserialize(content)?;
+
+                        match client_utils::add_transmission_to_seenlist(
+                            client_utils::SeenTransmissionType::Block,
+                            message_id,
+                            get_current_stamp(),
+                            &content,
+                        ) {
+                            Ok(_) => match baker.send_block(&block) {
+                                0i64 => info!("Sent block from network to baker"),
+                                x => error!(
+                                    "Can't send block from network to baker due to error code #{}",
+                                    x
+                                ),
+                            },
+                            Err(err) => error!("Can't store block in transmission list {}", err),
                         }
-                        _ => error!(
-                            "Couldn't deserialize block, can't move forward with the message"
-                        ),
-                    },
+                    }
                     PACKET_TYPE_CONSENSUS_TRANSACTION => {
                         baker.send_transaction(content);
                         info!("Sent transaction to baker");
@@ -470,7 +473,8 @@ fn setup_higher_process_output(
                             &content,
                         ) {
                             Ok(_) => {
-                                baker.send_finalization(content);
+                                baker
+                                    .send_finalization(&FinalizationMessage::deserialize(content)?);
                                 info!("Sent finalization package to consensus layer");
                             }
                             Err(err) => {
@@ -485,7 +489,9 @@ fn setup_higher_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_finalization_record(content) {
+                            Ok(_) => match baker.send_finalization_record(
+                                &FinalizationRecord::deserialize(content)?,
+                            ) {
                                 0i64 => info!("Sent finalization record from network to baker"),
                                 x => error!(
                                     "Can't send finalization record from network to baker due to \
@@ -554,7 +560,7 @@ fn setup_higher_process_output(
                         };
                         if let Err(e) = send_msg_to_baker(
                             &mut _baker_pkt_clone,
-                            (*pac.message).clone(),
+                            pac.message.clone(),
                             (*pac.message_id).to_string(),
                         ) {
                             error!("Send network message to baker has failed: {:?}", e);
@@ -684,7 +690,7 @@ fn main() -> Fallible<()> {
             }
         }
         None => {
-            info!("Couldn't find existing banlist. Creating new!");
+            warn!("Couldn't find existing banlist. Creating new!");
             db.create_banlist();
         }
     };
@@ -806,6 +812,9 @@ fn main() -> Fallible<()> {
         consensus::ConsensusContainer::stop_haskell();
     }
 
+    // Close stats server export if present
+    client_utils::stop_stats_export_engine(&conf, &stats_export_service);
+
     Ok(())
 }
 
@@ -871,7 +880,7 @@ fn create_connections_from_config(
 
 #[cfg(feature = "instrumentation")]
 fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
-    info!("Sending information to test runner");
+    debug!("Sending information to test runner");
     match reqwest::get(&format!(
         "{}/register/{}/{}",
         test_runner_url,
@@ -907,7 +916,7 @@ fn send_retransmit_packet(
                 out_bytes,
                 false,
             ) {
-                Ok(_) => info!("Retransmitted packet of type {}", payload_type),
+                Ok(_) => debug!("Retransmitted packet of type {}", payload_type),
                 Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
             }
         }
@@ -921,7 +930,7 @@ fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) 
     let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
     let mut _node_clone = node.clone();
-    thread::spawn(move || {
+    spawn_or_die!("Retransmit hook", move || {
         for slot in 0.._retransmit_times {
             info!(
                 "Retransmit Request #{}: Sleeping {} seconds before next retransmit request",
@@ -953,26 +962,23 @@ fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) 
 fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
-) -> Result<(Vec<u8>, Vec<u8>), &'static str> {
+) -> Fallible<(Vec<u8>, Vec<u8>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push("genesis.dat");
+
     let mut private_loc = app_prefs.get_user_app_dir();
+
     if let Some(baker_id) = conf.baker_id {
         private_loc.push(format!("baker_private_{}.dat", baker_id))
     };
-    let (generated_genesis, generated_private_data) = if !genesis_loc.exists()
-        || !private_loc.exists()
-    {
-        match consensus::ConsensusContainer::generate_data(
-            conf.baker_genesis,
-            conf.baker_num_bakers,
-        ) {
-            Ok((genesis, private_data)) => (genesis, private_data),
-            Err(_) => return Err("Error generating genesis and/or private baker data via haskell!"),
-        }
-    } else {
-        (vec![], HashMap::new())
-    };
+
+    let (generated_genesis, generated_private_data) =
+        if !genesis_loc.exists() || !private_loc.exists() {
+            consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers)?
+        } else {
+            (vec![], HashMap::new())
+        };
+
     let given_genesis = if !genesis_loc.exists() {
         match OpenOptions::new()
             .read(true)
@@ -982,9 +988,9 @@ fn get_baker_data(
         {
             Ok(mut file) => match file.write_all(&generated_genesis) {
                 Ok(_) => generated_genesis,
-                Err(_) => return Err("Couldn't write out genesis data"),
+                Err(_) => bail!("Couldn't write out genesis data"),
             },
-            Err(_) => return Err("Couldn't open up genesis file for writing"),
+            Err(_) => bail!("Couldn't open up genesis file for writing"),
         }
     } else {
         match OpenOptions::new().read(true).open(&genesis_loc) {
@@ -992,12 +998,13 @@ fn get_baker_data(
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
                     Ok(_) => read_data.clone(),
-                    Err(_) => return Err("Couldn't read genesis file properly"),
+                    Err(_) => bail!("Couldn't read genesis file properly"),
                 }
             }
-            _ => return Err("Unexpected"),
+            _ => bail!("Unexpected"),
         }
     };
+
     let given_private_data = if !private_loc.exists() {
         match OpenOptions::new()
             .read(true)
@@ -1009,13 +1016,13 @@ fn get_baker_data(
                 if let Some(baker_id) = conf.baker_id {
                     match file.write_all(&generated_private_data[&(baker_id as i64)]) {
                         Ok(_) => generated_private_data[&(baker_id as i64)].to_owned(),
-                        Err(_) => return Err("Couldn't write out private baker data"),
+                        Err(_) => bail!("Couldn't write out private baker data"),
                     }
                 } else {
-                    return Err("Couldn't write out private baker data");
+                    bail!("Couldn't write out private baker data");
                 }
             }
-            Err(_) => return Err("Couldn't open up private baker file for writing"),
+            Err(_) => bail!("Couldn't open up private baker file for writing"),
         }
     } else {
         match OpenOptions::new().read(true).open(&private_loc) {
@@ -1023,10 +1030,10 @@ fn get_baker_data(
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
                     Ok(_) => read_data,
-                    Err(_) => return Err("Couldn't open up private baker file for reading"),
+                    Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
-            _ => return Err("Unexpected"),
+            _ => bail!("Unexpected"),
         }
     };
     Ok((given_genesis, given_private_data))

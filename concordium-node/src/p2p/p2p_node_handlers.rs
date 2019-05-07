@@ -1,16 +1,15 @@
-use std::{
-    collections::HashSet,
-    sync::{mpsc::Sender, Arc, RwLock},
-};
-
 use crate::{
-    common::functor::FuncResult,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
         NetworkResponse,
     },
     stats_export_service::StatsExportService,
+};
+use concordium_common::functor::FuncResult;
+use std::{
+    collections::HashSet,
+    sync::{mpsc::Sender, Arc, RwLock},
 };
 
 /// It forwards network response message into `queue`.
@@ -80,7 +79,7 @@ fn is_message_already_seen(
     drop_message: &str,
 ) -> bool {
     if seen_messages.contains(&pac.message_id) {
-        info!(
+        trace!(
             "{} {}/{}/{}",
             drop_message,
             pac.peer.id().to_string(),
@@ -104,9 +103,9 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
-    debug!("### Forward Broadcast Message: msgid: {}", pac.message_id);
+    trace!("Forward Broadcast Message: msgid: {}", pac.message_id);
     if safe_read!(own_networks)?.contains(&pac.network_id) {
-        debug!("Received direct message of size {}", pac.message.len());
+        trace!("Received direct message of size {}", pac.message.len());
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
         seen_messages.append(&pac.message_id);

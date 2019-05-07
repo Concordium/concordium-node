@@ -1,13 +1,13 @@
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FilterFunctor, get_current_stamp,
-        serialization::Serializable, P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
-    },
+    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        get_current_stamp,
+        serialization::Serializable },
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
         NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
     },
+    crypto,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
         NetworkRequest, NetworkResponse,
@@ -26,6 +26,7 @@ use crate::{
     utils,
 };
 use chrono::prelude::*;
+use concordium_common::{functor::FilterFunctor, UCursor};
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -162,7 +163,7 @@ impl P2PNode {
         };
 
         // Generate key pair and cert
-        let (cert, private_key) = match utils::generate_certificate(&id.to_string()) {
+        let (cert, private_key) = match crypto::generate_certificate(&id.to_string()) {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {
@@ -452,7 +453,7 @@ impl P2PNode {
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
 
-        let join_handle = std::thread::spawn(move || {
+        let join_handle = spawn_or_die!("P2PNode spawned thread", move || {
             let mut events = Events::with_capacity(1024);
             let mut log_time = SystemTime::now();
 
@@ -817,7 +818,7 @@ impl P2PNode {
         msg: UCursor,
         broadcast: bool,
     ) -> Fallible<()> {
-        debug!("Queueing message!");
+        trace!("Queueing message!");
 
         // Create packet.
         let packet = if broadcast {
@@ -825,7 +826,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(Box::new(msg))
+                .message(msg)
                 .build_broadcast()?
         } else {
             let receiver =
@@ -835,7 +836,7 @@ impl P2PNode {
                 .peer(self.get_self_peer())
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
-                .message(Box::new(msg))
+                .message(msg)
                 .build_direct(receiver)?
         };
 
@@ -1021,8 +1022,8 @@ impl P2PNode {
     pub fn close(&mut self) -> Fallible<()> {
         if let Some(ref q) = self.quit_tx {
             q.send(true)?;
+            info!("P2PNode shutting down.");
         }
-
         Ok(())
     }
 

@@ -20,8 +20,6 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
 * s11n_serde_json - enables serialization using [serde_json](https://crates.io/crates/serde_json) (only used in benches)
 * s11n_capnp - enables serialization using [capnp](https://crates.io/crates/capnp) (only used in benches)
-* s11n_serde - alias for enabling `s11n_serde_cbor` and `s11n_serde_json`
-
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/init.build.env.sh#L16) for details).

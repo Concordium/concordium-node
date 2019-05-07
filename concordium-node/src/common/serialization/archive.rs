@@ -1,5 +1,9 @@
-use crate::common::{serialization::Deserializable, P2PPeer, RemotePeer, UCursor, ContainerView};
+use crate::common::{
+    serialization::Deserializable,
+    P2PPeer, RemotePeer
+};
 
+use concordium_common::{ UCursor, ContainerView };
 use failure::{err_msg, Fallible};
 
 use std::{fmt::Display, net::IpAddr, str};

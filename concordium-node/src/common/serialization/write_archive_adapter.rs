@@ -1,6 +1,7 @@
-use crate::common::{ serialization::WriteArchive, UCursor };
+use crate::common::serialization::WriteArchive;
 
-use byteorder::{ByteOrder, LittleEndian};
+use concordium_common::UCursor;
+use byteorder::{LittleEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::io::Write;
@@ -39,39 +40,28 @@ where
     }
 }
 
-macro_rules! write_into_writer {
-    ($write_func:expr, $buf_size:expr, $data:expr, $writer:expr) => {{
-        let mut buf: [u8; $buf_size] = unsafe { std::mem::uninitialized() };
-        $write_func(&mut buf, $data);
-        $writer.write(&buf)?;
-        Ok(())
-    }};
-}
-
 impl<T> WriteArchive for WriteArchiveAdapter<T>
 where
     T: Write,
 {
     #[inline]
     fn write_u8(&mut self, data: u8) -> Fallible<()> {
-        let buf = [data];
-        self.io_writer.write(&buf)?;
-        Ok(())
+        into_err!(self.io_writer.write_u8(data))
     }
 
     #[inline]
     fn write_u16(&mut self, data: u16) -> Fallible<()> {
-        write_into_writer!(LittleEndian::write_u16, 2, data, self.io_writer)
+        into_err!(self.io_writer.write_u16::<LittleEndian>(data))
     }
 
     #[inline]
     fn write_u32(&mut self, data: u32) -> Fallible<()> {
-        write_into_writer!(LittleEndian::write_u32, 4, data, self.io_writer)
+        into_err!(self.io_writer.write_u32::<LittleEndian>(data))
     }
 
     #[inline]
     fn write_u64(&mut self, data: u64) -> Fallible<()> {
-        write_into_writer!(LittleEndian::write_u64, 8, data, self.io_writer)
+        into_err!(self.io_writer.write_u64::<LittleEndian>(data))
     }
 
     #[inline]

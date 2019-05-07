@@ -4,18 +4,15 @@ use std::{
     sync::Arc,
 };
 
-use failure::{ Fallible, err_msg};
+use failure::Fallible;
 use tempfile::NamedTempFile;
 
-use crate::common::{
-    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-    ContainerView,
-};
+use crate::ContainerView;
 
 #[derive(Debug)]
 pub struct UCursorFile {
     pub src_temp_file: Arc<NamedTempFile>,
-    pub file:          BufReader<File>,
+    pub file:          Box<BufReader<File>>,
     pub len:           u64,
     pub pos:           u64,
     pub offset:        u64,
@@ -28,7 +25,7 @@ impl UCursorFile {
 
         Ok(UCursorFile {
             src_temp_file: Arc::new(tmp_file),
-            file:          BufReader::new(file),
+            file:          Box::new(BufReader::new(file)),
             len:           0,
             pos:           0,
             offset:        0,
@@ -45,7 +42,7 @@ impl UCursorFile {
     fn try_clone(&self) -> Result<Self> {
         Ok(UCursorFile {
             src_temp_file: Arc::clone(&self.src_temp_file),
-            file:          BufReader::new(self.src_temp_file.reopen()?),
+            file:          Box::new(BufReader::new(self.src_temp_file.reopen()?)),
             len:           self.len,
             pos:           0,
             offset:        self.offset,
@@ -331,31 +328,6 @@ impl From<ContainerView> for UCursor {
     fn from(view: ContainerView) -> Self { UCursor::build_from_view(view) }
 }
 
-/// # TODO
-/// Integrate into `WriteArchive` in orde to avoid copies.
-impl Serializable for UCursor {
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        let mut self_from = self.sub(self.position())?;
-        let self_from_len = self_from.len();
-        archive.write_u64( self_from_len)?;
-        std::io::copy(&mut self_from, archive)?;
-        Ok(())
-    }
-}
-
-/// # TODO
-/// Integrate into `ReadArchive` in orde to avoid copies.
-impl Deserializable for UCursor {
-    fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
-    where
-        A: ReadArchive, {
-            let len = archive.read_u64()?;
-            archive.payload(len).ok_or_else(|| err_msg("No payload on this archive"))
-    }
-}
-
 #[cfg(feature = "s11n_serde")]
 use serde::ser::{SerializeStruct, Serializer};
 
@@ -463,7 +435,7 @@ mod unit_test {
     use std::io::{Cursor, Read};
 
     use super::UCursor;
-    use crate::common::ContainerView;
+    use crate::ContainerView;
 
     fn make_content_with_size(content_size: usize) -> Vec<u8> {
         thread_rng()

@@ -1,4 +1,4 @@
-use crate::common::functor::FuncResult;
+use concordium_common::functor::FuncResult;
 use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{

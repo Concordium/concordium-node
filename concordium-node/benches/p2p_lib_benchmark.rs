@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate criterion;
 
+use concordium_common::UCursor;
+
 use p2p_client::{
     common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor, get_current_stamp,
         serialization::{ Serializable, WriteArchiveAdapter }
@@ -68,68 +70,26 @@ pub fn make_direct_message_into_disk( content_size: usize) -> Fallible<UCursor> 
     Ok(out_cursor)
 }
 
+#[cfg(any(
+    not(feature = "s11n_nom"),
+    not(feature = "s11n_capnp"),
+    not(feature = "s11n_serde_cbor"),
+    not(feature = "s11n_serde_json")
+))]
 mod common {
-    #[cfg(any(
-        not(feature = "s11n_nom"),
-        not(feature = "s11n_capnp"),
-        not(feature = "s11n_serde_cbor"),
-        not(feature = "s11n_serde_json")
-    ))]
     use criterion::Criterion;
-    #[cfg(any(
-        not(feature = "s11n_nom"),
-        not(feature = "s11n_capnp"),
-        not(feature = "s11n_serde_cbor"),
-        not(feature = "s11n_serde_json")
-    ))]
     pub fn nop_bench(_c: &mut Criterion) {}
-
-    pub mod ucursor {
-        use p2p_client::common::{ContainerView, UCursor};
-
-        use criterion::Criterion;
-        use rand::{distributions::Standard, thread_rng, Rng};
-
-        fn make_content_with_size(content_size: usize) -> Vec<u8> {
-            thread_rng()
-                .sample_iter(&Standard)
-                .take(content_size)
-                .collect::<Vec<u8>>()
-        }
-
-        pub fn from_memory_to_file_1m(b: &mut Criterion) { from_memory_to_file(1024 * 1024, b) }
-
-        pub fn from_memory_to_file_4m(b: &mut Criterion) { from_memory_to_file(4 * 1024 * 1024, b) }
-
-        pub fn from_memory_to_file_32m(b: &mut Criterion) {
-            from_memory_to_file(32 * 1024 * 1024, b)
-        }
-
-        fn from_memory_to_file(content_size: usize, c: &mut Criterion) {
-            let content = make_content_with_size(content_size);
-            let view = ContainerView::from(content);
-            let bench_id = format!("Benchmark from memory to file using {} bytes", content_size);
-
-            c.bench_function(bench_id.as_str(), move |b| {
-                let cloned_view = view.clone();
-                b.iter(|| {
-                    let mut cur = UCursor::build_from_view(cloned_view.clone());
-                    cur.swap_to_file()
-                })
-            });
-        }
-    }
 }
 
 mod network {
     pub mod message {
         use crate::make_direct_message_into_disk;
+        use concordium_common::{ContainerView, UCursor};
         use p2p_client::{
             common::{
                 P2PPeerBuilder, PeerType, RemotePeer,
                 serialization::{ Deserializable, ReadArchiveAdapter}
             },
-            network::NetworkMessage,
         };
         use std::{
             net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -257,6 +217,38 @@ mod network {
             });
         }
 
+        pub fn bench_s11n_get_peers_50(c: &mut Criterion) { bench_s11n_get_peers(c, 50) }
+
+        pub fn bench_s11n_get_peers_100(c: &mut Criterion) { bench_s11n_get_peers(c, 100) }
+
+        pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
+
+        fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
+            let me = localhost_peer();
+            let mut peers = vec![];
+            peers.resize_with(size, || localhost_peer());
+
+            let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+            let peer_list_msg = NetworkResponse::PeerList(me.clone(), peers);
+            let peer_list_msg_data =
+                UCursor::build_from_view(ContainerView::from(peer_list_msg.serialize()));
+
+            let bench_id = format!(
+                "Benchmark deserialization of PeerList Response with {} peers ",
+                size
+            );
+
+            c.bench_function(&bench_id, move |b| {
+                let cursor = peer_list_msg_data.clone();
+                let peer = me.clone();
+
+                b.iter(move || {
+                    let s11n_cursor = cursor.clone();
+                    let remote_peer = RemotePeer::PostHandshake(peer.clone());
+                    NetworkMessage::deserialize(remote_peer, local_ip, s11n_cursor)
+                })
+            });
+        }
     }
 }
 
@@ -264,12 +256,12 @@ mod serialization {
     #[cfg(feature = "s11n_serde_cbor")]
     pub mod serde_cbor {
         use crate::localhost_peer;
-
+        use concordium_common::UCursor;
         use p2p_client::{
-            common::{P2PNodeId, UCursor},
+            common::P2PNodeId,
             network::{
                 serialization::cbor::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder,
+                NetworkPacketBuilder, NetworkResponse,
             },
         };
 
@@ -338,9 +330,10 @@ mod serialization {
     #[cfg(feature = "s11n_serde_json")]
     pub mod serde_json {
         use crate::localhost_peer;
+        use concordium_common::UCursor;
 
         use p2p_client::{
-            common::{P2PNodeId, UCursor},
+            common::P2PNodeId,
             network::{
                 serialization::json::s11n_network_message, NetworkId, NetworkMessage,
                 NetworkPacketBuilder,
@@ -469,8 +462,10 @@ mod serialization {
     pub mod capnp {
         use crate::localhost_peer;
 
+        use concordium_common::UCursor;
+
         use p2p_client::{
-            common::{P2PNodeId, P2PPeerBuilder, PeerType, UCursor},
+            common::{P2PNodeId, P2PPeerBuilder, PeerType},
             network::{
                 serialization::cap::{deserialize, save_network_message},
                 NetworkId, NetworkMessage, NetworkPacketBuilder,
@@ -550,13 +545,6 @@ mod serialization {
 }
 
 criterion_group!(
-    ucursor_benches,
-    common::ucursor::from_memory_to_file_1m,
-    common::ucursor::from_memory_to_file_4m,
-    common::ucursor::from_memory_to_file_32m
-);
-
-criterion_group!(
     s11n_custom_benches,
     network::message::bench_s11n_001_direct_message_256,
     network::message::bench_s11n_001_direct_message_512,
@@ -573,6 +561,13 @@ criterion_group!(
     network::message::bench_s11n_001_direct_message_512m,
     network::message::bench_s11n_001_direct_message_1g,
     network::message::bench_s11n_001_direct_message_4g,
+);
+
+criterion_group!(
+    s11n_get_peers,
+    network::message::bench_s11n_get_peers_50,
+    network::message::bench_s11n_get_peers_100,
+    network::message::bench_s11n_get_peers_200
 );
 
 #[cfg(feature = "s11n_serde_cbor")]
@@ -632,7 +627,7 @@ criterion_group!(
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
 criterion_main!(
-    ucursor_benches,
+    s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,

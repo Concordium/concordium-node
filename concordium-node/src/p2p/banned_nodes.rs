@@ -2,7 +2,6 @@ use crate::common::{
     serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
     P2PNodeId,
 };
-
 use failure::Fallible;
 
 use std::{collections::HashSet, net::IpAddr};

@@ -1,7 +1,5 @@
-use crate::{
-    common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor},
-    network::NetworkResponse,
-};
+use crate::network::NetworkResponse;
+use concordium_common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor};
 
 pub struct ResponseHandler {
     pub pong_handler:      UnitFunctor<NetworkResponse>,

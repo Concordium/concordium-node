@@ -1,5 +1,5 @@
 [package]
-name = "consensus-sys"
+name = "concordium-consensus"
 version = "0.0.1"
 description = "consensus prototype wrapper"
 authors = ["Concordium AG <info@concordium.com>"]
@@ -14,6 +14,7 @@ valgrind = []
 
 [dependencies]
 chrono = "0.4.0"
+concordium-common = { path = "../concordium-common" }
 ec_vrf_ed25519_sha256 = { path = "../deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "../deps/internal/crypto/rust-src/eddsa_ed25519" }
 libc = "0.2"

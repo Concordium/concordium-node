@@ -1,10 +1,11 @@
 use crate::{
     common::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
-        P2PNodeId, P2PPeer, UCursor,
+        P2PNodeId, P2PPeer,
     },
     network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
 };
+use concordium_common::UCursor;
 
 use crate::{
     failure::{err_msg, Fallible},
@@ -63,7 +64,7 @@ pub struct NetworkPacket {
     pub message_id: String,
     pub network_id: NetworkId,
 
-    pub message: Box<UCursor>,
+    pub message: UCursor,
 }
 
 impl NetworkPacketBuilder {
@@ -139,7 +140,7 @@ impl Deserializable for NetworkPacket {
             peer:        archive.post_handshake_peer()?,
             message_id:  archive.read_string()?,
             network_id:  NetworkId::deserialize(archive)?,
-            message:     Box::<UCursor>::deserialize(archive)?,
+            message:     UCursor::deserialize(archive)?,
         };
         Ok(packet)
     }

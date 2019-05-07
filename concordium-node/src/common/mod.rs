@@ -1,16 +1,16 @@
-pub mod container_view;
 pub mod counter;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 pub mod serialization;
-pub mod ucursor;
 
 pub use self::{
-    container_view::ContainerView,
     p2p_node_id::P2PNodeId,
     p2p_peer::{P2PPeer, P2PPeerBuilder},
-    ucursor::UCursor,
 };
+
+use concordium_common::UCursor;
+
+pub mod fails;
 
 #[macro_export]
 macro_rules! serialize_into_memory {
@@ -37,7 +37,7 @@ macro_rules! deserialize_from_memory {
     ($target_type:ident, $src:expr, $peer:expr, $ip:expr) => {
         (|| -> Fallible<$target_type> {
             let cursor =
-                $crate::common::UCursor::build_from_view($crate::common::ContainerView::from($src));
+                concordium_common::UCursor::build_from_view(concordium_common::ContainerView::from($src));
             let mut archive =
                 $crate::common::serialization::ReadArchiveAdapter::new(cursor, $peer, $ip);
             $target_type::deserialize(&mut archive)
@@ -45,10 +45,7 @@ macro_rules! deserialize_from_memory {
     };
 }
 
-#[macro_use]
-pub mod functor;
 
-pub mod fails;
 
 use chrono::prelude::*;
 use failure::{bail, Fallible};
@@ -304,6 +301,7 @@ mod tests {
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
+    use concordium_common::{ContainerView, UCursor};
     use std::collections::HashSet;
 
     fn dummy_peer(ip: IpAddr, port: u16) -> RemotePeer {
@@ -532,7 +530,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
+            .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
 
         let msg_serialized = serialize_into_memory!(msg, 256)?;
@@ -558,7 +556,7 @@ mod tests {
             .peer(self_peer.clone().peer().unwrap())
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
-            .message(Box::new(UCursor::build_from_view(text_msg.clone())))
+            .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast()?;
 
         let serialized = serialize_into_memory!(msg, 256)?;

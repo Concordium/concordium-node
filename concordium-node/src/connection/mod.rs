@@ -10,7 +10,7 @@ mod connection_private;
 pub mod fails;
 mod handler_utils;
 
-use crate::common::functor::FuncResult;
+use concordium_common::functor::FuncResult;
 use rustls::Session;
 
 /// It is a common trait for `rustls::ClientSession` and `rustls::ServerSession`
@@ -43,13 +43,17 @@ use rustls::{ClientSession, ServerSession};
 
 use failure::{bail, Error, Fallible};
 
+use concordium_common::{
+    functor::{FunctorResult, UnitFunction},
+    UCursor,
+};
+
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
-        functor::{FunctorResult, UnitFunction},
-        get_current_stamp,
         serialization::{Deserializable, ReadArchiveAdapter},
-        P2PNodeId, P2PPeer, PeerType, RemotePeer, UCursor,
+        get_current_stamp, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
@@ -449,7 +453,10 @@ impl Connection {
 
     pub fn is_closed(&self) -> bool { self.closed }
 
-    pub fn close(&mut self) { self.closing = true; }
+    pub fn close(&mut self) {
+        self.dptr.borrow_mut().tls_session.send_close_notify();
+        self.closing = true;
+    }
 
     pub fn shutdown(&mut self) -> Fallible<()> {
         self.socket.shutdown(Shutdown::Both)?;
@@ -472,7 +479,7 @@ impl Connection {
         if ev_readiness.is_writable() {
             let written_bytes = self.flush_tls()?;
             if written_bytes > 0 {
-                debug!(
+                trace!(
                     "EV readiness is WRITABLE, {} bytes were written",
                     written_bytes
                 );
@@ -739,7 +746,7 @@ impl Connection {
         let wants_write =
             !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
-            debug!(
+            trace!(
                 "{}/{} is attempting to write to socket {:?}",
                 self.local_id(),
                 self.local_addr(),
@@ -770,7 +777,7 @@ impl Connection {
         let wants_write =
             !self.closed && !self.closing && self.dptr.borrow().tls_session.wants_write();
         if wants_write {
-            debug!(
+            trace!(
                 "{}/{} is attempting to write to socket {:?}",
                 self.local_id(),
                 self.local_addr(),

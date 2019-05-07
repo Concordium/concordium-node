@@ -35,12 +35,15 @@ extern crate ipconfig;
 extern crate failure;
 extern crate tempfile;
 
+#[macro_use]
+extern crate concordium_common;
+
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
 #[cfg(feature = "s11n_serde")]
 extern crate serde;
 
-#[cfg(feature = "s11n_serde_cbor")]
+#[cfg(feature = "s11n_serde")]
 #[macro_use]
 extern crate serde_derive;
 
