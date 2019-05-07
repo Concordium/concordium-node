@@ -427,6 +427,7 @@ fn setup_higher_process_output(
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         fn send_msg_to_baker(
             baker_ins: &mut Option<consensus::ConsensusContainer>,
+            peer_id: P2PNodeId,
             mut msg: UCursor,
             message_id: String,
         ) -> Fallible<()> {
@@ -451,7 +452,7 @@ fn setup_higher_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_block(&block) {
+                            Ok(_) => match baker.send_block(peer_id.0,&block) {
                                 0i64 => info!("Sent block from network to baker"),
                                 x => error!(
                                     "Can't send block from network to baker due to error code #{}",
@@ -474,7 +475,7 @@ fn setup_higher_process_output(
                         ) {
                             Ok(_) => {
                                 baker
-                                    .send_finalization(&FinalizationMessage::deserialize(content)?);
+                                    .send_finalization(peer_id.0, &FinalizationMessage::deserialize(content)?);
                                 info!("Sent finalization package to consensus layer");
                             }
                             Err(err) => {
@@ -489,7 +490,7 @@ fn setup_higher_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_finalization_record(
+                            Ok(_) => match baker.send_finalization_record(peer_id.0,
                                 &FinalizationRecord::deserialize(content)?,
                             ) {
                                 0i64 => info!("Sent finalization record from network to baker"),
@@ -560,6 +561,7 @@ fn setup_higher_process_output(
                         };
                         if let Err(e) = send_msg_to_baker(
                             &mut _baker_pkt_clone,
+                            pac.peer.id(),
                             pac.message.clone(),
                             (*pac.message_id).to_string(),
                         ) {
