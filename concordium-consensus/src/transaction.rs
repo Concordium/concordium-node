@@ -77,8 +77,8 @@ impl Transactions {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        // FIXME: estimate Transaction size
-        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT + (self.0.len() * 0));
+        // FIXME: add an estimated size of all Transactions
+        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
