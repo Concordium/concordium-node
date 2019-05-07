@@ -58,11 +58,11 @@ mod common {
 
 mod network {
     pub mod message {
-        use crate::make_direct_message_header;
+        use crate::{localhost_peer, make_direct_message_header};
         use concordium_common::{ContainerView, UCursor};
         use p2p_client::{
             common::{P2PPeerBuilder, PeerType, RemotePeer},
-            network::NetworkMessage,
+            network::{NetworkMessage, NetworkResponse},
         };
         use rand::{distributions::Alphanumeric, thread_rng, Rng};
         use std::{
@@ -213,6 +213,38 @@ mod network {
             });
         }
 
+        pub fn bench_s11n_get_peers_50(c: &mut Criterion) { bench_s11n_get_peers(c, 50) }
+
+        pub fn bench_s11n_get_peers_100(c: &mut Criterion) { bench_s11n_get_peers(c, 100) }
+
+        pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
+
+        fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
+            let me = localhost_peer();
+            let mut peers = vec![];
+            peers.resize_with(size, || localhost_peer());
+
+            let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+            let peer_list_msg = NetworkResponse::PeerList(me.clone(), peers);
+            let peer_list_msg_data =
+                UCursor::build_from_view(ContainerView::from(peer_list_msg.serialize()));
+
+            let bench_id = format!(
+                "Benchmark deserialization of PeerList Response with {} peers ",
+                size
+            );
+
+            c.bench_function(&bench_id, move |b| {
+                let cursor = peer_list_msg_data.clone();
+                let peer = me.clone();
+
+                b.iter(move || {
+                    let s11n_cursor = cursor.clone();
+                    let remote_peer = RemotePeer::PostHandshake(peer.clone());
+                    NetworkMessage::deserialize(remote_peer, local_ip, s11n_cursor)
+                })
+            });
+        }
     }
 }
 
@@ -225,7 +257,7 @@ mod serialization {
             common::P2PNodeId,
             network::{
                 serialization::cbor::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder,
+                NetworkPacketBuilder, NetworkResponse,
             },
         };
 
@@ -527,6 +559,13 @@ criterion_group!(
     network::message::bench_s11n_001_direct_message_4g,
 );
 
+criterion_group!(
+    s11n_get_peers,
+    network::message::bench_s11n_get_peers_50,
+    network::message::bench_s11n_get_peers_100,
+    network::message::bench_s11n_get_peers_200
+);
+
 #[cfg(feature = "s11n_serde_cbor")]
 criterion_group!(
     s11n_cbor_benches,
@@ -584,6 +623,7 @@ criterion_group!(
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
 criterion_main!(
+    s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,
