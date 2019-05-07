@@ -156,4 +156,5 @@ service P2P {
   rpc GetLastFinalAccountInfo(AccountAddress) returns (SuccessfulBytePayloadResponse) {}
   rpc GetLastFinalInstanceInfo(ContractInstanceAddress) returns (SuccessfulBytePayloadResponse) {}
   rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
+  rpc Shutdown(Empty) returns (SuccessResponse) {}
 }

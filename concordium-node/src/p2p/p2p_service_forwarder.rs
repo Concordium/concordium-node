@@ -5,6 +5,7 @@ use crate::proto::{
     SendMessageRequest, SendTransactionRequest, StringResponse, SuccessResponse,
     SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
 };
+use futures::future::Future;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -282,5 +283,19 @@ impl P2P for P2PServiceForwarder {
         sink: ::grpcio::UnarySink<PeerListResponse>,
     ) {
         forward_to_targets!(self.targets, get_banned_peers, ctx, req, sink);
+    }
+
+    fn shutdown(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let mut r: SuccessResponse = SuccessResponse::new();
+        r.set_value(false);
+        let f = sink
+            .success(r)
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
     }
 }

@@ -984,8 +984,8 @@ impl P2PNode {
     pub fn close(&mut self) -> Fallible<()> {
         if let Some(ref q) = self.quit_tx {
             q.send(true)?;
+            info!("P2PNode shutting down.");
         }
-
         Ok(())
     }
 
