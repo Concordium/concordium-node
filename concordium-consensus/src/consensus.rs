@@ -582,7 +582,8 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
         1 => error!("{}: {}", i, s),
         2 => warn!("{}: {}", i, s),
         3 => info!("{}: {}", i, s),
-        _ => debug!("{}: {}", i, s),
+        4 => debug!("{}: {}", i, s),
+        _ => trace!("{}: {}", i, s),
     };
 }
 
