@@ -3,9 +3,8 @@ use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, P2PPeer,
-        get_current_stamp,
-        serialization::Serializable
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, serialization::Serializable,
+        P2PPeer,
     },
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},

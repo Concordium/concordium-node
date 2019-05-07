@@ -185,8 +185,8 @@ mod unit_test {
         }
 
         payload.seek(SeekFrom::Start(0))?;
-        assert_eq!( payload.len(), content_size as u64);
-        assert_eq!( payload.position(), 0);
+        assert_eq!(payload.len(), content_size as u64);
+        assert_eq!(payload.position(), 0);
 
         // 2. Generate packet.
         let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;

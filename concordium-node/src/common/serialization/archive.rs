@@ -1,9 +1,6 @@
-use crate::common::{
-    serialization::Deserializable,
-    P2PPeer, RemotePeer
-};
+use crate::common::{serialization::Deserializable, P2PPeer, RemotePeer};
 
-use concordium_common::{ UCursor, ContainerView };
+use concordium_common::{ContainerView, UCursor};
 use failure::{err_msg, Fallible};
 
 use std::{fmt::Display, net::IpAddr, str};
@@ -67,7 +64,7 @@ pub trait ReadArchive: Sized + std::io::Read {
     }
 
     fn tag_slice(&mut self, tag: &[u8]) -> Fallible<()> {
-        let vw = self.read_n_bytes( tag.len() as u32)?;
+        let vw = self.read_n_bytes(tag.len() as u32)?;
         if tag == vw.as_slice() {
             Ok(())
         } else {

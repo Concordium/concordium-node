@@ -1,22 +1,21 @@
 use crate::common::serialization::WriteArchive;
 
-use concordium_common::UCursor;
 use byteorder::{LittleEndian, WriteBytesExt};
+use concordium_common::UCursor;
 use failure::Fallible;
 
 use std::io::Write;
 
 pub struct WriteArchiveAdapter<T>
 where
-    T: Write
-{
-    io_writer: T,
-    io_payload: Option<UCursor>
+    T: Write, {
+    io_writer:  T,
+    io_payload: Option<UCursor>,
 }
 
 impl<T> WriteArchiveAdapter<T>
 where
-    T: Write
+    T: Write,
 {
     #[inline]
     pub fn into_inner(self) -> T { self.io_writer }
@@ -30,12 +29,13 @@ where
 
 impl<T> std::convert::From<T> for WriteArchiveAdapter<T>
 where
-    T: Write
+    T: Write,
 {
     #[inline]
-    fn from(io: T) -> Self { WriteArchiveAdapter {
-        io_writer: io,
-        io_payload: None
+    fn from(io: T) -> Self {
+        WriteArchiveAdapter {
+            io_writer:  io,
+            io_payload: None,
         }
     }
 }
@@ -45,9 +45,7 @@ where
     T: Write,
 {
     #[inline]
-    fn write_u8(&mut self, data: u8) -> Fallible<()> {
-        into_err!(self.io_writer.write_u8(data))
-    }
+    fn write_u8(&mut self, data: u8) -> Fallible<()> { into_err!(self.io_writer.write_u8(data)) }
 
     #[inline]
     fn write_u16(&mut self, data: u16) -> Fallible<()> {
@@ -65,15 +63,10 @@ where
     }
 
     #[inline]
-    fn set_payload(&mut self, payload: UCursor) {
-        self.io_payload = Some(payload);
-    }
+    fn set_payload(&mut self, payload: UCursor) { self.io_payload = Some(payload); }
 
     #[inline]
-    fn payload(&self) -> Option<UCursor> {
-       self.io_payload.clone()
-    }
-
+    fn payload(&self) -> Option<UCursor> { self.io_payload.clone() }
 }
 
 impl<T> std::io::Write for WriteArchiveAdapter<T>

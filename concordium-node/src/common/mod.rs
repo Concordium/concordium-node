@@ -36,16 +36,15 @@ macro_rules! serialize_into_memory {
 macro_rules! deserialize_from_memory {
     ($target_type:ident, $src:expr, $peer:expr, $ip:expr) => {
         (|| -> Fallible<$target_type> {
-            let cursor =
-                concordium_common::UCursor::build_from_view(concordium_common::ContainerView::from($src));
+            let cursor = concordium_common::UCursor::build_from_view(
+                concordium_common::ContainerView::from($src),
+            );
             let mut archive =
                 $crate::common::serialization::ReadArchiveAdapter::new(cursor, $peer, $ip);
             $target_type::deserialize(&mut archive)
         })()
     };
 }
-
-
 
 use chrono::prelude::*;
 use failure::{bail, Fallible};

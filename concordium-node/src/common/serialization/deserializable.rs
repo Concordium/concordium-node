@@ -1,7 +1,7 @@
 use crate::common::serialization::ReadArchive;
 
 use concordium_common::UCursor;
-use failure::{Fallible, bail, err_msg};
+use failure::{bail, err_msg, Fallible};
 
 use std::{
     cmp::Eq,
@@ -142,14 +142,13 @@ where
 // ==============================================================================================
 
 impl Deserializable for UCursor {
-
     /// It returns a `Shadow-copy` of the payload.
     fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
     where
         A: ReadArchive, {
-            let len = archive.read_u64()?;
-            archive.payload(len).ok_or_else(|| err_msg("No payload on this archive"))
+        let len = archive.read_u64()?;
+        archive
+            .payload(len)
+            .ok_or_else(|| err_msg("No payload on this archive"))
     }
 }
-
-

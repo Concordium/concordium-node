@@ -19,7 +19,9 @@ use std::{
 use webpki::DNSNameRef;
 
 use crate::{
-    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer, get_current_stamp, serialization::Serializable},
+    common::{
+        get_current_stamp, serialization::Serializable, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+    },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{

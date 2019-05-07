@@ -1,7 +1,8 @@
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer,
-        get_current_stamp,
-        serialization::Serializable },
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, serialization::Serializable,
+        P2PNodeId, P2PPeer, PeerType, RemotePeer,
+    },
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,

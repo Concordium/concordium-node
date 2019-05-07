@@ -51,9 +51,9 @@ use concordium_common::{
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_RECEIVED_COUNTER,
+        get_current_stamp,
         serialization::{Deserializable, ReadArchiveAdapter},
-        get_current_stamp, P2PNodeId, P2PPeer, PeerType,
-        RemotePeer,
+        P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,

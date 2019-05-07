@@ -4,19 +4,21 @@ extern crate criterion;
 use concordium_common::UCursor;
 
 use p2p_client::{
-    common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor, get_current_stamp,
-        serialization::{ Serializable, WriteArchiveAdapter }
+    common::{
+        get_current_stamp,
+        serialization::{Serializable, WriteArchiveAdapter},
+        P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor,
     },
     network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder},
 };
 
 use failure::Fallible;
-use rand::{ distributions::Alphanumeric, thread_rng, Rng };
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
 use std::{
+    io::{Seek, SeekFrom, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
-    io::{ Seek, SeekFrom, Write,  }
 };
 
 pub fn localhost_peer() -> P2PPeer {
@@ -30,7 +32,7 @@ pub fn localhost_peer() -> P2PPeer {
         .unwrap()
 }
 
-pub fn make_direct_message_into_disk( content_size: usize) -> Fallible<UCursor> {
+pub fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
     // 1. Generate payload on disk
     let mut payload = UCursor::build_from_temp_file()?;
     let mut pending_content_size = content_size;
@@ -50,10 +52,10 @@ pub fn make_direct_message_into_disk( content_size: usize) -> Fallible<UCursor> 
     let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
     let pkt = NetworkPacketBuilder::default()
         .peer(P2PPeer::from(
-                PeerType::Node,
-                p2p_node_id.clone(),
-                SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
-                ))
+            PeerType::Node,
+            p2p_node_id.clone(),
+            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
+        ))
         .message_id(NetworkPacket::generate_message_id())
         .network_id(NetworkId::from(111))
         .message(Box::new(payload))
@@ -85,15 +87,11 @@ mod network {
     pub mod message {
         use crate::make_direct_message_into_disk;
         use concordium_common::{ContainerView, UCursor};
-        use p2p_client::{
-            common::{
-                P2PPeerBuilder, PeerType, RemotePeer,
-                serialization::{ Deserializable, ReadArchiveAdapter}
-            },
+        use p2p_client::common::{
+            serialization::{Deserializable, ReadArchiveAdapter},
+            P2PPeerBuilder, PeerType, RemotePeer,
         };
-        use std::{
-            net::{IpAddr, Ipv4Addr, SocketAddr},
-        };
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
         use criterion::Criterion;
 
@@ -135,7 +133,9 @@ mod network {
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
             let mut cursor = make_direct_message_into_disk(content_size).unwrap();
-            cursor.swap_to_memory().expect("Cannot move cursor to memory");
+            cursor
+                .swap_to_memory()
+                .expect("Cannot move cursor to memory");
 
             let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
             let local_peer = P2PPeerBuilder::default()
@@ -154,11 +154,9 @@ mod network {
                 let ip = local_ip;
 
                 b.iter(move || {
-                    let mut archive = ReadArchiveAdapter::new(
-                        cloned_cursor.clone(),
-                        peer.clone(),
-                        ip);
-                    NetworkMessage::deserialize( &mut archive)
+                    let mut archive =
+                        ReadArchiveAdapter::new(cloned_cursor.clone(), peer.clone(), ip);
+                    NetworkMessage::deserialize(&mut archive)
                 })
             });
         }
@@ -209,8 +207,8 @@ mod network {
                 let peer = RemotePeer::PostHandshake(local_peer.clone());
 
                 b.iter(move || {
-                    let mut archive = ReadArchiveAdapter::new(
-                        cursor.clone(), peer.clone(), local_ip);
+                    let mut archive =
+                        ReadArchiveAdapter::new(cursor.clone(), peer.clone(), local_ip);
 
                     NetworkMessage::deserialize(&mut archive)
                 })
