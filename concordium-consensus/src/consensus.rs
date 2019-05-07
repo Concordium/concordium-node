@@ -571,7 +571,8 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
             4 => "Crypto",
             5 => "Kontrol",
             6 => "Skov",
-            _ => "Baker",
+            7 => "Baker",
+            _ => "External",
         }
     }
     let s = unsafe { CStr::from_ptr(log_message as *const c_char) }
