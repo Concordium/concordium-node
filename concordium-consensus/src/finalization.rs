@@ -1,12 +1,12 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian};
 use failure::Fallible;
 
-use std::io::Write;
+use std::io::{Cursor, Read, Write};
 
 use crate::{block::*, common::*};
 
 const HEADER: usize = 60;
-const FINALIZATION_INDEX: usize = 8;
+const INDEX: usize = 8;
 const DELTA: usize = 8;
 const SENDER: usize = 4;
 const SIGNATURE: usize = 64 + 8; // FIXME: unknown 8B prefix
@@ -16,7 +16,7 @@ const PHASE: usize = 4;
 const TICKET: usize = 80;
 const ABBA_INPUT: usize = PHASE + TICKET;
 const PARTY: usize = 4;
-const FINALIZATION_DELAY: usize = BLOCK_HEIGHT;
+const DELAY: usize = BLOCK_HEIGHT;
 const SIGNATURE_COUNT: usize = 8;
 
 #[derive(Debug)]
@@ -30,14 +30,12 @@ impl FinalizationMessage {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("FinalizationMessage", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let header = FinalizationMessageHeader::deserialize(&bytes[curr_pos..][..HEADER])?;
-        curr_pos += HEADER;
-
-        let message = WmvbaMessage::deserialize(&bytes[curr_pos..bytes.len() - SIGNATURE])?;
-
-        let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
+        let header = FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
+        let message_size = bytes.len() - cursor.position() as usize - SIGNATURE;
+        let message = WmvbaMessage::deserialize(&read_sized!(&mut cursor, message_size))?;
+        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let msg = FinalizationMessage {
             header,
@@ -68,36 +66,26 @@ type Party = u32;
 
 #[derive(Debug)]
 struct FinalizationMessageHeader {
-    session_id:         SessionId,
-    finalization_index: FinalizationIndex,
-    delta:              BlockHeight,
-    sender:             Party,
+    session_id: SessionId,
+    index:      FinalizationIndex,
+    delta:      BlockHeight,
+    sender:     Party,
 }
 
 impl FinalizationMessageHeader {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         // debug_deserialization!("FinalizationMessageHeader", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let session_id = SessionId::deserialize(&bytes[curr_pos..][..SESSION_ID])?;
-        curr_pos += SESSION_ID;
-
-        let finalization_index =
-            (&bytes[curr_pos..][..FINALIZATION_INDEX]).read_u64::<NetworkEndian>()?;
-        curr_pos += FINALIZATION_INDEX;
-
-        let delta = (&bytes[curr_pos..][..DELTA]).read_u64::<NetworkEndian>()?;
-        curr_pos += DELTA;
-
-        let sender = (&bytes[curr_pos..][..SENDER]).read_u32::<NetworkEndian>()?;
-        curr_pos += SENDER;
-
-        debug_assert_eq!(curr_pos, bytes.len());
+        let session_id = SessionId::deserialize(&read_const_sized!(&mut cursor, SESSION_ID))?;
+        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, INDEX));
+        let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, DELTA));
+        let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, SENDER));
 
         let header = FinalizationMessageHeader {
             session_id,
-            finalization_index,
+            index,
             delta,
             sender,
         };
@@ -110,17 +98,17 @@ impl FinalizationMessageHeader {
     pub fn serialize(&self) -> Vec<u8> {
         // debug_serialization!(self);
 
-        let mut bytes = [0u8; SESSION_ID + FINALIZATION_INDEX + DELTA + SENDER];
+        let mut bytes = [0u8; SESSION_ID + INDEX + DELTA + SENDER];
         let mut curr_pos = 0;
 
         let _ = (&mut bytes[curr_pos..][..SESSION_ID]).write(&self.session_id.serialize());
         curr_pos += SESSION_ID;
 
         NetworkEndian::write_u64(
-            &mut bytes[curr_pos..][..FINALIZATION_INDEX],
-            self.finalization_index,
+            &mut bytes[curr_pos..][..INDEX],
+            self.index,
         );
-        curr_pos += FINALIZATION_INDEX;
+        curr_pos += INDEX;
 
         NetworkEndian::write_u64(&mut bytes[curr_pos..][..DELTA], self.delta);
         curr_pos += DELTA;
@@ -149,23 +137,22 @@ impl WmvbaMessage {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("WmvbaMessage", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let message_type = (&bytes[curr_pos..][..WMVBA_TYPE]).read_u8()?;
-        curr_pos += WMVBA_TYPE;
+        let message_type = &read_const_sized!(&mut cursor, WMVBA_TYPE)[0];
 
         let msg = match message_type {
-            0 => WmvbaMessage::Proposal(HashBytes::new(&bytes[curr_pos..][..VAL])),
+            0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
             1 => WmvbaMessage::Vote(None),
-            2 => WmvbaMessage::Vote(Some(HashBytes::new(&bytes[curr_pos..][..VAL]))),
-            3 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&bytes[curr_pos..], false)?),
-            4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&bytes[curr_pos..], true)?),
-            5 => WmvbaMessage::CssSeen(CssSeen::deserialize(&bytes[curr_pos..], false)?),
-            6 => WmvbaMessage::CssSeen(CssSeen::deserialize(&bytes[curr_pos..], true)?),
-            7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&bytes[curr_pos..])?),
+            2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
+            3 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&read_all!(&mut cursor), false)?),
+            4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&read_all!(&mut cursor), true)?),
+            5 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all!(&mut cursor), false)?),
+            6 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all!(&mut cursor), true)?),
+            7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all!(&mut cursor))?),
             8 => WmvbaMessage::AreWeDone(false),
             9 => WmvbaMessage::AreWeDone(true),
-            10 => WmvbaMessage::WitnessCreator(HashBytes::new(&bytes[curr_pos..][..VAL])),
+            10 => WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
             n => panic!(
                 "Deserialization of WMVBA message type No {} is not implemented!",
                 n
@@ -223,15 +210,10 @@ impl AbbaInput {
     pub fn deserialize(bytes: &[u8], justified: bool) -> Fallible<Self> {
         debug_deserialization!("AbbaInput", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let phase = (&bytes[curr_pos..][..PHASE]).read_u32::<NetworkEndian>()?;
-        curr_pos += PHASE;
-
-        let ticket = Encoded::new(&bytes[curr_pos..][..TICKET]);
-        curr_pos += TICKET;
-
-        debug_assert_eq!(curr_pos, bytes.len());
+        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, PHASE));
+        let ticket = Encoded::new(&read_const_sized!(&mut cursor, TICKET));
 
         let abba = AbbaInput {
             phase,
@@ -267,8 +249,10 @@ impl CssSeen {
     pub fn deserialize(bytes: &[u8], saw: bool) -> Fallible<Self> {
         debug_deserialization!("CssSeen", bytes);
 
-        let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>()?;
-        let party = (&bytes[PHASE..][..PARTY]).read_u32::<NetworkEndian>()?;
+        let mut cursor = Cursor::new(bytes);
+
+        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, PHASE));
+        let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, PARTY));
 
         let css = CssSeen { phase, party, saw };
 
@@ -305,8 +289,10 @@ impl CssDoneReporting {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("CssDoneReporting", bytes);
 
-        let phase = (&bytes[..PHASE]).read_u32::<NetworkEndian>()?;
-        let rest = Encoded::new(&bytes[PHASE..]);
+        let mut cursor = Cursor::new(bytes);
+
+        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, PHASE));
+        let rest = Encoded::new(&read_all!(&mut cursor));
 
         let cssr = CssDoneReporting { phase, rest };
 
@@ -328,32 +314,26 @@ impl CssDoneReporting {
 
 #[derive(Debug)]
 pub struct FinalizationRecord {
-    finalization_index: FinalizationIndex,
-    block_pointer:      BlockHash,
-    proof:              FinalizationProof,
-    delay:              BlockHeight,
+    index:         FinalizationIndex,
+    block_pointer: BlockHash,
+    proof:         FinalizationProof,
+    delay:         BlockHeight,
 }
 
 impl FinalizationRecord {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("FinalizationRecord", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let finalization_index =
-            (&bytes[curr_pos..][..FINALIZATION_INDEX]).read_u64::<NetworkEndian>()?;
-        curr_pos += FINALIZATION_INDEX;
-
-        let block_pointer = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
-        curr_pos += BLOCK_HASH;
-
-        let proof =
-            FinalizationProof::deserialize(&bytes[curr_pos..bytes.len() - FINALIZATION_DELAY])?;
-
-        let delay = (&bytes[bytes.len() - FINALIZATION_DELAY..]).read_u64::<NetworkEndian>()?;
+        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, INDEX));
+        let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
+        let proof_size = bytes.len() - cursor.position() as usize - DELAY;
+        let proof = FinalizationProof::deserialize(&read_sized!(&mut cursor, proof_size))?;
+        let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, DELAY));
 
         let rec = FinalizationRecord {
-            finalization_index,
+            index,
             block_pointer,
             proof,
             delay,
@@ -367,14 +347,14 @@ impl FinalizationRecord {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut finalization_index_bytes = [0u8; FINALIZATION_INDEX];
-        NetworkEndian::write_u64(&mut finalization_index_bytes, self.finalization_index);
+        let mut index_bytes = [0u8; INDEX];
+        NetworkEndian::write_u64(&mut index_bytes, self.index);
 
-        let mut delay_bytes = [0u8; FINALIZATION_DELAY];
+        let mut delay_bytes = [0u8; DELAY];
         NetworkEndian::write_u64(&mut delay_bytes, self.delay);
 
         [
-            &finalization_index_bytes,
+            &index_bytes,
             self.block_pointer.as_ref(),
             self.proof.serialize().as_slice(),
             &delay_bytes,
@@ -390,25 +370,19 @@ impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("FinalizationProof", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let signature_count =
-            (&bytes[curr_pos..][..SIGNATURE_COUNT]).read_u64::<NetworkEndian>()?;
-        curr_pos += SIGNATURE_COUNT;
+        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, SIGNATURE_COUNT));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
         for _ in 0..signature_count {
-            let tbd = (&bytes[curr_pos..][..4]).read_u32::<NetworkEndian>()?;
-            curr_pos += 4;
-
-            let signature = Encoded::new(&bytes[curr_pos..][..SIGNATURE]);
-            curr_pos += SIGNATURE;
+            // FIXME: determine the use and apply a more informative name
+            let tbd = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
+            let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
             signatures.push((tbd, signature));
         }
-
-        debug_assert_eq!(curr_pos, bytes.len());
 
         let proof = FinalizationProof(signatures);
 

@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
 use failure::Fallible;
 
-use std::{fmt, hash::Hash, io::Write, num::NonZeroU64, ops::Deref};
+use std::{fmt, hash::Hash, io::{Cursor, Read, Write}, num::NonZeroU64, ops::Deref};
 
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
@@ -63,12 +63,10 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("SessionId", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let genesis_block = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
-        curr_pos += BLOCK_HASH;
-
-        let incarnation = (&bytes[curr_pos..][..INCARNATION]).read_u64::<NetworkEndian>()?;
+        let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
+        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, INCARNATION));
 
         let sess = SessionId {
             genesis_block,

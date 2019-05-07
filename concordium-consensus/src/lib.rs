@@ -24,14 +24,42 @@ macro_rules! check_serialization {
 
 macro_rules! debug_deserialization {
     ($target:expr, $bytes:expr) => {
-        debug!("Deserializing an object: {} ({}B)", $target, $bytes.len());
+        println!("Deserializing an object: {} ({}B)", $target, $bytes.len());
     };
 }
 
 macro_rules! debug_serialization {
     ($object:expr) => {
-        debug!("Serializing an object: {:?}", $object);
+        println!("Serializing an object: {:?}", $object);
     };
+}
+
+macro_rules! read_const_sized {
+    ($source:expr, $size:expr) => {{
+        let mut buf = [0u8; $size];
+        $source.read_exact(&mut buf)?;
+
+        buf
+    }};
+}
+
+macro_rules! read_sized {
+    ($source:expr, $size:expr) => {{
+        let mut buf = vec![0u8; $size];
+        $source.read_exact(&mut buf)?;
+
+        buf
+    }};
+}
+
+macro_rules! read_all {
+    ($source:expr) => {{
+        let size = $source.get_ref().len() - $source.position() as usize;
+        let mut buf = vec![0u8; size];
+        $source.read_exact(&mut buf)?;
+
+        buf
+    }};
 }
 
 #[macro_use]

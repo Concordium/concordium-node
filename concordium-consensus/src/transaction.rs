@@ -1,11 +1,12 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian};
 use failure::Fallible;
 
 use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
+    io::{Cursor, Read},
 };
 
 use crate::{block::*, common::*};
@@ -34,7 +35,7 @@ pub struct Transaction {
 
 impl Transaction {
     // FIXME: finish
-    pub fn deserialize(bytes: &[u8]) -> Option<(Self, usize)> {
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         debug_deserialization!("Transaction", bytes);
 
         unimplemented!()
@@ -54,18 +55,16 @@ impl Transactions {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Transactions", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let transaction_count =
-            (&bytes[curr_pos..][..TRANSACTION_COUNT]).read_u64::<NetworkEndian>()?;
-        curr_pos += TRANSACTION_COUNT;
+        let transaction_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, TRANSACTION_COUNT));
 
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {
-            while let Some((transaction, size)) = Transaction::deserialize(&bytes[curr_pos..]) {
+            // FIXME: determine how to read each transaction
+            while let Some(transaction) = Transaction::deserialize(&read_all!(&mut cursor)) {
                 transactions.0.push(transaction);
-                curr_pos += size;
             }
         }
 

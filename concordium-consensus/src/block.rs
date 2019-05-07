@@ -1,8 +1,10 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian};
 use chrono::prelude::Utc;
 use failure::Fallible;
+
+use std::io::{Cursor, Read};
 
 use crate::{common::*, parameters::*, transaction::*};
 
@@ -112,34 +114,20 @@ impl Block {
     get_block_content_ref!(signature_ref, Encoded, signature, "signature");
 
     // FIXME: only works for regular blocks for now
-    // FIXME: use UCursor (for all deserialization) when it's available outside of
-    // client
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Block", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let slot = (&bytes[curr_pos..][..SLOT]).read_u64::<NetworkEndian>()?;
-        curr_pos += SLOT;
-
-        let pointer = HashBytes::new(&bytes[curr_pos..][..POINTER]);
-        curr_pos += POINTER;
-
-        let baker_id = (&bytes[curr_pos..][..BAKER_ID]).read_u64::<NetworkEndian>()?;
-        curr_pos += BAKER_ID;
-
-        let proof = Encoded::new(&bytes[curr_pos..][..PROOF_LENGTH]);
-        curr_pos += PROOF_LENGTH;
-
-        let nonce = Encoded::new(&bytes[curr_pos..][..NONCE]);
-        curr_pos += NONCE;
-
-        let last_finalized = HashBytes::new(&bytes[curr_pos..][..SHA256]);
-        curr_pos += SHA256;
-
-        let transactions = Transactions::deserialize(&bytes[curr_pos..bytes.len() - SIGNATURE])?;
-
-        let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
+        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, SLOT));
+        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
+        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, BAKER_ID));
+        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
+        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
+        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
+        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE;
+        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
+        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let block = Block {
             slot,
