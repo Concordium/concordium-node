@@ -7,7 +7,7 @@ use p2p_client::{
     common::{
         get_current_stamp,
         serialization::{Serializable, WriteArchiveAdapter},
-        P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType, UCursor,
+        P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType,
     },
     network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder},
 };
@@ -58,7 +58,7 @@ pub fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
         ))
         .message_id(NetworkPacket::generate_message_id())
         .network_id(NetworkId::from(111))
-        .message(Box::new(payload))
+        .message(payload)
         .build_direct(p2p_node_id)?;
     let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
 
@@ -85,11 +85,17 @@ mod common {
 
 mod network {
     pub mod message {
-        use crate::make_direct_message_into_disk;
+        use crate::{localhost_peer, make_direct_message_into_disk};
         use concordium_common::{ContainerView, UCursor};
-        use p2p_client::common::{
-            serialization::{Deserializable, ReadArchiveAdapter},
-            P2PPeerBuilder, PeerType, RemotePeer,
+        use p2p_client::{
+            common::{
+                get_current_stamp,
+                serialization::{
+                    Deserializable, ReadArchiveAdapter, Serializable, WriteArchiveAdapter,
+                },
+                P2PPeerBuilder, PeerType, RemotePeer,
+            },
+            network::{NetworkMessage, NetworkResponse},
         };
         use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -227,9 +233,11 @@ mod network {
             peers.resize_with(size, || localhost_peer());
 
             let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-            let peer_list_msg = NetworkResponse::PeerList(me.clone(), peers);
-            let peer_list_msg_data =
-                UCursor::build_from_view(ContainerView::from(peer_list_msg.serialize()));
+            let peer_list_msg = NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(me.clone(), peers),
+                Some(get_current_stamp()),
+                None,
+            );
 
             let bench_id = format!(
                 "Benchmark deserialization of PeerList Response with {} peers ",
@@ -237,13 +245,18 @@ mod network {
             );
 
             c.bench_function(&bench_id, move |b| {
-                let cursor = peer_list_msg_data.clone();
+                let mut archive = WriteArchiveAdapter::from(vec![]);
+                let _ = peer_list_msg.serialize(&mut archive).unwrap();
+                let peer_list_msg_data = ContainerView::from(archive.into_inner());
+
+                let cursor = UCursor::build_from_view(peer_list_msg_data);
                 let peer = me.clone();
 
                 b.iter(move || {
-                    let s11n_cursor = cursor.clone();
                     let remote_peer = RemotePeer::PostHandshake(peer.clone());
-                    NetworkMessage::deserialize(remote_peer, local_ip, s11n_cursor)
+                    let mut archive =
+                        ReadArchiveAdapter::new(cursor.clone(), remote_peer, local_ip);
+                    NetworkMessage::deserialize(&mut archive).unwrap()
                 })
             });
         }
