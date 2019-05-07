@@ -1,7 +1,13 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use std::{fmt, hash::Hash, io::{Cursor, Read, Write}, num::NonZeroU64, ops::Deref};
+use std::{
+    fmt,
+    hash::Hash,
+    io::{Cursor, Read, Write},
+    num::NonZeroU64,
+    ops::Deref,
+};
 
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};

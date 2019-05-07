@@ -32,7 +32,8 @@ impl FinalizationMessage {
 
         let mut cursor = Cursor::new(bytes);
 
-        let header = FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
+        let header =
+            FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
         let message_size = bytes.len() - cursor.position() as usize - SIGNATURE;
         let message = WmvbaMessage::deserialize(&read_sized!(&mut cursor, message_size))?;
         let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
@@ -139,10 +140,14 @@ impl WmvbaMessage {
             4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&read_all!(&mut cursor), true)?),
             5 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all!(&mut cursor), false)?),
             6 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all!(&mut cursor), true)?),
-            7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all!(&mut cursor))?),
+            7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all!(
+                &mut cursor
+            ))?),
             8 => WmvbaMessage::AreWeDone(false),
             9 => WmvbaMessage::AreWeDone(true),
-            10 => WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
+            10 => {
+                WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))
+            }
             n => panic!(
                 "Deserialization of WMVBA message type No {} is not implemented!",
                 n
@@ -340,8 +345,8 @@ impl FinalizationRecord {
 
         let proof = self.proof.serialize();
 
-        let mut cursor = create_serialization_cursor(INDEX + self.block_pointer.len() + proof.len()
-            + DELAY);
+        let mut cursor =
+            create_serialization_cursor(INDEX + self.block_pointer.len() + proof.len() + DELAY);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
@@ -361,7 +366,8 @@ impl FinalizationProof {
 
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, SIGNATURE_COUNT));
+        let signature_count =
+            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, SIGNATURE_COUNT));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
@@ -383,7 +389,8 @@ impl FinalizationProof {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut cursor = create_serialization_cursor(self.0.len() * (4 + SIGNATURE));
+        let mut cursor =
+            create_serialization_cursor(SIGNATURE_COUNT + self.0.len() * (4 + SIGNATURE));
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

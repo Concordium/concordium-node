@@ -153,8 +153,14 @@ impl Block {
 
         let transactions = Transactions::serialize(self.transactions_ref());
 
-        let target_size = SLOT + POINTER + BAKER_ID + PROOF_LENGTH + NONCE + LAST_FINALIZED +
-            transactions.len() + SIGNATURE;
+        let target_size = SLOT
+            + POINTER
+            + BAKER_ID
+            + PROOF_LENGTH
+            + NONCE
+            + LAST_FINALIZED
+            + transactions.len()
+            + SIGNATURE;
         let mut cursor = create_serialization_cursor(target_size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
