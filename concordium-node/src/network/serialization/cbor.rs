@@ -64,7 +64,7 @@ mod unit_test {
                     .peer(localhost_peer())
                     .message_id(format!("{:064}", 100))
                     .network_id(NetworkId::from(100u16))
-                    .message(Box::new(UCursor::from(direct_message_content.to_vec())))
+                    .message(UCursor::from(direct_message_content.to_vec()))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
                     .unwrap(),
                 Some(10),

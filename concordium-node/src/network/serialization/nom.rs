@@ -88,7 +88,7 @@ named!(
                 .peer( localhost_peer())
                 .message_id( msg_id.to_string())
                 .network_id( NetworkId::from(network_id))
-                .message( UCursor::from( content.to_vec()))
+                .message(UCursor::from( content.to_vec()))
                 .build_direct( receiver_id )
                 .unwrap()
         )
@@ -283,7 +283,7 @@ mod unit_test {
                             .peer(localhost_peer())
                             .message_id(direct_message_message_id)
                             .network_id(NetworkId::from(111u16))
-                            .message(Box::new(UCursor::from(direct_message_content)))
+                            .message(UCursor::from(direct_message_content))
                             .build_direct(localhost_peer().id())
                             .unwrap(),
                         Some(10),
