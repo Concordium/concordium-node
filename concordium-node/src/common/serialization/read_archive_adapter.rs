@@ -1,6 +1,6 @@
 use crate::common::{ UCursor, ContainerView, serialization::ReadArchive, RemotePeer};
 
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, LittleEndian};
 use failure::Fallible;
 
 use std::{io::Read, net::IpAddr};
@@ -52,17 +52,20 @@ impl ReadArchive for ReadArchiveAdapter
 
     #[inline]
     fn read_u16(&mut self) -> Fallible<u16> {
-        read_from_reader!(NetworkEndian::read_u16, 2, self.io_reader)
+        // read_from_reader!(NetworkEndian::read_u16, 2, self.io_reader)
+        read_from_reader!(LittleEndian::read_u16, 2, self.io_reader)
     }
 
     #[inline]
     fn read_u32(&mut self) -> Fallible<u32> {
-        read_from_reader!(NetworkEndian::read_u32, 4, self.io_reader)
+        // read_from_reader!(NetworkEndian::read_u32, 4, self.io_reader)
+        read_from_reader!(LittleEndian::read_u32, 4, self.io_reader)
     }
 
     #[inline]
     fn read_u64(&mut self) -> Fallible<u64> {
-        read_from_reader!(NetworkEndian::read_u64, 8, self.io_reader)
+        // read_from_reader!(NetworkEndian::read_u64, 8, self.io_reader)
+        read_from_reader!(LittleEndian::read_u64, 8, self.io_reader)
     }
 
     #[inline]

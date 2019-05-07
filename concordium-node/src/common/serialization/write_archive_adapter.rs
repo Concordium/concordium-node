@@ -1,6 +1,6 @@
 use crate::common::{ serialization::WriteArchive, UCursor };
 
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, LittleEndian};
 use failure::Fallible;
 
 use std::io::Write;
@@ -61,17 +61,17 @@ where
 
     #[inline]
     fn write_u16(&mut self, data: u16) -> Fallible<()> {
-        write_into_writer!(NetworkEndian::write_u16, 2, data, self.io_writer)
+        write_into_writer!(LittleEndian::write_u16, 2, data, self.io_writer)
     }
 
     #[inline]
     fn write_u32(&mut self, data: u32) -> Fallible<()> {
-        write_into_writer!(NetworkEndian::write_u32, 4, data, self.io_writer)
+        write_into_writer!(LittleEndian::write_u32, 4, data, self.io_writer)
     }
 
     #[inline]
     fn write_u64(&mut self, data: u64) -> Fallible<()> {
-        write_into_writer!(NetworkEndian::write_u64, 8, data, self.io_writer)
+        write_into_writer!(LittleEndian::write_u64, 8, data, self.io_writer)
     }
 
     #[inline]
