@@ -1,4 +1,4 @@
-use crate::common::serialization::WriteArchive;
+use crate::common::{ serialization::WriteArchive, UCursor };
 
 use byteorder::{ByteOrder, NetworkEndian};
 use failure::Fallible;
@@ -7,13 +7,15 @@ use std::io::Write;
 
 pub struct WriteArchiveAdapter<T>
 where
-    T: Write, {
+    T: Write
+{
     io_writer: T,
+    io_payload: Option<UCursor>
 }
 
 impl<T> WriteArchiveAdapter<T>
 where
-    T: Write,
+    T: Write
 {
     #[inline]
     pub fn into_inner(self) -> T { self.io_writer }
@@ -27,10 +29,14 @@ where
 
 impl<T> std::convert::From<T> for WriteArchiveAdapter<T>
 where
-    T: Write,
+    T: Write
 {
     #[inline]
-    fn from(io: T) -> Self { WriteArchiveAdapter { io_writer: io } }
+    fn from(io: T) -> Self { WriteArchiveAdapter {
+        io_writer: io,
+        io_payload: None
+        }
+    }
 }
 
 macro_rules! write_into_writer {
@@ -67,6 +73,17 @@ where
     fn write_u64(&mut self, data: u64) -> Fallible<()> {
         write_into_writer!(NetworkEndian::write_u64, 8, data, self.io_writer)
     }
+
+    #[inline]
+    fn set_payload(&mut self, payload: UCursor) {
+        self.io_payload = Some(payload);
+    }
+
+    #[inline]
+    fn payload(&self) -> Option<UCursor> {
+       self.io_payload.clone()
+    }
+
 }
 
 impl<T> std::io::Write for WriteArchiveAdapter<T>

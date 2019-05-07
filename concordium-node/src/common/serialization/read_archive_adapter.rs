@@ -1,23 +1,19 @@
-use crate::common::{serialization::ReadArchive, RemotePeer};
+use crate::common::{ UCursor, ContainerView, serialization::ReadArchive, RemotePeer};
 
 use byteorder::{ByteOrder, NetworkEndian};
 use failure::Fallible;
 
 use std::{io::Read, net::IpAddr};
 
-pub struct ReadArchiveAdapter<T>
-where
-    T: Read, {
-    io_reader:   T,
+pub struct ReadArchiveAdapter {
+    io_reader:   UCursor,
     remote_peer: RemotePeer,
     ip:          IpAddr,
 }
 
-impl<T> ReadArchiveAdapter<T>
-where
-    T: Read,
+impl ReadArchiveAdapter
 {
-    pub fn new(io_reader: T, remote_peer: RemotePeer, ip: IpAddr) -> Self {
+    pub fn new(io_reader: UCursor, remote_peer: RemotePeer, ip: IpAddr) -> Self {
         ReadArchiveAdapter {
             io_reader,
             remote_peer,
@@ -26,23 +22,20 @@ where
     }
 
     #[inline]
-    pub fn into_inner(self) -> T { self.io_reader }
+    pub fn into_inner(self) -> UCursor { self.io_reader }
 
     #[inline]
-    pub fn inner(&self) -> &T { &self.io_reader }
+    pub fn inner(&self) -> &UCursor { &self.io_reader }
 }
 
 macro_rules! read_from_reader {
     ($read_func:expr, $buf_size:expr, $reader:expr) => {{
-        let mut buf: [u8; $buf_size] = unsafe { std::mem::uninitialized() };
-        $reader.read(&mut buf)?;
-        Ok($read_func(&buf))
+        let vw = $reader.read_into_view($buf_size)?;
+        Ok($read_func(vw.as_slice()))
     }};
 }
 
-impl<T> ReadArchive for ReadArchiveAdapter<T>
-where
-    T: Read,
+impl ReadArchive for ReadArchiveAdapter
 {
     #[inline]
     fn remote_peer(&self) -> &RemotePeer { &self.remote_peer }
@@ -73,17 +66,17 @@ where
     }
 
     #[inline]
-    fn read_n_bytes(&mut self, len: u32) -> Fallible<Vec<u8>> {
-        let mut buf = Vec::with_capacity(len as usize);
-        unsafe { buf.set_len(len as usize) };
-        self.io_reader.read_exact(buf.as_mut_slice())?;
-        Ok(buf)
+    fn read_n_bytes(&mut self, len: u32) -> Fallible<ContainerView> {
+        into_err!(self.io_reader.read_into_view( len as usize))
+    }
+
+    #[inline]
+    fn payload(&mut self, len: u64) -> Option<UCursor> {
+        self.io_reader.sub_range( self.io_reader.position(), len).ok()
     }
 }
 
-impl<T> std::io::Read for ReadArchiveAdapter<T>
-where
-    T: Read,
+impl std::io::Read for ReadArchiveAdapter
 {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { self.io_reader.read(buf) }

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use failure::Fallible;
+use failure::{ Fallible, err_msg};
 use tempfile::NamedTempFile;
 
 use crate::common::{
@@ -91,19 +91,21 @@ impl UCursor {
 
     #[inline]
     pub fn sub(&self, offset: u64) -> Result<Self> {
+        self.sub_range( offset, self.len() - offset)
+    }
+
+    pub fn sub_range(&self, offset: u64, len: u64) -> Result<Self>{
         let ic = match self {
-            UCursor::Memory(ref cursor) => {
-                UCursor::build_from_view(cursor.get_ref().sub(offset as usize))
-            }
+            UCursor::Memory(ref cursor) =>
+                UCursor::build_from_view(cursor.get_ref().sub_range(offset as usize, len as usize)),
             UCursor::File(ref uc_file) => {
                 let mut other = uc_file.try_clone()?;
                 other.offset += offset;
-                other.len -= offset;
+                other.len = std::cmp::min( len, other.len - offset);
 
                 UCursor::File(other)
             }
         };
-
         Ok(ic)
     }
 
@@ -336,7 +338,8 @@ impl Serializable for UCursor {
     where
         A: WriteArchive, {
         let mut self_from = self.sub(self.position())?;
-        archive.write_u64(self_from.len())?;
+        let self_from_len = self_from.len();
+        archive.write_u64( self_from_len)?;
         std::io::copy(&mut self_from, archive)?;
         Ok(())
     }
@@ -348,10 +351,8 @@ impl Deserializable for UCursor {
     fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
     where
         A: ReadArchive, {
-        let len = archive.read_u64()?;
-        let mut data = Vec::with_capacity(len as usize);
-        std::io::copy(archive, &mut data)?;
-        Ok(UCursor::from(data))
+            let len = archive.read_u64()?;
+            archive.payload(len).ok_or_else(|| err_msg("No payload on this archive"))
     }
 }
 

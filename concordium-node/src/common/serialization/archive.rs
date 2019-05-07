@@ -1,4 +1,4 @@
-use crate::common::{serialization::Deserializable, P2PPeer, RemotePeer};
+use crate::common::{serialization::Deserializable, P2PPeer, RemotePeer, UCursor, ContainerView};
 
 use failure::{err_msg, Fallible};
 
@@ -10,6 +10,9 @@ pub trait WriteArchive: Sized + std::io::Write {
     fn write_u16(&mut self, data: u16) -> Fallible<()>;
     fn write_u32(&mut self, data: u32) -> Fallible<()>;
     fn write_u64(&mut self, data: u64) -> Fallible<()>;
+
+    fn set_payload(&mut self, payload: UCursor);
+    fn payload(&self) -> Option<UCursor>;
 
     fn write_str<T: AsRef<str>>(&mut self, s: T) -> Fallible<()> {
         let s_ref = s.as_ref();
@@ -35,16 +38,16 @@ pub trait ReadArchive: Sized + std::io::Read {
     fn read_u32(&mut self) -> Fallible<u32>;
     fn read_u64(&mut self) -> Fallible<u64>;
 
-    fn read_n_bytes(&mut self, len: u32) -> Fallible<Vec<u8>>;
+    fn read_n_bytes(&mut self, len: u32) -> Fallible<ContainerView>;
+
+    fn payload(&mut self, len: u64) -> Option<UCursor>;
 
     /// #TODO
     /// Should it be read as 'str'?
     fn read_string(&mut self) -> Fallible<String> {
         let len = self.read_u32()?;
-        let mut buf = vec![0u8; len as usize];
-        self.read(buf.as_mut_slice())?;
-
-        Ok(String::from_utf8(buf)?)
+        let vw = self.read_n_bytes(len)?;
+        Ok(str::from_utf8(vw.as_slice())?.to_owned())
     }
 
     // Utilitis for parsing.
@@ -60,12 +63,11 @@ pub trait ReadArchive: Sized + std::io::Read {
     }
 
     fn tag_slice(&mut self, tag: &[u8]) -> Fallible<()> {
-        let mut buf = vec![0u8; tag.len()];
-        self.read(buf.as_mut_slice())?;
-        if tag == buf.as_slice() {
+        let vw = self.read_n_bytes( tag.len() as u32)?;
+        if tag == vw.as_slice() {
             Ok(())
         } else {
-            bail!("Expected tag `{:?}` but found `{:?}`", tag, buf.as_slice())
+            bail!("Expected tag `{:?}` but found `{:?}`", tag, vw.as_slice())
         }
     }
 }

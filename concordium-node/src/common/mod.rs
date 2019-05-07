@@ -45,20 +45,6 @@ macro_rules! deserialize_from_memory {
     };
 }
 
-pub struct ReadArchiveBuilder;
-
-impl ReadArchiveBuilder {
-    pub fn build_from_memory(
-        src: Vec<u8>,
-        peer: RemotePeer,
-        ip: IpAddr,
-    ) -> serialization::ReadArchiveAdapter<UCursor> {
-        let view = ContainerView::from(src);
-        let cursor = UCursor::build_from_view(view);
-        serialization::ReadArchiveAdapter::new(cursor, peer, ip)
-    }
-}
-
 #[macro_use]
 pub mod functor;
 
