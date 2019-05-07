@@ -16,15 +16,13 @@ pub use self::p2p_node::P2PNode;
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{
-            functor::{FilterFunctor, Functorable},
-            P2PNodeId, PeerType,
-        },
+        common::{P2PNodeId, PeerType},
         configuration::Config,
         connection::P2PEvent,
         network::NetworkMessage,
         p2p::{banned_nodes::BannedNode, P2PNode},
     };
+    use concordium_common::functor::{FilterFunctor, Functorable};
     use failure::Fallible;
     use std::{
         str::FromStr,

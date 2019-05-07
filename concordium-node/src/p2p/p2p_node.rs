@@ -1,13 +1,11 @@
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, functor::FilterFunctor, P2PNodeId, P2PPeer, PeerType,
-        RemotePeer,
-    },
+    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PNodeId, P2PPeer, PeerType, RemotePeer},
     configuration,
     connection::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
         NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
     },
+    crypto,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
         NetworkRequest, NetworkResponse,
@@ -26,7 +24,7 @@ use crate::{
     utils,
 };
 use chrono::prelude::*;
-use concordium_common::UCursor;
+use concordium_common::{functor::FilterFunctor, UCursor};
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -163,7 +161,7 @@ impl P2PNode {
         };
 
         // Generate key pair and cert
-        let (cert, private_key) = match utils::generate_certificate(&id.to_string()) {
+        let (cert, private_key) = match crypto::generate_certificate(&id.to_string()) {
             Ok(x) => {
                 match x.x509.to_der() {
                     Ok(der) => {

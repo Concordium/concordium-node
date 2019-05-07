@@ -1,9 +1,8 @@
 use crate::{
-    common::functor::{FunctorResult, Functorable, UnitFunctor},
+    connection::network_handler::NetworkPacketCW,
     network::{NetworkPacket, NetworkPacketType},
 };
-
-use crate::connection::network_handler::NetworkPacketCW;
+use concordium_common::functor::{FunctorResult, Functorable, UnitFunctor};
 
 pub struct PacketHandler {
     pub direct_parser:    UnitFunctor<NetworkPacket>,

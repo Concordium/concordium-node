@@ -83,7 +83,7 @@ mod s11n {
             .peer(peer.to_owned())
             .message_id(msg_id.to_string())
             .network_id(NetworkId::from(network_id))
-            .message(Box::new(UCursor::from(msg.to_vec())))
+            .message(UCursor::from(msg.to_vec()))
             .build_direct(receiver_id)
             .map_err(|err| ::capnp::Error::failed(err.to_string()))?;
 

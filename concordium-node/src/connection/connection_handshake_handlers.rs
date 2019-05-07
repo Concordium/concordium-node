@@ -1,12 +1,12 @@
-use std::cell::RefCell;
-
 use super::{fails, handler_utils::*};
 use crate::{
-    common::{functor::FuncResult, get_current_stamp, P2PPeer, PeerType},
+    common::{get_current_stamp, P2PPeer, PeerType},
     connection::connection_private::ConnectionPrivate,
     network::{NetworkRequest, NetworkResponse},
 };
+use concordium_common::functor::FuncResult;
 use failure::bail;
+use std::cell::RefCell;
 
 pub fn handshake_response_handle(
     priv_conn: &RefCell<ConnectionPrivate>,

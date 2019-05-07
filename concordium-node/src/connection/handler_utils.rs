@@ -2,14 +2,11 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
 
 use crate::{
-    common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER,
-        functor::{FuncResult, FunctorError},
-        P2PPeer,
-    },
+    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PPeer},
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
     network::{NetworkId, NetworkRequest, NetworkResponse},
 };
+use concordium_common::{fails::FunctorError, functor::FuncResult};
 use std::sync::atomic::Ordering;
 
 use super::fails;

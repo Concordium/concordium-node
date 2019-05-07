@@ -11,6 +11,7 @@ extern crate serde;
 pub mod fails;
 
 pub mod container_view;
+pub mod functor;
 pub mod ucursor;
 
 pub use self::{container_view::ContainerView, ucursor::UCursor};

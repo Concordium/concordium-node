@@ -14,8 +14,11 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use concordium_common::{spawn_or_die, UCursor};
-use consensus_sys::{
+use concordium_common::{
+    functor::{FilterFunctor, Functorable},
+    spawn_or_die, UCursor,
+};
+use concordium_consensus::{
     block::Block,
     consensus,
     finalization::{FinalizationMessage, FinalizationRecord},
@@ -24,10 +27,7 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{
-        functor::{FilterFunctor, Functorable},
-        get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType,
-    },
+    common::{get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType},
     configuration,
     db::P2PDB,
     network::{

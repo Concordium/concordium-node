@@ -13,7 +13,7 @@ use crate::{
     p2p::{banned_nodes::BannedNode, P2PNode},
     proto::*,
 };
-use consensus_sys::consensus::ConsensusContainer;
+use concordium_consensus::consensus::ConsensusContainer;
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use std::{
