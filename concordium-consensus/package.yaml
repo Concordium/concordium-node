@@ -82,6 +82,25 @@ executables:
     dependencies:
     - Concordium
 
+  Concordium-catchup:
+    main:                Main.hs
+    source-dirs:         catchup
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when: 
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          ghc-options: -dynamic
+    dependencies:
+    - Concordium
+
   Concordium-server:
     main:               Main.hs
     source-dirs:        server

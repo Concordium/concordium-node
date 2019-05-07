@@ -218,7 +218,7 @@ processFinalizationPool sl@SkovListeners{..} = do
         nextFinIx <- getNextFinalizationIndex
         frs <- getFinalizationPoolAtIndex nextFinIx
         unless (null frs) $ do
-            logEvent Skov LLDebug $ "Processing " ++ show (length frs) ++ " finalization records at index " ++ show nextFinIx
+            logEvent Skov LLTrace $ "Processing " ++ show (length frs) ++ " finalization records at index " ++ show nextFinIx
             lastFinHeight <- getLastFinalizedHeight
             finParams <- getFinalizationParameters
             genHash <- getHash <$> getGenesisBlockPointer
@@ -472,6 +472,7 @@ doFinalizeBlock sl finRec = do
                 addFinalizationRecordToPool finRec
                 processFinalizationPool sl
         GT -> do
+                logEvent Skov LLDebug $ "Requesting finalization at index " ++ show (thisFinIx - 1) ++ "."
                 notifyMissingFinalization (Right $ thisFinIx - 1)
                 addFinalizationRecordToPool finRec
 

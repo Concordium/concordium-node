@@ -274,7 +274,7 @@ newRound newDelta me = do
         pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <%= filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
         forM_ justifiedInputs $ \i -> do
-            logEvent Afgjort LLDebug $ "Justified input at " ++ show finIx ++ ": " ++ show i
+            logEvent Afgjort LLTrace $ "Justified input at " ++ show finIx ++ ": " ++ show i
             liftWMVBA $ justifyWMVBAInput $ bpHash i
         -- Receive the pending messages
         forM_ pmsgs $ \smsg@(src, msg, sig) -> do
@@ -331,7 +331,7 @@ liftWMVBA a = do
                 inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight pVRFKey roundMe finMyVRFKey
                 (r, newState, evs) = runWMVBA a inst roundWMVBA
             finCurrentRound ?= fr {roundWMVBA = newState}
-            logEvent Afgjort LLDebug $ "New WMVBA state: " ++ show newState
+            -- logEvent Afgjort LLTrace $ "New WMVBA state: " ++ show newState
             handleWMVBAOutputEvents evs
             return r
 
@@ -339,7 +339,9 @@ liftWMVBA a = do
 requestAbsentBlocks :: (FinalizationMonad m) => WMVBAMessage -> m ()
 requestAbsentBlocks msg = forM_ (messageValues msg) $ \block -> do
         bs <- resolveBlock block
-        when (isNothing bs) $ requestMissingBlock block
+        when (isNothing bs) $ do
+            logEvent Afgjort LLDebug $ "Requesting missing block " ++ show block ++ " referenced by finalization message"
+            requestMissingBlock block
 
 -- |Called when a finalization message is received.
 receiveFinalizationMessage :: (MonadState s m, FinalizationStateLenses s, MonadReader FinalizationInstance m, FinalizationMonad m) => BS.ByteString -> m ()
@@ -358,6 +360,7 @@ receiveFinalizationMessage msg0 = case runGet S.get msg0 of
                         -- Save the message for a later finalization index
                         finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, msgBody, msgSignature) :)
                         -- Since we're behind, request the finalization record we're apparently missing
+                        logEvent Afgjort LLDebug $ "Requesting missing finalization at index " ++ (show $ msgFinalizationIndex - 1)
                         requestMissingFinalization (msgFinalizationIndex - 1)
                         -- Request any missing blocks that this message refers to
                         requestAbsentBlocks msgBody
@@ -383,7 +386,7 @@ notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
         when (bpHeight b == _finsHeight + roundDelta) $ do
-            logEvent Afgjort LLDebug $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash (ancestorAtHeight _finsHeight b))
+            logEvent Afgjort LLTrace $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash (ancestorAtHeight _finsHeight b))
             liftWMVBA $ justifyWMVBAInput (bpHash (ancestorAtHeight _finsHeight b))
         tryNominateBlock
 
