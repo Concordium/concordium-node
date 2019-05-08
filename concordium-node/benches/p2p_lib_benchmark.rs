@@ -53,7 +53,7 @@ pub fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
     let pkt = NetworkPacketBuilder::default()
         .peer(P2PPeer::from(
             PeerType::Node,
-            p2p_node_id.clone(),
+            p2p_node_id,
             SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
         ))
         .message_id(NetworkPacket::generate_message_id())

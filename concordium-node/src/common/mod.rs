@@ -16,16 +16,18 @@ pub mod fails;
 macro_rules! serialize_into_memory {
     ($src:expr) => {
         (|| -> Fallible<Vec<u8>> {
-            let mut archive = $crate::common::serialization::WriteArchiveAdapter::from(Vec::new());
+            use $crate::common::serialization::WriteArchiveAdapter;
+
+            let mut archive = WriteArchiveAdapter::from(Vec::new());
             $src.serialize(&mut archive)?;
             Ok(archive.into_inner())
         })()
     };
     ($src:expr, $capacity:expr) => {
         (|| -> Fallible<Vec<u8>> {
-            let mut archive = $crate::common::serialization::WriteArchiveAdapter::from(
-                Vec::with_capacity($capacity),
-            );
+            use $crate::common::serialization::WriteArchiveAdapter;
+
+            let mut archive = WriteArchiveAdapter::from(Vec::with_capacity($capacity));
             $src.serialize(&mut archive)?;
             Ok(archive.into_inner())
         })()
@@ -36,11 +38,11 @@ macro_rules! serialize_into_memory {
 macro_rules! deserialize_from_memory {
     ($target_type:ident, $src:expr, $peer:expr, $ip:expr) => {
         (|| -> Fallible<$target_type> {
-            let cursor = concordium_common::UCursor::build_from_view(
-                concordium_common::ContainerView::from($src),
-            );
-            let mut archive =
-                $crate::common::serialization::ReadArchiveAdapter::new(cursor, $peer, $ip);
+            use concordium_common::{ContainerView, UCursor};
+            use $crate::common::serialization::ReadArchiveAdapter;
+
+            let cursor = UCursor::build_from_view(ContainerView::from($src));
+            let mut archive = ReadArchiveAdapter::new(cursor, $peer, $ip);
             $target_type::deserialize(&mut archive)
         })()
     };
