@@ -668,40 +668,37 @@ fn main() -> Fallible<()> {
     let message_response_handler = read_or_die!(cloned_response_node).message_handler();
     safe_write!(message_response_handler)?.add_response_callback(make_atomic_callback!(
         move |msg: &NetworkResponse| {
-            match msg {
-                NetworkResponse::PeerList(ref peer, ref peers) => {
-                    debug!("Received PeerList response, attempting to satisfy desired peers");
-                    let mut locked_cloned_node = write_or_die!(cloned_response_node);
-                    let mut new_peers = 0;
-                    let peer_count = locked_cloned_node
-                        .get_peer_stats(&[])
-                        .iter()
-                        .filter(|x| x.peer_type == PeerType::Node)
-                        .count();
-                    for peer_node in peers {
-                        info!(
-                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                            peer.id(),
-                            peer.ip(),
-                            peer.port(),
-                            peer_node.id(),
-                            peer_node.ip(),
-                            peer_node.port()
-                        );
-                        if locked_cloned_node
-                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                            .map_err(|e| info!("{}", e))
-                            .is_ok()
-                        {
-                            new_peers += 1;
-                        }
-                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
-                            break;
-                        }
+            if let NetworkResponse::PeerList(ref peer, ref peers) = msg {
+                debug!("Received PeerList response, attempting to satisfy desired peers");
+                let mut locked_cloned_node = write_or_die!(cloned_response_node);
+                let mut new_peers = 0;
+                let peer_count = locked_cloned_node
+                    .get_peer_stats(&[])
+                    .iter()
+                    .filter(|x| x.peer_type == PeerType::Node)
+                    .count();
+                for peer_node in peers {
+                    info!(
+                        "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                        peer.id(),
+                        peer.ip(),
+                        peer.port(),
+                        peer_node.id(),
+                        peer_node.ip(),
+                        peer_node.port()
+                    );
+                    if locked_cloned_node
+                        .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                        .map_err(|e| info!("{}", e))
+                        .is_ok()
+                    {
+                        new_peers += 1;
+                    }
+                    if new_peers + peer_count as u8 >= _desired_nodes_clone {
+                        break;
                     }
                 }
-                _ => {}
-            };
+            }
             Ok(())
         }
     ));
