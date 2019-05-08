@@ -106,14 +106,14 @@ fn main() -> Result<(), Error> {
 
     let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
-    let node = if conf.common.debug {
+    let mut node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
         });
-        Arc::new(RwLock::new(P2PNode::new(
+        P2PNode::new(
             Some(id),
             &conf,
             pkt_in,
@@ -121,9 +121,9 @@ fn main() -> Result<(), Error> {
             PeerType::Bootstrapper,
             arc_stats_export_service,
             Arc::clone(&broadcasting_checks),
-        )))
+        )
     } else {
-        Arc::new(RwLock::new(P2PNode::new(
+        P2PNode::new(
             Some(id),
             &conf,
             pkt_in,
@@ -131,15 +131,14 @@ fn main() -> Result<(), Error> {
             PeerType::Bootstrapper,
             arc_stats_export_service,
             Arc::clone(&broadcasting_checks),
-        )))
+        )
     };
 
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
-            let mut locked_node = write_or_die!(node);
             for n in nodes {
-                locked_node.ban_node(n);
+                &node.ban_node(n);
             }
         }
         None => {
@@ -148,11 +147,11 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let cloned_node = Arc::clone(&node);
+    let cloned_node = Arc::new(RwLock::new(node.clone()));
     let _no_trust_bans = conf.common.no_trust_bans;
 
     // Register handles for ban & unban requests.
-    let message_handler = read_or_die!(node).message_handler();
+    let message_handler = read_or_die!(cloned_node).message_handler();
     safe_write!(message_handler)?.add_request_callback(make_atomic_callback!(
         move |msg: &NetworkRequest| {
             match msg {
@@ -179,13 +178,12 @@ fn main() -> Result<(), Error> {
     )?;
 
     {
-        let mut locked_node = safe_write!(node)?;
-        locked_node.max_nodes = Some(conf.bootstrapper.max_nodes);
-        locked_node.print_peers = true;
-        locked_node.spawn();
+        node.max_nodes = Some(conf.bootstrapper.max_nodes);
+        node.print_peers = true;
+        &node.spawn();
     }
 
-    write_or_die!(node).join().expect("Node thread panicked!");
+    node.join().expect("Node thread panicked!");
 
     // Close stats server export if present
     client_utils::stop_stats_export_engine(&conf, &stats_export_service);
