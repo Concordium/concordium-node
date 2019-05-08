@@ -67,8 +67,6 @@ pub struct SessionId {
 
 impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("SessionId", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
@@ -85,8 +83,6 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         let mut cursor = create_serialization_cursor(BLOCK_HASH + INCARNATION);
 
         let _ = cursor.write_all(&self.genesis_block);

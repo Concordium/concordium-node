@@ -116,8 +116,6 @@ impl Block {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         let data = match self.data {
             BlockData::GenesisData(ref data) => data.serialize(),
             BlockData::RegularData(ref data) => data.serialize(),

@@ -50,8 +50,6 @@ impl FinalizationMessage {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         [
             self.header.serialize().as_slice(),
             self.message.serialize().as_slice(),
@@ -298,6 +296,8 @@ pub struct FinalizationRecord {
 
 impl FinalizationRecord {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        debug_deserialization!("FinalizationRecord", bytes);
+
         let mut cursor = Cursor::new(bytes);
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));

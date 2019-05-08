@@ -53,8 +53,6 @@ pub struct Transactions(Vec<Transaction>);
 
 impl Transactions {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("Transactions", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let transaction_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
@@ -74,8 +72,6 @@ impl Transactions {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         // FIXME: add an estimated size of all Transactions
         let mut cursor = create_serialization_cursor(TRANSACTION_COUNT);
 
