@@ -337,39 +337,7 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
     }
 }
 
-fn setup_lower_process_output(
-    node: &P2PNode,
-    conf: &configuration::Config,
-    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
-) -> mpsc::Receiver<Arc<NetworkMessage>> {
-    let mut _node_self_clone = node.clone();
-
-    let (pkt_higher_in, pkt_higher_out) = mpsc::channel::<Arc<NetworkMessage>>();
-
-    let _no_trust_bans = conf.common.no_trust_bans;
-    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
-    let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = spawn_or_die!("Lower queue processing", move || loop {
-        if let Ok(full_msg) = pkt_out.recv() {
-            match *full_msg {
-                NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
-                    Ok(_) => trace!("Relayed message to higher queue"),
-                    Err(err) => error!("Could not relay message to higher queue {}", err),
-                },
-                NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
-                    match pkt_higher_in.send(full_msg) {
-                        Ok(_) => trace!("Relayed message to higher queue"),
-                        Err(err) => error!("Could not relay message to higher queue {}", err),
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
-    pkt_higher_out
-}
-
-fn setup_higher_process_output(
+fn setup_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
     rpc_serv: &Option<RpcServerImpl>,
@@ -660,7 +628,7 @@ fn main() -> Fallible<()> {
     info!("Debugging enabled: {}", conf.common.debug);
 
     // Instantiate the p2p node
-    let (mut node, pkt_lower_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
     // Banning nodes in database
     match db.get_banlist() {
@@ -763,12 +731,6 @@ fn main() -> Fallible<()> {
         }
     }
 
-    // Connect outgoing messages to handle bans, peer lists - and forward the rest
-    // to the higher packet queue (baker messages, retransmits, etc).
-    //
-    // Thread #4: Read P2PNode output
-    let pkt_higher_out = setup_lower_process_output(&node, &conf, pkt_lower_out);
-
     let mut baker = if conf.cli.baker.baker_id.is_some() {
         // Wait until we have at least a certain percentage of peers out of desired
         // before starting the baker
@@ -830,12 +792,12 @@ fn main() -> Fallible<()> {
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
-    // Thread #5: Read P2PNode output
-    setup_higher_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_higher_out);
+    // Thread #4: Read P2PNode output
+    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out);
 
     // Create listeners on baker output to forward to P2PNode
     //
-    // Threads #6, #7, #8
+    // Threads #5, #6, #7
     setup_baker_guards(&mut baker, &node, &conf);
 
     // TPS test
