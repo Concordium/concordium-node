@@ -13,14 +13,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-<<<<<<< HEAD
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
-=======
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
->>>>>>> moved catchup outbound logic in
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
+    make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor, read_or_die, safe_read,
 };
 use concordium_consensus::{
     block::Block,
@@ -772,6 +768,74 @@ fn main() -> Fallible<()> {
             db.create_banlist();
         }
     };
+
+    // Register handles for ban & unban requests
+    let cloned_request_node = Arc::new(RwLock::new(node.clone()));
+    let db_clone = db.clone();
+    let _no_trust_bans = conf.common.no_trust_bans;
+
+    let message_request_handler = read_or_die!(cloned_request_node).message_handler();
+    safe_write!(message_request_handler)?.add_request_callback(make_atomic_callback!(
+        move |msg: &NetworkRequest| {
+            match msg {
+                NetworkRequest::BanNode(ref peer, x) => {
+                    let mut locked_cloned_node = write_or_die!(cloned_request_node);
+                    utils::ban_node(&mut locked_cloned_node, peer, *x, &db_clone, _no_trust_bans);
+                }
+                NetworkRequest::UnbanNode(ref peer, x) => {
+                    let mut locked_cloned_node = write_or_die!(cloned_request_node);
+                    utils::unban_node(&mut locked_cloned_node, peer, *x, &db_clone, _no_trust_bans);
+                }
+                _ => {}
+            };
+            Ok(())
+        }
+    ));
+
+    // Register handler for peer list responses
+    let cloned_response_node = Arc::new(RwLock::new(node.clone()));
+    let _desired_nodes_clone = conf.connection.desired_nodes;
+
+    let message_response_handler = read_or_die!(cloned_response_node).message_handler();
+    safe_write!(message_response_handler)?.add_response_callback(make_atomic_callback!(
+        move |msg: &NetworkResponse| {
+            match msg {
+                NetworkResponse::PeerList(ref peer, ref peers) => {
+                    debug!("Received PeerList response, attempting to satisfy desired peers");
+                    let mut locked_cloned_node = write_or_die!(cloned_response_node);
+                    let mut new_peers = 0;
+                    let peer_count = locked_cloned_node
+                        .get_peer_stats(&[])
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count();
+                    for peer_node in peers {
+                        info!(
+                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                            peer.id(),
+                            peer.ip(),
+                            peer.port(),
+                            peer_node.id(),
+                            peer_node.ip(),
+                            peer_node.port()
+                        );
+                        if locked_cloned_node
+                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                            .map_err(|e| info!("{}", e))
+                            .is_ok()
+                        {
+                            new_peers += 1;
+                        }
+                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            };
+            Ok(())
+        }
+    ));
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
