@@ -178,6 +178,7 @@ impl ConsensusBaker {
     pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
         let baker = self.runner.load(Ordering::SeqCst);
         let len = data.len();
+
         unsafe {
             receiveTransaction(
                 baker,
@@ -344,7 +345,7 @@ impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
         let genesis_block = Block {
             slot: 0,
-            data: BlockData::GenesisData(GenesisData::deserialize(&genesis_data).expect("FIXME")),
+            data: BlockData::GenesisData(GenesisData::deserialize(&genesis_data).expect("Failed to deserialize genesis data!")),
         };
 
         info!("Created a genesis block: {:?}", genesis_block);
@@ -381,11 +382,14 @@ impl ConsensusContainer {
 
     pub fn stop_baker(&mut self, baker_id: u64) {
         let bakers = &mut safe_write!(self.bakers);
+
         match bakers.get_mut(&baker_id) {
             Some(baker) => baker.stop(),
             None => error!("Can't find baker"),
         }
+
         bakers.remove(&baker_id);
+
         if bakers.is_empty() {
             CALLBACK_QUEUE.clear();
         }
@@ -452,7 +456,7 @@ impl ConsensusContainer {
             }
         }
 
-        let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.write() {
+        let genesis_data = match GENERATED_GENESIS_DATA.write() {
             Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
             _ => bail!("Didn't get genesis data from Haskell"),
         };
@@ -464,7 +468,7 @@ impl ConsensusContainer {
                 return Ok((genesis_data, priv_data.clone()));
             }
         } else {
-            bail!("Didn't get private data from haskell");
+            bail!("Didn't get private data from Haskell");
         }
     }
 
@@ -539,34 +543,30 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
     }
 }
 
-extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length: i64) {
+extern "C" fn on_block_baked(data_type: i64, block_data: *const u8, data_length: i64) {
     debug!("Callback hit - queueing message");
+
     unsafe {
-        let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
-        match block_type {
-            0 => match Block::deserialize(s) {
+        let data = slice::from_raw_parts(block_data as *const u8, data_length as usize);
+
+        match data_type {
+            0 => match Block::deserialize(data) {
                 Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
-                    Ok(_) => {
-                        debug!("Queueing {} block bytes", data_length);
-                    }
+                    Ok(_) => debug!("Queueing {} block bytes", data_length),
                     _ => error!("Didn't queue block message properly"),
                 },
                 Err(e) => error!("Deserialization of block failed: {:?}", e),
             },
-            1 => match FinalizationMessage::deserialize(s) {
+            1 => match FinalizationMessage::deserialize(data) {
                 Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization(msg) {
-                    Ok(_) => {
-                        debug!("Queueing {} bytes of finalization", s.len());
-                    }
+                    Ok(_) => debug!("Queueing {} bytes of finalization", data.len()),
                     _ => error!("Didn't queue finalization message properly"),
                 },
                 Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
             },
-            2 => match FinalizationRecord::deserialize(s) {
+            2 => match FinalizationRecord::deserialize(data) {
                 Ok(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
-                    Ok(_) => {
-                        debug!("Queueing {} bytes of finalization record", s.len());
-                    }
+                    Ok(_) => debug!("Queueing {} bytes of finalization record", data.len()),
                     _ => error!("Didn't queue finalization record message properly"),
                 },
                 Err(e) => error!("Deserialization of finalization record failed: {:?}", e),
@@ -591,16 +591,18 @@ extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: 
             _ => "External",
         }
     }
-    let s = unsafe { CStr::from_ptr(log_message as *const c_char) }
+
+    let msg = unsafe { CStr::from_ptr(log_message as *const c_char) }
         .to_str()
-        .expect("log_callback: unable to decode invalid UTF-8 values");
-    let i = identifier_to_string(identifier);
+        .expect("log_callback: unable to decode as UTF-8");
+    let id = identifier_to_string(identifier);
+
     match log_level as u8 {
-        1 => error!("{}: {}", i, s),
-        2 => warn!("{}: {}", i, s),
-        3 => info!("{}: {}", i, s),
-        4 => debug!("{}: {}", i, s),
-        _ => trace!("{}: {}", i, s),
+        1 => error!("{}: {}", id, msg),
+        2 => warn!("{}: {}", id, msg),
+        3 => info!("{}: {}", id, msg),
+        4 => debug!("{}: {}", id, msg),
+        _ => trace!("{}: {}", id, msg),
     };
 }
 
