@@ -18,7 +18,7 @@ pub trait WriteArchive: Sized + std::io::Write {
     fn write_str<T: AsRef<str>>(&mut self, s: T) -> Fallible<()> {
         let s_ref = s.as_ref();
         self.write_u32(s_ref.len() as u32)?;
-        self.write(s_ref.as_bytes())?;
+        self.write_all(s_ref.as_bytes())?;
         Ok(())
     }
 }

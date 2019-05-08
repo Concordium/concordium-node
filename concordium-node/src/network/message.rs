@@ -76,9 +76,9 @@ impl Serializable for NetworkMessage {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write(PROTOCOL_NAME.as_bytes())?;
+        archive.write_all(PROTOCOL_NAME.as_bytes())?;
         archive.write_u16(PROTOCOL_VERSION)?;
-        archive.write_u64(get_current_stamp as u64)?;
+        archive.write_u64(get_current_stamp() as u64)?;
         archive.write_u8(self.protocol_type() as u8)?;
         match self {
             NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),

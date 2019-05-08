@@ -387,6 +387,7 @@ impl P2PNode {
     /// This function is called periodically to print information about current
     /// nodes.
     fn print_stats(&self, peer_stat_list: &[PeerStatistic]) {
+        trace!("Printing out stats");
         if let Some(max_nodes) = self.max_nodes {
             info!(
                 "I currently have {}/{} nodes!",
@@ -406,6 +407,7 @@ impl P2PNode {
     }
 
     fn check_peers(&mut self, peer_stat_list: &[PeerStatistic]) {
+        trace!("Checking for needed peers");
         if self.peer_type != PeerType::Bootstrapper
             && !self.config.no_net
             && self.config.desired_nodes_count
@@ -978,6 +980,7 @@ impl P2PNode {
     }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
+        trace!("Going to process MIO events");
         read_or_die!(self.poll).poll(events, Some(Duration::from_millis(1000)))?;
 
         if self.peer_type != PeerType::Bootstrapper {
@@ -1016,6 +1019,7 @@ impl P2PNode {
             tls_ref.cleanup_connections(&mut poll_ref)?;
         }
 
+        trace!("Processing new outbound messages");
         self.process_messages();
         Ok(())
     }

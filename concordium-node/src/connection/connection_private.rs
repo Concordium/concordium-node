@@ -50,11 +50,11 @@ pub struct ConnectionPrivate {
 impl ConnectionPrivate {
     pub fn update_last_seen(&mut self) {
         if self.local_peer.peer_type() != PeerType::Bootstrapper {
-            self.last_seen.store(get_current_stamp(), Ordering::Relaxed);
+            self.last_seen.store(get_current_stamp(), Ordering::SeqCst);
         }
     }
 
-    pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::Relaxed) }
+    pub fn last_seen(&self) -> u64 { self.last_seen.load(Ordering::SeqCst) }
 
     #[inline]
     pub fn add_remote_end_network(&mut self, network: NetworkId) {

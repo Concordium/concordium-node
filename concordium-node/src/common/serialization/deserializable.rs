@@ -71,7 +71,7 @@ impl Deserializable for Ipv4Addr {
     where
         A: ReadArchive, {
         let mut octects: [u8; 4] = unsafe { std::mem::uninitialized() };
-        archive.read(&mut octects)?;
+        archive.read_exact(&mut octects)?;
         Ok(Ipv4Addr::from(octects))
     }
 }
@@ -104,7 +104,7 @@ impl Deserializable for SocketAddr {
 // Standar collections
 // ==============================================================================================
 
-impl<T> Deserializable for HashSet<T>
+impl<T, S: ::std::hash::BuildHasher + Default> Deserializable for HashSet<T, S>
 where
     T: Deserializable + Eq + Hash,
 {
@@ -113,7 +113,7 @@ where
     where
         A: ReadArchive, {
         let len = archive.read_u32()?;
-        let mut out = HashSet::with_capacity(len as usize);
+        let mut out = HashSet::with_capacity_and_hasher(len as usize, Default::default());
         for _i in 0..len {
             out.insert(T::deserialize(archive)?);
         }

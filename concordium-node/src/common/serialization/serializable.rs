@@ -3,7 +3,7 @@ use crate::common::serialization::WriteArchive;
 use concordium_common::UCursor;
 use failure::Fallible;
 
-use std::ops::Deref;
+use std::{collections::HashSet, ops::Deref};
 
 pub trait Serializable<T: ?Sized = Self> {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
@@ -76,7 +76,7 @@ impl Serializable for Ipv4Addr {
     where
         A: WriteArchive, {
         archive.write_u8(4u8)?;
-        archive.write(&self.octets())?;
+        archive.write_all(&self.octets())?;
         Ok(())
     }
 }
@@ -120,19 +120,18 @@ impl Serializable for SocketAddr {
 // ==============================================================================================
 
 #[inline]
-fn serialize_from_iterator<I, A, T>(mut iterator: I, archive: &mut A) -> Fallible<()>
+fn serialize_from_iterator<I, A, T>(iterator: I, archive: &mut A) -> Fallible<()>
 where
     I: Iterator<Item = T>,
     T: Serializable,
     A: WriteArchive, {
-    while let Some(ref v) = iterator.next() {
-        (*v).serialize(archive)?;
+    for v in iterator {
+        v.serialize(archive)?;
     }
     Ok(())
 }
 
-use std::collections::HashSet;
-impl<T> Serializable for HashSet<T>
+impl<T, S: ::std::hash::BuildHasher> Serializable for HashSet<T, S>
 where
     T: Serializable,
 {
