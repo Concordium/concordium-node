@@ -58,13 +58,13 @@ impl Transactions {
         let mut cursor = Cursor::new(bytes);
 
         let transaction_count =
-            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, TRANSACTION_COUNT));
+            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {
             // FIXME: determine how to read each transaction
-            while let Some(transaction) = Transaction::deserialize(&read_all!(&mut cursor)) {
+            while let Some(transaction) = Transaction::deserialize(&read_all(&mut cursor)?) {
                 transactions.0.push(transaction);
             }
         }
