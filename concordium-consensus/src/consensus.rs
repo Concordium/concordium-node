@@ -1,5 +1,6 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use curryrs::hsrt::{start, stop};
+use chrono::prelude::*;
 use failure::{bail, Fallible};
 
 use std::{
@@ -422,13 +423,18 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
+    pub fn generate_data(num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
+        // doesn't seem to apply yet
+        let genesis_time = Utc::now().timestamp_millis() as u64;
+
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
+
         if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.write() {
             lock.clear();
         }
+
         unsafe {
             makeGenesisData(
                 genesis_time,
@@ -437,6 +443,7 @@ impl ConsensusContainer {
                 on_private_data_generated,
             );
         }
+
         for _ in 0..num_bakers {
             if !safe_read!(GENERATED_GENESIS_DATA).is_some()
                 || safe_read!(GENERATED_PRIVATE_DATA).len() < num_bakers as usize
@@ -444,13 +451,15 @@ impl ConsensusContainer {
                 thread::sleep(time::Duration::from_millis(200));
             }
         }
+
         let genesis_data: Vec<u8> = match GENERATED_GENESIS_DATA.write() {
             Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
-            _ => bail!("Didn't get genesis from haskell"),
+            _ => bail!("Didn't get genesis data from Haskell"),
         };
+
         if let Ok(priv_data) = GENERATED_PRIVATE_DATA.read() {
             if priv_data.len() < num_bakers as usize {
-                bail!("Didn't get private data from haskell");
+                bail!("Didn't get private data from Haskell");
             } else {
                 return Ok((genesis_data, priv_data.clone()));
             }
@@ -614,9 +623,9 @@ mod tests {
     fn setup() { INIT.call_once(|| env_logger::init()); }
 
     macro_rules! bakers_test {
-        ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
+        ($num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
-                ConsensusContainer::generate_data($genesis_time, $num_bakers)
+                ConsensusContainer::generate_data($num_bakers)
                     .unwrap_or_else(|_| panic!("Couldn't read Haskell data"));
             let mut consensus_container = ConsensusContainer::new(genesis_data);
 
@@ -692,8 +701,8 @@ mod tests {
     pub fn consensus_tests() {
         setup();
         ConsensusContainer::start_haskell();
-        bakers_test!(0, 5, 10);
-        bakers_test!(0, 10, 5);
+        bakers_test!(5, 10);
+        bakers_test!(10, 5);
         // Re-enable when we have acorn sc-tx tests possible
         // baker_test_tx!(0, 0,
         // &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"
