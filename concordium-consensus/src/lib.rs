@@ -54,16 +54,6 @@ macro_rules! read_sized {
     }};
 }
 
-macro_rules! read_all {
-    ($source:expr) => {{
-        let size = $source.get_ref().len() - $source.position() as usize;
-        let mut buf = vec![0u8; size];
-        $source.read_exact(&mut buf)?;
-
-        buf
-    }};
-}
-
 #[macro_use]
 mod fails;
 pub mod block;

@@ -72,7 +72,7 @@ impl SessionId {
         let mut cursor = Cursor::new(bytes);
 
         let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
-        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, INCARNATION));
+        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let sess = SessionId {
             genesis_block,
@@ -118,10 +118,32 @@ impl fmt::Debug for Encoded {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len()) }
 }
 
+// we don't need to handle it in any special way for now, but we might like to
+// know that it's prefixed with a u64 length of the rest of it
+pub type ByteString = Encoded;
+
 pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
-    let mut buf = vec![0; size];
+    let buf = vec![0; size];
 
     Cursor::new(buf.into_boxed_slice())
+}
+
+pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Vec<u8>> {
+    let size = cursor.get_ref().len() - cursor.position() as usize;
+    let mut buf = vec![0u8; size];
+    cursor.read_exact(&mut buf)?;
+
+    Ok(buf)
+}
+
+pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Vec<u8>> {
+    let value_size = NetworkEndian::read_u64(&read_const_sized!(input, 8)) as usize;
+    let mut buf = Cursor::new(vec![0u8; 8 + value_size]);
+
+    buf.write_u64::<NetworkEndian>(value_size as u64)?;
+    buf.write_all(&read_sized!(input, value_size))?;
+
+    Ok(buf.into_inner())
 }
 
 // temporary type placeholders
