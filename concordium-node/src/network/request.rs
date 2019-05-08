@@ -3,13 +3,11 @@ use crate::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         P2PNodeId, P2PPeer,
     },
-    network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
+    network::{AsProtocolRequestType, NetworkId, ProtocolRequestType},
     p2p::banned_nodes::BannedNode,
 };
 use failure::Fallible;
-use std::collections::HashSet;
-
-use std::convert::TryFrom;
+use std::{collections::HashSet, convert::TryFrom};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -25,18 +23,18 @@ pub enum NetworkRequest {
     Retransmit(P2PPeer, u64, NetworkId),
 }
 
-impl AsProtocolMessageType for NetworkRequest {
-    fn protocol_type(&self) -> ProtocolMessageType {
+impl AsProtocolRequestType for NetworkRequest {
+    fn protocol_request_type(&self) -> ProtocolRequestType {
         match self {
-            NetworkRequest::Ping(..) => ProtocolMessageType::RequestPing,
-            NetworkRequest::FindNode(..) => ProtocolMessageType::RequestFindNode,
-            NetworkRequest::BanNode(..) => ProtocolMessageType::RequestBanNode,
-            NetworkRequest::Handshake(..) => ProtocolMessageType::RequestHandshake,
-            NetworkRequest::GetPeers(..) => ProtocolMessageType::RequestGetPeers,
-            NetworkRequest::UnbanNode(..) => ProtocolMessageType::RequestUnbanNode,
-            NetworkRequest::JoinNetwork(..) => ProtocolMessageType::RequestJoinNetwork,
-            NetworkRequest::LeaveNetwork(..) => ProtocolMessageType::RequestLeaveNetwork,
-            NetworkRequest::Retransmit(..) => ProtocolMessageType::RequestRetransmit,
+            NetworkRequest::Ping(..) => ProtocolRequestType::Ping,
+            NetworkRequest::FindNode(..) => ProtocolRequestType::FindNode,
+            NetworkRequest::BanNode(..) => ProtocolRequestType::BanNode,
+            NetworkRequest::Handshake(..) => ProtocolRequestType::Handshake,
+            NetworkRequest::GetPeers(..) => ProtocolRequestType::GetPeers,
+            NetworkRequest::UnbanNode(..) => ProtocolRequestType::UnbanNode,
+            NetworkRequest::JoinNetwork(..) => ProtocolRequestType::JoinNetwork,
+            NetworkRequest::LeaveNetwork(..) => ProtocolRequestType::LeaveNetwork,
+            NetworkRequest::Retransmit(..) => ProtocolRequestType::Retransmit,
         }
     }
 }
@@ -45,7 +43,7 @@ impl Serializable for NetworkRequest {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(self.protocol_type() as u8)?;
+        archive.write_u8(self.protocol_request_type() as u8)?;
         match self {
             NetworkRequest::Ping(..) => Ok(()),
             NetworkRequest::FindNode(.., id) => id.serialize(archive),
@@ -72,39 +70,38 @@ impl Deserializable for NetworkRequest {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkRequest>
     where
         A: ReadArchive, {
-        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
+        let protocol_type = ProtocolRequestType::try_from(archive.read_u8()?)?;
         let remote_peer = archive.post_handshake_peer();
         let request = match protocol_type {
-            ProtocolMessageType::RequestPing => NetworkRequest::Ping(remote_peer?),
-            ProtocolMessageType::RequestFindNode => {
+            ProtocolRequestType::Ping => NetworkRequest::Ping(remote_peer?),
+            ProtocolRequestType::FindNode => {
                 NetworkRequest::FindNode(remote_peer?, P2PNodeId::deserialize(archive)?)
             }
-            ProtocolMessageType::RequestBanNode => {
+            ProtocolRequestType::BanNode => {
                 NetworkRequest::BanNode(remote_peer?, BannedNode::deserialize(archive)?)
             }
-            ProtocolMessageType::RequestUnbanNode => {
+            ProtocolRequestType::UnbanNode => {
                 NetworkRequest::UnbanNode(remote_peer?, BannedNode::deserialize(archive)?)
             }
-            ProtocolMessageType::RequestHandshake => NetworkRequest::Handshake(
+            ProtocolRequestType::Handshake => NetworkRequest::Handshake(
                 P2PPeer::deserialize(archive)?,
                 HashSet::<NetworkId>::deserialize(archive)?,
                 Vec::<u8>::deserialize(archive)?,
             ),
-            ProtocolMessageType::RequestGetPeers => {
+            ProtocolRequestType::GetPeers => {
                 NetworkRequest::GetPeers(remote_peer?, HashSet::<NetworkId>::deserialize(archive)?)
             }
-            ProtocolMessageType::RequestJoinNetwork => {
+            ProtocolRequestType::JoinNetwork => {
                 NetworkRequest::JoinNetwork(remote_peer?, NetworkId::deserialize(archive)?)
             }
-            ProtocolMessageType::RequestLeaveNetwork => {
+            ProtocolRequestType::LeaveNetwork => {
                 NetworkRequest::LeaveNetwork(remote_peer?, NetworkId::deserialize(archive)?)
             }
-            ProtocolMessageType::RequestRetransmit => NetworkRequest::Retransmit(
+            ProtocolRequestType::Retransmit => NetworkRequest::Retransmit(
                 remote_peer?,
                 archive.read_u64()?,
                 NetworkId::deserialize(archive)?,
             ),
-            _ => bail!("Unsupported Network Request type"),
         };
 
         Ok(request)

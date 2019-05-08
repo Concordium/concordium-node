@@ -1,132 +1,140 @@
 use failure::{Error, Fallible};
-use std::{
-    convert::TryFrom,
-    fmt::{Display, Formatter, Result},
-};
+use std::convert::TryFrom;
 
-pub const PROTOCOL_MESSAGE_TYPE_LENGTH: usize = 2;
+// Utility for NetworkMessage
+// =================================
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolMessageType {
-    RequestPing = 0,
-    RequestFindNode,
-    RequestHandshake,
-    RequestGetPeers,
-    RequestBanNode,
-    RequestUnbanNode,
-    RequestJoinNetwork,
-    RequestLeaveNetwork,
-    ResponsePong,
-    ResponseFindNode,
-    ResponsePeersList,
-    ResponseHandshake,
-    DirectMessage,
-    BroadcastedMessage,
-    RequestRetransmit,
+    Request = 0,
+    Response,
+    Packet,
 }
 
 pub trait AsProtocolMessageType {
-    fn protocol_type(&self) -> ProtocolMessageType;
+    fn protocol_message_type(&self) -> ProtocolMessageType;
 }
-
-static PROTOCOL_MESSAGE_FROM_INT: &[ProtocolMessageType] = &[
-    ProtocolMessageType::RequestPing,
-    ProtocolMessageType::RequestFindNode,
-    ProtocolMessageType::RequestHandshake,
-    ProtocolMessageType::RequestGetPeers,
-    ProtocolMessageType::RequestBanNode,
-    ProtocolMessageType::RequestUnbanNode,
-    ProtocolMessageType::RequestJoinNetwork,
-    ProtocolMessageType::RequestLeaveNetwork,
-    ProtocolMessageType::ResponsePong,
-    ProtocolMessageType::ResponseFindNode,
-    ProtocolMessageType::ResponsePeersList,
-    ProtocolMessageType::ResponseHandshake,
-    ProtocolMessageType::DirectMessage,
-    ProtocolMessageType::BroadcastedMessage,
-    ProtocolMessageType::RequestRetransmit,
-];
 
 impl TryFrom<u8> for ProtocolMessageType {
     type Error = Error;
 
-    #[inline]
     fn try_from(value: u8) -> Fallible<ProtocolMessageType> {
-        let idx: usize = value.into();
-
-        if idx < PROTOCOL_MESSAGE_FROM_INT.len() {
-            Ok(PROTOCOL_MESSAGE_FROM_INT[idx])
-        } else {
-            bail!("Unsupported protocol message type")
-        }
+        let pmt = match value {
+            0 => ProtocolMessageType::Request,
+            1 => ProtocolMessageType::Response,
+            2 => ProtocolMessageType::Packet,
+            _ => bail!("Unsupported Protocol Message type '{}'", value),
+        };
+        Ok(pmt)
     }
 }
 
-impl TryFrom<&str> for ProtocolMessageType {
+// impl TryFrom<&str> for ProtocolMessageType {
+// type Error = Error;
+//
+// fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
+// debug_assert_eq!(value.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
+// let output = u8::from_str_radix(value, 16)?;
+// ProtocolMessageType::try_from(output)
+// }
+// }
+
+// Utility for Network Request
+// =================================
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ProtocolRequestType {
+    Ping = 0,
+    FindNode,
+    Handshake,
+    GetPeers,
+    BanNode,
+    UnbanNode,
+    JoinNetwork,
+    LeaveNetwork,
+    Retransmit,
+}
+
+pub trait AsProtocolRequestType {
+    fn protocol_request_type(&self) -> ProtocolRequestType;
+}
+
+impl TryFrom<u8> for ProtocolRequestType {
     type Error = Error;
 
-    fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
-        debug_assert_eq!(value.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
-        let output = u8::from_str_radix(value, 16)?;
-        ProtocolMessageType::try_from(output)
+    fn try_from(value: u8) -> Fallible<ProtocolRequestType> {
+        let prt = match value {
+            0 => ProtocolRequestType::Ping,
+            1 => ProtocolRequestType::FindNode,
+            2 => ProtocolRequestType::Handshake,
+            3 => ProtocolRequestType::GetPeers,
+            4 => ProtocolRequestType::BanNode,
+            5 => ProtocolRequestType::UnbanNode,
+            6 => ProtocolRequestType::JoinNetwork,
+            7 => ProtocolRequestType::LeaveNetwork,
+            8 => ProtocolRequestType::Retransmit,
+            _ => bail!("Unsupported Protocol Request type '{}'", value),
+        };
+        Ok(prt)
     }
 }
 
-impl Display for ProtocolMessageType {
-    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
+// Utility for Network Response
+// =================================
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ProtocolResponseType {
+    Pong = 0,
+    FindNode,
+    PeersList,
+    Handshake,
 }
 
-#[cfg(test)]
-mod test {
-    use super::{ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH};
-    use std::convert::TryFrom;
+pub trait AsProtocolResponseType {
+    fn protocol_response_type(&self) -> ProtocolResponseType;
+}
 
-    #[test]
-    fn message_type_from_int() {
-        assert_eq!(
-            ProtocolMessageType::try_from(0).unwrap(),
-            ProtocolMessageType::RequestPing
-        );
-        assert_eq!(
-            ProtocolMessageType::try_from(4).unwrap(),
-            ProtocolMessageType::RequestBanNode
-        );
-        assert_eq!(
-            ProtocolMessageType::try_from(13).unwrap(),
-            ProtocolMessageType::BroadcastedMessage
-        );
-        assert_eq!(ProtocolMessageType::try_from(15).is_err(), true);
-        assert_eq!(ProtocolMessageType::try_from(16).is_err(), true);
-    }
+impl TryFrom<u8> for ProtocolResponseType {
+    type Error = Error;
 
-    #[test]
-    fn message_type_display() {
-        let values = [
-            ProtocolMessageType::RequestPing,
-            ProtocolMessageType::RequestFindNode,
-            ProtocolMessageType::RequestHandshake,
-            ProtocolMessageType::RequestGetPeers,
-            ProtocolMessageType::RequestBanNode,
-            ProtocolMessageType::RequestUnbanNode,
-            ProtocolMessageType::RequestJoinNetwork,
-            ProtocolMessageType::RequestLeaveNetwork,
-            ProtocolMessageType::ResponsePong,
-            ProtocolMessageType::ResponseFindNode,
-            ProtocolMessageType::ResponsePeersList,
-            ProtocolMessageType::ResponseHandshake,
-            ProtocolMessageType::DirectMessage,
-            ProtocolMessageType::BroadcastedMessage,
-            ProtocolMessageType::RequestRetransmit,
-        ];
-
-        for value in &values {
-            let value_str = value.to_string();
-            assert_eq!(value_str.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
-            let value_from_str = ProtocolMessageType::try_from(value_str.as_str()).unwrap();
-            assert_eq!(value_from_str, *value);
-        }
-
-        assert_eq!(ProtocolMessageType::try_from("0F").is_err(), true);
-        assert_eq!(ProtocolMessageType::try_from("10").is_err(), true);
+    fn try_from(value: u8) -> Fallible<ProtocolResponseType> {
+        let prt = match value {
+            0 => ProtocolResponseType::Pong,
+            1 => ProtocolResponseType::FindNode,
+            2 => ProtocolResponseType::PeersList,
+            3 => ProtocolResponseType::Handshake,
+            _ => bail!("Unsupported Protocol Response type '{}'", value),
+        };
+        Ok(prt)
     }
 }
+
+// Utility for Packet
+// =================================
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ProtocolPacketType {
+    Direct = 0,
+    Broadcast,
+}
+
+pub trait AsProtocolPacketType {
+    fn protocol_packet_type(&self) -> ProtocolPacketType;
+}
+
+impl TryFrom<u8> for ProtocolPacketType {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Fallible<ProtocolPacketType> {
+        let ppt = match value {
+            0 => ProtocolPacketType::Direct,
+            1 => ProtocolPacketType::Broadcast,
+            _ => bail!("Unsupported Protocol Packet type '{}'", value),
+        };
+        Ok(ppt)
+    }
+}
+
+// impl Display for ProtocolMessageType {
+// fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8)
+// } }

@@ -10,6 +10,11 @@ use crate::{
 
 use std::convert::TryFrom;
 
+pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
+    2 +     // PROTOCOL_VERSION
+    8 +     // Timestamp: get_current_stamp
+    1; // self.protocol_message_type
+
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
 
@@ -60,11 +65,11 @@ impl PartialEq for NetworkMessage {
 }
 
 impl AsProtocolMessageType for NetworkMessage {
-    fn protocol_type(&self) -> ProtocolMessageType {
+    fn protocol_message_type(&self) -> ProtocolMessageType {
         match self {
-            NetworkMessage::NetworkRequest(ref request, ..) => request.protocol_type(),
-            NetworkMessage::NetworkResponse(ref response, ..) => response.protocol_type(),
-            NetworkMessage::NetworkPacket(ref packet, ..) => packet.protocol_type(),
+            NetworkMessage::NetworkRequest(..) => ProtocolMessageType::Request,
+            NetworkMessage::NetworkResponse(..) => ProtocolMessageType::Response,
+            NetworkMessage::NetworkPacket(..) => ProtocolMessageType::Packet,
             NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
                 panic!("Invalid or Unknown messages are not serializable")
             }
@@ -79,7 +84,18 @@ impl Serializable for NetworkMessage {
         archive.write_all(PROTOCOL_NAME.as_bytes())?;
         archive.write_u16(PROTOCOL_VERSION)?;
         archive.write_u64(get_current_stamp() as u64)?;
-        archive.write_u8(self.protocol_type() as u8)?;
+        archive.write_u8(self.protocol_message_type() as u8)?;
+
+        // ATENTION: This constant is used on some validations **before** packet is
+        // deserialized, so we should be completely sure that any updates on
+        // serialization process will be notified. In that case, you should
+        // update that constant.
+        // For instance if we add new field to be serialized before
+        // `self.protocol_message_type()`, or if we change type of any field (It
+        // means, replace `.write_u16` by `.write_u8`).
+        #[cfg(test)]
+        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8 +1);
+
         match self {
             NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),
             NetworkMessage::NetworkResponse(ref response, ..) => response.serialize(archive),
@@ -101,22 +117,11 @@ impl Deserializable for NetworkMessage {
         let timestamp: u64 = archive.read_u64()?;
         let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
         let message = match protocol_type {
-            ProtocolMessageType::RequestPing
-            | ProtocolMessageType::RequestFindNode
-            | ProtocolMessageType::RequestHandshake
-            | ProtocolMessageType::RequestGetPeers
-            | ProtocolMessageType::RequestBanNode
-            | ProtocolMessageType::RequestUnbanNode
-            | ProtocolMessageType::RequestJoinNetwork
-            | ProtocolMessageType::RequestLeaveNetwork
-            | ProtocolMessageType::RequestRetransmit => {
+            ProtocolMessageType::Request => {
                 let request = NetworkRequest::deserialize(archive)?;
                 NetworkMessage::NetworkRequest(request, Some(timestamp), Some(get_current_stamp()))
             }
-            ProtocolMessageType::ResponsePong
-            | ProtocolMessageType::ResponseFindNode
-            | ProtocolMessageType::ResponsePeersList
-            | ProtocolMessageType::ResponseHandshake => {
+            ProtocolMessageType::Response => {
                 let response = NetworkResponse::deserialize(archive)?;
                 NetworkMessage::NetworkResponse(
                     response,
@@ -124,7 +129,7 @@ impl Deserializable for NetworkMessage {
                     Some(get_current_stamp()),
                 )
             }
-            ProtocolMessageType::DirectMessage | ProtocolMessageType::BroadcastedMessage => {
+            ProtocolMessageType::Packet => {
                 let packet = NetworkPacket::deserialize(archive)?;
                 NetworkMessage::NetworkPacket(packet, Some(timestamp), Some(get_current_stamp()))
             }

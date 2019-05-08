@@ -3,7 +3,7 @@ use crate::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         P2PPeer,
     },
-    network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
+    network::{AsProtocolResponseType, NetworkId, ProtocolResponseType},
 };
 
 use failure::Fallible;
@@ -18,13 +18,13 @@ pub enum NetworkResponse {
     Handshake(P2PPeer, HashSet<NetworkId>, Vec<u8>),
 }
 
-impl AsProtocolMessageType for NetworkResponse {
-    fn protocol_type(&self) -> ProtocolMessageType {
+impl AsProtocolResponseType for NetworkResponse {
+    fn protocol_response_type(&self) -> ProtocolResponseType {
         match self {
-            NetworkResponse::Pong(..) => ProtocolMessageType::ResponsePong,
-            NetworkResponse::FindNode(..) => ProtocolMessageType::ResponseFindNode,
-            NetworkResponse::PeerList(..) => ProtocolMessageType::ResponsePeersList,
-            NetworkResponse::Handshake(..) => ProtocolMessageType::ResponseHandshake,
+            NetworkResponse::Pong(..) => ProtocolResponseType::Pong,
+            NetworkResponse::FindNode(..) => ProtocolResponseType::FindNode,
+            NetworkResponse::PeerList(..) => ProtocolResponseType::PeersList,
+            NetworkResponse::Handshake(..) => ProtocolResponseType::Handshake,
         }
     }
 }
@@ -33,7 +33,7 @@ impl Serializable for NetworkResponse {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(self.protocol_type() as u8)?;
+        archive.write_u8(self.protocol_response_type() as u8)?;
         match self {
             NetworkResponse::Pong(..) => Ok(()),
             NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
@@ -53,21 +53,20 @@ impl Deserializable for NetworkResponse {
     where
         A: ReadArchive, {
         let remote_peer = archive.post_handshake_peer();
-        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
+        let protocol_type = ProtocolResponseType::try_from(archive.read_u8()?)?;
         let response = match protocol_type {
-            ProtocolMessageType::ResponsePong => NetworkResponse::Pong(remote_peer?),
-            ProtocolMessageType::ResponseFindNode => {
+            ProtocolResponseType::Pong => NetworkResponse::Pong(remote_peer?),
+            ProtocolResponseType::FindNode => {
                 NetworkResponse::FindNode(remote_peer?, Vec::<P2PPeer>::deserialize(archive)?)
             }
-            ProtocolMessageType::ResponsePeersList => {
+            ProtocolResponseType::PeersList => {
                 NetworkResponse::PeerList(remote_peer?, Vec::<P2PPeer>::deserialize(archive)?)
             }
-            ProtocolMessageType::ResponseHandshake => NetworkResponse::Handshake(
+            ProtocolResponseType::Handshake => NetworkResponse::Handshake(
                 P2PPeer::deserialize(archive)?,
                 HashSet::<NetworkId>::deserialize(archive)?,
                 Vec::<u8>::deserialize(archive)?,
             ),
-            _ => bail!("Unsupported protocol type for Network response"),
         };
         Ok(response)
     }

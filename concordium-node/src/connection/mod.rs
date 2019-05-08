@@ -57,8 +57,7 @@ use crate::{
     },
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse,
-        PROTOCOL_HEADER_LENGTH, PROTOCOL_MAX_MESSAGE_SIZE, PROTOCOL_MESSAGE_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_WHOLE_PACKET_SIZE,
+        NETWORK_MESSAGE_PROTOCOL_TYPE_IDX, PROTOCOL_MAX_MESSAGE_SIZE, PROTOCOL_WHOLE_PACKET_SIZE,
     },
     stats_export_service::StatsExportService,
 };
@@ -85,6 +84,12 @@ macro_rules! handle_by_private {
 
 const PACKAGE_INITIAL_BUFFER_SZ: usize = 1024;
 const PACKAGE_MAX_BUFFER_SZ: usize = 4096;
+
+pub enum MessageValidity {
+    Valid,
+    Invalid,
+    Unknown,
+}
 
 #[derive(PartialEq)]
 pub enum ConnectionStatus {
@@ -577,33 +582,45 @@ impl Connection {
         self.message_handler.process_message(&outer)
     }
 
-    fn validate_packet_type(&self, buf: &[u8]) -> Fallible<()> {
+    /// It invalidates any `Packet` or unknown message when we are on
+    /// Bootstrapper mode.
+    fn validate_packet_type(&self) -> MessageValidity {
         if self.local_peer_type() == PeerType::Bootstrapper {
-            if let Ok(msg_id_str) = std::str::from_utf8(&buf[..PROTOCOL_MESSAGE_TYPE_LENGTH]) {
-                match ProtocolMessageType::try_from(msg_id_str) {
-                    Ok(ProtocolMessageType::DirectMessage)
-                    | Ok(ProtocolMessageType::BroadcastedMessage) => bail!(fails::PeerError {
-                        message: "Wrong data type message received for node",
-                    }),
-                    _ => return Ok(()),
+            let buf = &self.pkt_buffer;
+            if buf.len() > NETWORK_MESSAGE_PROTOCOL_TYPE_IDX {
+                // On Bootstrapper, any `packet` or unknow type messages are invalid.
+                let protocol_type =
+                    ProtocolMessageType::try_from(buf[NETWORK_MESSAGE_PROTOCOL_TYPE_IDX])
+                        .unwrap_or(ProtocolMessageType::Packet);
+                match protocol_type {
+                    ProtocolMessageType::Packet => MessageValidity::Invalid,
+                    _ => MessageValidity::Valid,
                 }
+            } else {
+                // We don't know yet the message validity... we need more data.
+                MessageValidity::Unknown
             }
+        } else {
+            // Any packet is valid on Non-Bootstrapper
+            MessageValidity::Valid
         }
-        Ok(())
     }
 
+    /// It closes and clear the packet buffer if that is an invalid message.
+    /// See `validate_packet_type()`, for more info.
     fn validate_packet(&mut self) {
-        if !self.pkt_validated() && self.pkt_buffer.len() >= PROTOCOL_MESSAGE_LENGTH {
-            let pkt_header: &[u8] =
-                &self.pkt_buffer[PROTOCOL_HEADER_LENGTH..][..PROTOCOL_MESSAGE_TYPE_LENGTH];
-
-            if self.validate_packet_type(pkt_header).is_err() {
-                info!("Received network packet message, not wanted - disconnecting peer");
-                self.clear_buffer();
-                self.close();
-            } else {
-                self.set_valid();
-                self.set_validated();
+        if !self.pkt_validated() {
+            match self.validate_packet_type() {
+                MessageValidity::Invalid => {
+                    info!("Received network packet message, not wanted - disconnecting peer");
+                    self.clear_buffer();
+                    self.close();
+                }
+                MessageValidity::Valid => {
+                    self.set_valid();
+                    self.set_validated();
+                }
+                MessageValidity::Unknown => {}
             }
         }
     }

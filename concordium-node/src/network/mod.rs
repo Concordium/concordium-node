@@ -10,11 +10,12 @@ pub mod response;
 
 pub use self::{
     buckets::Buckets,
-    message::NetworkMessage,
+    message::{NetworkMessage, NETWORK_MESSAGE_PROTOCOL_TYPE_IDX},
     network_id::NetworkId,
     packet::{NetworkPacket, NetworkPacketBuilder, NetworkPacketType},
     protocol_message_type::{
-        AsProtocolMessageType, ProtocolMessageType, PROTOCOL_MESSAGE_TYPE_LENGTH,
+        AsProtocolMessageType, AsProtocolPacketType, AsProtocolRequestType, AsProtocolResponseType,
+        ProtocolMessageType, ProtocolPacketType, ProtocolRequestType, ProtocolResponseType,
     },
     request::NetworkRequest,
     response::NetworkResponse,
@@ -23,25 +24,6 @@ pub use self::{
 pub const PROTOCOL_NAME: &str = "CONCORDIUMP2P";
 pub const PROTOCOL_VERSION: u16 = 1;
 
-pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
-pub const PROTOCOL_HEADER_LENGTH: usize = 13 + 3 + PROTOCOL_SENT_TIMESTAMP_LENGTH;
-pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
-pub const PROTOCOL_SINCE_TIMESTAMP_LENGTH: usize = 16;
 pub const PROTOCOL_PORT_LENGTH: usize = 5;
-pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 64;
-pub const PROTOCOL_NETWORK_ID_LENGTH: usize = 5;
-pub const PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH: usize = 10;
-pub const PROTOCOL_MESSAGE_LENGTH: usize = PROTOCOL_HEADER_LENGTH
-    + PROTOCOL_NODE_ID_LENGTH
-    + PROTOCOL_PORT_LENGTH
-    + PROTOCOL_MESSAGE_ID_LENGTH
-    + PROTOCOL_NETWORK_ID_LENGTH
-    + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH
-    + PROTOCOL_MESSAGE_TYPE_LENGTH;
-
 pub const PROTOCOL_WHOLE_PACKET_SIZE: usize = 4;
 pub const PROTOCOL_MAX_MESSAGE_SIZE: usize = 268_435_456;
-
-#[cfg(test)]
-// panics with "attempt to subtract with overflow" when the assertion is broken
-const_assert!(protocol_message_length; PROTOCOL_MESSAGE_LENGTH == 130);

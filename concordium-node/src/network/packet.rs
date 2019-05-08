@@ -3,7 +3,7 @@ use crate::{
         serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
         P2PNodeId, P2PPeer,
     },
-    network::{AsProtocolMessageType, NetworkId, ProtocolMessageType},
+    network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
 use concordium_common::UCursor;
 
@@ -12,7 +12,7 @@ use crate::{
     utils,
 };
 use rand::{rngs::OsRng, RngCore};
-use std::sync::RwLock;
+use std::{convert::TryFrom, sync::RwLock};
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
@@ -25,16 +25,24 @@ pub enum NetworkPacketType {
     BroadcastedMessage,
 }
 
+impl AsProtocolPacketType for NetworkPacketType {
+    fn protocol_packet_type(&self) -> ProtocolPacketType {
+        match self {
+            NetworkPacketType::DirectMessage(..) => ProtocolPacketType::Direct,
+            NetworkPacketType::BroadcastedMessage => ProtocolPacketType::Broadcast,
+        }
+    }
+}
+
 impl Serializable for NetworkPacketType {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
+        archive.write_u8(self.protocol_packet_type() as u8)?;
+
         match self {
-            NetworkPacketType::DirectMessage(ref receiver) => {
-                archive.write_u8(0)?;
-                receiver.serialize(archive)
-            }
-            NetworkPacketType::BroadcastedMessage => archive.write_u8(1),
+            NetworkPacketType::DirectMessage(ref receiver) => receiver.serialize(archive),
+            NetworkPacketType::BroadcastedMessage => Ok(()),
         }
     }
 }
@@ -43,10 +51,12 @@ impl Deserializable for NetworkPacketType {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacketType>
     where
         A: ReadArchive, {
-        let ptype = match archive.read_u8()? {
-            0 => NetworkPacketType::DirectMessage(P2PNodeId::deserialize(archive)?),
-            1 => NetworkPacketType::BroadcastedMessage,
-            _ => bail!("Unsupported Network Packet type"),
+        let protocol_type = ProtocolPacketType::try_from(archive.read_u8()?)?;
+        let ptype = match protocol_type {
+            ProtocolPacketType::Direct => {
+                NetworkPacketType::DirectMessage(P2PNodeId::deserialize(archive)?)
+            }
+            ProtocolPacketType::Broadcast => NetworkPacketType::BroadcastedMessage,
         };
         Ok(ptype)
     }
@@ -108,15 +118,6 @@ impl NetworkPacket {
             Err(_) => return String::new(),
         }
         utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
-    }
-}
-
-impl AsProtocolMessageType for NetworkPacket {
-    fn protocol_type(&self) -> ProtocolMessageType {
-        match self.packet_type {
-            NetworkPacketType::DirectMessage(..) => ProtocolMessageType::DirectMessage,
-            NetworkPacketType::BroadcastedMessage => ProtocolMessageType::BroadcastedMessage,
-        }
     }
 }
 
