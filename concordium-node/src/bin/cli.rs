@@ -192,7 +192,7 @@ fn setup_baker_guards(
         });
         let _baker_clone_4 = baker.to_owned();
         let mut _node_ref_4 = node.clone();
-        spawn_or_die!("Process baker finalization records output", move || loop {
+        spawn_or_die!("Process baker catchup requests", move || loop {
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
@@ -803,7 +803,7 @@ fn main() -> Fallible<()> {
                                                 "Sent request for current round finalization messages by point to {}",
                                                 remote_peer.id()
                                             ),
-                                            Err(_) => error!("Couldn't broadcast block!"),
+                                            Err(_) => error!("Couldn't send catchup message for finalization messages by point!"),
                                         }
                                     }
                                     Err(_) => error!("Can't write type to packet"),
