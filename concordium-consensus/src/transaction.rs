@@ -1,11 +1,12 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
+    io::{Cursor, Read, Write},
 };
 
 use crate::{block::*, common::*};
@@ -34,7 +35,7 @@ pub struct Transaction {
 
 impl Transaction {
     // FIXME: finish
-    pub fn deserialize(bytes: &[u8]) -> Option<(Self, usize)> {
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
         debug_deserialization!("Transaction", bytes);
 
         unimplemented!()
@@ -54,22 +55,21 @@ impl Transactions {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Transactions", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
         let transaction_count =
-            (&bytes[curr_pos..][..TRANSACTION_COUNT]).read_u64::<NetworkEndian>()?;
-        curr_pos += TRANSACTION_COUNT;
+            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, TRANSACTION_COUNT));
 
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {
-            while let Some((transaction, size)) = Transaction::deserialize(&bytes[curr_pos..]) {
+            // FIXME: determine how to read each transaction
+            while let Some(transaction) = Transaction::deserialize(&read_all!(&mut cursor)) {
                 transactions.0.push(transaction);
-                curr_pos += size;
             }
         }
 
-        check_serialization!(transactions, bytes);
+        check_serialization!(transactions, cursor);
 
         Ok(transactions)
     }
@@ -77,16 +77,16 @@ impl Transactions {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut transaction_count = [0u8; 8];
-        NetworkEndian::write_u64(&mut transaction_count, self.0.len() as u64);
+        // FIXME: add an estimated size of all Transactions
+        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT);
 
-        let mut transactions_bytes = Vec::new(); // TODO: estimate capacity
+        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
         for transaction in &self.0 {
-            transactions_bytes.extend_from_slice(&transaction.serialize());
+            let _ = cursor.write_all(&transaction.serialize());
         }
 
-        [&transaction_count, transactions_bytes.as_slice()].concat()
+        cursor.into_inner().into_vec()
     }
 }
 

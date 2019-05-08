@@ -1,8 +1,10 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::Utc;
 use failure::Fallible;
+
+use std::io::{Cursor, Read, Write};
 
 use crate::{common::*, parameters::*, transaction::*};
 
@@ -112,34 +114,20 @@ impl Block {
     get_block_content_ref!(signature_ref, Encoded, signature, "signature");
 
     // FIXME: only works for regular blocks for now
-    // FIXME: use UCursor (for all deserialization) when it's available outside of
-    // client
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Block", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let slot = (&bytes[curr_pos..][..SLOT]).read_u64::<NetworkEndian>()?;
-        curr_pos += SLOT;
-
-        let pointer = HashBytes::new(&bytes[curr_pos..][..POINTER]);
-        curr_pos += POINTER;
-
-        let baker_id = (&bytes[curr_pos..][..BAKER_ID]).read_u64::<NetworkEndian>()?;
-        curr_pos += BAKER_ID;
-
-        let proof = Encoded::new(&bytes[curr_pos..][..PROOF_LENGTH]);
-        curr_pos += PROOF_LENGTH;
-
-        let nonce = Encoded::new(&bytes[curr_pos..][..NONCE]);
-        curr_pos += NONCE;
-
-        let last_finalized = HashBytes::new(&bytes[curr_pos..][..SHA256]);
-        curr_pos += SHA256;
-
-        let transactions = Transactions::deserialize(&bytes[curr_pos..bytes.len() - SIGNATURE])?;
-
-        let signature = Encoded::new(&bytes[bytes.len() - SIGNATURE..]);
+        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, SLOT));
+        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
+        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, BAKER_ID));
+        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
+        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
+        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
+        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE;
+        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
+        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let block = Block {
             slot,
@@ -154,7 +142,7 @@ impl Block {
             }),
         };
 
-        check_serialization!(block, bytes);
+        check_serialization!(block, cursor);
 
         Ok(block)
     }
@@ -163,29 +151,28 @@ impl Block {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut ret = Vec::new(); // FIXME: estimate capacity
+        let transactions = Transactions::serialize(self.transactions_ref());
 
-        let mut slot = [0u8; SLOT];
-        NetworkEndian::write_u64(&mut slot, self.slot);
-        ret.extend_from_slice(&slot);
+        let target_size = SLOT
+            + POINTER
+            + BAKER_ID
+            + PROOF_LENGTH
+            + NONCE
+            + LAST_FINALIZED
+            + transactions.len()
+            + SIGNATURE;
+        let mut cursor = create_serialization_cursor(target_size);
 
-        ret.extend_from_slice(&self.pointer());
+        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
+        let _ = cursor.write_all(self.pointer_ref());
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id());
+        let _ = cursor.write_all(self.proof_ref());
+        let _ = cursor.write_all(self.nonce_ref());
+        let _ = cursor.write_all(&self.last_finalized());
+        let _ = cursor.write_all(&transactions);
+        let _ = cursor.write_all(self.signature_ref());
 
-        let mut baker_id = [0u8; BAKER_ID];
-        NetworkEndian::write_u64(&mut baker_id, self.baker_id());
-        ret.extend_from_slice(&baker_id);
-
-        ret.extend_from_slice(&self.proof());
-
-        ret.extend_from_slice(&self.nonce());
-
-        ret.extend_from_slice(&self.last_finalized()); // check
-
-        ret.extend_from_slice(&Transactions::serialize(self.transactions_ref()));
-
-        ret.extend_from_slice(&self.signature());
-
-        ret
+        cursor.into_inner().into_vec()
     }
 
     pub fn slot_id(&self) -> Slot { self.slot }
