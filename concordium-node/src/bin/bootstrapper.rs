@@ -138,7 +138,7 @@ fn main() -> Result<(), Error> {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
-                &node.ban_node(n);
+                node.ban_node(n);
             }
         }
         None => {
@@ -180,7 +180,7 @@ fn main() -> Result<(), Error> {
     {
         node.max_nodes = Some(conf.bootstrapper.max_nodes);
         node.print_peers = true;
-        &node.spawn();
+        node.spawn();
     }
 
     node.join().expect("Node thread panicked!");
