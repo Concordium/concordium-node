@@ -1,5 +1,9 @@
 use failure::{Error, Fallible};
-use std::convert::TryFrom;
+
+use std::{
+    convert::TryFrom,
+    fmt::{Display, Formatter, Result},
+};
 
 // Utility for NetworkMessage
 // =================================
@@ -9,6 +13,10 @@ pub enum ProtocolMessageType {
     Request = 0,
     Response,
     Packet,
+}
+
+impl Display for ProtocolMessageType {
+    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolMessageType {
@@ -29,15 +37,14 @@ impl TryFrom<u8> for ProtocolMessageType {
     }
 }
 
-// impl TryFrom<&str> for ProtocolMessageType {
-// type Error = Error;
-//
-// fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
-// debug_assert_eq!(value.len(), PROTOCOL_MESSAGE_TYPE_LENGTH);
-// let output = u8::from_str_radix(value, 16)?;
-// ProtocolMessageType::try_from(output)
-// }
-// }
+impl TryFrom<&str> for ProtocolMessageType {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Fallible<ProtocolMessageType> {
+        debug_assert_eq!(value.len(), 2);
+        ProtocolMessageType::try_from(u8::from_str_radix(value, 16)?)
+    }
+}
 
 // Utility for Network Request
 // =================================
@@ -53,6 +60,10 @@ pub enum ProtocolRequestType {
     JoinNetwork,
     LeaveNetwork,
     Retransmit,
+}
+
+impl Display for ProtocolRequestType {
+    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolRequestType {
@@ -79,6 +90,15 @@ impl TryFrom<u8> for ProtocolRequestType {
     }
 }
 
+impl TryFrom<&str> for ProtocolRequestType {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Fallible<ProtocolRequestType> {
+        debug_assert_eq!(value.len(), 2);
+        ProtocolRequestType::try_from(u8::from_str_radix(value, 16)?)
+    }
+}
+
 // Utility for Network Response
 // =================================
 
@@ -88,6 +108,10 @@ pub enum ProtocolResponseType {
     FindNode,
     PeersList,
     Handshake,
+}
+
+impl Display for ProtocolResponseType {
+    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolResponseType {
@@ -109,6 +133,15 @@ impl TryFrom<u8> for ProtocolResponseType {
     }
 }
 
+impl TryFrom<&str> for ProtocolResponseType {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Fallible<ProtocolResponseType> {
+        debug_assert_eq!(value.len(), 2);
+        ProtocolResponseType::try_from(u8::from_str_radix(value, 16)?)
+    }
+}
+
 // Utility for Packet
 // =================================
 
@@ -116,6 +149,10 @@ impl TryFrom<u8> for ProtocolResponseType {
 pub enum ProtocolPacketType {
     Direct = 0,
     Broadcast,
+}
+
+impl Display for ProtocolPacketType {
+    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8) }
 }
 
 pub trait AsProtocolPacketType {
@@ -135,6 +172,11 @@ impl TryFrom<u8> for ProtocolPacketType {
     }
 }
 
-// impl Display for ProtocolMessageType {
-// fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{:02x}", *self as u8)
-// } }
+impl TryFrom<&str> for ProtocolPacketType {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Fallible<ProtocolPacketType> {
+        debug_assert_eq!(value.len(), 2);
+        ProtocolPacketType::try_from(u8::from_str_radix(value, 16)?)
+    }
+}
