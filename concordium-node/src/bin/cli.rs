@@ -16,7 +16,7 @@ static A: System = System;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    spawn_or_die, UCursor,
+    make_atomic_callback, read_or_die, safe_read, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
     block::Block,
@@ -27,8 +27,9 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType},
+    common::{get_current_stamp, P2PNodeId, PeerType},
     configuration,
+    connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
@@ -334,7 +335,6 @@ fn setup_lower_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
     pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
-    db: P2PDB,
 ) -> mpsc::Receiver<Arc<NetworkMessage>> {
     let mut _node_self_clone = node.clone();
 
@@ -350,45 +350,6 @@ fn setup_lower_process_output(
                     Ok(_) => trace!("Relayed message to higher queue"),
                     Err(err) => error!("Could not relay message to higher queue {}", err),
                 },
-                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
-                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                }
-                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
-                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                }
-                NetworkMessage::NetworkResponse(
-                    NetworkResponse::PeerList(ref peer, ref peers),
-                    ..
-                ) => {
-                    debug!("Received PeerList response, attempting to satisfy desired peers");
-                    let mut new_peers = 0;
-                    let peer_count = _node_self_clone
-                        .get_peer_stats(&[])
-                        .iter()
-                        .filter(|x| x.peer_type == PeerType::Node)
-                        .count();
-                    for peer_node in peers {
-                        info!(
-                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                            peer.id(),
-                            peer.ip(),
-                            peer.port(),
-                            peer_node.id(),
-                            peer_node.ip(),
-                            peer_node.port()
-                        );
-                        if _node_self_clone
-                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                            .map_err(|e| info!("{}", e))
-                            .is_ok()
-                        {
-                            new_peers += 1;
-                        }
-                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
-                            break;
-                        }
-                    }
-                }
                 NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
                     match pkt_higher_in.send(full_msg) {
                         Ok(_) => trace!("Relayed message to higher queue"),
@@ -505,6 +466,18 @@ fn setup_higher_process_output(
                                 err
                             ),
                         }
+                    }
+                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH => {
+                        // TODO : Impl
+                    }
+                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH => {
+                        // TODO : Impl
+                    }
+                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX => {
+                        // TODO : Impl
+                    }
+                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT => {
+                        // TODO : Impl
                     }
                     _ => {
                         error!("Couldn't read bytes properly for type");
@@ -697,6 +670,74 @@ fn main() -> Fallible<()> {
         }
     };
 
+    // Register handles for ban & unban requests
+    let cloned_request_node = Arc::new(RwLock::new(node.clone()));
+    let db_clone = db.clone();
+    let _no_trust_bans = conf.common.no_trust_bans;
+
+    let message_request_handler = read_or_die!(cloned_request_node).message_handler();
+    safe_write!(message_request_handler)?.add_request_callback(make_atomic_callback!(
+        move |msg: &NetworkRequest| {
+            match msg {
+                NetworkRequest::BanNode(ref peer, x) => {
+                    let mut locked_cloned_node = write_or_die!(cloned_request_node);
+                    utils::ban_node(&mut locked_cloned_node, peer, *x, &db_clone, _no_trust_bans);
+                }
+                NetworkRequest::UnbanNode(ref peer, x) => {
+                    let mut locked_cloned_node = write_or_die!(cloned_request_node);
+                    utils::unban_node(&mut locked_cloned_node, peer, *x, &db_clone, _no_trust_bans);
+                }
+                _ => {}
+            };
+            Ok(())
+        }
+    ));
+
+    // Register handler for peer list responses
+    let cloned_response_node = Arc::new(RwLock::new(node.clone()));
+    let _desired_nodes_clone = conf.connection.desired_nodes;
+
+    let message_response_handler = read_or_die!(cloned_response_node).message_handler();
+    safe_write!(message_response_handler)?.add_response_callback(make_atomic_callback!(
+        move |msg: &NetworkResponse| {
+            match msg {
+                NetworkResponse::PeerList(ref peer, ref peers) => {
+                    debug!("Received PeerList response, attempting to satisfy desired peers");
+                    let mut locked_cloned_node = write_or_die!(cloned_response_node);
+                    let mut new_peers = 0;
+                    let peer_count = locked_cloned_node
+                        .get_peer_stats(&[])
+                        .iter()
+                        .filter(|x| x.peer_type == PeerType::Node)
+                        .count();
+                    for peer_node in peers {
+                        info!(
+                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                            peer.id(),
+                            peer.ip(),
+                            peer.port(),
+                            peer_node.id(),
+                            peer_node.ip(),
+                            peer_node.port()
+                        );
+                        if locked_cloned_node
+                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                            .map_err(|e| info!("{}", e))
+                            .is_ok()
+                        {
+                            new_peers += 1;
+                        }
+                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            };
+            Ok(())
+        }
+    ));
+
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
@@ -720,7 +761,7 @@ fn main() -> Fallible<()> {
     // to the higher packet queue (baker messages, retransmits, etc).
     //
     // Thread #4: Read P2PNode output
-    let pkt_higher_out = setup_lower_process_output(&node, &conf, pkt_lower_out, db.clone());
+    let pkt_higher_out = setup_lower_process_output(&node, &conf, pkt_lower_out);
 
     let mut baker = if conf.cli.baker.baker_id.is_some() {
         // Wait until we have at least a certain percentage of peers out of desired
@@ -790,10 +831,6 @@ fn main() -> Fallible<()> {
     //
     // Threads #6, #7, #8
     setup_baker_guards(&mut baker, &node, &conf);
-
-    // Create the temporary guard to keep requesting retransmit for a period during
-    // first startup
-    replaceme_retransmit_auto_hook(&node, &conf);
 
     // TPS test
     start_tps_test(&conf, &node);
@@ -924,41 +961,6 @@ fn send_retransmit_packet(
         }
         Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
     }
-}
-
-fn replaceme_retransmit_auto_hook(node: &P2PNode, conf: &configuration::Config) {
-    let _retransmit_times = conf.cli.baker.baker_retransmit_request_times;
-    let _retransmit_sleep_time = conf.cli.baker.baker_retransmit_request_interval;
-    let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
-    let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
-    let mut _node_clone = node.clone();
-    spawn_or_die!("Retransmit hook", move || {
-        for slot in 0.._retransmit_times {
-            info!(
-                "Retransmit Request #{}: Sleeping {} seconds before next retransmit request",
-                slot, _retransmit_sleep_time
-            );
-            thread::sleep(Duration::from_secs(u64::from(_retransmit_sleep_time)));
-            _node_clone
-                .get_peer_stats(&[])
-                .iter()
-                .filter(|peer| peer.peer_type == PeerType::Node)
-                .for_each(|peer| {
-                    let p2p_peer = P2PPeerBuilder::default()
-                        .id(P2PNodeId::from_str(&peer.id).unwrap())
-                        .addr(peer.addr)
-                        .peer_type(peer.peer_type)
-                        .build()
-                        .unwrap();
-                    _node_clone.send_retransmit(
-                        p2p_peer,
-                        p2p_client::common::get_current_stamp()
-                            - u64::from(_retransmit_back_in_time),
-                        _network_id,
-                    );
-                });
-        }
-    });
 }
 
 fn get_baker_data(
