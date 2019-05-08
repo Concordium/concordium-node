@@ -79,10 +79,10 @@ extern "C" {
 
 #[derive(Clone)]
 pub struct ConsensusBaker {
-    id:           u64,
-    genesis_data: Vec<u8>,
-    private_data: Vec<u8>,
-    runner:       Arc<AtomicPtr<baker_runner>>,
+    id:            u64,
+    genesis_block: Arc<Block>,
+    private_data:  Vec<u8>,
+    runner:        Arc<AtomicPtr<baker_runner>>,
 }
 
 macro_rules! wrap_c_call_string {
@@ -129,14 +129,18 @@ macro_rules! wrap_c_call_bytes {
 }
 
 impl ConsensusBaker {
-    pub fn new(baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
+    pub fn new(baker_id: u64, genesis_block: Arc<Block>, private_data: Vec<u8>) -> Self {
         info!("Starting up baker {}", baker_id);
-        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.clone()) };
+
+        let genesis_data_serialized = genesis_block.get_genesis_data().serialize();
+        let genesis_data_len = genesis_data_serialized.len();
+
+        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data_serialized) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
         let baker = unsafe {
             startBaker(
                 c_string_genesis.as_ptr() as *const u8,
-                genesis_data.len() as i64,
+                genesis_data_len as i64,
                 c_string_private_data.as_ptr() as *const u8,
                 private_data.len() as i64,
                 on_block_baked,
@@ -145,7 +149,7 @@ impl ConsensusBaker {
         };
         ConsensusBaker {
             id: baker_id,
-            genesis_data,
+            genesis_block: Arc::clone(&genesis_block),
             private_data,
             runner: Arc::new(AtomicPtr::new(baker)),
         }
@@ -327,19 +331,25 @@ lazy_static! {
     static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
-type GenesisData = Vec<u8>;
 type PrivateData = HashMap<i64, Vec<u8>>;
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    genesis_data: Vec<u8>,
-    bakers:       Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
+    genesis_block: Arc<Block>,
+    bakers:        Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
+        let genesis_block = Block {
+            slot: 0,
+            data: BlockData::GenesisData(GenesisData::deserialize(&genesis_data).expect("FIXME")),
+        };
+
+        info!("Created a genesis block: {:?}", genesis_block);
+
         ConsensusContainer {
-            genesis_data,
+            genesis_block: Arc::new(genesis_block),
             bakers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -364,7 +374,7 @@ impl ConsensusContainer {
     pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
         safe_write!(self.bakers).insert(
             baker_id,
-            ConsensusBaker::new(baker_id, self.genesis_data.clone(), private_data),
+            ConsensusBaker::new(baker_id, Arc::clone(&self.genesis_block), private_data),
         );
     }
 
@@ -415,7 +425,7 @@ impl ConsensusContainer {
     pub fn generate_data(
         genesis_time: u64,
         num_bakers: u64,
-    ) -> Fallible<(GenesisData, PrivateData)> {
+    ) -> Fallible<(Vec<u8>, PrivateData)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
@@ -609,10 +619,9 @@ mod tests {
     macro_rules! bakers_test {
         ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
-                match ConsensusContainer::generate_data($genesis_time, $num_bakers) {
-                    Ok((genesis, private_data)) => (genesis, private_data),
-                    _ => panic!("Couldn't read haskell data"),
-                };
+                ConsensusContainer::generate_data($genesis_time, $num_bakers).unwrap_or_else(|_|
+                    panic!("Couldn't read Haskell data")
+                );
             let mut consensus_container = ConsensusContainer::new(genesis_data);
 
             for i in 0..$num_bakers {
@@ -674,7 +683,7 @@ mod tests {
             let (genesis_data, private_data) =
                 match ConsensusContainer::generate_data($genesis_time, 1) {
                     Ok((genesis, private_data)) => (genesis, private_data),
-                    _ => panic!("Couldn't read haskell data"),
+                    _ => panic!("Couldn't read Haskell data"),
                 };
             let mut consensus_container = ConsensusContainer::new(genesis_data);
             &consensus_container.start_baker(0, private_data.get(&(0 as i64)).unwrap().to_vec());

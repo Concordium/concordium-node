@@ -88,6 +88,14 @@ impl Block {
 
     get_block_content_ref!(signature_ref, ByteString, signature, "signature");
 
+    pub fn get_genesis_data(&self) -> &GenesisData {
+        if let BlockData::GenesisData(ref data) = self.data {
+            data
+        } else {
+            panic!("Attempted to obtain genesis data from a regular block!");
+        }
+    }
+
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Block", bytes);
 
