@@ -46,12 +46,16 @@ extern "C" {
         missing_finalization_messages_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut baker_runner;
     pub fn printBlock(block_data: *const u8, data_length: i64);
+<<<<<<< HEAD
     pub fn receiveBlock(
         baker: *mut baker_runner,
         peer_id: u64,
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
+=======
+    pub fn receiveBlock(baker: *mut baker_runner, peer_id: u64, block_data: *const u8, data_length: i64) -> i64;
+>>>>>>> 91c534dd7890e359aa090e7314d020ca90c556ae
     pub fn receiveFinalization(
         baker: *mut baker_runner,
         peer_id: u64,
@@ -126,7 +130,11 @@ macro_rules! wrap_c_call_string {
 }
 
 macro_rules! wrap_send_data_to_c {
+<<<<<<< HEAD
     ($self:ident, $peer_id:ident, $data:expr, $c_call:expr) => {{
+=======
+    ($self:ident, $peer_id: ident, $data:expr, $c_call:expr) => {{
+>>>>>>> 91c534dd7890e359aa090e7314d020ca90c556ae
         let baker = $self.runner.load(Ordering::SeqCst);
         let len = $data.len();
         unsafe {
