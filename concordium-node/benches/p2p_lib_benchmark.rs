@@ -272,7 +272,7 @@ mod serialization {
             common::P2PNodeId,
             network::{
                 serialization::cbor::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder, NetworkResponse,
+                NetworkPacketBuilder,
             },
         };
 
@@ -415,27 +415,40 @@ mod serialization {
 
     #[cfg(feature = "s11n_nom")]
     pub mod nom {
-
-        use p2p_client::network::serialization::nom::s11n_network_message;
-
-        use crate::make_direct_message_header;
+        use crate::localhost_peer;
+        use p2p_client::network::{
+            serialization::nom::s11n_network_message, NetworkId, NetworkPacket,
+            ProtocolMessageType, ProtocolPacketType, PROTOCOL_NAME,
+        };
 
         use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
         use criterion::Criterion;
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
+            let header = format!(
+                "{}{}{}{}{}{}{}{}{:010}",
+                PROTOCOL_NAME,
+                "001",
+                base64::encode(&10u64.to_le_bytes()[..]),
+                ProtocolMessageType::Packet,
+                ProtocolPacketType::Direct,
+                localhost_peer().id(),
+                NetworkPacket::generate_message_id(),
+                NetworkId::from(111u16),
+                content_size
+            );
+
             let content: String = thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(content_size)
                 .collect();
 
-            let mut pkt = make_direct_message_header(content.len());
-            pkt.append(&mut content.into_bytes());
+            let pkt: String = [header, content].concat();
 
             let bench_id = format!("Benchmark NOM using {} bytes", content_size);
             c.bench_function(&bench_id, move |b| {
-                let data = &pkt.clone()[..];
+                let data = pkt.as_bytes();
                 b.iter(move || s11n_network_message(data));
             });
         }
