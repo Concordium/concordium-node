@@ -4,7 +4,10 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 
 use failure::Fallible;
 
-use std::{io::{Cursor, Read, Write}, mem::size_of};
+use std::{
+    io::{Cursor, Read, Write},
+    mem::size_of,
+};
 
 use crate::{block::BakerId, common::*};
 
@@ -57,8 +60,9 @@ impl BirkParameters {
             bakers,
         };
 
-        // serialization is not checked here due to the parameters being of an unknown size
-        // it is instead done while deserializing the parent object - GenesisData
+        // serialization is not checked here due to the parameters being of an unknown
+        // size it is instead done while deserializing the parent object -
+        // GenesisData
 
         Ok(params)
     }
@@ -76,7 +80,9 @@ impl BirkParameters {
 
         debug_assert_eq!(baker_cursor.position(), baker_cursor.get_ref().len() as u64);
 
-        let size = self.election_nonce.len() + size_of::<ElectionDifficulty>() + baker_cursor.get_ref().len();
+        let size = self.election_nonce.len()
+            + size_of::<ElectionDifficulty>()
+            + baker_cursor.get_ref().len();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_all(&self.election_nonce);
@@ -133,13 +139,16 @@ impl FinalizationParameters {
         let mut params = Vec::with_capacity(param_count);
 
         for _ in 0..param_count {
-            params.push(VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?);
+            params.push(VoterInfo::deserialize(&read_const_sized!(
+                cursor, VOTER_INFO
+            ))?);
         }
 
         let params = FinalizationParameters(params.into_boxed_slice());
 
-        // serialization is not checked here due to the parameters being of an unknown size
-        // it is instead done while deserializing the parent object - GenesisData
+        // serialization is not checked here due to the parameters being of an unknown
+        // size it is instead done while deserializing the parent object -
+        // GenesisData
 
         Ok(params)
     }

@@ -135,7 +135,7 @@ impl WmvbaMessage {
             5 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all(&mut cursor)?, false)?),
             6 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all(&mut cursor)?, true)?),
             7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all(
-                &mut cursor
+                &mut cursor,
             )?)?),
             8 => WmvbaMessage::AreWeDone(false),
             9 => WmvbaMessage::AreWeDone(true),
@@ -340,8 +340,7 @@ impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count =
-            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 

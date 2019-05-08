@@ -350,7 +350,7 @@ impl ConsensusContainer {
 
         ConsensusContainer {
             genesis_block: Arc::new(genesis_block),
-            bakers: Arc::new(RwLock::new(HashMap::new())),
+            bakers:        Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -422,10 +422,7 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn generate_data(
-        genesis_time: u64,
-        num_bakers: u64,
-    ) -> Fallible<(Vec<u8>, PrivateData)> {
+    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
@@ -619,9 +616,8 @@ mod tests {
     macro_rules! bakers_test {
         ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
             let (genesis_data, private_data) =
-                ConsensusContainer::generate_data($genesis_time, $num_bakers).unwrap_or_else(|_|
-                    panic!("Couldn't read Haskell data")
-                );
+                ConsensusContainer::generate_data($genesis_time, $num_bakers)
+                    .unwrap_or_else(|_| panic!("Couldn't read Haskell data"));
             let mut consensus_container = ConsensusContainer::new(genesis_data);
 
             for i in 0..$num_bakers {
