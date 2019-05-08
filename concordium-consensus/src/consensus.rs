@@ -23,17 +23,35 @@ pub struct baker_runner {
     private: [u8; 0],
 }
 
+type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
+type LogCallback = extern "C" fn(c_char, c_char, *const u8);
+type CatchupFinalizationRequestByBlockHashCallback = extern "C" fn(peer_id: u64, data: *const u8);
+type CatchupFinalizationRequestByFinalizationIndexCallback =
+    extern "C" fn(peer_id: u64, finalization_index: u64);
+type CatchupFinalizationMessagesSenderCallback =
+    extern "C" fn(peer_id: u64, payload: *const u8, payload_length: i64);
+type GenerateKeypairCallback = extern "C" fn(baker_id: i64, data: *const u8, data_length: i64);
+type GenerateGenesisDataCallback = extern "C" fn(data: *const u8, data_length: i64);
+
 extern "C" {
     pub fn startBaker(
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
-        bake_callback: extern "C" fn(i64, *const u8, i64),
-        log_callback: extern "C" fn(c_char, c_char, *const u8),
+        bake_callback: ConsensusDataOutCallback,
+        log_callback: LogCallback,
+        missing_block_callback: CatchupFinalizationRequestByBlockHashCallback,
+        missing_finalization_records_callback: CatchupFinalizationRequestByBlockHashCallback,
+        missing_finalization_messages_callback: CatchupFinalizationRequestByFinalizationIndexCallback,
     ) -> *mut baker_runner;
     pub fn printBlock(block_data: *const u8, data_length: i64);
-    pub fn receiveBlock(baker: *mut baker_runner, peer_id: u64, block_data: *const u8, data_length: i64) -> i64;
+    pub fn receiveBlock(
+        baker: *mut baker_runner,
+        peer_id: u64,
+        block_data: *const u8,
+        data_length: i64,
+    ) -> i64;
     pub fn receiveFinalization(
         baker: *mut baker_runner,
         peer_id: u64,
@@ -51,12 +69,8 @@ extern "C" {
     pub fn makeGenesisData(
         genesis_time: u64,
         num_bakers: u64,
-        genesis_callback: extern "C" fn(data: *const u8, data_length: i64),
-        baker_private_data_callback: extern "C" fn(
-            baker_id: i64,
-            data: *const u8,
-            data_length: i64,
-        ),
+        genesis_callback: GenerateGenesisDataCallback,
+        baker_private_data_callback: GenerateKeypairCallback,
     );
     pub fn getConsensusStatus(baker: *mut baker_runner) -> *const c_char;
     pub fn getBlockInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
@@ -76,6 +90,18 @@ extern "C" {
         baker: *mut baker_runner,
         block_hash: *const c_char,
     ) -> *const c_char;
+    pub fn getBlock(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
+    pub fn getBlockFinalization(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
+    pub fn getIndexedFinalization(baker: *mut baker_runner, finalization_index: u64) -> *const u8;
+    pub fn getFinalizationMessages(
+        baker: *mut baker_runner,
+        peer_id: u64,
+        request: *const u8,
+        request_lenght: i64,
+        callback: CatchupFinalizationMessagesSenderCallback,
+    ) -> i64;
+    // Call as entry upon new peer
+    pub fn getFinalizationPoint(baker: *mut baker_runner) -> *const u8;
     pub fn freeCStr(hstring: *const c_char);
 }
 
@@ -100,7 +126,7 @@ macro_rules! wrap_c_call_string {
 }
 
 macro_rules! wrap_send_data_to_c {
-    ($self:ident, $peer_id: ident, $data:expr, $c_call:expr) => {{
+    ($self:ident, $peer_id:ident, $data:expr, $c_call:expr) => {{
         let baker = $self.runner.load(Ordering::SeqCst);
         let len = $data.len();
         unsafe {
@@ -131,6 +157,15 @@ macro_rules! wrap_c_call_bytes {
     }};
 }
 
+macro_rules! wrap_c_call_void {
+    ($self:ident, $c_call:expr) => {{
+        let baker = $self.runner.load(Ordering::SeqCst);
+        unsafe {
+            $c_call(baker);
+        }
+    }};
+}
+
 impl ConsensusBaker {
     pub fn new(baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
         info!("Starting up baker {}", baker_id);
@@ -142,8 +177,11 @@ impl ConsensusBaker {
                 genesis_data.len() as i64,
                 c_string_private_data.as_ptr() as *const u8,
                 private_data.len() as i64,
-                on_block_baked,
+                on_consensus_data_out,
                 on_log_emited,
+                on_catchup_block_by_hash,
+                on_catchup_finalization_record_by_hash,
+                on_catchup_finalization_record_by_index,
             )
         };
         ConsensusBaker {
@@ -183,6 +221,10 @@ impl ConsensusBaker {
                 len as i64,
             )
         }
+    }
+
+    pub fn get_finalization_point(&self) -> Vec<u8> {
+        wrap_c_call_bytes!(self, |baker| getFinalizationPoint(baker))
     }
 
     pub fn get_consensus_status(&self) -> String {
@@ -231,16 +273,45 @@ impl ConsensusBaker {
             _contract_instance_address.as_ptr() as *const i8
         ))
     }
+
+    pub fn get_block(&self, _block_hash: &[u8]) -> Vec<u8> {
+        wrap_c_call_bytes!(self, |baker| getBlock(baker, _block_hash.as_ptr()))
+    }
+
+    pub fn get_block_finalization(&self, _block_hash: &[u8]) -> Vec<u8> {
+        wrap_c_call_bytes!(self, |baker| getBlockFinalization(
+            baker,
+            _block_hash.as_ptr()
+        ))
+    }
+
+    pub fn get_indexed_finalization(&self, index: u64) -> Vec<u8> {
+        wrap_c_call_bytes!(self, |baker| getIndexedFinalization(baker, index))
+    }
+
+    pub fn get_finalization_messages(&self, request: &[u8], peer_id: u64) {
+        wrap_c_call_void!(self, |baker| getFinalizationMessages(
+            baker,
+            peer_id,
+            request.as_ptr(),
+            request.len() as i64,
+            on_finalization_message_catchup_out
+        ));
+    }
 }
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block:               Arc<Mutex<mpsc::Receiver<Block>>>,
-    sender_block:                 Arc<Mutex<mpsc::Sender<Block>>>,
-    receiver_finalization:        Arc<Mutex<mpsc::Receiver<FinalizationMessage>>>,
-    sender_finalization:          Arc<Mutex<mpsc::Sender<FinalizationMessage>>>,
+    receiver_block: Arc<Mutex<mpsc::Receiver<Block>>>,
+    sender_block: Arc<Mutex<mpsc::Sender<Block>>>,
+    receiver_finalization: Arc<Mutex<mpsc::Receiver<FinalizationMessage>>>,
+    sender_finalization: Arc<Mutex<mpsc::Sender<FinalizationMessage>>>,
     receiver_finalization_record: Arc<Mutex<mpsc::Receiver<FinalizationRecord>>>,
-    sender_finalization_record:   Arc<Mutex<mpsc::Sender<FinalizationRecord>>>,
+    sender_finalization_record: Arc<Mutex<mpsc::Sender<FinalizationRecord>>>,
+    receiver_catchup_queue: Arc<Mutex<mpsc::Receiver<CatchupRequest>>>,
+    sender_catchup_queue: Arc<Mutex<mpsc::Sender<CatchupRequest>>>,
+    receiver_finalization_catchup_queue: Arc<Mutex<mpsc::Receiver<(u64, FinalizationMessage)>>>,
+    sender_finalization_catchup_queue: Arc<Mutex<mpsc::Sender<(u64, FinalizationMessage)>>>,
 }
 
 impl Default for ConsensusOutQueue {
@@ -249,13 +320,22 @@ impl Default for ConsensusOutQueue {
         let (sender_finalization, receiver_finalization) = mpsc::channel::<FinalizationMessage>();
         let (sender_finalization_record, receiver_finalization_record) =
             mpsc::channel::<FinalizationRecord>();
+        let (sender_catchup, receiver_catchup) = mpsc::channel::<CatchupRequest>();
+        let (sender_finalization_catchup, receiver_finalization_catchup) =
+            mpsc::channel::<(u64, FinalizationMessage)>();
         ConsensusOutQueue {
-            receiver_block:               Arc::new(Mutex::new(receiver)),
-            sender_block:                 Arc::new(Mutex::new(sender)),
-            receiver_finalization:        Arc::new(Mutex::new(receiver_finalization)),
-            sender_finalization:          Arc::new(Mutex::new(sender_finalization)),
+            receiver_block: Arc::new(Mutex::new(receiver)),
+            sender_block: Arc::new(Mutex::new(sender)),
+            receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
+            sender_finalization: Arc::new(Mutex::new(sender_finalization)),
             receiver_finalization_record: Arc::new(Mutex::new(receiver_finalization_record)),
-            sender_finalization_record:   Arc::new(Mutex::new(sender_finalization_record)),
+            sender_finalization_record: Arc::new(Mutex::new(sender_finalization_record)),
+            receiver_catchup_queue: Arc::new(Mutex::new(receiver_catchup)),
+            sender_catchup_queue: Arc::new(Mutex::new(sender_catchup)),
+            receiver_finalization_catchup_queue: Arc::new(Mutex::new(
+                receiver_finalization_catchup,
+            )),
+            sender_finalization_catchup_queue: Arc::new(Mutex::new(sender_finalization_catchup)),
         }
     }
 }
@@ -310,6 +390,41 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_finalization_record).try_recv())
     }
 
+    pub fn send_catchup(self, rec: CatchupRequest) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_catchup_queue).send(rec))
+    }
+
+    pub fn recv_catchup(self) -> Fallible<CatchupRequest> {
+        into_err!(safe_lock!(self.receiver_catchup_queue).recv())
+    }
+
+    pub fn recv_timeout_catchup(self, timeout: Duration) -> Fallible<CatchupRequest> {
+        into_err!(safe_lock!(self.receiver_catchup_queue).recv_timeout(timeout))
+    }
+
+    pub fn try_recv_catchup(self) -> Fallible<CatchupRequest> {
+        into_err!(safe_lock!(self.receiver_catchup_queue).try_recv())
+    }
+
+    pub fn send_finalization_catchup(self, rec: (u64, FinalizationMessage)) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_finalization_catchup_queue).send(rec))
+    }
+
+    pub fn recv_finalization_catchup(self) -> Fallible<(u64, FinalizationMessage)> {
+        into_err!(safe_lock!(self.receiver_finalization_catchup_queue).recv())
+    }
+
+    pub fn recv_timeout_finalization_catchup(
+        self,
+        timeout: Duration,
+    ) -> Fallible<(u64, FinalizationMessage)> {
+        into_err!(safe_lock!(self.receiver_finalization_catchup_queue).recv_timeout(timeout))
+    }
+
+    pub fn try_recv_finalization_catchup(self) -> Fallible<(u64, FinalizationMessage)> {
+        into_err!(safe_lock!(self.receiver_finalization_catchup_queue).try_recv())
+    }
+
     pub fn clear(&self) {
         if let Ok(ref mut q) = self.receiver_block.try_lock() {
             debug!("Drained queue for {} element(s)", q.try_iter().count());
@@ -318,6 +433,12 @@ impl ConsensusOutQueue {
             debug!("Drained queue for {} element(s)", q.try_iter().count());
         }
         if let Ok(ref mut q) = self.receiver_finalization_record.try_lock() {
+            debug!("Drained queue for {} element(s)", q.try_iter().count());
+        }
+        if let Ok(ref mut q) = self.receiver_catchup_queue.try_lock() {
+            debug!("Drained queue for {} element(s)", q.try_iter().count());
+        }
+        if let Ok(ref mut q) = self.receiver_finalization_catchup_queue.try_lock() {
             debug!("Drained queue for {} element(s)", q.try_iter().count());
         }
     }
@@ -510,6 +631,34 @@ impl ConsensusContainer {
             .next()
             .map(ConsensusBaker::get_last_final_instances)
     }
+
+    pub fn get_block(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
+        safe_read!(self.bakers)
+            .values()
+            .next()
+            .map(|baker| baker.get_block(block_hash))
+    }
+
+    pub fn get_block_finalization(&self, block_hash: &[u8]) -> Option<Vec<u8>> {
+        safe_read!(self.bakers)
+            .values()
+            .next()
+            .map(|baker| baker.get_block(block_hash))
+    }
+
+    pub fn get_indexed_finalization(&self, index: u64) -> Option<Vec<u8>> {
+        safe_read!(self.bakers)
+            .values()
+            .next()
+            .map(|baker| baker.get_indexed_finalization(index))
+    }
+
+    pub fn get_finalization_point(&self) -> Option<Vec<u8>> {
+        safe_read!(self.bakers)
+            .values()
+            .next()
+            .map(ConsensusBaker::get_finalization_point)
+    }
 }
 
 extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64) {
@@ -526,7 +675,7 @@ extern "C" fn on_private_data_generated(baker_id: i64, private_data: *const u8, 
     }
 }
 
-extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length: i64) {
+extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data_length: i64) {
     debug!("Callback hit - queueing message");
     unsafe {
         let s = slice::from_raw_parts(block_data as *const u8, data_length as usize);
@@ -559,6 +708,60 @@ extern "C" fn on_block_baked(block_type: i64, block_data: *const u8, data_length
                 Err(e) => error!("Deserialization of finalization record failed: {:?}", e),
             },
             _ => error!("Received invalid callback type"),
+        }
+    }
+}
+
+extern "C" fn on_catchup_block_by_hash(peer_id: u64, hash: *const u8) {
+    debug!("Got a request for catchup from consensus");
+    unsafe {
+        let s = slice::from_raw_parts(hash, 32).to_vec();
+        catchup_en_queue(CatchupRequest::BlockByHash(peer_id, s));
+    }
+}
+
+extern "C" fn on_catchup_finalization_record_by_hash(peer_id: u64, hash: *const u8) {
+    debug!("Got a request for catchup from consensus");
+    unsafe {
+        let s = slice::from_raw_parts(hash, 32).to_vec();
+        catchup_en_queue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
+    }
+}
+
+extern "C" fn on_catchup_finalization_record_by_index(peer_id: u64, index: u64) {
+    catchup_en_queue(CatchupRequest::FinalizationMesaagesByIndex(peer_id, index));
+}
+
+pub enum CatchupRequest {
+    BlockByHash(u64, Vec<u8>),
+    FinalizationRecordByHash(u64, Vec<u8>),
+    FinalizationMesaagesByIndex(u64, u64),
+}
+
+fn catchup_en_queue(req: CatchupRequest) {
+    match CALLBACK_QUEUE.clone().send_catchup(req) {
+        Ok(_) => {
+            debug!("Queueing catchup request");
+        }
+        _ => error!("Didn't queue catchup requestproperly"),
+    }
+}
+
+extern "C" fn on_finalization_message_catchup_out(peer_id: u64, data: *const u8, len: i64) {
+    debug!("Callback hit - queueing message");
+    unsafe {
+        let s = slice::from_raw_parts(data as *const u8, len as usize);
+        match FinalizationMessage::deserialize(s) {
+            Ok(msg) => match CALLBACK_QUEUE
+                .clone()
+                .send_finalization_catchup((peer_id, msg))
+            {
+                Ok(_) => {
+                    debug!("Queueing {} bytes of finalization", s.len());
+                }
+                _ => error!("Didn't queue finalization message properly"),
+            },
+            Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
         }
     }
 }
