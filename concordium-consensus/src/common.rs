@@ -1,7 +1,13 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
-use std::{fmt, hash::Hash, io::Write, num::NonZeroU64, ops::Deref};
+use std::{
+    fmt,
+    hash::Hash,
+    io::{Cursor, Read, Write},
+    num::NonZeroU64,
+    ops::Deref,
+};
 
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
@@ -63,19 +69,17 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("SessionId", bytes);
 
-        let mut curr_pos = 0;
+        let mut cursor = Cursor::new(bytes);
 
-        let genesis_block = HashBytes::new(&bytes[curr_pos..][..BLOCK_HASH]);
-        curr_pos += BLOCK_HASH;
-
-        let incarnation = (&bytes[curr_pos..][..INCARNATION]).read_u64::<NetworkEndian>()?;
+        let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
+        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, INCARNATION));
 
         let sess = SessionId {
             genesis_block,
             incarnation,
         };
 
-        check_serialization!(sess, bytes);
+        check_serialization!(sess, cursor);
 
         Ok(sess)
     }
@@ -83,13 +87,12 @@ impl SessionId {
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let mut bytes = [0u8; BLOCK_HASH + INCARNATION];
+        let mut cursor = create_serialization_cursor(BLOCK_HASH + INCARNATION);
 
-        let _ = (&mut bytes[..BLOCK_HASH]).write(&self.genesis_block);
+        let _ = cursor.write_all(&self.genesis_block);
+        let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
 
-        NetworkEndian::write_u64(&mut bytes[BLOCK_HASH..], self.incarnation);
-
-        bytes.to_vec()
+        cursor.into_inner().to_vec()
     }
 }
 
@@ -113,6 +116,12 @@ impl Deref for Encoded {
 
 impl fmt::Debug for Encoded {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len()) }
+}
+
+pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
+    let mut buf = vec![0; size];
+
+    Cursor::new(buf.into_boxed_slice())
 }
 
 // temporary type placeholders
