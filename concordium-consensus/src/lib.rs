@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[cfg(unix)]
 extern crate curryrsunix as curryrs;
 #[cfg(windows)]
@@ -26,13 +24,13 @@ macro_rules! check_serialization {
 
 macro_rules! debug_deserialization {
     ($target:expr, $bytes:expr) => {
-        debug!("Deserializing an object: {} ({}B)", $target, $bytes.len());
+        info!("Deserializing an object: {} ({}B)", $target, $bytes.len());
     };
 }
 
 macro_rules! debug_serialization {
     ($object:expr) => {
-        debug!("Serializing an object: {:?}", $object);
+        info!("Serializing an object: {:?}", $object);
     };
 }
 

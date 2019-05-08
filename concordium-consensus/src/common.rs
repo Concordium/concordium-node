@@ -3,7 +3,6 @@ use failure::Fallible;
 
 use std::{
     fmt,
-    hash::Hash,
     io::{Cursor, Read, Write},
     num::NonZeroU64,
     ops::Deref,
@@ -38,11 +37,7 @@ impl fmt::Debug for HashBytes {
     }
 }
 
-pub struct Hashed<T: Hash> {
-    unhashed: T,
-    hashed:   Sha256,
-}
-
+#[allow(dead_code)]
 pub struct ContractAddress {
     index:    u64,
     subindex: u64,

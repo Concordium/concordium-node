@@ -11,8 +11,6 @@ use std::{
 
 use crate::{block::*, common::*};
 
-const TRANSACTION_SIZE: usize = 2;
-const TRANSACTION_TYPE: usize = 1;
 const TRANSACTION_COUNT: usize = 8;
 
 #[derive(Debug)]
@@ -113,11 +111,13 @@ impl TryFrom<u8> for TransactionType {
     }
 }
 
+#[allow(dead_code)]
 pub struct AccountNonFinalizedTransactions {
-    map:        HashMap<Nonce, HashSet<Transaction>>,
+    map:        Vec<(Nonce, HashSet<Transaction>)>,
     next_nonce: Nonce,
 }
 
+#[allow(dead_code)]
 pub struct TransactionTable {
     map: HashMap<TransactionHash, (Transaction, Slot)>,
     non_finalized_transactions: HashMap<AccountAddress, AccountNonFinalizedTransactions>,

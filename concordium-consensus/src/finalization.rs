@@ -14,7 +14,6 @@ const WMVBA_TYPE: usize = 1;
 const VAL: usize = BLOCK_HASH;
 const PHASE: usize = 4;
 const TICKET: usize = 80;
-const ABBA_INPUT: usize = PHASE + TICKET;
 const PARTY: usize = 4;
 const DELAY: usize = BLOCK_HEIGHT;
 const SIGNATURE_COUNT: usize = 8;
