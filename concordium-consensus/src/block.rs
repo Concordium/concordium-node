@@ -20,39 +20,8 @@ const PAYLOAD_SIZE: usize = 2;
 const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
 const BLOCK_BODY: usize = 8;
-const SIGNATURE: usize = 64 + 8; // FIXME: unknown 8B prefix
+const SIGNATURE: usize = 8 + 64; // FIXME: unnecessary 8B prefix
 pub const BLOCK_HEIGHT: usize = 8;
-
-#[derive(Debug)]
-pub struct Block {
-    slot: Slot,
-    data: BlockData,
-}
-
-#[derive(Debug)]
-pub enum BlockData {
-    GenesisData(GenesisData),
-    RegularData(RegularData),
-}
-
-#[derive(Debug)]
-pub struct GenesisData {
-    timestamp:               Timestamp,
-    slot_duration:           Duration,
-    birk_parameters:         BirkParameters,
-    finalization_parameters: FinalizationParameters,
-}
-
-#[derive(Debug)]
-pub struct RegularData {
-    pointer:        BlockHash,
-    baker_id:       BakerId,
-    proof:          Encoded,
-    nonce:          Encoded,
-    last_finalized: BlockHash,
-    transactions:   Transactions,
-    signature:      Encoded,
-}
 
 macro_rules! get_block_content {
     ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
@@ -76,6 +45,12 @@ macro_rules! get_block_content_ref {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct Block {
+    pub slot: Slot,
+    pub data: BlockData,
 }
 
 impl Block {
@@ -109,68 +84,49 @@ impl Block {
 
     get_block_content_ref!(transactions_ref, Transactions, transactions, "transactions");
 
-    get_block_content!(signature, Encoded, signature, "signature");
+    get_block_content!(signature, ByteString, signature, "signature");
 
-    get_block_content_ref!(signature_ref, Encoded, signature, "signature");
+    get_block_content_ref!(signature_ref, ByteString, signature, "signature");
 
-    // FIXME: only works for regular blocks for now
+    pub fn get_genesis_data(&self) -> &GenesisData {
+        if let BlockData::GenesisData(ref data) = self.data {
+            data
+        } else {
+            panic!("Attempted to obtain genesis data from a regular block!");
+        }
+    }
+
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Block", bytes);
 
         let mut cursor = Cursor::new(bytes);
 
-        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, SLOT));
-        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
-        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, BAKER_ID));
-        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
-        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
-        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE;
-        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
-        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
+        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
-        let block = Block {
-            slot,
-            data: BlockData::RegularData(RegularData {
-                pointer,
-                baker_id,
-                proof,
-                nonce,
-                last_finalized,
-                transactions,
-                signature,
-            }),
+        let data = match slot {
+            0 => BlockData::GenesisData(GenesisData::deserialize(&read_all(&mut cursor)?)?),
+            _ => BlockData::RegularData(RegularData::deserialize(&read_all(&mut cursor)?)?),
         };
+
+        let block = Block { slot, data };
 
         check_serialization!(block, cursor);
 
         Ok(block)
     }
 
-    // FIXME: only works for regular blocks for now
     pub fn serialize(&self) -> Vec<u8> {
         debug_serialization!(self);
 
-        let transactions = Transactions::serialize(self.transactions_ref());
+        let data = match self.data {
+            BlockData::GenesisData(ref data) => data.serialize(),
+            BlockData::RegularData(ref data) => data.serialize(),
+        };
 
-        let target_size = SLOT
-            + POINTER
-            + BAKER_ID
-            + PROOF_LENGTH
-            + NONCE
-            + LAST_FINALIZED
-            + transactions.len()
-            + SIGNATURE;
-        let mut cursor = create_serialization_cursor(target_size);
+        let mut cursor = create_serialization_cursor(SLOT + data.len());
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
-        let _ = cursor.write_all(self.pointer_ref());
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id());
-        let _ = cursor.write_all(self.proof_ref());
-        let _ = cursor.write_all(self.nonce_ref());
-        let _ = cursor.write_all(&self.last_finalized());
-        let _ = cursor.write_all(&transactions);
-        let _ = cursor.write_all(self.signature_ref());
+        let _ = cursor.write_all(&data);
 
         cursor.into_inner().into_vec()
     }
@@ -178,6 +134,113 @@ impl Block {
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
+}
+
+#[derive(Debug)]
+pub enum BlockData {
+    GenesisData(GenesisData),
+    RegularData(RegularData),
+}
+
+#[derive(Debug)]
+pub struct GenesisData {
+    timestamp:               Timestamp,
+    slot_duration:           Duration,
+    birk_parameters:         BirkParameters,
+    finalization_parameters: FinalizationParameters,
+}
+
+impl GenesisData {
+    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
+        let finalization_parameters = FinalizationParameters::deserialize(&mut cursor)?;
+
+        let data = GenesisData {
+            timestamp,
+            slot_duration,
+            birk_parameters,
+            finalization_parameters,
+        };
+
+        check_serialization!(data, cursor);
+
+        Ok(data)
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let birk_params = BirkParameters::serialize(&self.birk_parameters);
+        let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
+
+        let size = TIMESTAMP + SLOT_DURATION + birk_params.len() + finalization_params.len();
+        let mut cursor = create_serialization_cursor(size);
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
+        let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
+        let _ = cursor.write_all(&birk_params);
+        let _ = cursor.write_all(&finalization_params);
+
+        cursor.into_inner().into_vec()
+    }
+}
+
+#[derive(Debug)]
+pub struct RegularData {
+    pointer:        BlockHash,
+    baker_id:       BakerId,
+    proof:          Encoded,
+    nonce:          Encoded,
+    last_finalized: BlockHash,
+    transactions:   Transactions,
+    signature:      ByteString,
+}
+
+impl RegularData {
+    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
+        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
+        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
+        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
+        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE;
+        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
+        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
+
+        let data = RegularData {
+            pointer,
+            baker_id,
+            proof,
+            nonce,
+            last_finalized,
+            transactions,
+            signature,
+        };
+
+        check_serialization!(data, cursor);
+
+        Ok(data)
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let transactions = Transactions::serialize(&self.transactions);
+        let consts = POINTER + BAKER_ID + PROOF_LENGTH + NONCE + LAST_FINALIZED + SIGNATURE;
+        let mut cursor = create_serialization_cursor(consts + transactions.len());
+
+        let _ = cursor.write_all(&self.pointer);
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id);
+        let _ = cursor.write_all(&self.proof);
+        let _ = cursor.write_all(&self.nonce);
+        let _ = cursor.write_all(&self.last_finalized);
+        let _ = cursor.write_all(&transactions);
+        let _ = cursor.write_all(&self.signature);
+
+        cursor.into_inner().into_vec()
+    }
 }
 
 pub type BakerId = u64;
