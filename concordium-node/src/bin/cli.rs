@@ -13,7 +13,11 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+<<<<<<< HEAD
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+=======
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+>>>>>>> moved catchup outbound logic in
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
