@@ -27,7 +27,7 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{get_current_stamp, P2PNodeId, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration,
     connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
@@ -355,7 +355,6 @@ fn setup_process_output(
             baker_ins: &mut Option<consensus::ConsensusContainer>,
             peer_id: P2PNodeId,
             mut msg: UCursor,
-            message_id: String,
         ) -> Fallible<()> {
             if let Some(ref mut baker) = baker_ins {
                 ensure!(
@@ -371,21 +370,12 @@ fn setup_process_output(
                 match consensus_type {
                     consensus::PACKET_TYPE_CONSENSUS_BLOCK => {
                         let block = Block::deserialize(content)?;
-
-                        match client_utils::add_transmission_to_seenlist(
-                            client_utils::SeenTransmissionType::Block,
-                            message_id,
-                            get_current_stamp(),
-                            &content,
-                        ) {
-                            Ok(_) => match baker.send_block(peer_id.0, &block) {
-                                0i64 => info!("Sent block from network to baker"),
-                                x => error!(
-                                    "Can't send block from network to baker due to error code #{}",
-                                    x
-                                ),
-                            },
-                            Err(err) => error!("Can't store block in transmission list {}", err),
+                        match baker.send_block(peer_id.0, &block) {
+                            0i64 => info!("Sent block from network to baker"),
+                            x => error!(
+                                "Can't send block from network to baker due to error code #{}",
+                                x
+                            ),
                         }
                     }
                     consensus::PACKET_TYPE_CONSENSUS_TRANSACTION => {
@@ -393,32 +383,14 @@ fn setup_process_output(
                         info!("Sent transaction to baker");
                     }
                     consensus::PACKET_TYPE_CONSENSUS_FINALIZATION => {
-                        match client_utils::add_transmission_to_seenlist(
-                            client_utils::SeenTransmissionType::Finalization,
-                            message_id,
-                            get_current_stamp(),
-                            &content,
-                        ) {
-                            Ok(_) => {
-                                baker.send_finalization(
-                                    peer_id.0,
-                                    &FinalizationMessage::deserialize(content)?,
-                                );
-                                info!("Sent finalization package to consensus layer");
-                            }
-                            Err(err) => {
-                                error!("Can't store finalization in transmission list {}", err)
-                            }
-                        }
+                        baker.send_finalization(
+                            peer_id.0,
+                            &FinalizationMessage::deserialize(content)?,
+                        );
+                        info!("Sent finalization package to consensus layer");
                     }
                     consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => {
-                        match client_utils::add_transmission_to_seenlist(
-                            client_utils::SeenTransmissionType::FinalizationRecord,
-                            message_id,
-                            get_current_stamp(),
-                            &content,
-                        ) {
-                            Ok(_) => match baker.send_finalization_record(
+                        match baker.send_finalization_record(
                                 peer_id.0,
                                 &FinalizationRecord::deserialize(content)?,
                             ) {
@@ -428,12 +400,7 @@ fn setup_process_output(
                                      error code #{}",
                                     x
                                 ),
-                            },
-                            Err(err) => error!(
-                                "Can't store finalization record in transmission list {}",
-                                err
-                            ),
-                        }
+                            }
                     }
                     consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH => {
                         // TODO : Impl
@@ -504,7 +471,6 @@ fn setup_process_output(
                             &mut _baker_pkt_clone,
                             pac.peer.id(),
                             pac.message.clone(),
-                            (*pac.message_id).to_string(),
                         ) {
                             error!("Send network message to baker has failed: {:?}", e);
                         }
