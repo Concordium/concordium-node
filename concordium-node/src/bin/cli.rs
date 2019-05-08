@@ -13,7 +13,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
     lock_or_die, safe_lock, spawn_or_die, UCursor,
@@ -53,10 +53,6 @@ use std::{
 };
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
-const PACKET_TYPE_CONSENSUS_BLOCK: u16 = 0;
-const PACKET_TYPE_CONSENSUS_TRANSACTION: u16 = 1;
-const PACKET_TYPE_CONSENSUS_FINALIZATION: u16 = 2;
-const PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD: u16 = 3;
 
 fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     // Get config and app preferences
@@ -114,34 +110,18 @@ fn setup_baker_guards(
                 Ok(block) => {
                     let bytes = block.serialize();
                     let mut out_bytes = vec![];
-                    let msg_id = NetworkPacket::generate_message_id();
-                    match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
+                    match out_bytes
+                        .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_BLOCK)
+                    {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
-                            match &_node_ref.send_message(
-                                None,
-                                _network_id,
-                                Some(msg_id.clone()),
-                                out_bytes,
-                                true,
-                            ) {
-                                Ok(_) => {
-                                    client_utils::add_transmission_to_seenlist(
-                                        client_utils::SeenTransmissionType::Block,
-                                        msg_id,
-                                        get_current_stamp(),
-                                        &bytes,
-                                    )
-                                    .map_err(|err| {
-                                        error!("Can't store block in transmission list {}", err)
-                                    })
-                                    .ok();
-                                    info!(
-                                        "Broadcasted block {}/{}",
-                                        block.slot_id(),
-                                        block.baker_id()
-                                    )
-                                }
+                            match &_node_ref.send_message(None, _network_id, None, out_bytes, true)
+                            {
+                                Ok(_) => info!(
+                                    "Broadcasted block {}/{}",
+                                    block.slot_id(),
+                                    block.baker_id()
+                                ),
                                 Err(_) => error!("Couldn't broadcast block!"),
                             }
                         }
@@ -158,35 +138,19 @@ fn setup_baker_guards(
                 Ok(msg) => {
                     let bytes = msg.serialize();
                     let mut out_bytes = vec![];
-                    let msg_id = NetworkPacket::generate_message_id();
                     match out_bytes
-                        .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION as u16)
+                        .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION)
                     {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_2.send_message(
                                 None,
                                 _network_id,
-                                Some(msg_id.clone()),
+                                None,
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => {
-                                    client_utils::add_transmission_to_seenlist(
-                                        client_utils::SeenTransmissionType::Finalization,
-                                        msg_id,
-                                        get_current_stamp(),
-                                        &bytes,
-                                    )
-                                    .map_err(|err| {
-                                        error!(
-                                            "Can't store finalization in transmission list {}",
-                                            err
-                                        )
-                                    })
-                                    .ok();
-                                    info!("Broadcasted finalization packet");
-                                }
+                                Ok(_) => info!("Broadcasted finalization packet"),
                                 Err(_) => error!("Couldn't broadcast finalization packet!"),
                             }
                         }
@@ -203,10 +167,9 @@ fn setup_baker_guards(
                 Ok(rec) => {
                     let bytes = rec.serialize();
                     let mut out_bytes = vec![];
-                    let msg_id = NetworkPacket::generate_message_id();
-                    match out_bytes
-                        .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD as u16)
-                    {
+                    match out_bytes.write_u16::<NetworkEndian>(
+                        consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+                    ) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_3.send_message(
@@ -216,23 +179,7 @@ fn setup_baker_guards(
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => {
-                                    client_utils::add_transmission_to_seenlist(
-                                        client_utils::SeenTransmissionType::FinalizationRecord,
-                                        msg_id,
-                                        get_current_stamp(),
-                                        &bytes,
-                                    )
-                                    .map_err(|err| {
-                                        error!(
-                                            "Can't store finalization record in transmission list \
-                                             {}",
-                                            err
-                                        )
-                                    })
-                                    .ok();
-                                    info!("Broadcasted finalization record");
-                                }
+                                Ok(_) => info!("Broadcasted finalization record"),
                                 Err(_) => error!("Couldn't broadcast finalization record!"),
                             }
                         }
@@ -240,6 +187,56 @@ fn setup_baker_guards(
                     }
                 }
                 _ => error!("Error receiving finalization record from baker"),
+            }
+        });
+        let _baker_clone_4 = baker.to_owned();
+        let mut _node_ref_4 = node.clone();
+        spawn_or_die!("Process baker finalization records output", move || loop {
+            match _baker_clone_4.out_queue().recv_catchup() {
+                Ok(msg) => {
+                    let (receiver_id, serialized_bytes) = match msg {
+                        consensus::CatchupRequest::BlockByHash(receiver_id, bytes) => {
+                            let mut inner_out_bytes = vec![];
+                            inner_out_bytes
+                                .write_u16::<NetworkEndian>(
+                                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH,
+                                )
+                                .expect("Can't write to buffer");
+                            inner_out_bytes.extend(bytes);
+                            (receiver_id, inner_out_bytes.to_owned())
+                        }
+                        consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
+                            let mut inner_out_bytes = vec![];
+                            inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH).expect("Can't write to buffer");
+                            inner_out_bytes.extend(bytes);
+                            (receiver_id, inner_out_bytes.to_owned())
+                        }
+                        consensus::CatchupRequest::FinalizationRecordByIndex(
+                            receiver_id,
+                            index,
+                        ) => {
+                            let mut inner_out_bytes = vec![];
+                            inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX).expect("Can't write to buffer");
+                            inner_out_bytes
+                                .write_u64::<NetworkEndian>(index)
+                                .expect("Can't write to buffer");
+                            (receiver_id, inner_out_bytes.to_owned())
+                        }
+                    };
+                    let mut out_bytes = vec![];
+                    out_bytes.extend(serialized_bytes);
+                    match &_node_ref_4.send_message(
+                        Some(P2PNodeId(receiver_id)),
+                        _network_id,
+                        None,
+                        out_bytes,
+                        false,
+                    ) {
+                        Ok(_) => info!("Broadcasted finalization record"),
+                        Err(_) => error!("Couldn't broadcast finalization record!"),
+                    }
+                }
+                Err(_) => error!("Can't read from queue"),
             }
         });
     }
@@ -444,12 +441,12 @@ fn setup_higher_process_output(
                     PAYLOAD_TYPE_LENGTH
                 );
 
-                let consensus_type = msg.read_u16::<BigEndian>()?;
+                let consensus_type = msg.read_u16::<NetworkEndian>()?;
                 let view = msg.read_all_into_view()?;
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => {
+                    consensus::PACKET_TYPE_CONSENSUS_BLOCK => {
                         let block = Block::deserialize(content)?;
 
                         match client_utils::add_transmission_to_seenlist(
@@ -458,7 +455,7 @@ fn setup_higher_process_output(
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_block(peer_id.0,&block) {
+                            Ok(_) => match baker.send_block(peer_id.0, &block) {
                                 0i64 => info!("Sent block from network to baker"),
                                 x => error!(
                                     "Can't send block from network to baker due to error code #{}",
@@ -468,11 +465,11 @@ fn setup_higher_process_output(
                             Err(err) => error!("Can't store block in transmission list {}", err),
                         }
                     }
-                    PACKET_TYPE_CONSENSUS_TRANSACTION => {
+                    consensus::PACKET_TYPE_CONSENSUS_TRANSACTION => {
                         baker.send_transaction(content);
                         info!("Sent transaction to baker");
                     }
-                    PACKET_TYPE_CONSENSUS_FINALIZATION => {
+                    consensus::PACKET_TYPE_CONSENSUS_FINALIZATION => {
                         match client_utils::add_transmission_to_seenlist(
                             client_utils::SeenTransmissionType::Finalization,
                             message_id,
@@ -480,8 +477,10 @@ fn setup_higher_process_output(
                             &content,
                         ) {
                             Ok(_) => {
-                                baker
-                                    .send_finalization(peer_id.0, &FinalizationMessage::deserialize(content)?);
+                                baker.send_finalization(
+                                    peer_id.0,
+                                    &FinalizationMessage::deserialize(content)?,
+                                );
                                 info!("Sent finalization package to consensus layer");
                             }
                             Err(err) => {
@@ -489,14 +488,15 @@ fn setup_higher_process_output(
                             }
                         }
                     }
-                    PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => {
+                    consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => {
                         match client_utils::add_transmission_to_seenlist(
                             client_utils::SeenTransmissionType::FinalizationRecord,
                             message_id,
                             get_current_stamp(),
                             &content,
                         ) {
-                            Ok(_) => match baker.send_finalization_record(peer_id.0,
+                            Ok(_) => match baker.send_finalization_record(
+                                peer_id.0,
                                 &FinalizationRecord::deserialize(content)?,
                             ) {
                                 0i64 => info!("Sent finalization record from network to baker"),
@@ -591,7 +591,7 @@ fn setup_higher_process_output(
                                     peer.id(),
                                     network_id,
                                     msg_id,
-                                    PACKET_TYPE_CONSENSUS_BLOCK,
+                                    consensus::PACKET_TYPE_CONSENSUS_BLOCK,
                                     pkt,
                                 );
                             })
@@ -609,7 +609,7 @@ fn setup_higher_process_output(
                                     peer.id(),
                                     network_id,
                                     msg_id,
-                                    PACKET_TYPE_CONSENSUS_FINALIZATION,
+                                    consensus::PACKET_TYPE_CONSENSUS_FINALIZATION,
                                     pkt,
                                 );
                             })
@@ -630,7 +630,7 @@ fn setup_higher_process_output(
                                     peer.id(),
                                     network_id,
                                     msg_id,
-                                    PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+                                    consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
                                     pkt,
                                 );
                             })
@@ -918,7 +918,7 @@ fn send_retransmit_packet(
     data: &[u8],
 ) {
     let mut out_bytes = vec![];
-    match out_bytes.write_u16::<BigEndian>(payload_type as u16) {
+    match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
             match node.send_message(

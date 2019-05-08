@@ -20,6 +20,16 @@ use std::{
 
 use crate::{block::*, finalization::*};
 
+pub const PACKET_TYPE_CONSENSUS_BLOCK: u16 = 0;
+pub const PACKET_TYPE_CONSENSUS_TRANSACTION: u16 = 1;
+pub const PACKET_TYPE_CONSENSUS_FINALIZATION: u16 = 2;
+pub const PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD: u16 = 3;
+pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH: u16 = 4;
+pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH: u16 = 5;
+pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX: u16 = 6;
+pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT: u16 = 7;
+
+
 #[repr(C)]
 pub struct baker_runner {
     private: [u8; 0],
@@ -775,13 +785,13 @@ extern "C" fn on_catchup_finalization_record_by_hash(peer_id: u64, hash: *const 
 }
 
 extern "C" fn on_catchup_finalization_record_by_index(peer_id: u64, index: u64) {
-    catchup_en_queue(CatchupRequest::FinalizationMesaagesByIndex(peer_id, index));
+    catchup_en_queue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
 }
 
 pub enum CatchupRequest {
     BlockByHash(u64, Vec<u8>),
     FinalizationRecordByHash(u64, Vec<u8>),
-    FinalizationMesaagesByIndex(u64, u64),
+    FinalizationRecordByIndex(u64, u64),
 }
 
 fn catchup_en_queue(req: CatchupRequest) {
