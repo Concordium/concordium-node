@@ -778,6 +778,46 @@ fn main() -> Fallible<()> {
         None
     };
 
+    if let Some(ref baker) = baker {
+        // Register handler for sending out a consensus catch-up request after handshake
+        // by finalization point.
+        let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
+        let baker_clone = baker.clone();
+        let message_handshake_response_handler =
+            read_or_die!(cloned_handshake_response_node).message_handler();
+        safe_write!(message_handshake_response_handler)?.add_response_callback(make_atomic_callback!(
+            move |msg: &NetworkResponse| {
+                if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
+                    if let Some(net) = nets.iter().next() {
+                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
+                        if let Some(bytes) = baker_clone.get_finalization_point() {
+                            let mut out_bytes = vec![];
+                            match out_bytes
+                                .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT)
+                                {
+                                    Ok(_) => {
+                                        out_bytes.extend(&bytes);
+                                        match locked_cloned_node.send_message(Some(remote_peer.id()), *net, None, out_bytes, false)
+                                        {
+                                            Ok(_) => info!(
+                                                "Sent request for current round finalization messages by point to {}",
+                                                remote_peer.id()
+                                            ),
+                                            Err(_) => error!("Couldn't broadcast block!"),
+                                        }
+                                    }
+                                    Err(_) => error!("Can't write type to packet"),
+                                }
+                        }
+                    } else {
+                        error!("Handshake without network, so can't ask for finalization messages");
+                    }
+                }
+                Ok(())
+            }
+        ));
+    }
+
     // Starting rpc server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
