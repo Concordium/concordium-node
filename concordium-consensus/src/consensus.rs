@@ -841,7 +841,7 @@ extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const 
 }
 
 /// Following the implementation of the log crate, error = 1, warning = 2, info
-/// = 3, any other option is considered as debug.
+/// = 3, 4 = debug, any other option is considered as trace.
 extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: *const u8) {
     fn identifier_to_string(id: c_char) -> &'static str {
         match id {
