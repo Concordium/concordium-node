@@ -151,7 +151,7 @@ fn main() -> Result<(), Error> {
     client_utils::start_push_gateway(
         &conf.prometheus,
         &stats_export_service,
-        safe_read!(node)?.id(),
+        node.id(),
     )?;
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
