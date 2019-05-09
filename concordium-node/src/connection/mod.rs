@@ -588,7 +588,7 @@ impl Connection {
         if self.local_peer_type() == PeerType::Bootstrapper {
             let buf = &self.pkt_buffer;
             if buf.len() > NETWORK_MESSAGE_PROTOCOL_TYPE_IDX {
-                // On Bootstrapper, any `packet` or unknow type messages are invalid.
+                // On Bootstrapper, any `packet` or unknown type messages are invalid.
                 let protocol_type =
                     ProtocolMessageType::try_from(buf[NETWORK_MESSAGE_PROTOCOL_TYPE_IDX])
                         .unwrap_or(ProtocolMessageType::Packet);

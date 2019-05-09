@@ -1,5 +1,3 @@
-#[macro_use]
-pub mod serialization;
 pub mod buckets;
 pub mod message;
 pub mod network_id;
@@ -7,6 +5,7 @@ pub mod packet;
 pub mod protocol_message_type;
 pub mod request;
 pub mod response;
+pub mod serialization;
 
 pub use self::{
     buckets::Buckets,
