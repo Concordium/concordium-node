@@ -7,11 +7,10 @@ use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
     io::{Cursor, Read, Write},
+    mem::size_of,
 };
 
 use crate::{block::*, common::*};
-
-const TRANSACTION_COUNT: u8 = 8;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
@@ -46,6 +45,8 @@ impl Transaction {
     }
 }
 
+type TransactionCount = u64;
+
 #[derive(Debug)]
 pub struct Transactions(Vec<Transaction>);
 
@@ -53,7 +54,7 @@ impl Transactions {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let transaction_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let transaction_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<TransactionCount>()));
 
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
@@ -71,7 +72,7 @@ impl Transactions {
 
     pub fn serialize(&self) -> Box<[u8]> {
         // FIXME: add an estimated size of all Transactions
-        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT as usize);
+        let mut cursor = create_serialization_cursor(size_of::<TransactionCount>());
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

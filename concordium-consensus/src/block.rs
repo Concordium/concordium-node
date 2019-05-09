@@ -4,20 +4,15 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::Utc;
 use failure::Fallible;
 
-use std::io::{Cursor, Read, Write};
+use std::{io::{Cursor, Read, Write}, mem::size_of};
 
 use crate::{common::*, parameters::*, transaction::*};
 
-const SLOT: u8 = 8;
 pub const BLOCK_HASH: u8 = SHA256;
 const POINTER: u8 = BLOCK_HASH;
-const BAKER_ID: u8 = 8;
 const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
 const LAST_FINALIZED: u8 = BLOCK_HASH;
-const TIMESTAMP: u8 = 8;
-const SLOT_DURATION: u8 = 8;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
-pub const BLOCK_HEIGHT: u8 = 8;
 
 macro_rules! get_block_content {
     ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
@@ -117,7 +112,7 @@ impl Block {
             BlockData::RegularData(ref data) => data.serialize(),
         };
 
-        let mut cursor = create_serialization_cursor(SLOT as usize + data.len());
+        let mut cursor = create_serialization_cursor(size_of::<Slot>() + data.len());
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
         let _ = cursor.write_all(&data);
@@ -169,7 +164,7 @@ impl GenesisData {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
-        let size = TIMESTAMP as usize + SLOT_DURATION as usize + birk_params.len() + finalization_params.len();
+        let size = size_of::<Timestamp>() + size_of::<Duration>() + birk_params.len() + finalization_params.len();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
@@ -222,7 +217,7 @@ impl RegularData {
 
     pub fn serialize(&self) -> Box<[u8]> {
         let transactions = Transactions::serialize(&self.transactions);
-        let consts = POINTER as usize + BAKER_ID as usize + PROOF_LENGTH + NONCE as usize + LAST_FINALIZED as usize + SIGNATURE as usize;
+        let consts = POINTER as usize + size_of::<BakerId>() + PROOF_LENGTH + NONCE as usize + LAST_FINALIZED as usize + SIGNATURE as usize;
         let mut cursor = create_serialization_cursor(consts + transactions.len());
 
         let _ = cursor.write_all(&self.pointer);

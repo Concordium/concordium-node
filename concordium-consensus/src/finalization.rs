@@ -1,22 +1,15 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
-use std::io::{Cursor, Read, Write};
+use std::{io::{Cursor, Read, Write}, mem::size_of};
 
 use crate::{block::*, common::*};
 
-const HEADER: u8 = 60;
-const INDEX: u8 = 8;
-const DELTA: u8 = 8;
-const SENDER: u8 = 4;
+const HEADER: u8 = SESSION_ID as u8 + size_of::<FinalizationIndex>() as u8 + size_of::<BlockHeight>() as u8 + size_of::<Party>() as u8;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = BLOCK_HASH;
-const PHASE: u8 = 4;
 const TICKET: u8 = 80;
-const PARTY: u8 = 4;
-const DELAY: u8 = BLOCK_HEIGHT;
-const SIGNATURE_COUNT: u8 = 8;
 
 #[derive(Debug)]
 pub struct FinalizationMessage {
@@ -93,7 +86,7 @@ impl FinalizationMessageHeader {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(SESSION_ID as usize + INDEX as usize + DELTA as usize + SENDER as usize);
+        let mut cursor = create_serialization_cursor(SESSION_ID as usize + size_of::<FinalizationIndex>() + size_of::<BlockHeight>() + size_of::<Party>());
 
         let _ = cursor.write_all(&self.session_id.serialize());
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
@@ -212,7 +205,7 @@ impl AbbaInput {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(PHASE as usize + TICKET as usize);
+        let mut cursor = create_serialization_cursor(size_of::<Phase>() + TICKET as usize);
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
         let _ = cursor.write_all(&self.ticket);
@@ -243,7 +236,7 @@ impl CssSeen {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(PHASE as usize + PARTY as usize);
+        let mut cursor = create_serialization_cursor(size_of::<Phase>() + size_of::<Party>());
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
         let _ = cursor.write_u32::<NetworkEndian>(self.party);
@@ -279,7 +272,7 @@ impl CssDoneReporting {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(PHASE as usize + self.rest.len());
+        let mut cursor = create_serialization_cursor(size_of::<Phase>() + self.rest.len());
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
         let _ = cursor.write_all(&self.rest);
@@ -304,7 +297,7 @@ impl FinalizationRecord {
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
-        let proof_size = bytes.len() - cursor.position() as usize - DELAY as usize;
+        let proof_size = bytes.len() - cursor.position() as usize - size_of::<BlockHeight>();
         let proof = FinalizationProof::deserialize(&read_sized!(&mut cursor, proof_size))?;
         let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
@@ -324,7 +317,7 @@ impl FinalizationRecord {
         let proof = self.proof.serialize();
 
         let mut cursor =
-            create_serialization_cursor(INDEX as usize + self.block_pointer.len() + proof.len() + DELAY as usize);
+            create_serialization_cursor(size_of::<FinalizationIndex>() + self.block_pointer.len() + proof.len() + size_of::<BlockHeight>());
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
@@ -335,6 +328,8 @@ impl FinalizationRecord {
     }
 }
 
+type SignatureCount = u64;
+
 #[derive(Debug)]
 struct FinalizationProof(Vec<(u32, Encoded)>);
 
@@ -342,7 +337,7 @@ impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<SignatureCount>()));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
@@ -363,7 +358,7 @@ impl FinalizationProof {
 
     pub fn serialize(&self) -> Box<[u8]> {
         let mut cursor =
-            create_serialization_cursor(SIGNATURE_COUNT as usize + self.0.len() * (4 + SIGNATURE as usize));
+            create_serialization_cursor(size_of::<SignatureCount>() + self.0.len() * (4 + SIGNATURE as usize));
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

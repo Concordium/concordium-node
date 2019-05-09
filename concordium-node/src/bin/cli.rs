@@ -117,7 +117,7 @@ fn setup_baker_guards(
                     let msg_id = NetworkPacket::generate_message_id();
                     match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
                         Ok(_) => {
-                            out_bytes.extend(&bytes);
+                            out_bytes.extend(&*bytes);
                             match &_node_ref.send_message(
                                 None,
                                 _network_id,
@@ -163,7 +163,7 @@ fn setup_baker_guards(
                         .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION as u16)
                     {
                         Ok(_) => {
-                            out_bytes.extend(&bytes);
+                            out_bytes.extend(&*bytes);
                             match &_node_ref_2.send_message(
                                 None,
                                 _network_id,
@@ -208,7 +208,7 @@ fn setup_baker_guards(
                         .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD as u16)
                     {
                         Ok(_) => {
-                            out_bytes.extend(&bytes);
+                            out_bytes.extend(&*bytes);
                             match &_node_ref_3.send_message(
                                 None,
                                 _network_id,
