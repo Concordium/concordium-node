@@ -247,8 +247,9 @@ instance (Monad m, MonadState s m) => TS.BlockStateQuery (SkovTreeState s m) whe
       return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
   
 
+type instance TS.UpdatableBlockState (SkovTreeState s m) = BlockState
+
 instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m) where
-    type UpdatableBlockState (SkovTreeState s m) = BlockState
 
     {-# INLINE bsoGetModule #-}
     bsoGetModule bs mref = 
@@ -289,8 +290,10 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     bsoModifyAccount bs account = return $
         bs & blockAccounts %~ Account.putAccount account
 
+
+type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
+
 instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
-    type BlockPointer (SkovTreeState s m) = BlockPointer
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st arrTime = do
             let blockP = makeBlockPointer block parent lastFin st arrTime

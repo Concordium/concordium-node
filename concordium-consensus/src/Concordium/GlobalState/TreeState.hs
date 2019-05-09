@@ -119,6 +119,8 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Number of transactions in a block
     bpTransactionCount :: bp -> Int
 
+type family BlockPointer (m :: * -> *) :: *
+
 type BlockState (m :: * -> *) = BlockState' (BlockPointer m)
 
 
@@ -140,12 +142,12 @@ class Monad m => BlockStateQuery m where
     -- |Get the list of contract instances existing in the given block state.
     getContractInstanceList :: BlockState m -> m [Instance]
 
+type family UpdatableBlockState (m :: * -> *) :: *
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
 class BlockStateQuery m => BlockStateOperations m where
-  type UpdatableBlockState m :: *
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe Account)
@@ -180,7 +182,6 @@ class (Eq (BlockPointer m),
        BlockStateOperations m,
        Monad m)
       => TreeStateMonad m where
-    type BlockPointer m :: *
 
     -- * Operations on the block table
     -- |Get the current status of a block.
@@ -356,8 +357,9 @@ instance BlockStateQuery m => BlockStateQuery (MaybeT m) where
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
 
+type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
+
 instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
-  type UpdatableBlockState (MaybeT m) = UpdatableBlockState m
   -- |Get the module from the module table of the state instance.
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
@@ -371,9 +373,9 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
-instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
-    type BlockPointer (MaybeT m) = BlockPointer m
+type instance BlockPointer (MaybeT m) = BlockPointer m
 
+instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
     getBlockStatus  = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
@@ -415,7 +417,6 @@ instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
 
 
 instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
-
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
   getContractInstance s = lift . getContractInstance s
@@ -424,8 +425,9 @@ instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
 
+type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
+
 instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m) where
-  type UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
   -- |Get the module from the module table of the state instance.
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
@@ -439,9 +441,9 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
-instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
-    type BlockPointer (RWST r w s m) = BlockPointer m
+type instance BlockPointer (RWST r w s m) = BlockPointer m
 
+instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
     getBlockStatus  = lift . getBlockStatus
     makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
