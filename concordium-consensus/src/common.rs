@@ -18,7 +18,7 @@ pub const SESSION_ID: u8 = SHA256 + INCARNATION;
 
 use crate::block::{BlockHash, BLOCK_HASH};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct HashBytes(Box<[u8]>);
 
 impl HashBytes {
@@ -88,7 +88,7 @@ impl SessionId {
 }
 
 // a type used for objects we only need to store, but not handle
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Encoded(Box<[u8]>);
 
 impl Encoded {

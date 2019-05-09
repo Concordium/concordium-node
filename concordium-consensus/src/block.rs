@@ -1,10 +1,10 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use chrono::prelude::Utc;
 use failure::Fallible;
 
 use std::{
+    hash::{Hash, Hasher},
     io::{Cursor, Read, Write},
     mem::size_of,
 };
@@ -45,6 +45,12 @@ macro_rules! get_block_content_ref {
 pub struct Block {
     pub slot: Slot,
     pub data: BlockData,
+}
+
+impl Hash for Block {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state)
+    }
 }
 
 impl Block {
@@ -134,6 +140,15 @@ pub enum BlockData {
     RegularData(RegularData),
 }
 
+impl Hash for BlockData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            BlockData::GenesisData(_) => unreachable!("The genesis block is not to be hashed"),
+            BlockData::RegularData(data) => data.hash(state),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct GenesisData {
     timestamp:               Timestamp,
@@ -182,7 +197,7 @@ impl GenesisData {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct RegularData {
     pointer:        BlockHash,
     baker_id:       BakerId,
@@ -252,22 +267,3 @@ pub type Duration = u64;
 pub type BlockHeight = u64;
 
 pub type BlockHash = HashBytes;
-
-#[allow(dead_code)]
-pub struct PendingBlock {
-    block:    Block,
-    hash:     BlockHash,
-    received: Utc,
-}
-
-#[allow(dead_code)]
-pub struct BlockPointer {
-    block:  Block,
-    hash:   BlockHash,
-    parent: Option<Box<BlockPointer>>,
-    height: BlockHeight,
-    //    state: BlockState,
-    received:          Utc,
-    arrived:           Utc,
-    transaction_count: u64,
-}

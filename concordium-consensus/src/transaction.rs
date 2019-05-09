@@ -24,7 +24,7 @@ pub struct TransactionHeader {
 
 pub type TransactionHash = Sha256;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Transaction {
     // transaction_type: TransactionType,
     payload: Encoded,
@@ -45,9 +45,9 @@ impl Transaction {
     }
 }
 
-type TransactionCount = u64;
+pub type TransactionCount = u64;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Transactions(Vec<Transaction>);
 
 impl Transactions {
