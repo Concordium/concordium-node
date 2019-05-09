@@ -723,11 +723,7 @@ impl ConsensusContainer {
             .ok_or_else(|| failure::Error::from(BakerNotRunning))
     }
 
-<<<<<<< HEAD
     pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> Fallible<i64> {
-=======
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: u64) -> Fallible<i64> {
->>>>>>> More fixups
         safe_read!(self.bakers)
             .values()
             .next()
