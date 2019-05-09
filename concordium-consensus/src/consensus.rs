@@ -37,7 +37,8 @@ pub struct baker_runner {
 type PeerId = u64;
 type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type CatchupFinalizationRequestByBlockHashCallback = extern "C" fn(peer_id: PeerId, data: *const u8);
+type CatchupFinalizationRequestByBlockHashCallback =
+    extern "C" fn(peer_id: PeerId, data: *const u8);
 type CatchupFinalizationRequestByFinalizationIndexCallback =
     extern "C" fn(peer_id: PeerId, finalization_index: u64);
 type CatchupFinalizationMessagesSenderCallback =
