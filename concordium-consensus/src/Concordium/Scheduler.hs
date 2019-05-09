@@ -79,10 +79,10 @@ dispatch msg = do
           case payload of
             DeployModule mod -> do
               _ <- payForExecution (thSender meta) energy -- ignore remaining amount, we don't need it for this particular transaction type
-              res <- evalLocalT (handleModule meta mod energy)
+              (res, (energy', _)) <- runLocalT (handleModule meta mod) energy
               case res of
-                (Left reason, energy') -> refundEnergy (thSender meta) energy' >> return (TxValid (TxReject reason))
-                (Right (mhash, iface, viface), energy') -> do
+                Left reason -> refundEnergy (thSender meta) energy' >> return (TxValid (TxReject reason))
+                Right (mhash, iface, viface) -> do
                   b <- commitModule mhash iface viface
                   if b then do
                     refundEnergy (thSender meta) energy'
@@ -97,10 +97,10 @@ dispatch msg = do
 
             InitContract amount modref cname param -> do
               remainingAmount <- payForExecution (thSender meta) energy
-              result <- evalLocalT (handleInit meta remainingAmount amount modref cname param energy)
+              (result, (energy', _)) <- runLocalT (handleInit meta remainingAmount amount modref cname param) energy
               case result of
-                (Left reason, _) -> return $ TxValid (TxReject reason)
-                (Right (contract, iface, viface, msgty, model, initamount), energy') -> do
+                Left reason -> return $ TxValid (TxReject reason)
+                Right (contract, iface, viface, msgty, model, initamount) -> do
                     refundEnergy (thSender meta) energy'
                     let ins = makeInstance modref cname contract msgty iface viface model initamount
                     addr <- putNewInstance ins
@@ -110,25 +110,25 @@ dispatch msg = do
             -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
             Transfer toaddr amount -> do
               remainingAmount <- payForExecution (thSender meta) energy
-              res <- evalLocalT (handleTransfer meta remainingAmount amount toaddr energy)
+              (res, (energy', changeSet)) <- runLocalT (handleTransfer meta remainingAmount amount toaddr) energy
               case res of
-                (Right (events, changeSet), energy') -> do
+                Right events -> do
                   commitStateAndAccountChanges changeSet
                   refundEnergy (thSender meta) energy'
                   return $ TxValid $ TxSuccess events
-                (Left reason, energy') -> do
+                Left reason -> do
                   refundEnergy (thSender meta) energy'
                   return $ TxValid (TxReject reason)
   
             Update amount cref maybeMsg -> do
               accountamount <- payForExecution (thSender meta) energy
-              result <- evalLocalT (handleUpdate meta accountamount amount cref maybeMsg energy)
+              (result, (energy', changeSet)) <- runLocalT (handleUpdate meta accountamount amount cref maybeMsg) energy
               case result of
-                (Right (events, changeSet), energy') -> do
+                Right events -> do
                    commitStateAndAccountChanges changeSet
                    refundEnergy (thSender meta) energy'
                    return $ TxValid $ TxSuccess events
-                (Left reason, energy') -> do
+                Left reason -> do
                     refundEnergy (thSender meta) energy'
                     return $ TxValid (TxReject reason)
   
@@ -151,28 +151,21 @@ dispatch msg = do
               else 
                 return $ TxValid (TxReject AccountCredentialsFailure)
 
-{-# INLINE rejectWith #-}
-rejectWith :: Monad m => InvalidKind -> Energy -> m (Either InvalidKind b, Energy)
-rejectWith fk energy = return ((Left fk), energy)
-
-{-# INLINE succeedWith #-}
-succeedWith :: Monad m => c -> Energy -> m (Either b c, Energy)
-succeedWith b energy = return (Right b, energy)
-
-handleModule :: TransactionMonad m => TransactionHeader -> Core.Module -> Energy -> m (Either InvalidKind (Core.ModuleRef, Interface, ValueInterface), Energy)
-handleModule meta mod energy = do
+handleModule :: TransactionMonad m => TransactionHeader -> Core.Module -> m (Core.ModuleRef, Interface, ValueInterface)
+handleModule meta mod = do
+  -- TODO: Charge for processing.
   case runExcept (Core.makeInternal mod) of
-    Left err -> rejectWith (ModuleNotWF err) energy
+    Left err -> rejectTransaction (ModuleNotWF err)
     Right imod -> do
       miface <- runExceptT (TC.typeModule imod)
       case miface of
-        Left tyerror -> rejectWith (ModuleNotWF tyerror) energy
+        Left tyerror -> rejectTransaction (ModuleNotWF tyerror)
         Right iface ->
           let mhash = Core.moduleHash mod
           in do modVals <- runExceptT (I.evalModule imod mhash)
                 case modVals of
-                  Left eerr -> rejectWith (EvaluationError eerr) energy
-                  Right viface -> succeedWith (mhash, iface, viface) energy
+                  Left eerr -> rejectTransaction (EvaluationError eerr)
+                  Right viface -> return (mhash, iface, viface)
 
 handleInit
   :: (TransactionMonad m, InterpreterMonad m)
@@ -182,34 +175,30 @@ handleInit
      -> Core.ModuleRef
      -> Core.TyName
      -> Core.Expr Core.ModuleName
-     -> Energy
-     -> m (Either InvalidKind
-            (ContractValue, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount),
-           Energy)
-handleInit meta senderAmount amount modref cname param energy = do
+     -> m (ContractValue, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount)
+handleInit meta senderAmount amount modref cname param = do
+--  energy <- getEnergy
+  -- TODO: Charge for different operations
   if senderAmount >= amount then do
     miface <- getModuleInterfaces modref
     case miface of
-      Nothing -> rejectWith (InvalidModuleReference modref) energy
+      Nothing -> rejectTransaction (InvalidModuleReference modref)
       Just (iface, viface) -> do
         case Map.lookup cname (exportedContracts iface) of
-          Nothing -> rejectWith (InvalidContractReference modref cname) energy
+          Nothing -> rejectTransaction (InvalidContractReference modref cname)
           Just ciface -> do
             qparamExpE <- runExceptT (TC.checkTyInCtx iface param (paramTy ciface))
             case qparamExpE of
-              Left err -> rejectWith (ParamsTypeError err) energy
+              Left err -> rejectTransaction (ParamsTypeError err)
               Right qparamExp ->
                 let contract = (exportedDefsConts viface) Map.! cname
                     initFun = initMethod contract
                 in do params' <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qparamExp)
                       cm <- getChainMetadata
-                      res <- I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount energy
-                      case res of
-                        Nothing -> do -- we ran out of energy
-                          rejectWith OutOfEnergy 0
-                        Just (v, energy') -> -- make new instance
-                          succeedWith (contract, iface, viface, (msgTy ciface), v, amount) energy'
-  else rejectWith (AmountTooLarge (AddressAccount (thSender meta)) amount) energy
+                      res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
+                      return (contract, iface, viface, (msgTy ciface), res, amount)
+  else rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
+
 
 handleUpdate
   :: (TransactionMonad m, InterpreterMonad m)
@@ -218,12 +207,11 @@ handleUpdate
      -> Amount -- amount to send as part of the transaction
      -> ContractAddress
      -> Core.Expr Core.ModuleName
-     -> Energy
-     -> m (Either InvalidKind ([Event], ChangeSet), Energy)
-handleUpdate meta accountamount amount cref msg energy = do
+     -> m [Event]
+handleUpdate meta accountamount amount cref msg = do
   cinstance <- getCurrentContractInstance cref
   case cinstance of
-    Nothing -> rejectWith (InvalidContractAddress cref) energy
+    Nothing -> rejectTransaction (InvalidContractAddress cref)
     Just i -> let rf = Ins.ireceiveFun i
                   msgType = Ins.imsgTy i
                   (iface, viface) = Ins.iModuleIface i
@@ -232,24 +220,18 @@ handleUpdate meta accountamount amount cref msg energy = do
                   -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
               in do qmsgExpE <- runExceptT (TC.checkTyInCtx iface msg msgType)
                     case qmsgExpE of
-                      Left err -> rejectWith (MessageTypeError err) energy
+                      Left err -> rejectTransaction (MessageTypeError err)
                       Right qmsgExp -> do
                         qmsgExpLinked <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qmsgExp)
-                        (result, energy') <- handleTransaction (thSender meta)
-                                                               cref
-                                                               rf
-                                                               (AddressAccount (thSender meta))
-                                                               accountamount
-                                                               amount
-                                                               (ExprMessage (I.mkJustE qmsgExpLinked))
-                                                               model
-                                                               contractamount
-                                                               energy
-                        case result of
-                          TxSuccess evs -> do
-                            cset <- getChanges
-                            succeedWith (evs, cset) energy'
-                          TxReject reason -> rejectWith reason energy'
+                        handleTransaction (thSender meta)
+                                          cref
+                                          rf
+                                          (AddressAccount (thSender meta))
+                                          accountamount
+                                          amount
+                                          (ExprMessage (I.mkJustE qmsgExpLinked))
+                                          model
+                                          contractamount
 
 -- this will always be run when we know that the contract exists and we can lookup its local state
 handleTransaction ::
@@ -263,88 +245,76 @@ handleTransaction ::
   -> MessageFormat -- ^message wrapped in a Maybe, at top level it will be an expression, and in nested calls a value
   -> Value -- ^current local state of the target contract
   -> Amount -- ^current amount of the target contract
-  -> Energy -- ^the amount of energy remaining for the execution
-  -> m (ValidResult, Energy)
-handleTransaction origin cref receivefun txsender senderamount transferamount maybeMsg model contractamount energy = do
+  -> m [Event]
+handleTransaction origin cref receivefun txsender senderamount transferamount maybeMsg model contractamount = do
   if senderamount >= transferamount then do
     cm <- getChainMetadata
     let receiveCtx = ReceiveContext { invoker = origin, selfAddress = cref }
     result <- case maybeMsg of
-                ValueMessage m -> I.applyReceiveFunVal cm receiveCtx receivefun model txsender transferamount m energy
-                ExprMessage m ->  I.applyReceiveFun cm receiveCtx receivefun model txsender transferamount m energy
+                ValueMessage m -> runInterpreter (I.applyReceiveFunVal cm receiveCtx receivefun model txsender transferamount m)
+                ExprMessage m ->  runInterpreter (I.applyReceiveFun cm receiveCtx receivefun model txsender transferamount m)
     case result of
-      Nothing -> -- ran out of energy, so must have consumed it all, hence there is no remaining
-                 -- there were no other changes to the global state. In particular the amount was not transferred from sender.
-        return (TxReject OutOfEnergy, 0)
-      Just (res', energy') -> do
-        case res' of
-          Nothing -> -- transaction rejected, no other changes were recorder in the global state (in particular the amount was not transferred)
-            return (TxReject Rejected, energy')
-          Just (newmodel, txout) ->
-            let (contractamount', senderamount') =
-                  case txsender of
-                    AddressContract addr | addr == cref ->
-                        -- if sender and receiver are the same then we need to be a bit careful
-                        -- the amounts do not in fact change in this case
-                        (contractamount, senderamount)
-                        -- otherwise we increase the receiver's, and decrease the sender's amounts 
-                    _ -> (contractamount + transferamount, senderamount - transferamount)
-            in
-            -- decrease the funds on the senders account or contract
-            withAmount txsender senderamount' $ do
-              -- and update the amount and local state of the receiving contract
-              withInstance cref contractamount' newmodel $ do
-                -- and then process the generated messages in the new context in sequence from left to right, depth first.
-                foldM (\res tx -> combineTx res $ do
-                          -- we need to get the fresh amount each time since it might have changed for each execution
-                          -- NB: fromJust is justified since at this point we know the sender contract exists
-                          senderamount'' <- (Ins.instanceAmount . fromJust) <$> getCurrentContractInstance cref
-                          case tx of
-                            TSend cref' transferamount' message' -> do
-                              -- the only way to send is to first check existence, so this must succeed
-                              cinstance <- fromJust <$> getCurrentContractInstance cref' 
-                              let receivefun' = Ins.ireceiveFun cinstance
-                              let model' = Ins.instanceModel cinstance
-                              return $ handleTransaction origin
-                                                         cref'
-                                                         receivefun'
-                                                         (AddressContract cref)
-                                                         senderamount''
-                                                         transferamount'
-                                                         (ValueMessage (I.aJust message'))
-                                                         model'
-                                                         contractamount'
-                            -- simple transfer to a contract is the same as a call to update with Nothing
-                            TSimpleTransfer (AddressContract cref') transferamount' -> do
-                              cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
-                              let receivefun' = Ins.ireceiveFun cinstance
-                              let model' = Ins.instanceModel cinstance
-                              return $ handleTransaction origin
-                                                         cref'
-                                                         receivefun'
-                                                         (AddressContract cref)
-                                                         senderamount''
-                                                         transferamount'
-                                                         (ValueMessage I.aNothing)
-                                                         model'
-                                                         contractamount'
-                            TSimpleTransfer (AddressAccount acc) transferamount' -> do -- FIXME: This is temporary until accounts have their own functions
-                              return $ handleTransferAccount origin acc (AddressContract cref) senderamount'' transferamount'
-                              )
-                    (TxSuccess [Updated cref transferamount maybeMsg], energy') txout
+      Nothing -> -- transaction rejected, no other changes were recorder in the global state (in particular the amount was not transferred)
+        rejectTransaction Rejected -- transaction rejected due to contract logic
+      Just (newmodel, txout) ->
+        let (contractamount', senderamount') =
+              case txsender of
+                AddressContract addr | addr == cref ->
+                    -- if sender and receiver are the same then we need to be a bit careful
+                    -- the amounts do not in fact change in this case
+                    (contractamount, senderamount)
+                    -- otherwise we increase the receiver's, and decrease the sender's amounts 
+                _ -> (contractamount + transferamount, senderamount - transferamount)
+        in
+        -- decrease the funds on the senders account or contract
+        withAmount txsender senderamount' $ do
+          -- and update the amount and local state of the receiving contract
+          withInstance cref contractamount' newmodel $ do
+            -- and then process the generated messages in the new context in sequence from left to right, depth first.
+            foldM (\res tx -> combineTx res $ do
+                      -- we need to get the fresh amount each time since it might have changed for each execution
+                      -- NB: fromJust is justified since at this point we know the sender contract exists
+                      senderamount'' <- (Ins.instanceAmount . fromJust) <$> getCurrentContractInstance cref
+                      case tx of
+                        TSend cref' transferamount' message' -> do
+                          -- the only way to send is to first check existence, so this must succeed
+                          cinstance <- fromJust <$> getCurrentContractInstance cref' 
+                          let receivefun' = Ins.ireceiveFun cinstance
+                          let model' = Ins.instanceModel cinstance
+                          handleTransaction origin
+                                            cref'
+                                            receivefun'
+                                            (AddressContract cref)
+                                            senderamount''
+                                            transferamount'
+                                            (ValueMessage (I.aJust message'))
+                                            model'
+                                            contractamount'
+                        -- simple transfer to a contract is the same as a call to update with Nothing
+                        TSimpleTransfer (AddressContract cref') transferamount' -> do
+                          cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
+                          let receivefun' = Ins.ireceiveFun cinstance
+                          let model' = Ins.instanceModel cinstance
+                          handleTransaction origin
+                                            cref'
+                                            receivefun'
+                                            (AddressContract cref)
+                                            senderamount''
+                                            transferamount'
+                                            (ValueMessage I.aNothing)
+                                            model'
+                                            contractamount'
+                        TSimpleTransfer (AddressAccount acc) transferamount' -> do -- FIXME: This is temporary until accounts have their own functions
+                          handleTransferAccount origin acc (AddressContract cref) senderamount'' transferamount'
+                          )
+                [Updated cref transferamount maybeMsg] txout
       -- a transaction is rejected in case we try to transfer amounts we don't have.
       -- This rejection is different from rejection by a contract, but the effect is the same.
       -- FIXME: Possibly this will need to be changed.
-      else return (TxReject (AmountTooLarge txsender transferamount), energy)
+      else rejectTransaction (AmountTooLarge txsender transferamount)
 
-combineTx :: Monad m => (ValidResult, Energy) -> m (Energy -> m (ValidResult, Energy)) -> m (ValidResult, Energy)
-combineTx x ma =
-  case x of
-    (TxSuccess evs, energy') ->
-      ma >>= \f -> f energy' >>= \case (TxSuccess evs', energy'') -> return $ (TxSuccess (evs ++ evs'), energy'')
-                                       other -> return other
-    other -> return other
-
+combineTx :: Monad m => [Event] -> m [Event] -> m [Event]
+combineTx x ma = (x ++) <$> ma
 
 handleTransfer
   :: (TransactionMonad m, InterpreterMonad m)
@@ -352,39 +322,28 @@ handleTransfer
      -> Amount -- amount on the sender account before the transaction
      -> Amount -- amount to send as part of the transaction
      -> Address -- either account or contract
-     -> Energy
-     -> m (Either InvalidKind ([Event], ChangeSet), Energy)
-handleTransfer meta accountamount amount addr energy =
+     -> m [Event]
+handleTransfer meta accountamount amount addr =
   case addr of
     AddressContract cref -> do
       cinstance <- getCurrentContractInstance cref
       case cinstance of
-        Nothing -> rejectWith (InvalidContractAddress cref) energy
+        Nothing -> rejectTransaction (InvalidContractAddress cref)
         Just i -> let rf = Ins.ireceiveFun i
                       model = Ins.instanceModel i
                       contractamount = Ins.instanceAmount i
                   -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
                   in do 
                         let qmsgExpLinked = I.mkNothingE -- give Nothing as argument to the receive method
-                        (result, energy') <- handleTransaction (thSender meta)
-                                                               cref
-                                                               rf
-                                                               (AddressAccount (thSender meta))
-                                                               accountamount
-                                                               amount
-                                                               (ExprMessage (I.mkJustE qmsgExpLinked)) model contractamount energy
-                        case result of
-                          TxSuccess evs -> do
-                            cset <- getChanges
-                            succeedWith (evs, cset) energy'
-                          TxReject reason -> rejectWith reason energy'
-    AddressAccount acc -> do
-      (result, energy') <- handleTransferAccount (thSender meta) acc (AddressAccount (thSender meta)) accountamount amount energy
-      case result of
-        TxSuccess evs -> do
-          cset <- getChanges
-          succeedWith (evs, cset) energy'
-        TxReject reason -> rejectWith reason energy'
+                        handleTransaction (thSender meta)
+                                          cref
+                                          rf
+                                          (AddressAccount (thSender meta))
+                                          accountamount
+                                          amount
+                                          (ExprMessage (I.mkJustE qmsgExpLinked)) model contractamount
+    AddressAccount acc ->
+      handleTransferAccount (thSender meta) acc (AddressAccount (thSender meta)) accountamount amount
 
 handleTransferAccount ::
   TransactionMonad m
@@ -393,23 +352,31 @@ handleTransferAccount ::
   -> Address -- the invoker of this particular transaction, in general different from the origin
   -> Amount -- amount on the sender's account or contract instance
   -> Amount -- amount that was sent in the transaction
-  -> Energy -- the amount of energy remaining for the execution
-  -> m (ValidResult, Energy)
-handleTransferAccount origin acc txsender senderamount amount energy = do
+  -> m [Event]
+handleTransferAccount origin acc txsender senderamount amount = do
   mtargetAmount <- getCurrentAmount acc -- check if target account exists and get its public balance
                                         -- FIXME: Should pay for execution here as well.
   case mtargetAmount of 
-    Nothing -> return (TxReject (InvalidAccountReference acc), energy)
+    Nothing -> rejectTransaction (InvalidAccountReference acc)
     Just targetAmount -> 
         if senderamount >= amount then  -- if we have the funds after subtracting the deposit for energy costs
           case txsender of
             AddressAccount acc' | acc == acc' -> do -- if sender and receiver are the same then we do nothing
-              return (TxSuccess [Transferred txsender amount (AddressAccount acc)], energy)
+              return [Transferred txsender amount (AddressAccount acc)]
             _ ->  -- and otherwise
               withAmount txsender (senderamount - amount) $ -- decrease sender's amount
                   withAmount (AddressAccount acc) (targetAmount + amount) $ do -- NB: Consider whether an overflow can happen
-                    return (TxSuccess [Transferred txsender amount (AddressAccount acc)], energy)
-          else return (TxReject (AmountTooLarge txsender amount), energy) -- amount insufficient
+                    return [Transferred txsender amount (AddressAccount acc)]
+          else rejectTransaction (AmountTooLarge txsender amount) -- amount insufficient
+
+-- |Run the interpreter with the remaining amount of energy. If the interpreter
+-- runs out of gas set the remaining gas to 0 and reject the transaction,
+-- otherwise decrease the consumed amount of gas and return the result.
+{-# INLINE runInterpreter #-}
+runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
+runInterpreter f = do
+  getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
+                            Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions. The list is traversed from

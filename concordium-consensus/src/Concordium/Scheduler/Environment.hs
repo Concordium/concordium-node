@@ -77,7 +77,7 @@ class StaticEnvironmentMonad m => TransactionMonad m where
   -- |Execute the code in a temporarily modified environment. This is needed in
   -- nested calls to transactions which might end up failing at the end. Thus we
   -- keep track of changes locally first, and only commit them at the end.
-  -- Instance keeps track of its own address hence we need nod provide it
+  -- Instance keeps track of its own address hence we need not provide it
   -- separately.
   withInstance :: ContractAddress -> Amount -> Value -> m a -> m a
 
@@ -90,6 +90,18 @@ class StaticEnvironmentMonad m => TransactionMonad m where
   getCurrentAccount :: AccountAddress -> m (Maybe Account)
 
   getChanges :: m ChangeSet
+
+  -- |Get the amount of gas remaining for the transaction.
+  getEnergy :: m Energy
+
+  -- |Decrease the remaining energy by the given amount. If not enough is left
+  -- reject the transaction.
+  tickEnergy :: Energy -> m ()
+
+  -- |Set the remaining energy to be the given value.
+  putEnergy :: Energy -> m ()
+
+  rejectTransaction :: RejectReason -> m a
 
 
 -- |The set of changes to be commited on a successful transaction.
@@ -115,74 +127,97 @@ addContractStatesToCS cs addr amnt val =
 
 -- |NB: INVARIANT: This function expects that the contract already exists in the
 -- changeset map. This will be true during execution since the only way a contract can
--- possibly send a message is if its local state exists in this map (
+-- possibly send a message is if its local state exists in this map
 addContractAmountToCS :: ChangeSet -> ContractAddress -> Amount -> ChangeSet
 addContractAmountToCS cs addr amnt =
   cs & newContractStates . at addr . mapped . _1 .~ amnt
 
 -- |A concrete implementation of TransactionMonad based on SchedulerMonad.
-newtype LocalT m a = LocalT { _runLocalT :: StateT ChangeSet m a }
-  deriving(Functor, Applicative, Monad, MonadState ChangeSet, MonadTrans)
+newtype LocalT m a = LocalT { _runLocalT :: ExceptT RejectReason (StateT (Energy, ChangeSet) m) a }
+  deriving(Functor, Applicative, Monad, MonadState (Energy, ChangeSet), MonadError RejectReason)
 
-runLocalT :: LocalT m a -> m (a, ChangeSet)
-runLocalT (LocalT st) = runStateT st emptyCS
+runLocalT :: LocalT m a -> Energy -> m (Either RejectReason a, (Energy, ChangeSet))
+runLocalT (LocalT st) energy = runStateT (runExceptT st) (energy, emptyCS)
 
 {-# INLINE evalLocalT #-}
-evalLocalT :: Monad m => LocalT m a -> m a
-evalLocalT (LocalT st) = evalStateT st emptyCS
+evalLocalT :: Monad m => LocalT m a -> Energy -> m (Either RejectReason a)
+evalLocalT (LocalT st) energy = evalStateT (runExceptT st) (energy, emptyCS)
 
-execLocalT :: Monad m => LocalT m a -> m ChangeSet
-execLocalT (LocalT st) = execStateT st emptyCS
+evalLocalT' :: Monad m => LocalT m a -> Energy -> m (Either RejectReason a, Energy)
+evalLocalT' (LocalT st) energy = do (a, (energy', _)) <- runStateT (runExceptT st) (energy, emptyCS)
+                                    return (a, energy')
+
+execLocalT :: Monad m => LocalT m a -> Energy -> m (Energy, ChangeSet)
+execLocalT (LocalT st) energy = execStateT (runExceptT st) (energy, emptyCS)
+
+liftLocal :: Monad m => m a -> LocalT m a
+liftLocal m = LocalT (ExceptT (StateT (\s -> do x <- m
+                                                return (Right x, s))))
 
 instance StaticEnvironmentMonad m => StaticEnvironmentMonad (LocalT m) where
   {-# INLINE getChainMetadata #-}
-  getChainMetadata = lift getChainMetadata
+  getChainMetadata = liftLocal getChainMetadata
 
   {-# INLINE getModuleInterfaces #-}
-  getModuleInterfaces = lift . getModuleInterfaces
+  getModuleInterfaces = liftLocal . getModuleInterfaces
 
 instance SchedulerMonad m => TransactionMonad (LocalT m) where
   {-# INLINE withInstance #-}
   withInstance cref amount val cont = do
-    modify' (\s -> addContractStatesToCS s cref amount val)
+    modify' (\(en, s) -> (en, addContractStatesToCS s cref amount val))
     cont
 
   {-# INLINE withAmount #-}
   -- inlining may help with the common case where the address format is statically known
-  withAmount addr amount cont =
+  withAmount addr amount cont = do
     case addr of
       AddressAccount acc -> do
-        accdata <- lift (fromJust <$> getAccount acc)
-        modify' (\s -> addAmountToCS s accdata amount)
-      AddressContract addrc -> modify' (\s -> addContractAmountToCS s addrc amount)
-    >> cont
+        accdata <- liftLocal (fromJust <$> getAccount acc)
+        modify' (\(en, s) -> (en, addAmountToCS s accdata amount))
+      AddressContract addrc -> modify' (\(en, s) -> (en, addContractAmountToCS s addrc amount))
+
+    cont
 
   getCurrentContractInstance addr = do
-    newStates <- use newContractStates
-    lift $ do mistance <- getContractInstance addr
-              case mistance of
-                Nothing -> return Nothing
-                Just i -> case newStates ^. at addr of
-                            Nothing -> return $ Just i
-                            Just (amnt, newmodel) -> return $ Just (updateInstance amnt newmodel i)
+    newStates <- use (_2 . newContractStates)
+    liftLocal $ do mistance <- getContractInstance addr
+                   case mistance of
+                     Nothing -> return Nothing
+                     Just i -> case newStates ^. at addr of
+                                 Nothing -> return $ Just i
+                                 Just (amnt, newmodel) -> return $ Just (updateInstance amnt newmodel i)
 
   {-# INLINE getCurrentAccount #-}
   getCurrentAccount acc = do
-    macc <- (^. at acc) <$> use newAccounts
+    macc <- (^. at acc) <$> use (_2 . newAccounts)
     case macc of
-      Nothing -> lift $! getAccount acc
+      Nothing -> liftLocal $! getAccount acc
       Just a -> return $ Just a
 
   {-# INLINE getChanges #-}
-  getChanges = get
+  getChanges = use _2
+
+  {-# INLINE getEnergy #-}
+  getEnergy = use _1
+
+  {-# INLINE tickEnergy #-}
+  tickEnergy tick = do
+    energy <- use _1
+    if tick > energy then rejectTransaction OutOfEnergy
+    else _1 -= tick
+
+  {-# INLINE putEnergy #-}
+  putEnergy en = _1 .= en
+
+  {-# INLINE rejectTransaction #-}
+  rejectTransaction = throwError
 
 instance SchedulerMonad m => InterpreterMonad (LocalT m) where
   getCurrentContractState caddr = do
-    newStates <- use newContractStates
-    lift $ do mistance <- getContractInstance caddr
-              case mistance of
-                Nothing -> return Nothing
-                Just i -> case newStates ^. at caddr of
-                            Nothing -> return $ Just (instanceImplements (instanceParameters i), instanceModel i)
-                            Just (_, newmodel) -> return $ Just (instanceImplements (instanceParameters i), newmodel)
-
+    newStates <- use (_2 . newContractStates)
+    liftLocal $ do mistance <- getContractInstance caddr
+                   case mistance of
+                     Nothing -> return Nothing
+                     Just i -> case newStates ^. at caddr of
+                                 Nothing -> return $ Just (instanceImplements (instanceParameters i), instanceModel i)
+                                 Just (_, newmodel) -> return $ Just (instanceImplements (instanceParameters i), newmodel)
