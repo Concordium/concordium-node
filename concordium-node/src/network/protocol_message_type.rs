@@ -5,7 +5,7 @@ use std::{
     fmt::{Display, Formatter, Result},
 };
 
-// Utility for NetworkMessage
+// Utilities for NetworkMessage
 // =================================
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -46,7 +46,7 @@ impl TryFrom<&str> for ProtocolMessageType {
     }
 }
 
-// Utility for Network Request
+// Utilities for Network Request
 // =================================
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -99,7 +99,7 @@ impl TryFrom<&str> for ProtocolRequestType {
     }
 }
 
-// Utility for Network Response
+// Utilities for Network Response
 // =================================
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -142,7 +142,7 @@ impl TryFrom<&str> for ProtocolResponseType {
     }
 }
 
-// Utility for Packet
+// Utilities for Packet
 // =================================
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
