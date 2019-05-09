@@ -1,6 +1,6 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
-use curryrs::hsrt::{start, stop};
 use chrono::prelude::*;
+use curryrs::hsrt::{start, stop};
 use failure::{bail, Fallible};
 
 use std::{
@@ -345,7 +345,10 @@ impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
         let genesis_block = Block {
             slot: 0,
-            data: BlockData::GenesisData(GenesisData::deserialize(&genesis_data).expect("Failed to deserialize genesis data!")),
+            data: BlockData::GenesisData(
+                GenesisData::deserialize(&genesis_data)
+                    .expect("Failed to deserialize genesis data!"),
+            ),
         };
 
         info!("Created a genesis block: {:?}", genesis_block);
@@ -626,9 +629,8 @@ mod tests {
 
     macro_rules! bakers_test {
         ($num_bakers:expr, $blocks_num:expr) => {
-            let (genesis_data, private_data) =
-                ConsensusContainer::generate_data($num_bakers)
-                    .unwrap_or_else(|_| panic!("Couldn't read Haskell data"));
+            let (genesis_data, private_data) = ConsensusContainer::generate_data($num_bakers)
+                .unwrap_or_else(|_| panic!("Couldn't read Haskell data"));
             let mut consensus_container = ConsensusContainer::new(genesis_data);
 
             for i in 0..$num_bakers {
