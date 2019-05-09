@@ -1,7 +1,7 @@
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, serialization::Serializable,
-        P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
+        serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     configuration,
     connection::{
@@ -577,18 +577,28 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
-        let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
-            256
-        )
-        .unwrap();
-        let no_filter = |_: &Connection| true;
-
-        write_or_die!(self.tls_server).send_over_all_connections(
-            &data,
-            &no_filter,
-            &check_sent_status_fn,
+        let s11n_data = serialize_into_memory(
+            &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256,
         );
+
+        match s11n_data {
+            Ok(data) => {
+                let no_filter = |_: &Connection| true;
+
+                write_or_die!(self.tls_server).send_over_all_connections(
+                    &data,
+                    &no_filter,
+                    &check_sent_status_fn,
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Network request cannot be forwarded due to a serialization issue: {}",
+                    e
+                );
+            }
+        }
     }
 
     fn process_unban(&self, inner_pkt: &NetworkRequest) {
@@ -610,24 +620,35 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
-            let data = serialize_into_memory!(NetworkMessage::NetworkRequest(
-                inner_pkt.clone(),
-                Some(get_current_stamp()),
-                None
-            ))
-            .unwrap();
-            let retain = |conn: &Connection| match to_ban {
-                BannedNode::ById(id) => conn.remote_peer().peer().map_or(true, |x| x.id() != *id),
-                BannedNode::ByAddr(addr) => {
-                    conn.remote_peer().peer().map_or(true, |x| x.ip() != *addr)
-                }
-            };
-
-            write_or_die!(self.tls_server).send_over_all_connections(
-                &data,
-                &retain,
-                &check_sent_status_fn,
+            let s11n_data = serialize_into_memory(
+                &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+                256,
             );
+
+            match s11n_data {
+                Ok(data) => {
+                    let retain = |conn: &Connection| match to_ban {
+                        BannedNode::ById(id) => {
+                            conn.remote_peer().peer().map_or(true, |x| x.id() != *id)
+                        }
+                        BannedNode::ByAddr(addr) => {
+                            conn.remote_peer().peer().map_or(true, |x| x.ip() != *addr)
+                        }
+                    };
+
+                    write_or_die!(self.tls_server).send_over_all_connections(
+                        &data,
+                        &retain,
+                        &check_sent_status_fn,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "BanNode message cannot be sent due to a serialization issue: {}",
+                        e
+                    );
+                }
+            }
         };
     }
 
@@ -635,59 +656,84 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
-        let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
-            256
-        )
-        .unwrap();
-
-        let mut locked_tls_server = write_or_die!(self.tls_server);
-        locked_tls_server.send_over_all_connections(
-            &data,
-            &is_valid_connection_post_handshake,
-            &check_sent_status_fn,
+        let s11n_data = serialize_into_memory(
+            &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256,
         );
 
-        if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
-            locked_tls_server.add_network(*network_id);
-        }
+        match s11n_data {
+            Ok(data) => {
+                let mut locked_tls_server = write_or_die!(self.tls_server);
+                locked_tls_server.send_over_all_connections(
+                    &data,
+                    &is_valid_connection_post_handshake,
+                    &check_sent_status_fn,
+                );
+                if let NetworkRequest::JoinNetwork(_, network_id) = inner_pkt {
+                    locked_tls_server.add_network(*network_id);
+                }
+            }
+            Err(e) => {
+                error!(
+                    "Join Network message cannot be sent due to a serialization issue: {}",
+                    e
+                );
+            }
+        };
     }
 
     fn process_leave_network(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
-        let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
-            256
-        )
-        .unwrap();
-
-        let mut locked_tls_server = write_or_die!(self.tls_server);
-        locked_tls_server.send_over_all_connections(
-            &data,
-            &is_valid_connection_post_handshake,
-            &check_sent_status_fn,
+        let s11n_data = serialize_into_memory(
+            &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256,
         );
 
-        if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
-            locked_tls_server.remove_network(*network_id);
+        match s11n_data {
+            Ok(data) => {
+                let mut locked_tls_server = write_or_die!(self.tls_server);
+                locked_tls_server.send_over_all_connections(
+                    &data,
+                    &is_valid_connection_post_handshake,
+                    &check_sent_status_fn,
+                );
+                if let NetworkRequest::LeaveNetwork(_, network_id) = inner_pkt {
+                    locked_tls_server.remove_network(*network_id);
+                }
+            }
+            Err(e) => {
+                error!(
+                    "Leave Network message cannot be sent due to a serialization issue: {}",
+                    e
+                );
+            }
         }
     }
 
     fn process_get_peers(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
-        let data = serialize_into_memory!(
-            NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
-            256
-        )
-        .unwrap();
-
-        write_or_die!(self.tls_server).send_over_all_connections(
-            &data,
-            &is_valid_connection_post_handshake,
-            &check_sent_status_fn,
+        let s11n_data = serialize_into_memory(
+            &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256,
         );
+
+        match s11n_data {
+            Ok(data) => {
+                write_or_die!(self.tls_server).send_over_all_connections(
+                    &data,
+                    &is_valid_connection_post_handshake,
+                    &check_sent_status_fn,
+                );
+            }
+            Err(e) => {
+                error!(
+                    "GetPeers message cannot be sent due to a serialization issue: {}",
+                    e
+                );
+            }
+        }
     }
 
     fn process_retransmit(&self, inner_pkt: &NetworkRequest) {
@@ -696,17 +742,26 @@ impl P2PNode {
         if let NetworkRequest::Retransmit(ref peer, ..) = inner_pkt {
             let filter = |conn: &Connection| is_conn_peer_id(conn, peer.id());
 
-            let data = serialize_into_memory!(
-                NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
-                256
-            )
-            .unwrap();
-
-            write_or_die!(self.tls_server).send_over_all_connections(
-                &data,
-                &filter,
-                &check_sent_status_fn,
+            let s11n_data = serialize_into_memory(
+                &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
+                256,
             );
+
+            match s11n_data {
+                Ok(data) => {
+                    write_or_die!(self.tls_server).send_over_all_connections(
+                        &data,
+                        &filter,
+                        &check_sent_status_fn,
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Retransmit message cannot be sent due to a serialization issue: {}",
+                        e
+                    );
+                }
+            }
         }
     }
 
@@ -714,33 +769,47 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
-        let data = serialize_into_memory!(
-            NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
-            256
-        )
-        .unwrap();
+        let s11n_data = serialize_into_memory(
+            &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
+            256,
+        );
 
-        match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(ref receiver) => {
-                let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
+        match s11n_data {
+            Ok(data) => {
+                match inner_pkt.packet_type {
+                    NetworkPacketType::DirectMessage(ref receiver) => {
+                        let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
 
-                write_or_die!(self.tls_server).send_over_all_connections(
-                    &data,
-                    &filter,
-                    &check_sent_status_fn,
-                );
-            }
-            NetworkPacketType::BroadcastedMessage => {
-                let filter = |conn: &Connection| {
-                    is_valid_connection_in_broadcast(conn, &inner_pkt.peer, inner_pkt.network_id)
+                        write_or_die!(self.tls_server).send_over_all_connections(
+                            &data,
+                            &filter,
+                            &check_sent_status_fn,
+                        );
+                    }
+                    NetworkPacketType::BroadcastedMessage => {
+                        let filter = |conn: &Connection| {
+                            is_valid_connection_in_broadcast(
+                                conn,
+                                &inner_pkt.peer,
+                                inner_pkt.network_id,
+                            )
+                        };
+
+                        write_or_die!(self.tls_server).send_over_all_connections(
+                            &data,
+                            &filter,
+                            &check_sent_status_fn,
+                        );
+                    }
                 };
-                write_or_die!(self.tls_server).send_over_all_connections(
-                    &data,
-                    &filter,
-                    &check_sent_status_fn,
+            }
+            Err(e) => {
+                error!(
+                    "Packet message cannot be sent due to a serialization issue: {}",
+                    e
                 );
             }
-        };
+        }
     }
 
     pub fn process_messages(&mut self) {

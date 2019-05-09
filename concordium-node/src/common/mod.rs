@@ -12,42 +12,6 @@ use concordium_common::UCursor;
 
 pub mod fails;
 
-#[macro_export]
-macro_rules! serialize_into_memory {
-    ($src:expr) => {
-        (|| -> Fallible<Vec<u8>> {
-            use $crate::common::serialization::WriteArchiveAdapter;
-
-            let mut archive = WriteArchiveAdapter::from(Vec::new());
-            $src.serialize(&mut archive)?;
-            Ok(archive.into_inner())
-        })()
-    };
-    ($src:expr, $capacity:expr) => {
-        (|| -> Fallible<Vec<u8>> {
-            use $crate::common::serialization::WriteArchiveAdapter;
-
-            let mut archive = WriteArchiveAdapter::from(Vec::with_capacity($capacity));
-            $src.serialize(&mut archive)?;
-            Ok(archive.into_inner())
-        })()
-    };
-}
-
-#[macro_export]
-macro_rules! deserialize_from_memory {
-    ($target_type:ident, $src:expr, $peer:expr, $ip:expr) => {
-        (|| -> Fallible<$target_type> {
-            use concordium_common::{ContainerView, UCursor};
-            use $crate::common::serialization::ReadArchiveAdapter;
-
-            let cursor = UCursor::build_from_view(ContainerView::from($src));
-            let mut archive = ReadArchiveAdapter::new(cursor, $peer, $ip);
-            $target_type::deserialize(&mut archive)
-        })()
-    };
-}
-
 use chrono::prelude::*;
 use failure::{bail, Fallible};
 use std::{
@@ -298,7 +262,7 @@ pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().t
 mod tests {
     use super::*;
     use crate::{
-        common::Deserializable,
+        common::serialization::{deserialize_from_memory, serialize_into_memory},
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
             NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
@@ -368,13 +332,12 @@ mod tests {
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory!(test_msg).unwrap();
+            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory!(
-                NetworkMessage,
+            let deserialized = deserialize_from_memory::<NetworkMessage>(
                 test_msg_data,
                 self_peer.clone(),
-                self_peer.peer().unwrap().ip()
+                self_peer.peer().unwrap().ip(),
             )
             .unwrap();
             net_assertion!($msg, $msg_type, deserialized)
@@ -387,13 +350,12 @@ mod tests {
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory!(test_msg).unwrap();
+            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory!(
-                NetworkMessage,
+            let deserialized = deserialize_from_memory::<NetworkMessage>(
                 test_msg_data,
                 self_peer.clone(),
-                self_peer.peer().unwrap().ip()
+                self_peer.peer().unwrap().ip(),
             )
             .unwrap();
 
@@ -411,13 +373,12 @@ mod tests {
                 Some(get_current_stamp()),
                 None,
             );
-            let test_msg_data = serialize_into_memory!(test_msg).unwrap();
+            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
 
-            let deserialized = deserialize_from_memory!(
-                NetworkMessage,
+            let deserialized = deserialize_from_memory::<NetworkMessage>(
                 test_msg_data,
                 self_peer.clone(),
-                self_peer.peer().unwrap().ip()
+                self_peer.peer().unwrap().ip(),
             )
             .unwrap();
 
@@ -537,9 +498,9 @@ mod tests {
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
 
-        let msg_serialized = serialize_into_memory!(msg, 256)?;
+        let msg_serialized = serialize_into_memory(&msg, 256)?;
         let mut packet =
-            deserialize_from_memory!(NetworkPacket, msg_serialized, self_peer.clone(), ipaddr)?;
+            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone(), ipaddr)?;
 
         if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -563,9 +524,9 @@ mod tests {
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast()?;
 
-        let serialized = serialize_into_memory!(msg, 256)?;
+        let serialized = serialize_into_memory(&msg, 256)?;
         let mut packet =
-            deserialize_from_memory!(NetworkPacket, serialized, self_peer.clone(), ipaddr)?;
+            deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone(), ipaddr)?;
 
         if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
@@ -613,18 +574,17 @@ mod tests {
             None,
             None,
         );
-        let mut ping_data = serialize_into_memory!(ping).unwrap();
+        let mut ping_data = serialize_into_memory(&ping, 128).unwrap();
 
         // Force and error in version protocol:
         //  + 13 bytes (PROTOCOL_NAME)
         //  + 1 byte due to endianess (Version is stored as u16)
         ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
 
-        let deserialized = deserialize_from_memory!(
-            NetworkMessage,
+        let deserialized = deserialize_from_memory::<NetworkMessage>(
             ping_data,
             self_peer(),
-            IpAddr::from([127, 0, 0, 1])
+            IpAddr::from([127, 0, 0, 1]),
         );
 
         assert!(deserialized.is_err());
@@ -637,16 +597,15 @@ mod tests {
             None,
             None,
         );
-        let mut ping_data = serialize_into_memory!(ping).unwrap();
+        let mut ping_data = serialize_into_memory(&ping, 128).unwrap();
 
         // Force and error in protocol name:
         ping_data[1] = b'X';
 
-        let deserialized = deserialize_from_memory!(
-            NetworkMessage,
+        let deserialized = deserialize_from_memory::<NetworkMessage>(
             ping_data,
             self_peer(),
-            IpAddr::from([127, 0, 0, 1])
+            IpAddr::from([127, 0, 0, 1]),
         );
 
         assert!(deserialized.is_err())

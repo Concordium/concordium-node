@@ -3,8 +3,8 @@ use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, serialization::Serializable,
-        P2PPeer,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
+        serialization::serialize_into_memory, P2PPeer,
     },
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
@@ -13,7 +13,7 @@ use concordium_common::{fails::FunctorError, functor::FuncResult};
 use std::sync::atomic::Ordering;
 
 use super::fails;
-use failure::{Backtrace, Error, Fallible};
+use failure::{Backtrace, Error};
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
@@ -87,7 +87,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
         Some(get_current_stamp()),
         None,
     );
-    let handshake_data = serialize_into_memory!(handshake_msg, 128)?;
+    let handshake_data = serialize_into_memory(&handshake_msg, 128)?;
     serialize_bytes(session, &handshake_data)?;
 
     // Send ping
@@ -96,7 +96,7 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
         Some(get_current_stamp()),
         None,
     );
-    let ping_data = serialize_into_memory!(ping_msg, 64)?;
+    let ping_data = serialize_into_memory(&ping_msg, 64)?;
     serialize_bytes(session, &ping_data)?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
@@ -128,7 +128,7 @@ pub fn send_peer_list(
             Some(get_current_stamp()),
             None,
         );
-        serialize_into_memory!(peer_list_msg, 256)?
+        serialize_into_memory(&peer_list_msg, 256)?
     };
 
     serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
@@ -158,7 +158,7 @@ pub fn send_retransmit_request(
         Some(get_current_stamp()),
         None,
     );
-    let retransmit_data = serialize_into_memory!(retransmit, 256)?;
+    let retransmit_data = serialize_into_memory(&retransmit, 256)?;
 
     serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &retransmit_data)?;
 

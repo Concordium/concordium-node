@@ -3,14 +3,15 @@ use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, serialization::Serializable,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
+        serialization::serialize_into_memory,
     },
     connection::connection_private::ConnectionPrivate,
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
 use super::{fails, handler_utils::*};
-use failure::{bail, Fallible};
+use failure::bail;
 
 macro_rules! reject_handshake {
     ($direction:ident, $message:ident) => {{
@@ -51,7 +52,7 @@ pub fn default_network_request_ping_handle(
             Some(get_current_stamp()),
             None,
         );
-        serialize_into_memory!(pong_msg, 64)?
+        serialize_into_memory(&pong_msg, 64)?
     };
 
     Ok(serialize_bytes(
@@ -87,7 +88,7 @@ pub fn default_network_request_find_node_handle(
                 Some(get_current_stamp()),
                 None,
             );
-            serialize_into_memory!(find_node_msg, 256)?
+            serialize_into_memory(&find_node_msg, 256)?
         };
 
         Ok(serialize_bytes(
@@ -130,7 +131,7 @@ pub fn default_network_request_get_peers(
                 Some(get_current_stamp()),
                 None,
             );
-            serialize_into_memory!(peer_list_msg, 256)?
+            serialize_into_memory(&peer_list_msg, 256)?
         };
 
         Ok(serialize_bytes(

@@ -20,7 +20,8 @@ use webpki::DNSNameRef;
 
 use crate::{
     common::{
-        get_current_stamp, serialization::Serializable, P2PNodeId, P2PPeer, PeerType, RemotePeer,
+        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer,
     },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
@@ -341,7 +342,7 @@ impl TlsServer {
                         Some(get_current_stamp()),
                         None,
                     );
-                    let handshake_request_data = serialize_into_memory!(handshake_request, 256)?;
+                    let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
 
                     let mut conn = rc_conn.borrow_mut();
                     conn.serialize_bytes(&handshake_request_data)?;

@@ -9,7 +9,9 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, serialization::Serializable, P2PNodeId, PeerType, RemotePeer},
+    common::{
+        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, PeerType, RemotePeer,
+    },
     connection::Connection,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -353,7 +355,7 @@ impl TlsServerPrivate {
                     Some(get_current_stamp()),
                     None,
                 );
-                if let Ok(request_ping_data) = serialize_into_memory!(request_ping, 128) {
+                if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
                     conn.serialize_bytes(&request_ping_data)
                         .map_err(|e| error!("{}", e))
                         .ok();

@@ -1,7 +1,4 @@
-use crate::common::{
-    fails::InvalidIpType,
-    serialization::ReadArchive
-};
+use crate::common::{fails::InvalidIpType, serialization::ReadArchive};
 
 use concordium_common::UCursor;
 use failure::{bail, err_msg, Fallible};
@@ -63,7 +60,7 @@ impl Deserializable for IpAddr {
         let ip = match ip_type {
             4u8 => IpAddr::from(Ipv4Addr::deserialize(archive)?),
             6u8 => IpAddr::from(Ipv6Addr::deserialize(archive)?),
-            _ => bail!( InvalidIpType::new( ip_type.to_string()))
+            _ => bail!(InvalidIpType::new(ip_type.to_string())),
         };
 
         Ok(ip)
