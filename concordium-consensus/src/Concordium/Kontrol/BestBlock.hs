@@ -48,7 +48,8 @@ bestBlock = branchesFromTop >>= bb
                 Nothing -> bb branches
                 Just (bp, _) -> return bp
 
--- |Get the best block in the tree with a slot time strictly below the given bound.
+-- |Get the best non-finalized block in the tree with a slot time strictly below the given bound.
+-- If there is no such block, the last finalized block is returned.
 bestBlockBefore :: forall m. (SkovQueryMonad m) => Slot -> m (BlockPointer m)
 bestBlockBefore slotBound = branchesFromTop >>= bb
     where

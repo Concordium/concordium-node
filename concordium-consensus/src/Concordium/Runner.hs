@@ -18,10 +18,9 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState(BlockState)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
-import Concordium.MonadImplementation
 import Concordium.Birk.Bake
-import Concordium.Kontrol.Monad
-import Concordium.Skov.Monad()
+import Concordium.Kontrol
+import Concordium.Skov
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 
@@ -52,9 +51,9 @@ makeRunner logm bkr gen initBS = do
         _ <- forkIO $ runLoggerT (execFSM (msgLoop inChan outChan out 0 MsgTimer) finInst gen initBS) logm
         return (inChan, outChan, out)
     where
-        updateFinState :: IORef SkovFinalizationState -> FinalizationSkovMonad FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState LogIO ()
+        updateFinState :: IORef SkovFinalizationState -> FSM LogIO ()
         updateFinState out = get >>= liftIO . writeIORef out
-        msgLoop :: Chan (InMessage source) -> Chan (OutMessage source) -> IORef SkovFinalizationState -> Slot -> (InMessage source) -> FinalizationSkovMonad FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState LogIO ()
+        msgLoop :: Chan (InMessage source) -> Chan (OutMessage source) -> IORef SkovFinalizationState -> Slot -> (InMessage source) -> FSM LogIO ()
         msgLoop _ _ _ _ MsgShutdown = return ()
         msgLoop inChan outChan out lastBake MsgTimer = do
             cs <- getCurrentSlot
@@ -81,7 +80,7 @@ makeRunner logm bkr gen initBS = do
         msgLoop inChan outChan out lastBake (MsgFinalizationRecordReceived src fr) = do
             handleMessages outChan out src $ finalizeBlock fr
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake    
-        handleMessages :: Chan (OutMessage source) -> IORef SkovFinalizationState -> source -> FinalizationSkovMonad FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState LogIO r -> FinalizationSkovMonad FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState LogIO r
+        handleMessages :: Chan (OutMessage source) -> IORef SkovFinalizationState -> source -> FSM LogIO r -> FSM LogIO r
         handleMessages outChan out src a = censor (const (Endo id)) $ do
             (r, Endo evs) <- listen a
             updateFinState out
@@ -92,7 +91,7 @@ makeRunner logm bkr gen initBS = do
                 handleMessage (SkovMissingFinalization fr) = liftIO $ writeChan outChan (MsgMissingFinalization src fr)
             forM_ (evs []) handleMessage
             return r
-        handleMessagesNoSource :: Chan (OutMessage source) -> IORef SkovFinalizationState -> FinalizationSkovMonad FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState LogIO r -> FinalizationSkovMonad FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState LogIO r
+        handleMessagesNoSource :: Chan (OutMessage source) -> IORef SkovFinalizationState -> FSM LogIO r -> FSM LogIO r
         handleMessagesNoSource outChan out a = censor (const (Endo id)) $ do
             (r, Endo evs) <- listen a
             updateFinState out

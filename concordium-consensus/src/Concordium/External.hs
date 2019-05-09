@@ -29,7 +29,7 @@ import Concordium.Scheduler.Utils.Init.Example (initialState)
 import Concordium.Birk.Bake
 import Concordium.Runner
 import Concordium.Show
-import Concordium.MonadImplementation (SkovFinalizationState)
+import Concordium.Skov (SkovFinalizationState)
 import Concordium.Logger
 
 import qualified Concordium.Getters as Get

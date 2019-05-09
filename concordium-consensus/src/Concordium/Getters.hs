@@ -6,9 +6,8 @@ module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
 
-import Concordium.MonadImplementation
 import Concordium.Kontrol.BestBlock
-import Concordium.Skov.Monad
+import Concordium.Skov
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
