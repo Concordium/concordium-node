@@ -1,4 +1,7 @@
-use crate::common::serialization::ReadArchive;
+use crate::common::{
+    fails::InvalidIpType,
+    serialization::ReadArchive
+};
 
 use concordium_common::UCursor;
 use failure::{bail, err_msg, Fallible};
@@ -56,10 +59,11 @@ impl Deserializable for IpAddr {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let ip = match archive.read_u8()? {
+        let ip_type = archive.read_u8()?;
+        let ip = match ip_type {
             4u8 => IpAddr::from(Ipv4Addr::deserialize(archive)?),
             6u8 => IpAddr::from(Ipv6Addr::deserialize(archive)?),
-            _ => bail!("Unsupported version of `IpAddr`"),
+            _ => bail!( InvalidIpType::new( ip_type.to_string()))
         };
 
         Ok(ip)
