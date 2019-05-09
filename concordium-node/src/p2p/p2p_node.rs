@@ -329,10 +329,23 @@ impl P2PNode {
         let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
-            if pac.packet_type == NetworkPacketType::BroadcastedMessage
-                && broadcasting_checks.run_filters(pac)
-            {
-                forward_network_packet_message(
+            match pac.packet_type {
+                NetworkPacketType::BroadcastedMessage => {
+                    if broadcasting_checks.run_filters(pac) {
+                        forward_network_packet_message(
+                            &seen_messages,
+                            &stats_export_service,
+                            &own_networks,
+                            &send_queue,
+                            &packet_queue,
+                            pac,
+                            trusted_broadcast,
+                        )
+                    } else {
+                        Ok(())
+                    }
+                }
+                NetworkPacketType::DirectMessage(..) => forward_network_packet_message(
                     &seen_messages,
                     &stats_export_service,
                     &own_networks,
@@ -340,9 +353,7 @@ impl P2PNode {
                     &packet_queue,
                     pac,
                     trusted_broadcast,
-                )
-            } else {
-                Ok(())
+                ),
             }
         })
     }
@@ -678,18 +689,18 @@ impl P2PNode {
         }
     }
 
-    fn process_network_packet(&self, inner_pkt: &NetworkPacket) {
+    fn process_network_packet(&self, inner_pkt: &NetworkPacket) -> bool {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
         let data = inner_pkt.serialize();
         match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(ref receiver) => {
                 let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
-                write_or_die!(self.tls_server).send_over_all_connections(
+                1 >= write_or_die!(self.tls_server).send_over_all_connections(
                     &data,
                     &filter,
                     &check_sent_status_fn,
-                );
+                )
             }
             NetworkPacketType::BroadcastedMessage => {
                 let filter = |conn: &Connection| {
@@ -700,8 +711,9 @@ impl P2PNode {
                     &filter,
                     &check_sent_status_fn,
                 );
+                true
             }
-        };
+        }
     }
 
     pub fn process_messages(&mut self) {
@@ -715,7 +727,15 @@ impl P2PNode {
 
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    self.process_network_packet(inner_pkt)
+                    if !self.process_network_packet(inner_pkt) {
+                        match self.send_queue_in.send(outer_pkt) {
+                            Ok(_) => {
+                                info!("Successfully requeued a network packet for resending");
+                                self.queue_size_inc();
+                            }
+                            Err(_) => error!("Can't put message back in queue for later sending"),
+                        }
+                    }
                 }
                 NetworkMessage::NetworkRequest(
                     ref inner_pkt @ NetworkRequest::Retransmit(..),

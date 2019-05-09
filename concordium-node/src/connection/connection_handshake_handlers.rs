@@ -45,7 +45,7 @@ pub fn handshake_request_handle(
     if let NetworkRequest::Handshake(sender, nets, _) = req {
         debug!("Got request for Handshake");
 
-        // Setup peer and networks before send Handshake.
+        // Setup peer and networks before sending handshake.
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.add_remote_end_networks(nets);

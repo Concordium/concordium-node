@@ -16,7 +16,7 @@ static A: System = System;
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    make_atomic_callback, read_or_die, safe_read, safe_write, spawn_or_die, write_or_die, UCursor,
+    make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
     block::Block,
@@ -204,13 +204,13 @@ fn setup_baker_guards(
                                 )
                                 .expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
-                            (receiver_id, inner_out_bytes.to_owned())
+                            (P2PNodeId(receiver_id), inner_out_bytes.to_owned())
                         }
                         consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
                             let mut inner_out_bytes = vec![];
                             inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH).expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
-                            (receiver_id, inner_out_bytes.to_owned())
+                            (P2PNodeId(receiver_id), inner_out_bytes.to_owned())
                         }
                         consensus::CatchupRequest::FinalizationRecordByIndex(
                             receiver_id,
@@ -221,20 +221,21 @@ fn setup_baker_guards(
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(index)
                                 .expect("Can't write to buffer");
-                            (receiver_id, inner_out_bytes.to_owned())
+                            (P2PNodeId(receiver_id), inner_out_bytes.to_owned())
                         }
                     };
-                    let mut out_bytes = vec![];
-                    out_bytes.extend(serialized_bytes);
                     match &_node_ref_4.send_message(
-                        Some(P2PNodeId(receiver_id)),
+                        Some(receiver_id),
                         _network_id,
                         None,
-                        out_bytes,
+                        serialized_bytes,
                         false,
                     ) {
-                        Ok(_) => info!("Sent response to catchup request"),
-                        Err(_) => error!("Couldn't send response to catchup request"),
+                        Ok(_) => info!("Sent consensus catchup request to peer {}", receiver_id),
+                        Err(_) => error!(
+                            "Couldn't send consensus catchup request to peer {}",
+                            receiver_id
+                        ),
                     }
                 }
                 Err(_) => error!("Can't read from queue"),
@@ -246,7 +247,8 @@ fn setup_baker_guards(
             "Process baker catchup finalization messages outbound",
             move || loop {
                 match _baker_clone_5.out_queue().recv_finalization_catchup() {
-                    Ok((receiver_id, msg)) => {
+                    Ok((receiver_id_raw, msg)) => {
+                        let receiver_id = P2PNodeId(receiver_id_raw);
                         let mut out_bytes = vec![];
                         out_bytes
                             .write_u16::<NetworkEndian>(
@@ -255,14 +257,19 @@ fn setup_baker_guards(
                             .expect("Can't write to buffer");
                         out_bytes.extend(msg.serialize());
                         match &_node_ref_5.send_message(
-                            Some(P2PNodeId(receiver_id)),
+                            Some(receiver_id),
                             _network_id,
                             None,
                             out_bytes,
                             false,
                         ) {
-                            Ok(_) => info!("Sent response to catchup request"),
-                            Err(_) => error!("Couldn't send response to catchup request"),
+                            Ok(_) => {
+                                info!("Sent consensus catchup request to peer {}", receiver_id)
+                            }
+                            Err(_) => error!(
+                                "Couldn't send consensus catchup request to peer {}",
+                                receiver_id
+                            ),
                         }
                     }
                     Err(_) => error!("Can't read from queue"),
@@ -368,12 +375,14 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
 
 fn setup_process_output(
     node: &P2PNode,
+    db: &P2PDB,
     conf: &configuration::Config,
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
 ) {
     let mut _node_self_clone = node.clone();
+    let mut _db = db.clone();
 
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
@@ -427,6 +436,63 @@ fn setup_process_output(
         loop {
             if let Ok(full_msg) = pkt_out.recv() {
                 match *full_msg {
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::BanNode(ref peer, peer_to_ban),
+                        ..
+                    ) => {
+                        utils::ban_node(
+                            &mut _node_self_clone,
+                            peer,
+                            peer_to_ban,
+                            &_db,
+                            _no_trust_bans,
+                        );
+                    }
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::UnbanNode(ref peer, peer_to_ban),
+                        ..
+                    ) => {
+                        utils::unban_node(
+                            &mut _node_self_clone,
+                            peer,
+                            peer_to_ban,
+                            &_db,
+                            _no_trust_bans,
+                        );
+                    }
+                    NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(ref peer, ref peers),
+                        ..
+                    ) => {
+                        debug!("Received PeerList response, attempting to satisfy desired peers");
+                        let mut new_peers = 0;
+                        let peer_count = _node_self_clone
+                            .get_peer_stats(&[])
+                            .iter()
+                            .filter(|x| x.peer_type == PeerType::Node)
+                            .count();
+                        for peer_node in peers {
+                            info!(
+                                "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                                peer.id(),
+                                peer.ip(),
+                                peer.port(),
+                                peer_node.id(),
+                                peer_node.ip(),
+                                peer_node.port()
+                            );
+                            if _node_self_clone
+                                .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                                .map_err(|e| info!("{}", e))
+                                .is_ok()
+                            {
+                                new_peers += 1;
+                            }
+                            if new_peers + peer_count as u8 >= _desired_nodes_clone {
+                                break;
+                            }
+                        }
+                    }
                     NetworkMessage::NetworkPacket(ref pac, ..) => {
                         match pac.packet_type {
                             NetworkPacketType::DirectMessage(..) => {
@@ -482,7 +548,9 @@ fn setup_process_output(
                     NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
                         panic!("Not implemented yet");
                     }
-                    _ => {}
+                    _ => {
+                        println!("FALSE PACKET {:?}!", full_msg);
+                    }
                 }
             }
         }
@@ -508,7 +576,9 @@ fn send_finalization_record_to_baker(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    match baker.send_finalization_record(peer_id.0, &FinalizationRecord::deserialize(content)?) {
+    match baker
+        .send_finalization_record(peer_id.as_raw(), &FinalizationRecord::deserialize(content)?)
+    {
         0i64 => info!("Sent finalization record from network to baker"),
         x => error!(
             "Can't send finalization record from network to baker due to error code #{}",
@@ -523,7 +593,10 @@ fn send_finalization_message_to_baker(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    baker.send_finalization(peer_id.0, &FinalizationMessage::deserialize(content)?);
+    baker.send_finalization(
+        peer_id.as_raw(),
+        &FinalizationMessage::deserialize(content)?,
+    );
     info!("Sent finalization package to consensus layer");
     Ok(())
 }
@@ -534,7 +607,7 @@ fn send_block_to_baker(
     content: &[u8],
 ) -> Fallible<()> {
     let block = Block::deserialize(content)?;
-    match baker.send_block(peer_id.0, &block) {
+    match baker.send_block(peer_id.as_raw(), &block) {
         0i64 => info!("Sent block from network to baker"),
         x => error!(
             "Can't send block from network to baker due to error code #{}",
@@ -549,7 +622,11 @@ fn send_catchup_finalization_messages_by_point_to_baker(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    match baker.get_finalization_messages(&content[..], peer_id.0)? {
+    debug!("Got consensus catchup request for finalization messages by point");
+    match baker
+        .get_finalization_messages(&content[..], peer_id.as_raw())
+        .unwrap()
+    {
         0i64 => {
             info!("Successfully requested finalization messages for requested point from consensus")
         }
@@ -569,8 +646,9 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
+    debug!("Got consensus catchup request for finalization record by index");
     let index = NetworkEndian::read_u64(&content[..]);
-    let res = baker.get_indexed_finalization(index)?;
+    let res = baker.get_indexed_finalization(index).unwrap();
     if NetworkEndian::read_u64(&res[..8]) > 0 {
         let mut out_bytes = vec![];
         out_bytes
@@ -582,7 +660,7 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
             Err(_) => error!("Couldn't respond to catchup request from {}!", peer_id),
         }
     } else {
-        error!("Consensus doesn't have request finalization record");
+        error!("Consensus doesn't have requested finalization record");
     }
     Ok(())
 }
@@ -594,7 +672,8 @@ fn send_catchup_request_finalization_record_by_bash_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    let res = baker.get_block_finalization(&content[..])?;
+    debug!("Got consensus catchup request for finalization record by hash");
+    let res = baker.get_block_finalization(&content[..]).unwrap();
     if NetworkEndian::read_u64(&res[..8]) > 0 {
         let mut out_bytes = vec![];
         out_bytes
@@ -606,7 +685,7 @@ fn send_catchup_request_finalization_record_by_bash_baker(
             Err(_) => error!("Couldn't respond to catchup request from {}!", peer_id),
         }
     } else {
-        error!("Consensus doesn't have request finalization record");
+        error!("Consensus doesn't have requested finalization record");
     }
     Ok(())
 }
@@ -618,7 +697,7 @@ fn send_catchup_request_block_by_bash_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    let res = baker.get_block(&content[..])?;
+    let res = baker.get_block(&content[..]).unwrap();
     if NetworkEndian::read_u64(&res[..8]) > 0 {
         let mut out_bytes = vec![];
         out_bytes
@@ -630,7 +709,7 @@ fn send_catchup_request_block_by_bash_baker(
             Err(_) => error!("Couldn't respond to catchup request from {}!", peer_id),
         }
     } else {
-        error!("Consensus doesn't have request block");
+        error!("Consensus doesn't have requested block");
     }
     Ok(())
 }
@@ -689,71 +768,6 @@ fn main() -> Fallible<()> {
             db.create_banlist();
         }
     };
-
-    // Register handles for ban & unban requests
-    let cloned_request_node = Arc::new(RwLock::new(node.clone()));
-    let db_clone = db.clone();
-    let _no_trust_bans = conf.common.no_trust_bans;
-
-    let message_request_handler = read_or_die!(cloned_request_node).message_handler();
-    safe_write!(message_request_handler)?.add_request_callback(make_atomic_callback!(
-        move |msg: &NetworkRequest| {
-            match msg {
-                NetworkRequest::BanNode(ref peer, x) => {
-                    let mut locked_cloned_node = write_or_die!(cloned_request_node);
-                    utils::ban_node(&mut locked_cloned_node, peer, *x, &db_clone, _no_trust_bans);
-                }
-                NetworkRequest::UnbanNode(ref peer, x) => {
-                    let mut locked_cloned_node = write_or_die!(cloned_request_node);
-                    utils::unban_node(&mut locked_cloned_node, peer, *x, &db_clone, _no_trust_bans);
-                }
-                _ => {}
-            };
-            Ok(())
-        }
-    ));
-
-    // Register handler for peer list responses
-    let cloned_response_node = Arc::new(RwLock::new(node.clone()));
-    let _desired_nodes_clone = conf.connection.desired_nodes;
-
-    let message_response_handler = read_or_die!(cloned_response_node).message_handler();
-    safe_write!(message_response_handler)?.add_response_callback(make_atomic_callback!(
-        move |msg: &NetworkResponse| {
-            if let NetworkResponse::PeerList(ref peer, ref peers) = msg {
-                debug!("Received PeerList response, attempting to satisfy desired peers");
-                let mut locked_cloned_node = write_or_die!(cloned_response_node);
-                let mut new_peers = 0;
-                let peer_count = locked_cloned_node
-                    .get_peer_stats(&[])
-                    .iter()
-                    .filter(|x| x.peer_type == PeerType::Node)
-                    .count();
-                for peer_node in peers {
-                    info!(
-                        "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                        peer.id(),
-                        peer.ip(),
-                        peer.port(),
-                        peer_node.id(),
-                        peer_node.ip(),
-                        peer_node.port()
-                    );
-                    if locked_cloned_node
-                        .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                        .map_err(|e| info!("{}", e))
-                        .is_ok()
-                    {
-                        new_peers += 1;
-                    }
-                    if new_peers + peer_count as u8 >= _desired_nodes_clone {
-                        break;
-                    }
-                }
-            }
-            Ok(())
-        }
-    ));
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
@@ -829,8 +843,7 @@ fn main() -> Fallible<()> {
         // by finalization point.
         let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
         let baker_clone = baker.clone();
-        let message_handshake_response_handler =
-            read_or_die!(cloned_handshake_response_node).message_handler();
+        let message_handshake_response_handler = &node.message_handler();
         safe_write!(message_handshake_response_handler)?.add_response_callback(make_atomic_callback!(
             move |msg: &NetworkResponse| {
                 if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
@@ -876,7 +889,7 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    setup_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_out);
+    setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out);
 
     // Create listeners on baker output to forward to P2PNode
     //
