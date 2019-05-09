@@ -4,7 +4,10 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::Utc;
 use failure::Fallible;
 
-use std::{io::{Cursor, Read, Write}, mem::size_of};
+use std::{
+    io::{Cursor, Read, Write},
+    mem::size_of,
+};
 
 use crate::{common::*, parameters::*, transaction::*};
 
@@ -164,7 +167,10 @@ impl GenesisData {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
-        let size = size_of::<Timestamp>() + size_of::<Duration>() + birk_params.len() + finalization_params.len();
+        let size = size_of::<Timestamp>()
+            + size_of::<Duration>()
+            + birk_params.len()
+            + finalization_params.len();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
@@ -217,7 +223,12 @@ impl RegularData {
 
     pub fn serialize(&self) -> Box<[u8]> {
         let transactions = Transactions::serialize(&self.transactions);
-        let consts = POINTER as usize + size_of::<BakerId>() + PROOF_LENGTH + NONCE as usize + LAST_FINALIZED as usize + SIGNATURE as usize;
+        let consts = POINTER as usize
+            + size_of::<BakerId>()
+            + PROOF_LENGTH
+            + NONCE as usize
+            + LAST_FINALIZED as usize
+            + SIGNATURE as usize;
         let mut cursor = create_serialization_cursor(consts + transactions.len());
 
         let _ = cursor.write_all(&self.pointer);

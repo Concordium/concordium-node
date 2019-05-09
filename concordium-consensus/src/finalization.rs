@@ -1,11 +1,17 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
-use std::{io::{Cursor, Read, Write}, mem::size_of};
+use std::{
+    io::{Cursor, Read, Write},
+    mem::size_of,
+};
 
 use crate::{block::*, common::*};
 
-const HEADER: u8 = SESSION_ID as u8 + size_of::<FinalizationIndex>() as u8 + size_of::<BlockHeight>() as u8 + size_of::<Party>() as u8;
+const HEADER: u8 = SESSION_ID as u8
+    + size_of::<FinalizationIndex>() as u8
+    + size_of::<BlockHeight>() as u8
+    + size_of::<Party>() as u8;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = BLOCK_HASH;
@@ -43,12 +49,12 @@ impl FinalizationMessage {
 
     pub fn serialize(&self) -> Box<[u8]> {
         [
-
             &self.header.serialize(),
             &self.message.serialize(),
             self.signature.as_ref(),
         ]
-        .concat().into_boxed_slice()
+        .concat()
+        .into_boxed_slice()
     }
 }
 
@@ -86,7 +92,12 @@ impl FinalizationMessageHeader {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(SESSION_ID as usize + size_of::<FinalizationIndex>() + size_of::<BlockHeight>() + size_of::<Party>());
+        let mut cursor = create_serialization_cursor(
+            SESSION_ID as usize
+                + size_of::<FinalizationIndex>()
+                + size_of::<BlockHeight>()
+                + size_of::<Party>(),
+        );
 
         let _ = cursor.write_all(&self.session_id.serialize());
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
@@ -316,8 +327,12 @@ impl FinalizationRecord {
     pub fn serialize(&self) -> Box<[u8]> {
         let proof = self.proof.serialize();
 
-        let mut cursor =
-            create_serialization_cursor(size_of::<FinalizationIndex>() + self.block_pointer.len() + proof.len() + size_of::<BlockHeight>());
+        let mut cursor = create_serialization_cursor(
+            size_of::<FinalizationIndex>()
+                + self.block_pointer.len()
+                + proof.len()
+                + size_of::<BlockHeight>(),
+        );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
@@ -337,7 +352,8 @@ impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<SignatureCount>()));
+        let signature_count =
+            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<SignatureCount>()));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
@@ -357,8 +373,9 @@ impl FinalizationProof {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor =
-            create_serialization_cursor(size_of::<SignatureCount>() + self.0.len() * (4 + SIGNATURE as usize));
+        let mut cursor = create_serialization_cursor(
+            size_of::<SignatureCount>() + self.0.len() * (4 + SIGNATURE as usize),
+        );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

@@ -101,7 +101,7 @@ impl TryFrom<u8> for CallbackType {
             0 => Ok(CallbackType::Block),
             1 => Ok(CallbackType::FinalizationMessage),
             2 => Ok(CallbackType::FinalizationRecord),
-            n => Err(format_err!("Received invalid callback type: {}", n)),
+            _ => Err(format_err!("Received invalid callback type: {}", byte)),
         }
     }
 }
@@ -156,7 +156,8 @@ impl ConsensusBaker {
         let genesis_data_serialized = genesis_block.get_genesis_data().serialize();
         let genesis_data_len = genesis_data_serialized.len();
 
-        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data_serialized.into()) };
+        let c_string_genesis =
+            unsafe { CString::from_vec_unchecked(genesis_data_serialized.into()) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
         let baker = unsafe {
             startBaker(
