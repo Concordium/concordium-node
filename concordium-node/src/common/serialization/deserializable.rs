@@ -49,7 +49,7 @@ where
     }
 }
 
-// Std common types
+// Common std types
 // ==============================================================================================
 
 impl Deserializable for IpAddr {

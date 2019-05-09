@@ -12,9 +12,6 @@ pub trait WriteArchive: Sized + std::io::Write {
     fn write_u32(&mut self, data: u32) -> Fallible<()>;
     fn write_u64(&mut self, data: u64) -> Fallible<()>;
 
-    fn set_payload(&mut self, payload: UCursor);
-    fn payload(&self) -> Option<UCursor>;
-
     fn write_str<T: AsRef<str>>(&mut self, s: T) -> Fallible<()> {
         let s_ref = s.as_ref();
         self.write_u32(s_ref.len() as u32)?;

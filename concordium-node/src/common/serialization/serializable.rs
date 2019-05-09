@@ -3,7 +3,11 @@ use crate::common::serialization::WriteArchive;
 use concordium_common::UCursor;
 use failure::Fallible;
 
-use std::{collections::HashSet, ops::Deref};
+use std::{
+    collections::HashSet,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    ops::Deref,
+};
 
 pub trait Serializable<T: ?Sized = Self> {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
@@ -65,10 +69,8 @@ where
     }
 }
 
-// Std common types
+// Common std types
 // ==============================================================================================
-
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 impl Serializable for Ipv4Addr {
     #[inline]
@@ -105,7 +107,6 @@ impl Serializable for IpAddr {
     }
 }
 
-use std::net::SocketAddr;
 impl Serializable for SocketAddr {
     #[inline]
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>

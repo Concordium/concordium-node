@@ -1,7 +1,6 @@
 use crate::common::serialization::WriteArchive;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use concordium_common::UCursor;
 use failure::Fallible;
 
 use std::io::Write;
@@ -9,8 +8,7 @@ use std::io::Write;
 pub struct WriteArchiveAdapter<T>
 where
     T: Write, {
-    io_writer:  T,
-    io_payload: Option<UCursor>,
+    io_writer: T,
 }
 
 impl<T> WriteArchiveAdapter<T>
@@ -32,12 +30,7 @@ where
     T: Write,
 {
     #[inline]
-    fn from(io: T) -> Self {
-        WriteArchiveAdapter {
-            io_writer:  io,
-            io_payload: None,
-        }
-    }
+    fn from(io: T) -> Self { WriteArchiveAdapter { io_writer: io } }
 }
 
 impl<T> WriteArchive for WriteArchiveAdapter<T>
@@ -61,12 +54,6 @@ where
     fn write_u64(&mut self, data: u64) -> Fallible<()> {
         into_err!(self.io_writer.write_u64::<LittleEndian>(data))
     }
-
-    #[inline]
-    fn set_payload(&mut self, payload: UCursor) { self.io_payload = Some(payload); }
-
-    #[inline]
-    fn payload(&self) -> Option<UCursor> { self.io_payload.clone() }
 }
 
 impl<T> std::io::Write for WriteArchiveAdapter<T>
