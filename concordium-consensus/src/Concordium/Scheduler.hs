@@ -311,7 +311,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                                          (AddressContract cref)
                                                          senderamount''
                                                          transferamount'
-                                                         (ValueMessage (I.mkJust message'))
+                                                         (ValueMessage (I.aJust message'))
                                                          model'
                                                          contractamount'
                             -- simple transfer to a contract is the same as a call to update with Nothing
@@ -325,7 +325,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                                          (AddressContract cref)
                                                          senderamount''
                                                          transferamount'
-                                                         (ValueMessage I.mkNothing)
+                                                         (ValueMessage I.aNothing)
                                                          model'
                                                          contractamount'
                             TSimpleTransfer (AddressAccount acc) transferamount' -> do -- FIXME: This is temporary until accounts have their own functions

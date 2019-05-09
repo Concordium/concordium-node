@@ -23,7 +23,8 @@ constraint RecorderC where
     getAccounts :: ModelRec ::
 
   senders
-    sendNote :: MsgRec ::
+    sendInc :: Prod.Pair {address} Int64 ::
+    sendDec :: Prod.Pair {address} Int64 ::
 
 definition mkReturnCounter = Prod.Pair [ModelCnt] [Prim.Transaction]
 
@@ -83,13 +84,13 @@ contract Counter where
             case msg' of
                 Inc n -> let inst = recorder model
                          in case castRecorderC inst of
-                              Maybe.Just i -> mkReturnCounter (addAmountModel n model) (sendNote i (Note caller n) amount )
+                              Maybe.Just i -> mkReturnCounter (addAmountModel n model) (sendInc i (Prod.Pair [{address}] [Int64] caller n) amount )
                               Maybe.Nothing -> mkReturnCounter model Prim.TxReject
                 Dec n -> let inst = recorder model
                          in case castRecorderC inst of
                               Maybe.Just i -> let d = accounts (getAccounts i)
                                               in case checkAmount caller d n of
-                                                   Maybe.Just y -> mkReturnCounter (decAmountModel n model) (sendNote i (Withdraw caller n) amount)
+                                                   Maybe.Just y -> mkReturnCounter (decAmountModel n model) (sendDec i (Prod.Pair [{address}] [Int64] caller n) amount)
                                                    Maybe.Nothing -> mkReturnCounter model Prim.TxReject
                               Maybe.Nothing -> mkReturnCounter model Prim.TxReject
 
@@ -117,4 +118,9 @@ contract Recorder where
       getAccounts (r :: ModelRec) = r
 
     senders
-      sendNote (r :: MsgRec) = r
+      sendInc (r :: Prod.Pair {address} Int64) =
+        case r of
+           Prod.Pair a i -> Note a i
+      sendDec (r :: Prod.Pair {address} Int64) =
+        case r of
+           Prod.Pair a i -> Withdraw a i
