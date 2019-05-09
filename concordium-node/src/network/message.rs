@@ -71,7 +71,7 @@ impl AsProtocolMessageType for NetworkMessage {
             NetworkMessage::NetworkResponse(..) => ProtocolMessageType::Response,
             NetworkMessage::NetworkPacket(..) => ProtocolMessageType::Packet,
             NetworkMessage::UnknownMessage | NetworkMessage::InvalidMessage => {
-                panic!("Invalid or Unknown messages are not serializable")
+                unreachable!("Invalid or Unknown messages are not serializable")
             }
         }
     }
