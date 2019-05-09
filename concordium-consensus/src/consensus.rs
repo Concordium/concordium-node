@@ -1,10 +1,11 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use chrono::prelude::*;
 use curryrs::hsrt::{start, stop};
-use failure::{bail, Fallible};
+use failure::{bail, format_err, Fallible};
 
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     ffi::{CStr, CString},
     io::Cursor,
     os::raw::c_char,
@@ -84,6 +85,25 @@ pub struct ConsensusBaker {
     genesis_block: Arc<Block>,
     private_data:  Vec<u8>,
     runner:        Arc<AtomicPtr<baker_runner>>,
+}
+
+enum CallbackType {
+    Block = 0,
+    FinalizationMessage,
+    FinalizationRecord,
+}
+
+impl TryFrom<u8> for CallbackType {
+    type Error = failure::Error;
+
+    fn try_from(byte: u8) -> Fallible<Self> {
+        match byte {
+            0 => Ok(CallbackType::Block),
+            1 => Ok(CallbackType::FinalizationMessage),
+            2 => Ok(CallbackType::FinalizationRecord),
+            n => Err(format_err!("Received invalid callback type: {}", n)),
+        }
+    }
 }
 
 macro_rules! wrap_c_call_string {
@@ -551,30 +571,36 @@ extern "C" fn on_block_baked(data_type: i64, block_data: *const u8, data_length:
 
     unsafe {
         let data = slice::from_raw_parts(block_data as *const u8, data_length as usize);
+        let callback_type = match CallbackType::try_from(data_type as u8) {
+            Ok(ct) => ct,
+            Err(e) => {
+                error!("{}", e);
+                return;
+            }
+        };
 
-        match data_type {
-            0 => match Block::deserialize(data) {
+        match callback_type {
+            CallbackType::Block => match Block::deserialize(data) {
                 Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
                     Ok(_) => debug!("Queueing {} block bytes", data_length),
                     _ => error!("Didn't queue block message properly"),
                 },
                 Err(e) => error!("Deserialization of block failed: {:?}", e),
             },
-            1 => match FinalizationMessage::deserialize(data) {
+            CallbackType::FinalizationMessage => match FinalizationMessage::deserialize(data) {
                 Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization(msg) {
                     Ok(_) => debug!("Queueing {} bytes of finalization", data.len()),
                     _ => error!("Didn't queue finalization message properly"),
                 },
                 Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
             },
-            2 => match FinalizationRecord::deserialize(data) {
+            CallbackType::FinalizationRecord => match FinalizationRecord::deserialize(data) {
                 Ok(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
                     Ok(_) => debug!("Queueing {} bytes of finalization record", data.len()),
                     _ => error!("Didn't queue finalization record message properly"),
                 },
                 Err(e) => error!("Deserialization of finalization record failed: {:?}", e),
             },
-            _ => error!("Received invalid callback type"),
         }
     }
 }
