@@ -14,12 +14,8 @@ const POINTER: usize = BLOCK_HASH;
 const BAKER_ID: usize = 8;
 const NONCE: usize = BLOCK_HASH + PROOF_LENGTH; // should soon be shorter
 const LAST_FINALIZED: usize = BLOCK_HASH;
-const PAYLOAD_TYPE: usize = 1;
-const UNDEFINED: usize = 8;
-const PAYLOAD_SIZE: usize = 2;
 const TIMESTAMP: usize = 8;
 const SLOT_DURATION: usize = 8;
-const BLOCK_BODY: usize = 8;
 const SIGNATURE: usize = 8 + 64; // FIXME: unnecessary 8B prefix
 pub const BLOCK_HEIGHT: usize = 8;
 
@@ -116,8 +112,6 @@ impl Block {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         let data = match self.data {
             BlockData::GenesisData(ref data) => data.serialize(),
             BlockData::RegularData(ref data) => data.serialize(),
@@ -253,12 +247,14 @@ pub type BlockHeight = u64;
 
 pub type BlockHash = HashBytes;
 
+#[allow(dead_code)]
 pub struct PendingBlock {
     block:    Block,
     hash:     BlockHash,
     received: Utc,
 }
 
+#[allow(dead_code)]
 pub struct BlockPointer {
     block:  Block,
     hash:   BlockHash,

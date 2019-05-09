@@ -53,7 +53,7 @@ mod tests {
 
         let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
-        let (genesis_data, private_data) = ConsensusContainer::generate_data(0, 1)
+        let (genesis_data, private_data) = ConsensusContainer::generate_data(1)
             .unwrap_or_else(|_| panic!("Couldn't read haskell data"));
         let mut consensus_container = ConsensusContainer::new(genesis_data);
         &consensus_container.start_baker(0, private_data[&0].clone());

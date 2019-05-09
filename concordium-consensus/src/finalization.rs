@@ -14,7 +14,6 @@ const WMVBA_TYPE: usize = 1;
 const VAL: usize = BLOCK_HASH;
 const PHASE: usize = 4;
 const TICKET: usize = 80;
-const ABBA_INPUT: usize = PHASE + TICKET;
 const PARTY: usize = 4;
 const DELAY: usize = BLOCK_HEIGHT;
 const SIGNATURE_COUNT: usize = 8;
@@ -50,8 +49,6 @@ impl FinalizationMessage {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         [
             self.header.serialize().as_slice(),
             self.message.serialize().as_slice(),
@@ -298,6 +295,8 @@ pub struct FinalizationRecord {
 
 impl FinalizationRecord {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        debug_deserialization!("FinalizationRecord", bytes);
+
         let mut cursor = Cursor::new(bytes);
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));

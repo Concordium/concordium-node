@@ -11,8 +11,6 @@ use std::{
 
 use crate::{block::*, common::*};
 
-const TRANSACTION_SIZE: usize = 2;
-const TRANSACTION_TYPE: usize = 1;
 const TRANSACTION_COUNT: usize = 8;
 
 #[derive(Debug)]
@@ -53,8 +51,6 @@ pub struct Transactions(Vec<Transaction>);
 
 impl Transactions {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("Transactions", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let transaction_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
@@ -74,8 +70,6 @@ impl Transactions {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
         // FIXME: add an estimated size of all Transactions
         let mut cursor = create_serialization_cursor(TRANSACTION_COUNT);
 
@@ -117,11 +111,13 @@ impl TryFrom<u8> for TransactionType {
     }
 }
 
+#[allow(dead_code)]
 pub struct AccountNonFinalizedTransactions {
-    map:        HashMap<Nonce, HashSet<Transaction>>,
+    map:        Vec<(Nonce, HashSet<Transaction>)>,
     next_nonce: Nonce,
 }
 
+#[allow(dead_code)]
 pub struct TransactionTable {
     map: HashMap<TransactionHash, (Transaction, Slot)>,
     non_finalized_transactions: HashMap<AccountAddress, AccountNonFinalizedTransactions>,
