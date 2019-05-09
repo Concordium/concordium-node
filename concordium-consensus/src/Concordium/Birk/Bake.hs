@@ -16,11 +16,10 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Transactions
 
 import Concordium.Skov.Monad
-import Concordium.Kontrol.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 
-import Concordium.MonadImplementation(updateFocusBlockTo)
+import Concordium.Skov.Update (updateFocusBlockTo)
 
 import Concordium.Scheduler.TreeStateEnvironment(constructBlock)
 
@@ -49,7 +48,7 @@ processTransactions slot bh finalizedP = do
   -- This is done in the method below once a block pointer is constructed.
 
 
-bakeForSlot :: (KontrolMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
+bakeForSlot :: (SkovMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
