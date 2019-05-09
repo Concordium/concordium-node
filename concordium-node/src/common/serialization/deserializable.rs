@@ -101,7 +101,18 @@ impl Deserializable for SocketAddr {
     }
 }
 
-// Standar collections
+impl Deserializable for String {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<Self>
+    where
+        A: ReadArchive, {
+        let len = archive.read_u32()?;
+        let vw = archive.read_n_bytes(len)?;
+        Ok(std::str::from_utf8(vw.as_slice())?.to_owned())
+    }
+}
+
+// Standard collections
 // ==============================================================================================
 
 impl<T, S: ::std::hash::BuildHasher + Default> Deserializable for HashSet<T, S>

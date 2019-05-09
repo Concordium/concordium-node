@@ -139,7 +139,7 @@ impl Deserializable for NetworkPacket {
         let packet = NetworkPacket {
             packet_type: NetworkPacketType::deserialize(archive)?,
             peer:        archive.post_handshake_peer()?,
-            message_id:  archive.read_string()?,
+            message_id:  String::deserialize(archive)?,
             network_id:  NetworkId::deserialize(archive)?,
             message:     UCursor::deserialize(archive)?,
         };

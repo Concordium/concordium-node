@@ -116,7 +116,7 @@ impl Serializable for SocketAddr {
     }
 }
 
-// Standar collections
+// Standard collections
 // ==============================================================================================
 
 #[inline]

@@ -43,15 +43,7 @@ pub trait ReadArchive: Sized + std::io::Read {
 
     fn payload(&mut self, len: u64) -> Option<UCursor>;
 
-    /// #TODO
-    /// Should it be read as 'str'?
-    fn read_string(&mut self) -> Fallible<String> {
-        let len = self.read_u32()?;
-        let vw = self.read_n_bytes(len)?;
-        Ok(str::from_utf8(vw.as_slice())?.to_owned())
-    }
-
-    // Utilitis for parsing.
+    // Utilities for parsing.
     fn tag<T>(&mut self, tag: T) -> Fallible<()>
     where
         T: Deserializable + PartialEq + Display, {

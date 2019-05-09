@@ -65,9 +65,8 @@ const PROTOCOL_IP4_LENGTH: usize = 12;
 const PROTOCOL_IP6_LENGTH: usize = 32;
 pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
 
-const PEER_TYPE_NODE :u8 = 0;
-const PEER_TYPE_BOOTSTRAPPER :u8 = 1;
-
+const PEER_TYPE_NODE: u8 = 0;
+const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
