@@ -548,9 +548,7 @@ fn setup_process_output(
                     NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
                         panic!("Not implemented yet");
                     }
-                    _ => {
-                        println!("FALSE PACKET {:?}!", full_msg);
-                    }
+                    _ => {}
                 }
             }
         }
