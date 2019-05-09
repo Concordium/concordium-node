@@ -840,60 +840,6 @@ extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const 
     }
 }
 
-extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
-    debug!("Got a request for catchup from consensus");
-    unsafe {
-        let s = slice::from_raw_parts(hash, 32).to_vec();
-        catchup_en_queue(CatchupRequest::BlockByHash(peer_id, s));
-    }
-}
-
-extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    debug!("Got a request for catchup from consensus");
-    unsafe {
-        let s = slice::from_raw_parts(hash, 32).to_vec();
-        catchup_en_queue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
-    }
-}
-
-extern "C" fn on_catchup_finalization_record_by_index(peer_id: PeerId, index: u64) {
-    catchup_en_queue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
-}
-
-pub enum CatchupRequest {
-    BlockByHash(u64, Vec<u8>),
-    FinalizationRecordByHash(u64, Vec<u8>),
-    FinalizationRecordByIndex(u64, u64),
-}
-
-fn catchup_en_queue(req: CatchupRequest) {
-    match CALLBACK_QUEUE.clone().send_catchup(req) {
-        Ok(_) => {
-            debug!("Queueing catchup request");
-        }
-        _ => error!("Didn't queue catchup requestproperly"),
-    }
-}
-
-extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
-    debug!("Callback hit - queueing message");
-    unsafe {
-        let s = slice::from_raw_parts(data as *const u8, len as usize);
-        match FinalizationMessage::deserialize(s) {
-            Ok(msg) => match CALLBACK_QUEUE
-                .clone()
-                .send_finalization_catchup((peer_id, msg))
-            {
-                Ok(_) => {
-                    debug!("Queueing {} bytes of finalization", s.len());
-                }
-                _ => error!("Didn't queue finalization message properly"),
-            },
-            Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
-        }
-    }
-}
-
 /// Following the implementation of the log crate, error = 1, warning = 2, info
 /// = 3, any other option is considered as debug.
 extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: *const u8) {
