@@ -65,6 +65,10 @@ const PROTOCOL_IP4_LENGTH: usize = 12;
 const PROTOCOL_IP6_LENGTH: usize = 32;
 pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
 
+const PEER_TYPE_NODE :u8 = 0;
+const PEER_TYPE_BOOTSTRAPPER :u8 = 1;
+
+
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PeerType {
@@ -91,8 +95,8 @@ impl Serializable for PeerType {
     where
         A: WriteArchive, {
         archive.write_u8(match self {
-            PeerType::Node => 0u8,
-            PeerType::Bootstrapper => 1u8,
+            PeerType::Node => PEER_TYPE_NODE,
+            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
         })
     }
 }
@@ -103,8 +107,8 @@ impl Deserializable for PeerType {
     where
         A: ReadArchive, {
         let pt = match archive.read_u8()? {
-            0u8 => PeerType::Node,
-            1u8 => PeerType::Bootstrapper,
+            PEER_TYPE_NODE => PeerType::Node,
+            PEER_TYPE_BOOTSTRAPPER => PeerType::Bootstrapper,
             _ => bail!("Unsupported PeerType"),
         };
         Ok(pt)
