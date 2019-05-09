@@ -5,18 +5,18 @@ use std::io::{Cursor, Read, Write};
 
 use crate::{block::*, common::*};
 
-const HEADER: usize = 60;
-const INDEX: usize = 8;
-const DELTA: usize = 8;
-const SENDER: usize = 4;
-const SIGNATURE: usize = 8 + 64; // FIXME: unnecessary 8B prefix
-const WMVBA_TYPE: usize = 1;
-const VAL: usize = BLOCK_HASH;
-const PHASE: usize = 4;
-const TICKET: usize = 80;
-const PARTY: usize = 4;
-const DELAY: usize = BLOCK_HEIGHT;
-const SIGNATURE_COUNT: usize = 8;
+const HEADER: u8 = 60;
+const INDEX: u8 = 8;
+const DELTA: u8 = 8;
+const SENDER: u8 = 4;
+const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
+const WMVBA_TYPE: u8 = 1;
+const VAL: u8 = BLOCK_HASH;
+const PHASE: u8 = 4;
+const TICKET: u8 = 80;
+const PARTY: u8 = 4;
+const DELAY: u8 = BLOCK_HEIGHT;
+const SIGNATURE_COUNT: u8 = 8;
 
 #[derive(Debug)]
 pub struct FinalizationMessage {
@@ -33,7 +33,7 @@ impl FinalizationMessage {
 
         let header =
             FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
-        let message_size = bytes.len() - cursor.position() as usize - SIGNATURE;
+        let message_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
         let message = WmvbaMessage::deserialize(&read_sized!(&mut cursor, message_size))?;
         let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
@@ -92,7 +92,7 @@ impl FinalizationMessageHeader {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(SESSION_ID + INDEX + DELTA + SENDER);
+        let mut cursor = create_serialization_cursor(SESSION_ID as usize + INDEX as usize + DELTA as usize + SENDER as usize);
 
         let _ = cursor.write_all(&self.session_id.serialize());
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
@@ -209,7 +209,7 @@ impl AbbaInput {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(PHASE + TICKET);
+        let mut cursor = create_serialization_cursor(PHASE as usize + TICKET as usize);
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
         let _ = cursor.write_all(&self.ticket);
@@ -240,7 +240,7 @@ impl CssSeen {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(PHASE + PARTY);
+        let mut cursor = create_serialization_cursor(PHASE as usize + PARTY as usize);
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
         let _ = cursor.write_u32::<NetworkEndian>(self.party);
@@ -276,7 +276,7 @@ impl CssDoneReporting {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(PHASE + self.rest.len());
+        let mut cursor = create_serialization_cursor(PHASE as usize + self.rest.len());
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
         let _ = cursor.write_all(&self.rest);
@@ -301,7 +301,7 @@ impl FinalizationRecord {
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
-        let proof_size = bytes.len() - cursor.position() as usize - DELAY;
+        let proof_size = bytes.len() - cursor.position() as usize - DELAY as usize;
         let proof = FinalizationProof::deserialize(&read_sized!(&mut cursor, proof_size))?;
         let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
@@ -321,7 +321,7 @@ impl FinalizationRecord {
         let proof = self.proof.serialize();
 
         let mut cursor =
-            create_serialization_cursor(INDEX + self.block_pointer.len() + proof.len() + DELAY);
+            create_serialization_cursor(INDEX as usize + self.block_pointer.len() + proof.len() + DELAY as usize);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
@@ -360,7 +360,7 @@ impl FinalizationProof {
 
     pub fn serialize(&self) -> Vec<u8> {
         let mut cursor =
-            create_serialization_cursor(SIGNATURE_COUNT + self.0.len() * (4 + SIGNATURE));
+            create_serialization_cursor(SIGNATURE_COUNT as usize + self.0.len() * (4 + SIGNATURE as usize));
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

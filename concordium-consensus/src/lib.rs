@@ -36,7 +36,7 @@ macro_rules! debug_serialization {
 
 macro_rules! read_const_sized {
     ($source:expr, $size:expr) => {{
-        let mut buf = [0u8; $size];
+        let mut buf = [0u8; $size as usize];
         $source.read_exact(&mut buf)?;
 
         buf
@@ -45,7 +45,7 @@ macro_rules! read_const_sized {
 
 macro_rules! read_sized {
     ($source:expr, $size:expr) => {{
-        let mut buf = vec![0u8; $size];
+        let mut buf = vec![0u8; $size as usize];
         $source.read_exact(&mut buf)?;
 
         buf

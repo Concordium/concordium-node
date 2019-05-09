@@ -8,16 +8,16 @@ use std::io::{Cursor, Read, Write};
 
 use crate::{common::*, parameters::*, transaction::*};
 
-const SLOT: usize = 8;
-pub const BLOCK_HASH: usize = SHA256;
-const POINTER: usize = BLOCK_HASH;
-const BAKER_ID: usize = 8;
-const NONCE: usize = BLOCK_HASH + PROOF_LENGTH; // should soon be shorter
-const LAST_FINALIZED: usize = BLOCK_HASH;
-const TIMESTAMP: usize = 8;
-const SLOT_DURATION: usize = 8;
-const SIGNATURE: usize = 8 + 64; // FIXME: unnecessary 8B prefix
-pub const BLOCK_HEIGHT: usize = 8;
+const SLOT: u8 = 8;
+pub const BLOCK_HASH: u8 = SHA256;
+const POINTER: u8 = BLOCK_HASH;
+const BAKER_ID: u8 = 8;
+const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
+const LAST_FINALIZED: u8 = BLOCK_HASH;
+const TIMESTAMP: u8 = 8;
+const SLOT_DURATION: u8 = 8;
+const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
+pub const BLOCK_HEIGHT: u8 = 8;
 
 macro_rules! get_block_content {
     ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
@@ -117,7 +117,7 @@ impl Block {
             BlockData::RegularData(ref data) => data.serialize(),
         };
 
-        let mut cursor = create_serialization_cursor(SLOT + data.len());
+        let mut cursor = create_serialization_cursor(SLOT as usize + data.len());
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
         let _ = cursor.write_all(&data);
@@ -169,7 +169,7 @@ impl GenesisData {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
-        let size = TIMESTAMP + SLOT_DURATION + birk_params.len() + finalization_params.len();
+        let size = TIMESTAMP as usize + SLOT_DURATION as usize + birk_params.len() + finalization_params.len();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
@@ -201,7 +201,7 @@ impl RegularData {
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
         let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
-        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE;
+        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
         let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
         let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
@@ -222,7 +222,7 @@ impl RegularData {
 
     pub fn serialize(&self) -> Vec<u8> {
         let transactions = Transactions::serialize(&self.transactions);
-        let consts = POINTER + BAKER_ID + PROOF_LENGTH + NONCE + LAST_FINALIZED + SIGNATURE;
+        let consts = POINTER as usize + BAKER_ID as usize + PROOF_LENGTH + NONCE as usize + LAST_FINALIZED as usize + SIGNATURE as usize;
         let mut cursor = create_serialization_cursor(consts + transactions.len());
 
         let _ = cursor.write_all(&self.pointer);

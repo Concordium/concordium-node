@@ -12,9 +12,9 @@ pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-pub const SHA256: usize = 32;
-pub const INCARNATION: usize = 8;
-pub const SESSION_ID: usize = SHA256 + INCARNATION;
+pub const SHA256: u8 = 32;
+pub const INCARNATION: u8 = 8;
+pub const SESSION_ID: u8 = SHA256 + INCARNATION;
 
 use crate::block::{BlockHash, BLOCK_HASH};
 
@@ -78,7 +78,7 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(BLOCK_HASH + INCARNATION);
+        let mut cursor = create_serialization_cursor(BLOCK_HASH as usize + INCARNATION as usize);
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);

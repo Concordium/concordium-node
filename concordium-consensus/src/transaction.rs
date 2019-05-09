@@ -11,7 +11,7 @@ use std::{
 
 use crate::{block::*, common::*};
 
-const TRANSACTION_COUNT: usize = 8;
+const TRANSACTION_COUNT: u8 = 8;
 
 #[derive(Debug)]
 pub struct TransactionHeader {
@@ -71,7 +71,7 @@ impl Transactions {
 
     pub fn serialize(&self) -> Vec<u8> {
         // FIXME: add an estimated size of all Transactions
-        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT);
+        let mut cursor = create_serialization_cursor(TRANSACTION_COUNT as usize);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
