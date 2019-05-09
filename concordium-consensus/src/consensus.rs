@@ -32,13 +32,14 @@ pub struct baker_runner {
     private: [u8; 0],
 }
 
+type PeerId = u64;
 type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type CatchupFinalizationRequestByBlockHashCallback = extern "C" fn(peer_id: u64, data: *const u8);
+type CatchupFinalizationRequestByBlockHashCallback = extern "C" fn(peer_id: PeerId, data: *const u8);
 type CatchupFinalizationRequestByFinalizationIndexCallback =
-    extern "C" fn(peer_id: u64, finalization_index: u64);
+    extern "C" fn(peer_id: PeerId, finalization_index: u64);
 type CatchupFinalizationMessagesSenderCallback =
-    extern "C" fn(peer_id: u64, payload: *const u8, payload_length: i64);
+    extern "C" fn(peer_id: PeerId, payload: *const u8, payload_length: i64);
 type GenerateKeypairCallback = extern "C" fn(baker_id: i64, data: *const u8, data_length: i64);
 type GenerateGenesisDataCallback = extern "C" fn(data: *const u8, data_length: i64);
 
@@ -57,19 +58,19 @@ extern "C" {
     pub fn printBlock(block_data: *const u8, data_length: i64);
     pub fn receiveBlock(
         baker: *mut baker_runner,
-        peer_id: u64,
+        peer_id: PeerId,
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalization(
         baker: *mut baker_runner,
-        peer_id: u64,
+        peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     );
     pub fn receiveFinalizationRecord(
         baker: *mut baker_runner,
-        peer_id: u64,
+        peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
@@ -104,7 +105,7 @@ extern "C" {
     pub fn getIndexedFinalization(baker: *mut baker_runner, finalization_index: u64) -> *const u8;
     pub fn getFinalizationMessages(
         baker: *mut baker_runner,
-        peer_id: u64,
+        peer_id: PeerId,
         request: *const u8,
         request_lenght: i64,
         callback: CatchupFinalizationMessagesSenderCallback,
@@ -205,15 +206,15 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, peer_id: u64, block: &Block) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &Block) -> i64 {
         wrap_send_data_to_c!(self, peer_id, block.serialize(), receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: u64, msg: &FinalizationMessage) {
+    pub fn send_finalization(&self, peer_id: PeerId, msg: &FinalizationMessage) {
         wrap_send_data_to_c!(self, peer_id, msg.serialize(), receiveFinalization);
     }
 
-    pub fn send_finalization_record(&self, peer_id: u64, rec: &FinalizationRecord) -> i64 {
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &FinalizationRecord) -> i64 {
         wrap_send_data_to_c!(self, peer_id, rec.serialize(), receiveFinalizationRecord)
     }
 
@@ -295,7 +296,7 @@ impl ConsensusBaker {
         wrap_c_call_bytes!(self, |baker| getIndexedFinalization(baker, index))
     }
 
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: u64) -> i64 {
+    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> i64 {
         wrap_c_call!(self, |baker| getFinalizationMessages(
             baker,
             peer_id,
@@ -512,7 +513,7 @@ impl ConsensusContainer {
 
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
-    pub fn send_block(&self, peer_id: u64, block: &Block) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &Block) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
             if block.baker_id() != *id {
                 return baker.send_block(peer_id, block);
@@ -521,14 +522,14 @@ impl ConsensusContainer {
         1
     }
 
-    pub fn send_finalization(&self, peer_id: u64, msg: &FinalizationMessage) -> i64 {
+    pub fn send_finalization(&self, peer_id: PeerId, msg: &FinalizationMessage) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             baker.send_finalization(peer_id, msg);
         }
         -1
     }
 
-    pub fn send_finalization_record(&self, peer_id: u64, rec: &FinalizationRecord) -> i64 {
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &FinalizationRecord) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             return baker.send_finalization_record(peer_id, rec);
         }
@@ -678,7 +679,7 @@ impl ConsensusContainer {
             .ok_or_else(|| failure::Error::from(BakerNotRunning))
     }
 
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: u64) -> Fallible<i64> {
+    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> Fallible<i64> {
         safe_read!(self.bakers)
             .values()
             .next()
@@ -738,7 +739,7 @@ extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data
     }
 }
 
-extern "C" fn on_catchup_block_by_hash(peer_id: u64, hash: *const u8) {
+extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
     debug!("Got a request for catchup from consensus");
     unsafe {
         let s = slice::from_raw_parts(hash, 32).to_vec();
@@ -746,7 +747,7 @@ extern "C" fn on_catchup_block_by_hash(peer_id: u64, hash: *const u8) {
     }
 }
 
-extern "C" fn on_catchup_finalization_record_by_hash(peer_id: u64, hash: *const u8) {
+extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
     debug!("Got a request for catchup from consensus");
     unsafe {
         let s = slice::from_raw_parts(hash, 32).to_vec();
@@ -754,7 +755,7 @@ extern "C" fn on_catchup_finalization_record_by_hash(peer_id: u64, hash: *const 
     }
 }
 
-extern "C" fn on_catchup_finalization_record_by_index(peer_id: u64, index: u64) {
+extern "C" fn on_catchup_finalization_record_by_index(peer_id: PeerId, index: u64) {
     catchup_en_queue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
 }
 
@@ -773,7 +774,7 @@ fn catchup_en_queue(req: CatchupRequest) {
     }
 }
 
-extern "C" fn on_finalization_message_catchup_out(peer_id: u64, data: *const u8, len: i64) {
+extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     debug!("Callback hit - queueing message");
     unsafe {
         let s = slice::from_raw_parts(data as *const u8, len as usize);

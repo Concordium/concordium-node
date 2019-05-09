@@ -354,6 +354,10 @@ impl FromStr for P2PNodeId {
     }
 }
 
+impl P2PNodeId {
+    pub fn as_raw(self) -> u64 { self.0 }
+}
+
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
 
 pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().to_le_bytes()[..]) }
