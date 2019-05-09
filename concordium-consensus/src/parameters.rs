@@ -67,7 +67,7 @@ impl BirkParameters {
         Ok(params)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let baker_info_size = 8 + self.bakers.len() * (size_of::<BakerId>() + BAKER_INFO as usize);
         let mut baker_cursor = create_serialization_cursor(baker_info_size);
 
@@ -89,7 +89,7 @@ impl BirkParameters {
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -119,14 +119,14 @@ impl BakerInfo {
         Ok(info)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
         let _ = cursor.write_all(&self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -153,7 +153,7 @@ impl FinalizationParameters {
         Ok(params)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO as usize);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
@@ -162,7 +162,7 @@ impl FinalizationParameters {
             let _ = cursor.write_all(&info.serialize());
         }
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -192,13 +192,13 @@ impl VoterInfo {
         Ok(info)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(VOTER_INFO as usize);
 
         let _ = cursor.write_all(&self.signature_verify_key);
         let _ = cursor.write_all(&self.election_verify_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.voting_power);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }

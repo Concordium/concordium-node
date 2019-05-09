@@ -77,13 +77,13 @@ impl SessionId {
         Ok(sess)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(BLOCK_HASH as usize + INCARNATION as usize);
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
 
-        cursor.into_inner().to_vec()
+        cursor.into_inner()
     }
 }
 
@@ -119,22 +119,22 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
     Cursor::new(buf.into_boxed_slice())
 }
 
-pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Vec<u8>> {
+pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     let size = cursor.get_ref().len() - cursor.position() as usize;
     let mut buf = vec![0u8; size];
     cursor.read_exact(&mut buf)?;
 
-    Ok(buf)
+    Ok(buf.into_boxed_slice())
 }
 
-pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Vec<u8>> {
+pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     let value_size = NetworkEndian::read_u64(&read_const_sized!(input, 8)) as usize;
     let mut buf = Cursor::new(vec![0u8; 8 + value_size]);
 
     buf.write_u64::<NetworkEndian>(value_size as u64)?;
     buf.write_all(&read_sized!(input, value_size))?;
 
-    Ok(buf.into_inner())
+    Ok(buf.into_inner().into_boxed_slice())
 }
 
 // temporary type placeholders

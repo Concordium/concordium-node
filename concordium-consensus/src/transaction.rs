@@ -39,10 +39,10 @@ impl Transaction {
         unimplemented!()
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         debug_serialization!(self);
 
-        vec![] // TODO
+        vec![].into_boxed_slice() // TODO
     }
 }
 
@@ -69,7 +69,7 @@ impl Transactions {
         Ok(transactions)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         // FIXME: add an estimated size of all Transactions
         let mut cursor = create_serialization_cursor(TRANSACTION_COUNT as usize);
 
@@ -79,7 +79,7 @@ impl Transactions {
             let _ = cursor.write_all(&transaction.serialize());
         }
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 

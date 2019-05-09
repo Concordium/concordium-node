@@ -111,7 +111,7 @@ impl Block {
         Ok(block)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let data = match self.data {
             BlockData::GenesisData(ref data) => data.serialize(),
             BlockData::RegularData(ref data) => data.serialize(),
@@ -122,7 +122,7 @@ impl Block {
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
         let _ = cursor.write_all(&data);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 
     pub fn slot_id(&self) -> Slot { self.slot }
@@ -165,7 +165,7 @@ impl GenesisData {
         Ok(data)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
@@ -177,7 +177,7 @@ impl GenesisData {
         let _ = cursor.write_all(&birk_params);
         let _ = cursor.write_all(&finalization_params);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -220,7 +220,7 @@ impl RegularData {
         Ok(data)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> Box<[u8]> {
         let transactions = Transactions::serialize(&self.transactions);
         let consts = POINTER as usize + BAKER_ID as usize + PROOF_LENGTH + NONCE as usize + LAST_FINALIZED as usize + SIGNATURE as usize;
         let mut cursor = create_serialization_cursor(consts + transactions.len());
@@ -233,7 +233,7 @@ impl RegularData {
         let _ = cursor.write_all(&transactions);
         let _ = cursor.write_all(&self.signature);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 

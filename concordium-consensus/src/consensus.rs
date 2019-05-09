@@ -105,7 +105,7 @@ macro_rules! wrap_send_data_to_c {
         unsafe {
             return $c_call(
                 baker,
-                CString::from_vec_unchecked($data).as_ptr() as *const u8,
+                CString::from_vec_unchecked($data.into()).as_ptr() as *const u8,
                 len as i64,
             );
         };
@@ -136,7 +136,7 @@ impl ConsensusBaker {
         let genesis_data_serialized = genesis_block.get_genesis_data().serialize();
         let genesis_data_len = genesis_data_serialized.len();
 
-        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data_serialized) };
+        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data_serialized.into()) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
         let baker = unsafe {
             startBaker(
