@@ -375,12 +375,14 @@ impl TlsServer {
     ///   returns `true`.
     /// * `send_status` - It will called after each sent, to notify the result
     ///   of the operation.
+    ///  # Returns
+    /// * connections the packet was written to
     pub fn send_over_all_connections(
         &self,
         data: &[u8],
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<usize>),
-    ) {
+    ) -> usize {
         write_or_die!(self.dptr).send_over_all_connections(data, filter_conn, send_status)
     }
 
