@@ -19,9 +19,12 @@ use std::{
 use webpki::DNSNameRef;
 
 use crate::{
-    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer},
+    common::{
+        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType,
+        RemotePeer,
+    },
     connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
-    network::{Buckets, NetworkId, NetworkRequest},
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
         tls_server_private::TlsServerPrivate,
@@ -334,15 +337,15 @@ impl TlsServer {
                 let self_peer = self.get_self_peer();
 
                 if let Some(ref rc_conn) = safe_read!(self.dptr)?.find_connection_by_token(token) {
+                    let handshake_request = NetworkMessage::NetworkRequest(
+                        NetworkRequest::Handshake(self_peer, safe_read!(networks)?.clone(), vec![]),
+                        Some(get_current_stamp()),
+                        None,
+                    );
+                    let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
+
                     let mut conn = rc_conn.borrow_mut();
-                    conn.serialize_bytes(
-                        &NetworkRequest::Handshake(
-                            self_peer,
-                            safe_read!(networks)?.clone(),
-                            vec![],
-                        )
-                        .serialize(),
-                    )?;
+                    conn.serialize_bytes(&handshake_request_data)?;
                     conn.set_measured_handshake_sent();
                 }
                 Ok(())

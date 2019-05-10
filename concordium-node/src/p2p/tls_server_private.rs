@@ -9,9 +9,11 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
+    common::{
+        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, PeerType, RemotePeer,
+    },
     connection::Connection,
-    network::{NetworkId, NetworkRequest},
+    network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
         peer_statistics::PeerStatistic,
@@ -346,13 +348,20 @@ impl TlsServerPrivate {
             })
             .for_each(|ref rc_conn| {
                 let mut conn = rc_conn.borrow_mut();
-
                 let local_peer = conn.local_peer();
-                conn.serialize_bytes(&NetworkRequest::Ping(local_peer).serialize())
-                    .map_err(|e| error!("{}", e))
-                    .ok();
-                conn.set_measured_ping_sent();
-                conn.set_last_ping_sent();
+
+                let request_ping = NetworkMessage::NetworkRequest(
+                    NetworkRequest::Ping(local_peer),
+                    Some(get_current_stamp()),
+                    None,
+                );
+                if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
+                    if let Err(e) = conn.serialize_bytes(&request_ping_data) {
+                        error!("{}", e);
+                    }
+                    conn.set_measured_ping_sent();
+                    conn.set_last_ping_sent();
+                }
             });
 
         Ok(())
