@@ -729,7 +729,7 @@ impl P2PNode {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
                     if self.process_network_packet(inner_pkt) {
                         if self.send_queue_in.send(outer_pkt).is_ok() {
-                            info!("Successfully requeued a network packet for sending");
+                            trace!("Successfully requeued a network packet for sending");
                             self.queue_size_inc();
                         } else {
                             error!("Can't put message back in queue for later sending");
