@@ -18,7 +18,7 @@ use std::{
     time::{self, Duration},
 };
 
-use crate::{block::*, fails::BakerNotRunning, finalization::*};
+use crate::{block::*, common, fails::BakerNotRunning, finalization::*};
 
 pub const PACKET_TYPE_CONSENSUS_BLOCK: u16 = 0;
 pub const PACKET_TYPE_CONSENSUS_TRANSACTION: u16 = 1;
@@ -790,7 +790,7 @@ extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data
 extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
     debug!("Got a request for catchup from consensus");
     unsafe {
-        let s = slice::from_raw_parts(hash, 32).to_vec();
+        let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
         catchup_en_queue(CatchupRequest::BlockByHash(peer_id, s));
     }
 }
@@ -798,12 +798,15 @@ extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
 extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
     debug!("Got a request for catchup from consensus");
     unsafe {
-        let s = slice::from_raw_parts(hash, 32).to_vec();
+        let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
         catchup_en_queue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
     }
 }
 
-extern "C" fn on_catchup_finalization_record_by_index(peer_id: PeerId, index: u64) {
+extern "C" fn on_catchup_finalization_record_by_index(
+    peer_id: PeerId,
+    index: FinalizationRecordIndex,
+) {
     catchup_en_queue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
 }
 
