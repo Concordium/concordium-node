@@ -117,12 +117,6 @@ pub struct BakerConfig {
         default_value = "0"
     )]
     pub baker_genesis: u64,
-    #[structopt(
-        long = "baker-min-peer-satisfaction-percentage",
-        help = "The minimum percentage of peers satisfied out of desired peers to start baking",
-        default_value = "50"
-    )]
-    pub baker_min_peer_satisfaction_percentage: u8,
 }
 
 #[derive(StructOpt, Debug)]
@@ -366,10 +360,9 @@ impl Default for Config {
                 no_network:      false,
                 test_runner_url: None,
                 baker:           BakerConfig {
-                    baker_id: None,
+                    baker_id:         None,
                     baker_num_bakers: 60,
-                    baker_genesis: 0,
-                    baker_min_peer_satisfaction_percentage: 50,
+                    baker_genesis:    0,
                 },
                 tps:             TpsConfig {
                     enable_tps_test:       false,

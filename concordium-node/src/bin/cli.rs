@@ -51,7 +51,6 @@ use std::{
     str::{self, FromStr},
     sync::{mpsc, Arc, RwLock},
     thread,
-    time::Duration,
 };
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
@@ -875,49 +874,6 @@ fn main() -> Fallible<()> {
     }
 
     let mut baker = if conf.cli.baker.baker_id.is_some() {
-        // Wait until we have at least a certain percentage of peers out of desired
-        // before starting the baker
-        let needed_peers = (f64::from(conf.connection.desired_nodes)
-            * (f64::from(conf.cli.baker.baker_min_peer_satisfaction_percentage) / 100.0))
-            .floor();
-
-        let network_ids: Vec<NetworkId> = conf
-            .common
-            .network_ids
-            .iter()
-            .map(|x| NetworkId::from(x.to_owned()))
-            .collect();
-
-        let mut peer_count_opt = Some(
-            node.get_peer_stats(&network_ids)
-                .iter()
-                .filter(|x| x.peer_type == PeerType::Node)
-                .count(),
-        );
-
-        while let Some(peer_count) = peer_count_opt {
-            if peer_count < needed_peers as usize {
-                // Sleep until we've gotten more peers
-                info!(
-                    "Waiting for {} peers before starting baker. Currently have {}",
-                    needed_peers, peer_count,
-                );
-
-                thread::sleep(Duration::from_secs(5));
-
-                peer_count_opt = Some(
-                    node.get_peer_stats(&network_ids)
-                        .iter()
-                        .filter(|x| x.peer_type == PeerType::Node)
-                        .count(),
-                );
-            } else {
-                peer_count_opt = None;
-            }
-        }
-
-        // We've gotten enough peers. We'll let it start the baker now.
-        info!("We've gotten enough peers. Beginning baker startup!");
         // Starting baker
         start_baker(&conf.cli.baker, &app_prefs)
     } else {
@@ -936,7 +892,8 @@ fn main() -> Fallible<()> {
                     if let Some(net) = nets.iter().next() {
                         let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
                         if let Ok(bytes) = baker_clone.get_finalization_point() {
-                            let mut out_bytes = Vec::with_capacity(2 + bytes.len());
+                            let mut out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             match out_bytes.write_u16::<NetworkEndian>(
                                 consensus::PacketType::CatchupFinalizationMessagesByPoint as u16,
                             ) {

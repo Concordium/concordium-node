@@ -418,11 +418,7 @@ impl P2PNode {
         trace!("Checking for needed peers");
         if self.peer_type != PeerType::Bootstrapper
             && !self.config.no_net
-            && self.config.desired_nodes_count
-                > peer_stat_list
-                    .iter()
-                    .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
-                    .count() as u8
+            && self.config.desired_nodes_count > peer_stat_list.iter().count() as u8
         {
             if peer_stat_list.is_empty() {
                 if !self.config.no_bootstrap_dns {
@@ -727,7 +723,7 @@ impl P2PNode {
 
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    if self.process_network_packet(inner_pkt) {
+                    if !self.process_network_packet(inner_pkt) {
                         if self.send_queue_in.send(outer_pkt).is_ok() {
                             trace!("Successfully requeued a network packet for sending");
                             self.queue_size_inc();
