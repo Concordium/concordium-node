@@ -817,18 +817,14 @@ extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data
 
 extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
     debug!("Got a request for catch-up from consensus");
-    unsafe {
-        let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
-        catchup_enqueue(CatchupRequest::BlockByHash(peer_id, s));
-    }
+    let s = unsafe { slice::from_raw_parts(hash, common::SHA256 as usize).to_vec() };
+    catchup_enqueue(CatchupRequest::BlockByHash(peer_id, s));
 }
 
 extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
     debug!("Got a request for catch-up from consensus");
-    unsafe {
-        let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
-        catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
-    }
+    let s = unsafe { slice::from_raw_parts(hash, common::SHA256 as usize).to_vec() };
+    catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
 }
 
 extern "C" fn on_catchup_finalization_record_by_index(
