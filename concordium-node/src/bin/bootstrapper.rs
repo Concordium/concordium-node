@@ -148,11 +148,7 @@ fn main() -> Result<(), Error> {
 
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    client_utils::start_push_gateway(
-        &conf.prometheus,
-        &stats_export_service,
-        node.id(),
-    )?;
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //

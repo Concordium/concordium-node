@@ -696,11 +696,11 @@ impl P2PNode {
         match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(ref receiver) => {
                 let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
-                1 >= write_or_die!(self.tls_server).send_over_all_connections(
+                write_or_die!(self.tls_server).send_over_all_connections(
                     &data,
                     &filter,
                     &check_sent_status_fn,
-                )
+                ) <= 1
             }
             NetworkPacketType::BroadcastedMessage => {
                 let filter = |conn: &Connection| {
@@ -730,7 +730,7 @@ impl P2PNode {
                     if !self.process_network_packet(inner_pkt) {
                         match self.send_queue_in.send(outer_pkt) {
                             Ok(_) => {
-                                info!("Successfully requeued a network packet for resending");
+                                info!("Successfully requeued a network packet for sending");
                                 self.queue_size_inc();
                             }
                             Err(_) => error!("Can't put message back in queue for later sending"),

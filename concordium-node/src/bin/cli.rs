@@ -192,7 +192,7 @@ fn setup_baker_guards(
         });
         let _baker_clone_4 = baker.to_owned();
         let mut _node_ref_4 = node.clone();
-        spawn_or_die!("Process baker catchup requests", move || loop {
+        spawn_or_die!("Process baker catch-up requests", move || loop {
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
@@ -231,9 +231,12 @@ fn setup_baker_guards(
                         serialized_bytes,
                         false,
                     ) {
-                        Ok(_) => info!("Sent consensus catchup request to peer {}", receiver_id),
+                        Ok(_) => info!(
+                            "Sent the consensus catch-up request to the peer {}",
+                            receiver_id
+                        ),
                         Err(_) => error!(
-                            "Couldn't send consensus catchup request to peer {}",
+                            "Couldn't send the consensus catch-up request to the peer {}",
                             receiver_id
                         ),
                     }
@@ -263,11 +266,12 @@ fn setup_baker_guards(
                             out_bytes,
                             false,
                         ) {
-                            Ok(_) => {
-                                info!("Sent consensus catchup request to peer {}", receiver_id)
-                            }
+                            Ok(_) => info!(
+                                "Sent the consensus catch-up request to the peer {}",
+                                receiver_id
+                            ),
                             Err(_) => error!(
-                                "Couldn't send consensus catchup request to peer {}",
+                                "Couldn't send the consensus catch-up request to the peer {}",
                                 receiver_id
                             ),
                         }
@@ -352,13 +356,7 @@ fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
                     for message in test_messages {
                         let out_bytes_len = message.len();
                         let to_send = P2PNodeId::from_str(&_id_clone).ok();
-                        match _node_ref.send_message(
-                            to_send,
-                            _network_id,
-                            None,
-                            message,
-                            false,
-                        ) {
+                        match _node_ref.send_message(to_send, _network_id, None, message, false) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
                             }
@@ -548,9 +546,7 @@ fn setup_process_output(
                     NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
                         panic!("Not implemented yet");
                     }
-                    _ => {
-                        println!("FALSE PACKET {:?}!", full_msg);
-                    }
+                    _ => {}
                 }
             }
         }
@@ -622,11 +618,8 @@ fn send_catchup_finalization_messages_by_point_to_baker(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    debug!("Got consensus catchup request for finalization messages by point");
-    match baker
-        .get_finalization_messages(&content[..], peer_id.as_raw())
-        .unwrap()
-    {
+    debug!("Got consensus catch-up request for finalization messages by point");
+    match baker.get_finalization_messages(&content[..], peer_id.as_raw())? {
         0i64 => {
             info!("Successfully requested finalization messages for requested point from consensus")
         }
@@ -646,9 +639,9 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    debug!("Got consensus catchup request for finalization record by index");
-    let index = NetworkEndian::read_u64(&content[..]);
-    let res = baker.get_indexed_finalization(index).unwrap();
+    debug!("Got consensus catch-up request for finalization record by index");
+    let index = NetworkEndian::read_u64(&content[..8]);
+    let res = baker.get_indexed_finalization(index)?;
     if NetworkEndian::read_u64(&res[..8]) > 0 {
         let mut out_bytes = vec![];
         out_bytes
@@ -656,11 +649,11 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
             .expect("Can't write to buffer");
         out_bytes.extend(res);
         match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!("Responded to catchup request from {}", peer_id),
-            Err(_) => error!("Couldn't respond to catchup request from {}!", peer_id),
+            Ok(_) => info!("Responded to a catchu-request from {}", peer_id),
+            Err(_) => error!("Couldn't respond to a catch-up request from {}!", peer_id),
         }
     } else {
-        error!("Consensus doesn't have requested finalization record");
+        error!("Consensus doesn't have the requested finalization record");
     }
     Ok(())
 }
@@ -672,8 +665,8 @@ fn send_catchup_request_finalization_record_by_bash_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    debug!("Got consensus catchup request for finalization record by hash");
-    let res = baker.get_block_finalization(&content[..]).unwrap();
+    debug!("Got consensus catch-up request for finalization record by the hash");
+    let res = baker.get_block_finalization(&content[..])?;
     if NetworkEndian::read_u64(&res[..8]) > 0 {
         let mut out_bytes = vec![];
         out_bytes
@@ -681,11 +674,11 @@ fn send_catchup_request_finalization_record_by_bash_baker(
             .expect("Can't write to buffer");
         out_bytes.extend(res);
         match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!("Responded to catchup request from {}", peer_id),
-            Err(_) => error!("Couldn't respond to catchup request from {}!", peer_id),
+            Ok(_) => info!("Responded to a catch-up request from {}", peer_id),
+            Err(_) => error!("Couldn't respond to a catch-up request from {}!", peer_id),
         }
     } else {
-        error!("Consensus doesn't have requested finalization record");
+        error!("Consensus doesn't have the requested finalization record");
     }
     Ok(())
 }
@@ -697,7 +690,7 @@ fn send_catchup_request_block_by_bash_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    let res = baker.get_block(&content[..]).unwrap();
+    let res = baker.get_block(&content[..])?;
     if NetworkEndian::read_u64(&res[..8]) > 0 {
         let mut out_bytes = vec![];
         out_bytes
@@ -705,11 +698,11 @@ fn send_catchup_request_block_by_bash_baker(
             .expect("Can't write to buffer");
         out_bytes.extend(res);
         match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!("Responded to catchup request from {}", peer_id),
-            Err(_) => error!("Couldn't respond to catchup request from {}!", peer_id),
+            Ok(_) => info!("Responded to a catch-up request from {}", peer_id),
+            Err(_) => error!("Couldn't respond to a catch-up request from {}!", peer_id),
         }
     } else {
-        error!("Consensus doesn't have requested block");
+        error!("Consensus doesn't have the requested block");
     }
     Ok(())
 }
@@ -859,13 +852,13 @@ fn main() -> Fallible<()> {
                                         match locked_cloned_node.send_message(Some(remote_peer.id()), *net, None, out_bytes, false)
                                         {
                                             Ok(_) => info!(
-                                                "Sent request for current round finalization messages by point to {}",
+                                                "Sent request for the current round finalization messages by point to {}",
                                                 remote_peer.id()
                                             ),
-                                            Err(_) => error!("Couldn't send catchup message for finalization messages by point!"),
+                                            Err(_) => error!("Couldn't send catch-up request for finalization messages by point!"),
                                         }
                                     }
-                                    Err(_) => error!("Can't write type to packet"),
+                                    Err(_) => error!("Can't write type to packet {}", consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT),
                                 }
                         }
                     } else {
@@ -900,8 +893,7 @@ fn main() -> Fallible<()> {
     start_tps_test(&conf, &node);
 
     // Wait for node closing
-    node.join()
-        .expect("Node thread panicked!");
+    node.join().expect("Node thread panicked!");
 
     // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {
