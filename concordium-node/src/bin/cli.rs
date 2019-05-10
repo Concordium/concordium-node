@@ -924,11 +924,6 @@ fn main() -> Fallible<()> {
         None
     };
 
-    // Connect outgoing messages to be forwarded into the baker and RPC streams.
-    //
-    // Thread #4: Read P2PNode output
-    setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out);
-
     if let Some(ref baker) = baker {
         // Register handler for sending out a consensus catch-up request after handshake
         // by finalization point.
@@ -988,6 +983,11 @@ fn main() -> Fallible<()> {
     } else {
         None
     };
+
+    // Connect outgoing messages to be forwarded into the baker and RPC streams.
+    //
+    // Thread #4: Read P2PNode output
+    setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out);
 
     // Create listeners on baker output to forward to P2PNode
     //
