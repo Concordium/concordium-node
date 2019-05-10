@@ -34,23 +34,23 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = makeHeader alesKP 1 123
+         , metadata = makeHeader alesKP 1 1000
          , keypair = alesKP
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
-         , metadata = makeHeader alesKP 2 123
+         , metadata = makeHeader alesKP 2 1000
          , keypair = alesKP
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 99812 }
-         , metadata = makeHeader alesKP 3 100
+  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
+         , metadata = makeHeader alesKP 3 1000
          , keypair = alesKP
          }    
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
-         , metadata = makeHeader thomasKP 1 100
+         , metadata = makeHeader thomasKP 1 500
          , keypair = thomasKP
          }    
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 101 }
-         , metadata = makeHeader alesKP 4 100
+  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
+         , metadata = makeHeader alesKP 4 500
          , keypair = alesKP
          }    
   ]
@@ -77,8 +77,8 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   null fails && -- should be no failed transactions
   reject &&  -- the last transaction is rejected
   nonreject && -- all initial transactions are successful
-  alesamount == 200 &&
-  thomasamount == 199800
+  alesamount == 912 &&
+  thomasamount == 198588
   where 
     nonreject = all (\case (_, Types.TxSuccess _) -> True
                            (_, Types.TxReject _) -> False)
@@ -86,7 +86,6 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
     reject = case last suc of
                (_, Types.TxReject (Types.AmountTooLarge _ _)) -> True
                _ -> False
-
 
 tests :: SpecWith ()
 tests = 
