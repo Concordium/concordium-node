@@ -173,7 +173,7 @@ extern "C" {
 #[derive(Clone)]
 pub struct ConsensusBaker {
     id:            u64,
-    genesis_block: Arc<Block>,
+    genesis_data: Arc<GenesisData>,
     private_data:  Vec<u8>,
     runner:        Arc<AtomicPtr<baker_runner>>,
 }
@@ -249,14 +249,13 @@ macro_rules! wrap_c_call {
 }
 
 impl ConsensusBaker {
-    pub fn new(baker_id: u64, genesis_block: Arc<Block>, private_data: Vec<u8>) -> Self {
+    pub fn new(baker_id: u64, genesis_data: Arc<GenesisData>, private_data: Vec<u8>) -> Self {
         info!("Starting up baker {}", baker_id);
 
-        let genesis_data_serialized = genesis_block.get_genesis_data().serialize();
-        let genesis_data_len = genesis_data_serialized.len();
+        let genesis_data_len = genesis_data.len();
 
         let c_string_genesis =
-            unsafe { CString::from_vec_unchecked(genesis_data_serialized.into()) };
+            unsafe { CString::from_vec_unchecked(genesis_data.to_vec()) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
         let baker = unsafe {
             startBaker(
@@ -273,7 +272,7 @@ impl ConsensusBaker {
         };
         ConsensusBaker {
             id: baker_id,
-            genesis_block: Arc::clone(&genesis_block),
+            genesis_data: Arc::clone(&genesis_data),
             private_data,
             runner: Arc::new(AtomicPtr::new(baker)),
         }
@@ -557,28 +556,19 @@ lazy_static! {
     static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
+type GenesisData = Vec<u8>;
 type PrivateData = HashMap<i64, Vec<u8>>;
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    genesis_block: Arc<Block>,
-    bakers:        Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
+    genesis_data: Arc<GenesisData>,
+    bakers:       Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
-        let genesis_block = Block {
-            slot: 0,
-            data: BlockData::GenesisData(
-                GenesisData::deserialize(&genesis_data)
-                    .expect("Failed to deserialize genesis data!"),
-            ),
-        };
-
-        info!("Created a genesis block: {:?}", genesis_block);
-
         ConsensusContainer {
-            genesis_block: Arc::new(genesis_block),
+            genesis_data: Arc::new(genesis_data),
             bakers:        Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -603,7 +593,7 @@ impl ConsensusContainer {
     pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
         safe_write!(self.bakers).insert(
             baker_id,
-            ConsensusBaker::new(baker_id, Arc::clone(&self.genesis_block), private_data),
+            ConsensusBaker::new(baker_id, Arc::clone(&self.genesis_data), private_data),
         );
     }
 
