@@ -643,7 +643,7 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     let index = NetworkEndian::read_u64(&content[..8]);
     let res = baker.get_indexed_finalization(index)?;
     if NetworkEndian::read_u64(&res[..8]) > 0 {
-        let mut out_bytes = vec![];
+        let mut out_bytes = Vec::with_capacity(2 + res.len());
         out_bytes
             .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD)
             .expect("Can't write to buffer");
@@ -668,7 +668,7 @@ fn send_catchup_request_finalization_record_by_bash_baker(
     debug!("Got consensus catch-up request for finalization record by the hash");
     let res = baker.get_block_finalization(&content[..])?;
     if NetworkEndian::read_u64(&res[..8]) > 0 {
-        let mut out_bytes = vec![];
+        let mut out_bytes = Vec::with_capacity(2 + res.len());
         out_bytes
             .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD)
             .expect("Can't write to buffer");
@@ -692,7 +692,7 @@ fn send_catchup_request_block_by_bash_baker(
 ) -> Fallible<()> {
     let res = baker.get_block(&content[..])?;
     if NetworkEndian::read_u64(&res[..8]) > 0 {
-        let mut out_bytes = vec![];
+        let mut out_bytes = Vec::with_capacity(2 + res.len());
         out_bytes
             .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_BLOCK)
             .expect("Can't write to buffer");
@@ -843,7 +843,7 @@ fn main() -> Fallible<()> {
                     if let Some(net) = nets.iter().next() {
                         let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
                         if let Ok(bytes) = baker_clone.get_finalization_point() {
-                            let mut out_bytes = vec![];
+                            let mut out_bytes = Vec::with_capacity(2+bytes.len());
                             match out_bytes
                                 .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT)
                                 {
