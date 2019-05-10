@@ -376,6 +376,18 @@ impl Default for ConsensusOutQueue {
     }
 }
 
+macro_rules! empty_queue {
+    ($queue:expr, $name:tt) => {
+        if let Ok(ref mut q) = $queue.try_lock() {
+            debug!(
+                "Drained the queue \"{}\" for {} element(s)",
+                $name,
+                q.try_iter().count()
+            );
+        }
+    };
+}
+
 impl ConsensusOutQueue {
     pub fn send_block(self, block: Block) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_block).send(block))
@@ -462,21 +474,17 @@ impl ConsensusOutQueue {
     }
 
     pub fn clear(&self) {
-        if let Ok(ref mut q) = self.receiver_block.try_lock() {
-            debug!("Drained queue for {} element(s)", q.try_iter().count());
-        }
-        if let Ok(ref mut q) = self.receiver_finalization.try_lock() {
-            debug!("Drained queue for {} element(s)", q.try_iter().count());
-        }
-        if let Ok(ref mut q) = self.receiver_finalization_record.try_lock() {
-            debug!("Drained queue for {} element(s)", q.try_iter().count());
-        }
-        if let Ok(ref mut q) = self.receiver_catchup_queue.try_lock() {
-            debug!("Drained queue for {} element(s)", q.try_iter().count());
-        }
-        if let Ok(ref mut q) = self.receiver_finalization_catchup_queue.try_lock() {
-            debug!("Drained queue for {} element(s)", q.try_iter().count());
-        }
+        empty_queue!(self.receiver_block, "Block queue");
+        empty_queue!(self.receiver_finalization, "Finalization messages queue");
+        empty_queue!(
+            self.receiver_finalization_record,
+            "Finalization record queue"
+        );
+        empty_queue!(self.receiver_catchup_queue, "Catch-up queue");
+        empty_queue!(
+            self.receiver_finalization_catchup_queue,
+            "Finalization message catch-up queue"
+        );
     }
 }
 
