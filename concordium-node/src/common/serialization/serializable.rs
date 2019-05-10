@@ -120,18 +120,6 @@ impl Serializable for SocketAddr {
 // Standard collections
 // ==============================================================================================
 
-#[inline]
-fn serialize_from_iterator<I, A, T>(iterator: I, archive: &mut A) -> Fallible<()>
-where
-    I: Iterator<Item = T>,
-    T: Serializable,
-    A: WriteArchive, {
-    for v in iterator {
-        v.serialize(archive)?;
-    }
-    Ok(())
-}
-
 impl<T, S: ::std::hash::BuildHasher> Serializable for HashSet<T, S>
 where
     T: Serializable,
@@ -141,7 +129,9 @@ where
     where
         A: WriteArchive, {
         archive.write_u32(self.len() as u32)?;
-        serialize_from_iterator(self.iter(), archive)
+        self.iter()
+            .map(|ref item| item.serialize(archive))
+            .collect::<Fallible<()>>()
     }
 }
 
@@ -154,7 +144,9 @@ where
     where
         A: WriteArchive, {
         archive.write_u32(self.len() as u32)?;
-        serialize_from_iterator(self.iter(), archive)
+        self.iter()
+            .map(|ref item| item.serialize(archive))
+            .collect::<Fallible<()>>()
     }
 }
 
