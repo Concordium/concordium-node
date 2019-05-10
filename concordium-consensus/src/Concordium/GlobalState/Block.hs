@@ -15,7 +15,7 @@ import Concordium.Types
 import Concordium.GlobalState.Transactions
 import Concordium.Types.HashableTo
 
-newtype BlockTransactions = BlockTransactions {transactionList :: [Transaction]}
+newtype BlockTransactions = BlockTransactions {transactionList :: [Transaction]} deriving (Show)
 
 -- |The fields of a baked block.
 data BlockFields = BlockFields {
@@ -29,7 +29,7 @@ data BlockFields = BlockFields {
     blockNonce :: !BlockNonce,
     -- |The 'BlockHash' of the last finalized block when the block was baked
     blockLastFinalized :: !BlockHash
-}
+} deriving (Show)
 
 -- |A baked (i.e. non-genesis) block.
 data BakedBlock = BakedBlock {
@@ -41,7 +41,7 @@ data BakedBlock = BakedBlock {
     bbTransactions :: !BlockTransactions,
     -- |Block signature
     bbSignature :: BlockSignature
-}
+} deriving (Show)
 
 blockBody :: BakedBlock -> Put
 blockBody BakedBlock{bbFields=BlockFields{..},..} = do
@@ -76,6 +76,7 @@ instance HashableTo Hash.Hash BakedBlock where
 data Block
     = GenesisBlock !GenesisData
     | NormalBlock !BakedBlock
+    deriving (Show)
 
 instance BlockData Block where
     blockSlot GenesisBlock{} = 0

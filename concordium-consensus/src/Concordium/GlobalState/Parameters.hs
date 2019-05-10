@@ -33,14 +33,14 @@ data BakerInfo = BakerInfo {
     bakerElectionVerifyKey :: BakerElectionVerifyKey,
     bakerSignatureVerifyKey :: BakerSignVerifyKey,
     bakerLotteryPower :: LotteryPower
-} deriving (Eq, Generic)
+} deriving (Eq, Generic, Show)
 instance Serialize BakerInfo where
 
 data BirkParameters = BirkParameters {
     birkLeadershipElectionNonce :: LeadershipElectionNonce,
     birkElectionDifficulty :: ElectionDifficulty,
     birkBakers :: Map.Map BakerId BakerInfo
-} deriving (Eq, Generic)
+} deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
 birkBaker :: BakerId -> BirkParameters -> Maybe BakerInfo
@@ -51,11 +51,11 @@ data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
     voterVRFKey :: VoterVRFPublicKey,
     voterPower :: VoterPower
-} deriving (Eq, Generic)
+} deriving (Eq, Generic, Show)
 instance Serialize VoterInfo where
 
 data FinalizationParameters = FinalizationParameters [VoterInfo]
-    deriving (Eq, Generic)
+    deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
 
 -- | Time in seconds since the epoch
@@ -68,6 +68,6 @@ data GenesisData = GenesisData {
     genesisSlotDuration :: Duration,
     genesisBirkParameters :: BirkParameters,
     genesisFinalizationParameters :: FinalizationParameters
-} deriving (Generic)
+} deriving (Generic, Show)
 
 instance Serialize GenesisData where
