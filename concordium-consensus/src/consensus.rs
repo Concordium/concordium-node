@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     ffi::{CStr, CString},
+    fmt::{Display, Formatter, Result},
     io::Cursor,
     os::raw::c_char,
     slice, str,
@@ -20,14 +21,64 @@ use std::{
 
 use crate::{block::*, common, fails::BakerNotRunning, finalization::*};
 
-pub const PACKET_TYPE_CONSENSUS_BLOCK: u16 = 0;
-pub const PACKET_TYPE_CONSENSUS_TRANSACTION: u16 = 1;
-pub const PACKET_TYPE_CONSENSUS_FINALIZATION: u16 = 2;
-pub const PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD: u16 = 3;
-pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH: u16 = 4;
-pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH: u16 = 5;
-pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX: u16 = 6;
-pub const PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT: u16 = 7;
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PacketType {
+    Block = 0,
+    Transaction,
+    FinalizationRecord,
+    FinalizationMessage,
+    CatchupBlockByHash,
+    CatchupFinalizationRecordByHash,
+    CatchupFinalizationRecordByIndex,
+    CatchupFinalizationMessagesByPoint,
+}
+
+static PACKET_TYPE_FROM_INT: &[PacketType] = &[
+    PacketType::Block,
+    PacketType::Transaction,
+    PacketType::FinalizationRecord,
+    PacketType::FinalizationMessage,
+    PacketType::CatchupBlockByHash,
+    PacketType::CatchupFinalizationRecordByHash,
+    PacketType::CatchupFinalizationRecordByIndex,
+    PacketType::CatchupFinalizationMessagesByPoint,
+];
+
+impl TryFrom<u16> for PacketType {
+    type Error = failure::Error;
+
+    #[inline]
+    fn try_from(value: u16) -> Fallible<PacketType> {
+        let idx: usize = value.into();
+
+        if idx < PACKET_TYPE_FROM_INT.len() {
+            Ok(PACKET_TYPE_FROM_INT[idx])
+        } else {
+            bail!("Unsupported packet type")
+        }
+    }
+}
+
+impl Display for PacketType {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self {
+            PacketType::Block => write!(f, "block"),
+            PacketType::Transaction => write!(f, "transaction"),
+            PacketType::FinalizationRecord => write!(f, "finalization record"),
+            PacketType::FinalizationMessage => write!(f, "finalization message"),
+            PacketType::CatchupBlockByHash => write!(f, "catch-up block by hash"),
+            PacketType::CatchupFinalizationRecordByHash => {
+                write!(f, "catch-up finalization record by hash")
+            }
+            PacketType::CatchupFinalizationRecordByIndex => {
+                write!(f, "catch-up finalization record by index")
+            }
+            PacketType::CatchupFinalizationMessagesByPoint => {
+                write!(f, "catch-up finalization messages by point")
+            }
+        }
+    }
+}
 
 #[repr(C)]
 pub struct baker_runner {

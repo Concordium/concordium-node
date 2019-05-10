@@ -44,6 +44,7 @@ use p2p_client::{
 
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     fs::OpenOptions,
     io::{Read, Write},
     net::SocketAddr,
@@ -110,9 +111,9 @@ fn setup_baker_guards(
             match _baker_clone.out_queue().recv_block() {
                 Ok(block) => {
                     let bytes = block.serialize();
-                    let mut out_bytes = Vec::with_capacity(2 + bytes.len());
-                    match out_bytes
-                        .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_BLOCK)
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes.write_u16::<NetworkEndian>(consensus::PacketType::Block as u16)
                     {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
@@ -138,10 +139,11 @@ fn setup_baker_guards(
             match _baker_clone_2.out_queue().recv_finalization() {
                 Ok(msg) => {
                     let bytes = msg.serialize();
-                    let mut out_bytes = Vec::with_capacity(2 + bytes.len());
-                    match out_bytes
-                        .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION)
-                    {
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes.write_u16::<NetworkEndian>(
+                        consensus::PacketType::FinalizationMessage as u16,
+                    ) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_2.send_message(
@@ -167,9 +169,10 @@ fn setup_baker_guards(
             match _baker_clone_3.out_queue().recv_finalization_record() {
                 Ok(rec) => {
                     let bytes = rec.serialize();
-                    let mut out_bytes = Vec::with_capacity(2 + bytes.len());
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                     match out_bytes.write_u16::<NetworkEndian>(
-                        consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+                        consensus::PacketType::FinalizationRecord as u16,
                     ) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
@@ -197,18 +200,24 @@ fn setup_baker_guards(
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
                         consensus::CatchupRequest::BlockByHash(receiver_id, bytes) => {
-                            let mut inner_out_bytes = Vec::with_capacity(2 + bytes.len());
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             inner_out_bytes
                                 .write_u16::<NetworkEndian>(
-                                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH,
+                                    consensus::PacketType::CatchupBlockByHash as u16,
                                 )
                                 .expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
-                            let mut inner_out_bytes = Vec::with_capacity(2 + bytes.len());
-                            inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH).expect("Can't write to buffer");
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                            inner_out_bytes
+                                .write_u16::<NetworkEndian>(
+                                    consensus::PacketType::CatchupFinalizationRecordByHash as u16,
+                                )
+                                .expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
@@ -216,8 +225,13 @@ fn setup_baker_guards(
                             receiver_id,
                             index,
                         ) => {
-                            let mut inner_out_bytes = Vec::with_capacity(10);
-                            inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX).expect("Can't write to buffer");
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + 8);
+                            inner_out_bytes
+                                .write_u16::<NetworkEndian>(
+                                    consensus::PacketType::CatchupFinalizationRecordByIndex as u16,
+                                )
+                                .expect("Can't write to buffer");
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(index)
                                 .expect("Can't write to buffer");
@@ -253,10 +267,11 @@ fn setup_baker_guards(
                     Ok((receiver_id_raw, msg)) => {
                         let receiver_id = P2PNodeId(receiver_id_raw);
                         let bytes = &*msg.serialize();
-                        let mut out_bytes = Vec::with_capacity(2 + bytes.len());
+                        let mut out_bytes =
+                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                         out_bytes
                             .write_u16::<NetworkEndian>(
-                                consensus::PACKET_TYPE_CONSENSUS_FINALIZATION,
+                                consensus::PacketType::FinalizationMessage as u16,
                             )
                             .expect("Can't write to buffer");
                         out_bytes.extend(bytes);
@@ -413,18 +428,52 @@ fn setup_process_output(
                 let view = msg.read_all_into_view()?;
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
-                match consensus_type {
-                    consensus::PACKET_TYPE_CONSENSUS_BLOCK => send_block_to_baker(baker, peer_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_TRANSACTION => send_transaction_to_baker(baker, peer_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_FINALIZATION => send_finalization_message_to_baker(baker, peer_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => send_finalization_record_to_baker(baker, peer_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH => send_catchup_request_block_by_bash_baker(baker, node, peer_id, network_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH => send_catchup_request_finalization_record_by_bash_baker(baker, node, peer_id, network_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX => send_catchup_request_finalization_record_by_index_to_baker(baker, node, peer_id, network_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT => send_catchup_finalization_messages_by_point_to_baker(baker, peer_id, &content[..]),
-                    _ => {
-                        error!("Couldn't read bytes properly for type");
-                        Ok(())
+                match consensus::PacketType::try_from(consensus_type)? {
+                    consensus::PacketType::Block => {
+                        send_block_to_baker(baker, peer_id, &content[..])
+                    }
+                    consensus::PacketType::Transaction => {
+                        send_transaction_to_baker(baker, peer_id, &content[..])
+                    }
+                    consensus::PacketType::FinalizationMessage => {
+                        send_finalization_message_to_baker(baker, peer_id, &content[..])
+                    }
+                    consensus::PacketType::FinalizationRecord => {
+                        send_finalization_record_to_baker(baker, peer_id, &content[..])
+                    }
+                    consensus::PacketType::CatchupBlockByHash => {
+                        send_catchup_request_block_by_bash_baker(
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            &content[..],
+                        )
+                    }
+                    consensus::PacketType::CatchupFinalizationRecordByHash => {
+                        send_catchup_request_finalization_record_by_bash_baker(
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            &content[..],
+                        )
+                    }
+                    consensus::PacketType::CatchupFinalizationRecordByIndex => {
+                        send_catchup_request_finalization_record_by_index_to_baker(
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            &content[..],
+                        )
+                    }
+                    consensus::PacketType::CatchupFinalizationMessagesByPoint => {
+                        send_catchup_finalization_messages_by_point_to_baker(
+                            baker,
+                            peer_id,
+                            &content[..],
+                        )
                     }
                 }
             } else {
@@ -650,8 +699,7 @@ fn send_catchup_finalization_messages_by_point_to_baker(
 
 macro_rules! send_catchup_request_to_baker {
     (
-        $req_type:tt,
-        $req_resp_type:expr,
+        $req_type:expr,
         $node:ident,
         $baker:ident,
         $content:ident,
@@ -662,9 +710,9 @@ macro_rules! send_catchup_request_to_baker {
         debug!("Got consensus catch-up request for \"{}\"", $req_type);
         let res = $consensus_req_call($baker, $content)?;
         if NetworkEndian::read_u64(&res[..8]) > 0 {
-            let mut out_bytes = Vec::with_capacity(2 + res.len());
+            let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
             out_bytes
-                .write_u16::<NetworkEndian>($req_resp_type)
+                .write_u16::<NetworkEndian>($req_type as u16)
                 .expect("Can't write to buffer");
             out_bytes.extend(res);
             match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
@@ -699,8 +747,7 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     content: &[u8],
 ) -> Fallible<()> {
     send_catchup_request_to_baker!(
-        "finalization record by index",
-        consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+        consensus::PacketType::CatchupFinalizationRecordByIndex,
         node,
         baker,
         content,
@@ -721,8 +768,7 @@ fn send_catchup_request_finalization_record_by_bash_baker(
     content: &[u8],
 ) -> Fallible<()> {
     send_catchup_request_to_baker!(
-        "finalization record by hash",
-        consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+        consensus::PacketType::CatchupFinalizationRecordByHash,
         node,
         baker,
         content,
@@ -742,8 +788,7 @@ fn send_catchup_request_block_by_bash_baker(
     content: &[u8],
 ) -> Fallible<()> {
     send_catchup_request_to_baker!(
-        "block by hash",
-        consensus::PACKET_TYPE_CONSENSUS_BLOCK,
+        consensus::PacketType::CatchupBlockByHash,
         node,
         baker,
         content,
@@ -885,37 +930,49 @@ fn main() -> Fallible<()> {
         let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
         let baker_clone = baker.clone();
         let message_handshake_response_handler = &node.message_handler();
-        safe_write!(message_handshake_response_handler)?.add_response_callback(make_atomic_callback!(
-            move |msg: &NetworkResponse| {
+        safe_write!(message_handshake_response_handler)?.add_response_callback(
+            make_atomic_callback!(move |msg: &NetworkResponse| {
                 if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
                     if let Some(net) = nets.iter().next() {
                         let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
                         if let Ok(bytes) = baker_clone.get_finalization_point() {
-                            let mut out_bytes = Vec::with_capacity(2+bytes.len());
-                            match out_bytes
-                                .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT)
-                                {
-                                    Ok(_) => {
-                                        out_bytes.extend(&bytes);
-                                        match locked_cloned_node.send_message(Some(remote_peer.id()), *net, None, out_bytes, false)
-                                        {
-                                            Ok(_) => info!(
-                                                "Sent request for the current round finalization messages by point to {}",
-                                                remote_peer.id()
-                                            ),
-                                            Err(_) => error!("Couldn't send catch-up request for finalization messages by point!"),
-                                        }
+                            let mut out_bytes = Vec::with_capacity(2 + bytes.len());
+                            match out_bytes.write_u16::<NetworkEndian>(
+                                consensus::PacketType::CatchupFinalizationMessagesByPoint as u16,
+                            ) {
+                                Ok(_) => {
+                                    out_bytes.extend(&bytes);
+                                    match locked_cloned_node.send_message(
+                                        Some(remote_peer.id()),
+                                        *net,
+                                        None,
+                                        out_bytes,
+                                        false,
+                                    ) {
+                                        Ok(_) => info!(
+                                            "Sent request for the current round finalization \
+                                             messages by point to {}",
+                                            remote_peer.id()
+                                        ),
+                                        Err(_) => error!(
+                                            "Couldn't send catch-up request for finalization \
+                                             messages by point!"
+                                        ),
                                     }
-                                    Err(_) => error!("Can't write type to packet {}", consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_BY_POINT),
                                 }
+                                Err(_) => error!(
+                                    "Can't write type to packet {}",
+                                    consensus::PacketType::CatchupFinalizationMessagesByPoint
+                                ),
+                            }
                         }
                     } else {
                         error!("Handshake without network, so can't ask for finalization messages");
                     }
                 }
                 Ok(())
-            }
-        ));
+            }),
+        );
     }
 
     // Starting rpc server
