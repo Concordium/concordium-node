@@ -172,10 +172,10 @@ extern "C" {
 
 #[derive(Clone)]
 pub struct ConsensusBaker {
-    id:            u64,
+    id:           u64,
     genesis_data: Arc<GenesisData>,
-    private_data:  Vec<u8>,
-    runner:        Arc<AtomicPtr<baker_runner>>,
+    private_data: Vec<u8>,
+    runner:       Arc<AtomicPtr<baker_runner>>,
 }
 
 enum CallbackType {
@@ -254,8 +254,7 @@ impl ConsensusBaker {
 
         let genesis_data_len = genesis_data.len();
 
-        let c_string_genesis =
-            unsafe { CString::from_vec_unchecked(genesis_data.to_vec()) };
+        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.to_vec()) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
         let baker = unsafe {
             startBaker(
@@ -569,7 +568,7 @@ impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
         ConsensusContainer {
             genesis_data: Arc::new(genesis_data),
-            bakers:        Arc::new(RwLock::new(HashMap::new())),
+            bakers:       Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
