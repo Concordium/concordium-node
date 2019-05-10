@@ -3,7 +3,6 @@ use failure::Fallible;
 
 use std::{
     fmt,
-    hash::Hash,
     io::{Cursor, Read, Write},
     num::NonZeroU64,
     ops::Deref,
@@ -13,9 +12,9 @@ pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-pub const SHA256: usize = 32;
-pub const INCARNATION: usize = 8;
-pub const SESSION_ID: usize = SHA256 + INCARNATION;
+pub const SHA256: u8 = 32;
+pub const INCARNATION: u8 = 8;
+pub const SESSION_ID: u8 = SHA256 + INCARNATION;
 
 use crate::block::{BlockHash, BLOCK_HASH};
 
@@ -38,11 +37,7 @@ impl fmt::Debug for HashBytes {
     }
 }
 
-pub struct Hashed<T: Hash> {
-    unhashed: T,
-    hashed:   Sha256,
-}
-
+#[allow(dead_code)]
 pub struct ContractAddress {
     index:    u64,
     subindex: u64,
@@ -67,8 +62,6 @@ pub struct SessionId {
 
 impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("SessionId", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
@@ -84,15 +77,13 @@ impl SessionId {
         Ok(sess)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        debug_serialization!(self);
-
-        let mut cursor = create_serialization_cursor(BLOCK_HASH + INCARNATION);
+    pub fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(BLOCK_HASH as usize + INCARNATION as usize);
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
 
-        cursor.into_inner().to_vec()
+        cursor.into_inner()
     }
 }
 
@@ -128,22 +119,22 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
     Cursor::new(buf.into_boxed_slice())
 }
 
-pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Vec<u8>> {
+pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     let size = cursor.get_ref().len() - cursor.position() as usize;
     let mut buf = vec![0u8; size];
     cursor.read_exact(&mut buf)?;
 
-    Ok(buf)
+    Ok(buf.into_boxed_slice())
 }
 
-pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Vec<u8>> {
+pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     let value_size = NetworkEndian::read_u64(&read_const_sized!(input, 8)) as usize;
     let mut buf = Cursor::new(vec![0u8; 8 + value_size]);
 
     buf.write_u64::<NetworkEndian>(value_size as u64)?;
     buf.write_all(&read_sized!(input, value_size))?;
 
-    Ok(buf.into_inner())
+    Ok(buf.into_inner().into_boxed_slice())
 }
 
 // temporary type placeholders

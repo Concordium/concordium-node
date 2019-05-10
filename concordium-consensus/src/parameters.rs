@@ -24,13 +24,13 @@ pub type VoterVRFPublicKey = Encoded;
 pub type VoterSignKey = Encoded;
 pub type VoterPower = u64;
 
-const BAKER_VRF_KEY: usize = 32;
-const BAKER_SIGN_KEY: usize = 8 + 32; // unnecessary 8B prefix
-const BAKER_INFO: usize = BAKER_VRF_KEY + BAKER_SIGN_KEY + size_of::<LotteryPower>();
+const BAKER_VRF_KEY: u8 = 32;
+const BAKER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
+const BAKER_INFO: u8 = BAKER_VRF_KEY + BAKER_SIGN_KEY + size_of::<LotteryPower>() as u8;
 
-const VOTER_SIGN_KEY: usize = 8 + 32; // unnecessary 8B prefix
-const VOTER_VRF_KEY: usize = 32;
-const VOTER_INFO: usize = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>();
+const VOTER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
+const VOTER_VRF_KEY: u8 = 32;
+const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
 
 #[derive(Debug)]
 pub struct BirkParameters {
@@ -67,8 +67,8 @@ impl BirkParameters {
         Ok(params)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let baker_info_size = 8 + self.bakers.len() * (size_of::<BakerId>() + BAKER_INFO);
+    pub fn serialize(&self) -> Box<[u8]> {
+        let baker_info_size = 8 + self.bakers.len() * (size_of::<BakerId>() + BAKER_INFO as usize);
         let mut baker_cursor = create_serialization_cursor(baker_info_size);
 
         let _ = baker_cursor.write_u64::<NetworkEndian>(self.bakers.len() as u64);
@@ -89,7 +89,7 @@ impl BirkParameters {
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -119,14 +119,14 @@ impl BakerInfo {
         Ok(info)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(BAKER_INFO);
+    pub fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
         let _ = cursor.write_all(&self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -153,8 +153,8 @@ impl FinalizationParameters {
         Ok(params)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO);
+    pub fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO as usize);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
@@ -162,7 +162,7 @@ impl FinalizationParameters {
             let _ = cursor.write_all(&info.serialize());
         }
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }
 
@@ -192,13 +192,13 @@ impl VoterInfo {
         Ok(info)
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut cursor = create_serialization_cursor(VOTER_INFO);
+    pub fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(VOTER_INFO as usize);
 
         let _ = cursor.write_all(&self.signature_verify_key);
         let _ = cursor.write_all(&self.election_verify_key);
         let _ = cursor.write_u64::<NetworkEndian>(self.voting_power);
 
-        cursor.into_inner().into_vec()
+        cursor.into_inner()
     }
 }

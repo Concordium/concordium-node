@@ -165,6 +165,7 @@ mod unit_test {
     }
 
     #[test]
+    #[ignore]
     fn ut_s11n_001_direct_message_from_disk_128m() -> Fallible<()> {
         ut_s11n_001_direct_message_from_disk(128 * 1024 * 1024)
     }

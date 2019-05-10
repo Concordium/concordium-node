@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[cfg(unix)]
 extern crate curryrsunix as curryrs;
 #[cfg(windows)]
@@ -16,7 +14,7 @@ macro_rules! check_serialization {
         debug_assert_eq!($cursor.position(), $cursor.get_ref().len() as u64);
 
         debug_assert_eq!(
-            &$target.serialize(),
+            &&*$target.serialize(),
             $cursor.get_ref(),
             "Invalid serialization of {:?}",
             $target
@@ -26,19 +24,19 @@ macro_rules! check_serialization {
 
 macro_rules! debug_deserialization {
     ($target:expr, $bytes:expr) => {
-        debug!("Deserializing an object: {} ({}B)", $target, $bytes.len());
+        info!("Deserializing an object: {} ({}B)", $target, $bytes.len());
     };
 }
 
 macro_rules! debug_serialization {
     ($object:expr) => {
-        debug!("Serializing an object: {:?}", $object);
+        info!("Serializing an object: {:?}", $object);
     };
 }
 
 macro_rules! read_const_sized {
     ($source:expr, $size:expr) => {{
-        let mut buf = [0u8; $size];
+        let mut buf = [0u8; $size as usize];
         $source.read_exact(&mut buf)?;
 
         buf
@@ -47,7 +45,7 @@ macro_rules! read_const_sized {
 
 macro_rules! read_sized {
     ($source:expr, $size:expr) => {{
-        let mut buf = vec![0u8; $size];
+        let mut buf = vec![0u8; $size as usize];
         $source.read_exact(&mut buf)?;
 
         buf

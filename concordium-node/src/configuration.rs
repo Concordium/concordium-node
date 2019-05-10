@@ -372,7 +372,7 @@ impl Default for Config {
             },
             connection: ConnectionConfig {
                 desired_nodes:       50,
-                no_bootstrap_dns:    false,
+                no_bootstrap_dns:    true,
                 bootstrap_server:    "bootstrap.p2p.concordium.com".to_owned(),
                 no_trust_broadcasts: false,
                 connect_to:          vec![],
