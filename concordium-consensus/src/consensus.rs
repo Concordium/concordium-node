@@ -35,6 +35,7 @@ pub struct baker_runner {
 }
 
 type PeerId = u64;
+type FinalizationRecordIndex = u64;
 type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type CatchupFinalizationRequestByBlockHashCallback =
@@ -345,8 +346,8 @@ pub struct ConsensusOutQueue {
     sender_finalization_record: Arc<Mutex<mpsc::Sender<FinalizationRecord>>>,
     receiver_catchup_queue: Arc<Mutex<mpsc::Receiver<CatchupRequest>>>,
     sender_catchup_queue: Arc<Mutex<mpsc::Sender<CatchupRequest>>>,
-    receiver_finalization_catchup_queue: Arc<Mutex<mpsc::Receiver<(u64, FinalizationMessage)>>>,
-    sender_finalization_catchup_queue: Arc<Mutex<mpsc::Sender<(u64, FinalizationMessage)>>>,
+    receiver_finalization_catchup_queue: Arc<Mutex<mpsc::Receiver<(PeerId, FinalizationMessage)>>>,
+    sender_finalization_catchup_queue: Arc<Mutex<mpsc::Sender<(PeerId, FinalizationMessage)>>>,
 }
 
 impl Default for ConsensusOutQueue {
@@ -357,7 +358,7 @@ impl Default for ConsensusOutQueue {
             mpsc::channel::<FinalizationRecord>();
         let (sender_catchup, receiver_catchup) = mpsc::channel::<CatchupRequest>();
         let (sender_finalization_catchup, receiver_finalization_catchup) =
-            mpsc::channel::<(u64, FinalizationMessage)>();
+            mpsc::channel::<(PeerID, FinalizationMessage)>();
         ConsensusOutQueue {
             receiver_block: Arc::new(Mutex::new(receiver)),
             sender_block: Arc::new(Mutex::new(sender)),
@@ -807,9 +808,9 @@ extern "C" fn on_catchup_finalization_record_by_index(peer_id: PeerId, index: u6
 }
 
 pub enum CatchupRequest {
-    BlockByHash(u64, Vec<u8>),
-    FinalizationRecordByHash(u64, Vec<u8>),
-    FinalizationRecordByIndex(u64, u64),
+    BlockByHash(PeerId, Vec<u8>),
+    FinalizationRecordByHash(PeerId, Vec<u8>),
+    FinalizationRecordByIndex(PeerId, FinalizationRecordIndex),
 }
 
 fn catchup_en_queue(req: CatchupRequest) {
