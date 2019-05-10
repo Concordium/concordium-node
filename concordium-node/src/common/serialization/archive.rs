@@ -7,12 +7,13 @@ use std::{fmt::Display, net::IpAddr, str};
 
 /// It is the archive trait for serialization.
 ///
-/// Archive is one of the key concept of serialization process.
+/// WriteArchive is one of the key concept of serialization process.
 /// Its main target is to define 'How' types should be serialized. That means
 /// this class have to cover 'how' to serialize basic types, because composed
 /// types can be serialized by composition of simple types:
-/// This archive support the following types:
+/// This archive is able to write the following types:
 ///  - All unsigned integer types: u8, u16, u32, u64
+///  - Any type supported by `std::io::Write`, like `&[u8]`.
 ///  - Any type which can be converted to a `str` reference.
 ///
 /// On the other hand, `Serializable` trait describes **What** have to be
@@ -34,7 +35,7 @@ pub trait WriteArchive: Sized + std::io::Write {
 
 /// It is the archive trait for deserialization.
 ///
-/// Archive is one of the key concept of deserialization process.
+/// ReadArchive is one of the key concept of deserialization process.
 /// Its main target is to define the following:
 ///  - 'How' types should be deserialized into memory object. Only native types
 ///    because complex types are defined by composition of natives.

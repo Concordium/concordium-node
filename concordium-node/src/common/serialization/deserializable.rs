@@ -10,6 +10,12 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
+/// On the other hand, `Deserializable` trait describes **What** have to be
+/// deserialized in a composed data type like: any struct, Vec, etc.
+///
+/// see [`ReadArchive`]
+///
+/// [`ReadArchive`]: ../archive/trait.ReadArchive.html
 pub trait Deserializable: Sized {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where

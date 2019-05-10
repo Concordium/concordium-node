@@ -9,6 +9,12 @@ use std::{
     ops::Deref,
 };
 
+/// `Serializable` trait describes **What** have to be
+/// serialized in a composed data type like: any struct, Vec, etc.
+///
+/// see [`WriteArchive`]
+///
+/// [`WriteArchive`]: ../archive/trait.WriteArchive.html
 pub trait Serializable<T: ?Sized = Self> {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
