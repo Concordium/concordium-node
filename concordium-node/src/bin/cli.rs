@@ -625,12 +625,14 @@ fn send_block_to_baker(
     Ok(())
 }
 
+// Upon handshake completion we ask the consensus layer for a finalization point
+// we want to catchup from. This information is relayed to the peer we just
+// connected to, which will then emit all finalizations past this point.
 fn send_catchup_finalization_messages_by_point_to_baker(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    debug!("Got consensus catch-up request for finalization messages by point");
     match baker.get_finalization_messages(&content[..], peer_id.as_raw())? {
         0i64 => info!(
             "Successfully requested finalization messages for requested point for the network \
