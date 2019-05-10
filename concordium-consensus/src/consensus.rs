@@ -940,11 +940,11 @@ mod tests {
                 }
                 while let Ok(msg) = &_th_container.out_queue().try_recv_finalization() {
                     debug!("Relaying {:?}", msg);
-                    &_th_container.send_finalization(msg);
+                    &_th_container.send_finalization(1, msg);
                 }
                 while let Ok(rec) = &_th_container.out_queue().try_recv_finalization_record() {
                     debug!("Relaying {:?}", rec);
-                    &_th_container.send_finalization_record(rec);
+                    &_th_container.send_finalization_record(1, rec);
                 }
             });
 
@@ -955,7 +955,7 @@ mod tests {
                 {
                     Ok(msg) => {
                         debug!("{} Got block data => {:?}", i, msg);
-                        &consensus_container.send_block(msg);
+                        &consensus_container.send_block(1, msg);
                     }
                     Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
                 }
