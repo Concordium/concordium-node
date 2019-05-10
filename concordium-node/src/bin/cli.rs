@@ -708,7 +708,7 @@ macro_rules! send_catchup_request_to_baker {
     ) => {{
         debug!("Got consensus catch-up request for \"{}\"", $req_type);
         let res = $consensus_req_call($baker, $content)?;
-        if NetworkEndian::read_u64(&res[..8]) > 0 {
+        if !res.is_empty() && NetworkEndian::read_u64(&res[..8]) > 0 {
             let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
             out_bytes
                 .write_u16::<NetworkEndian>($req_type as u16)
@@ -716,7 +716,7 @@ macro_rules! send_catchup_request_to_baker {
             out_bytes.extend(res);
             match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
                 Ok(_) => info!(
-                    "Responded to a catchup-request type \"{}\"from the network peer {}",
+                    "Responded to a catchup-request type \"{}\" from the network peer {}",
                     $req_type, $peer_id
                 ),
                 Err(_) => error!(
@@ -726,7 +726,7 @@ macro_rules! send_catchup_request_to_baker {
             }
         } else {
             error!(
-                "Consensus doesn't have the data to fulfill a catch-up request type \"{}\"  that \
+                "Consensus doesn't have the data to fulfill a catch-up request type \"{}\" that \
                  the network peer {} requested",
                 $req_type, $peer_id
             );

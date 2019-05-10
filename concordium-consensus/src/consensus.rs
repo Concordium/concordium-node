@@ -20,6 +20,7 @@ use std::{
 };
 
 use crate::{block::*, common, fails::BakerNotRunning, finalization::*};
+use concordium_common::into_err;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PacketType {
@@ -49,13 +50,10 @@ impl TryFrom<u16> for PacketType {
 
     #[inline]
     fn try_from(value: u16) -> Fallible<PacketType> {
-        let idx: usize = value.into();
-
-        if idx < PACKET_TYPE_FROM_INT.len() {
-            Ok(PACKET_TYPE_FROM_INT[idx])
-        } else {
-            bail!("Unsupported packet type")
-        }
+        PACKET_TYPE_FROM_INT
+            .get(value as usize)
+            .cloned()
+            .ok_or_else(|| format_err!("Unsupported packet type"))
     }
 }
 
@@ -157,7 +155,10 @@ extern "C" {
     ) -> *const c_char;
     pub fn getBlock(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
     pub fn getBlockFinalization(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
-    pub fn getIndexedFinalization(baker: *mut baker_runner, finalization_index: u64) -> *const u8;
+    pub fn getIndexedFinalization(
+        baker: *mut baker_runner,
+        finalization_index: FinalizationRecordIndex,
+    ) -> *const u8;
     pub fn getFinalizationMessages(
         baker: *mut baker_runner,
         peer_id: PeerId,
@@ -372,7 +373,7 @@ impl ConsensusBaker {
         ))
     }
 
-    pub fn get_indexed_finalization(&self, index: u64) -> Vec<u8> {
+    pub fn get_indexed_finalization(&self, index: FinalizationRecordIndex) -> Vec<u8> {
         wrap_c_call_bytes!(self, |baker| getIndexedFinalization(baker, index))
     }
 
@@ -505,22 +506,22 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_catchup_queue).try_recv())
     }
 
-    pub fn send_finalization_catchup(self, rec: (u64, FinalizationMessage)) -> Fallible<()> {
+    pub fn send_finalization_catchup(self, rec: (PeerId, FinalizationMessage)) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_finalization_catchup_queue).send(rec))
     }
 
-    pub fn recv_finalization_catchup(self) -> Fallible<(u64, FinalizationMessage)> {
+    pub fn recv_finalization_catchup(self) -> Fallible<(PeerId, FinalizationMessage)> {
         into_err!(safe_lock!(self.receiver_finalization_catchup_queue).recv())
     }
 
     pub fn recv_timeout_finalization_catchup(
         self,
         timeout: Duration,
-    ) -> Fallible<(u64, FinalizationMessage)> {
+    ) -> Fallible<(PeerId, FinalizationMessage)> {
         into_err!(safe_lock!(self.receiver_finalization_catchup_queue).recv_timeout(timeout))
     }
 
-    pub fn try_recv_finalization_catchup(self) -> Fallible<(u64, FinalizationMessage)> {
+    pub fn try_recv_finalization_catchup(self) -> Fallible<(PeerId, FinalizationMessage)> {
         into_err!(safe_lock!(self.receiver_finalization_catchup_queue).try_recv())
     }
 
@@ -939,11 +940,11 @@ mod tests {
                 }
                 while let Ok(msg) = &_th_container.out_queue().try_recv_finalization() {
                     debug!("Relaying {:?}", msg);
-                    &_th_container.send_finalization(msg);
+                    &_th_container.send_finalization(1, msg);
                 }
                 while let Ok(rec) = &_th_container.out_queue().try_recv_finalization_record() {
                     debug!("Relaying {:?}", rec);
-                    &_th_container.send_finalization_record(rec);
+                    &_th_container.send_finalization_record(1, rec);
                 }
             });
 
@@ -954,7 +955,7 @@ mod tests {
                 {
                     Ok(msg) => {
                         debug!("{} Got block data => {:?}", i, msg);
-                        &consensus_container.send_block(msg);
+                        &consensus_container.send_block(1, msg);
                     }
                     Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
                 }
