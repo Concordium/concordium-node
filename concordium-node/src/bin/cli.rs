@@ -197,7 +197,7 @@ fn setup_baker_guards(
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
                         consensus::CatchupRequest::BlockByHash(receiver_id, bytes) => {
-                            let mut inner_out_bytes = vec![];
+                            let mut inner_out_bytes = Vec::with_capacity(2 + bytes.len());
                             inner_out_bytes
                                 .write_u16::<NetworkEndian>(
                                     consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH,
@@ -207,7 +207,7 @@ fn setup_baker_guards(
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
-                            let mut inner_out_bytes = vec![];
+                            let mut inner_out_bytes = Vec::with_capacity(2 + bytes.len());
                             inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH).expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
                             (P2PNodeId(receiver_id), inner_out_bytes)
@@ -216,7 +216,7 @@ fn setup_baker_guards(
                             receiver_id,
                             index,
                         ) => {
-                            let mut inner_out_bytes = vec![];
+                            let mut inner_out_bytes = Vec::with_capacity(10);
                             inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_INDEX).expect("Can't write to buffer");
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(index)
