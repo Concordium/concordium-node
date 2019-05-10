@@ -648,6 +648,9 @@ fn send_catchup_finalization_messages_by_point_to_baker(
     Ok(())
 }
 
+// This function requests the finalization record for a certain finalization
+// index (this function is triggered by consensus on another peer actively asks
+// the p2p layer to request this for it)
 fn send_catchup_request_finalization_record_by_index_to_baker(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
