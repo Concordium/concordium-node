@@ -480,6 +480,16 @@ impl ConsensusOutQueue {
     }
 }
 
+macro_rules! baker_running_wrapper {
+    ($self:ident, $call:expr) => {{
+        safe_read!($self.bakers)
+            .values()
+            .next()
+            .map(|baker| $call(baker))
+            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+    }};
+}
+
 lazy_static! {
     static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
     static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
@@ -630,107 +640,65 @@ impl ConsensusContainer {
     }
 
     pub fn get_consensus_status(&self) -> Fallible<String> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(ConsensusBaker::get_consensus_status)
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_consensus_status())
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> Fallible<String> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_block_info(block_hash))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_block_info(block_hash))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> Fallible<String> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_ancestors(block_hash, amount))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_ancestors(block_hash, amount))
     }
 
     pub fn get_branches(&self) -> Fallible<String> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(ConsensusBaker::get_branches)
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_branches())
     }
 
     pub fn get_last_final_account_list(&self) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(ConsensusBaker::get_last_final_account_list)
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_last_final_account_list())
     }
 
     pub fn get_last_final_instance_info(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_last_final_instance_info(block_hash))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_last_final_instance_info(block_hash))
     }
 
     pub fn get_last_final_account_info(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_last_final_account_info(block_hash))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_last_final_account_info(block_hash))
     }
 
     pub fn get_last_final_instances(&self) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(ConsensusBaker::get_last_final_instances)
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_last_final_instances())
     }
 
     pub fn get_block(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_block(block_hash))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_block(block_hash))
     }
 
     pub fn get_block_finalization(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_block(block_hash))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_block_finalization(block_hash))
     }
 
     pub fn get_indexed_finalization(&self, index: u64) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_indexed_finalization(index))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_indexed_finalization(index))
     }
 
     pub fn get_finalization_point(&self) -> Fallible<Vec<u8>> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(ConsensusBaker::get_finalization_point)
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_finalization_point())
     }
 
     pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> Fallible<i64> {
-        safe_read!(self.bakers)
-            .values()
-            .next()
-            .map(|baker| baker.get_finalization_messages(request, peer_id))
-            .ok_or_else(|| failure::Error::from(BakerNotRunning))
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_finalization_messages(request, peer_id))
     }
 }
 
