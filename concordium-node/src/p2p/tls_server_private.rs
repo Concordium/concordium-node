@@ -356,9 +356,9 @@ impl TlsServerPrivate {
                     None,
                 );
                 if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
-                    conn.serialize_bytes(&request_ping_data)
-                        .map_err(|e| error!("{}", e))
-                        .ok();
+                    if let Err(e) = conn.serialize_bytes(&request_ping_data) {
+                        error!("{}", e);
+                    }
                     conn.set_measured_ping_sent();
                     conn.set_last_ping_sent();
                 }
