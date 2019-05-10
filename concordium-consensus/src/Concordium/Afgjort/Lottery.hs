@@ -31,8 +31,8 @@ proofToTicket (TicketProof pf) weight totalWeight = Ticket (calculateTicketValue
 -- |Generate a ticket for a lottery
 makeTicketProof :: BS.ByteString -- ^Lottery identifier
             -> VRF.KeyPair   -- ^Private VRF key
-            -> TicketProof
-makeTicketProof lotteryid key = TicketProof pf
+            -> IO TicketProof
+makeTicketProof lotteryid key = TicketProof <$> pf
     where
         pf = VRF.prove key ("AL" <> lotteryid)
 

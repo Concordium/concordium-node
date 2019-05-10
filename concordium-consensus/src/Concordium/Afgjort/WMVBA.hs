@@ -142,7 +142,7 @@ toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ me _) 
 toABBAInstance :: WMVBAInstance sig -> ABBAInstance
 toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey) = ABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
 
-class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m) => WMVBAMonad sig m where
+class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
     wmvbaComplete :: Maybe (Val, [(Party, sig)]) -> m ()
 
@@ -151,11 +151,11 @@ data WMVBAOutputEvent sig
     | WMVBAComplete (Maybe (Val, [(Party, sig)]))
 
 newtype WMVBA sig a = WMVBA {
-    runWMVBA' :: RWS (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) a
-} deriving (Functor, Applicative, Monad)
+    runWMVBA' :: RWST (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
+} deriving (Functor, Applicative, Monad, MonadIO)
 
-runWMVBA :: WMVBA sig a -> WMVBAInstance sig -> WMVBAState sig -> (a, WMVBAState sig, [WMVBAOutputEvent sig])
-runWMVBA z i s = runRWS (runWMVBA' z) i s & _3 %~ (\(Endo f) -> f [])
+runWMVBA :: WMVBA sig a -> WMVBAInstance sig -> WMVBAState sig -> IO (a, WMVBAState sig, [WMVBAOutputEvent sig])
+runWMVBA z i s = runRWST (runWMVBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
 
 instance MonadReader (WMVBAInstance sig) (WMVBA sig) where
     ask = WMVBA ask
@@ -202,7 +202,7 @@ liftABBA :: (WMVBAMonad sig m) => ABBA a -> m a
 liftABBA a = do
         aBBAInstance <- asks toABBAInstance
         aBBAState <- use abbaState
-        let (r, aBBAState', evs) = runABBA a aBBAInstance aBBAState
+        (r, aBBAState', evs) <- liftIO $ runABBA a aBBAInstance aBBAState
         abbaState .= aBBAState'
         handleEvents evs
         return r

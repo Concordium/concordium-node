@@ -6,23 +6,25 @@ import Concordium.Afgjort.Lottery
 
 import Numeric.SpecFunctions (incompleteBeta)
 import System.Random
+import System.IO.Unsafe
 
 import qualified Data.ByteString.Char8 as BS
 import Test.QuickCheck
+import Test.QuickCheck.Monadic
 import Test.Hspec
 
-ticketCheck :: Gen Property
-ticketCheck = do
-    keyp <- arbitrary
-    lotteryid <- BS.pack <$> arbitrary
-    let tproof = makeTicketProof lotteryid keyp
+ticketCheck :: Property
+ticketCheck = monadicIO $ do
+    keyp <- pick $ arbitrary
+    lotteryid <- pick $ BS.pack <$> arbitrary
+    tproof <- run $ makeTicketProof lotteryid keyp
     let ticket = proofToTicket tproof 1 10
-    return $ property $ checkTicket lotteryid (VRF.publicKey keyp) ticket 
+    return $ checkTicket lotteryid (VRF.publicKey keyp) ticket 
 
 ticketNoCheckOther :: Property
-ticketNoCheckOther = property $ \kp1 kp2 -> kp1 /= kp2 ==> do
-    lotteryid <- BS.pack <$> arbitrary
-    let tproof = makeTicketProof lotteryid kp1
+ticketNoCheckOther = property $ \kp1 kp2 -> kp1 /= kp2 ==> monadicIO $ do
+    lotteryid <- pick $ BS.pack <$> arbitrary
+    tproof <- run $ makeTicketProof lotteryid kp1
     let ticket = proofToTicket tproof 1 10
     return $ not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
 
@@ -54,7 +56,7 @@ doubleWeightTrial samples = pval samples (trials samples 0) p
         tw = 10
         p = fromIntegral w1 / fromIntegral (w1 + w2)
         trial r = let lid = BS.pack $ show r in
-                    if ticketValue (proofToTicket (makeTicketProof lid keyp1) w1 tw) > ticketValue (proofToTicket (makeTicketProof lid keyp2) w2 tw) then 1 else 0
+                    if ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof lid keyp1) w1 tw) > ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof lid keyp2) w2 tw) then 1 else 0
 
 tests :: Spec
 tests = parallel $ describe "ConcordiumTests.Afgjort.Lottery" $ do

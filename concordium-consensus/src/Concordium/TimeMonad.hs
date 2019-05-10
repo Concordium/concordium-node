@@ -3,9 +3,11 @@ module Concordium.TimeMonad where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State
+import qualified Control.Monad.State.Strict as Strict
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
+import qualified Control.Monad.RWS.Strict as Strict
 import Data.Time
 
 import Concordium.Logger
@@ -20,7 +22,13 @@ instance TimeMonad IO
 instance TimeMonad m => TimeMonad (StateT s m) where
     currentTime = lift currentTime
 
+instance TimeMonad m => TimeMonad (Strict.StateT s m) where
+    currentTime = lift currentTime
+
 instance (TimeMonad m, Monoid w) => TimeMonad (RWST r w s m) where
+    currentTime = lift currentTime
+
+instance (TimeMonad m, Monoid w) => TimeMonad (Strict.RWST r w s m) where
     currentTime = lift currentTime
 
 instance TimeMonad m => TimeMonad (MaybeT m) where

@@ -8,6 +8,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad
+import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 import Data.Bits
@@ -38,6 +39,7 @@ import Concordium.Birk.Bake
 import Concordium.TimeMonad
 
 import Test.QuickCheck
+import Test.QuickCheck.Monadic
 import Test.Hspec
 
 -- import Debug.Trace
@@ -190,17 +192,24 @@ selectFromSeq s = select <$> choose (0, length s - 1)
 
 type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovFinalizationState)
 
-runKonsensusTest :: Int -> States -> EventPool -> Gen Property
+myRunFSM :: (MonadIO m) => FSM LogIO a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [SkovFinalizationEvent])
+myRunFSM a fi sfs = liftIO $ runLoggerT (runFSM a fi sfs) doLog
+    where
+        doLog src LLError msg = error $ show src ++ ": " ++ msg
+        doLog _ _ _ = return ()
+
+
+runKonsensusTest :: Int -> States -> EventPool -> PropertyM IO Property
 runKonsensusTest steps states events
         | steps <= 0 = return $ property True
         | null events = return $ property True
         | otherwise = do
-            ((rcpt, ev), events') <- selectFromSeq events
+            ((rcpt, ev), events') <- pick $ selectFromSeq events
             let (bkr, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- {- trace (show rcpt ++ ": " ++ show ev) $ -} case ev of
                 EBake sl -> do
-                    let (mb, fs', Endo evs) = runDummy (runFSM (bakeForSlot bkr sl) fi fs)
+                    (mb, fs', Endo evs) <- myRunFSM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
                                         Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
@@ -222,22 +231,22 @@ runKonsensusTest steps states events
         handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
-            let (_, fs', Endo evs) = runDummy (runFSM a fi fs)
+            (_, fs', Endo evs) <- myRunFSM a fi fs
             return (fs', handleMessages btargets (evs []))
 
-runKonsensusTestSimple :: Int -> States -> EventPool -> Gen Property
+runKonsensusTestSimple :: Int -> States -> EventPool -> PropertyM IO Property
 runKonsensusTestSimple steps states events
         | steps <= 0 || null events = return
             (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
                 Left err -> counterexample ("Invariant failed: " ++ err) False
                 Right _ -> property True)
         | otherwise = do
-            ((rcpt, ev), events') <- selectFromSeq events
+            ((rcpt, ev), events') <- pick $ selectFromSeq events
             let (bkr, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- case ev of
                 EBake sl -> do
-                    let (mb, fs', Endo evs) = runDummy (runFSM (bakeForSlot bkr sl) fi fs)
+                    (mb, fs', Endo evs) <- myRunFSM (bakeForSlot bkr sl) fi fs
                     let blockEvents = case mb of
                                         Nothing -> Seq.empty
                                         Just b -> Seq.fromList [(r, EBlock b) | r <- btargets]
@@ -256,7 +265,7 @@ runKonsensusTestSimple steps states events
         handleMessages targets (SkovFinalization (BroadcastFinalizationRecord frec) : r) = Seq.fromList [(rcpt, EFinalizationRecord frec) | rcpt <- targets] <> handleMessages targets r
         handleMessages targets (_ : r) = handleMessages targets r
         runAndHandle a fi fs btargets = do
-            let (_, fs', Endo evs) = runDummy (runFSM a fi fs)
+            (_, fs', Endo evs) <- myRunFSM a fi fs
             return (fs', handleMessages btargets (evs []))
 
 nAccounts :: Int
@@ -292,15 +301,25 @@ initialiseStates n = do
             gen = GenesisData 0 1 bps fps
         return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState nAccounts)) | (_, (_, bid)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
 
-withInitialStates :: Int -> (States -> EventPool -> Gen Property) -> Gen Property
-withInitialStates n run = do
-        s0 <- initialiseStates n
+instance Show BakerIdentity where
+    show _ = "[Baker Identity]"
+
+instance Show FinalizationInstance where
+    show _ = "[Finalization Instance]"
+
+instance Show SkovFinalizationState where
+    show sfs = show (sfs ^. skov)
+
+
+withInitialStates :: Int -> (States -> EventPool -> PropertyM IO Property) -> Property
+withInitialStates n run = monadicIO $ do
+        s0 <- pick $ initialiseStates n
         run s0 (initialEvents s0)
 
-withInitialStatesTransactions :: Int -> Int -> (States -> EventPool -> Gen Property) -> Gen Property
-withInitialStatesTransactions n trcount run = do
-        s0 <- initialiseStates n
-        trs <- genTransactions trcount
+withInitialStatesTransactions :: Int -> Int -> (States -> EventPool -> PropertyM IO Property) -> Property
+withInitialStatesTransactions n trcount run = monadicIO $ do
+        s0 <- pick $ initialiseStates n
+        trs <- pick $ genTransactions trcount
         run s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
 
 tests :: Spec
@@ -308,9 +327,9 @@ tests = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess 10000 $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess 1000 $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess 10000 $ withInitialStates 2 $ runKonsensusTest 100
-    it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
-    it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
+    --it "2 parties, 100 steps, check at end" $ withMaxSuccess 50000 $ withInitialStates 2 $ runKonsensusTestSimple 100
+    --it "2 parties, 1000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 1000
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess 1000 $ withInitialStates 2 $ runKonsensusTest 1000
-    it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
+    --it "2 parties, 10000 steps, check at end" $ withMaxSuccess 100 $ withInitialStates 2 $ runKonsensusTestSimple 10000
     it "4 parties, 10000 steps, check every step" $ withMaxSuccess 50 $ withInitialStates 4 $ runKonsensusTest 10000
     

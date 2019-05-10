@@ -32,6 +32,7 @@ import Data.Maybe
 import Lens.Micro.Platform
 import Control.Monad.State.Class
 import Control.Monad
+import Control.Monad.IO.Class
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -219,7 +220,7 @@ data FinalizationOutputEvent
     = BroadcastFinalizationMessage BS.ByteString
     | BroadcastFinalizationRecord FinalizationRecord
 
-class (SkovMonad m, MonadState s m, FinalizationStateLenses s) => FinalizationMonad s m where
+class (SkovMonad m, MonadState s m, FinalizationStateLenses s, MonadIO m) => FinalizationMonad s m where
     broadcastFinalizationMessage :: BS.ByteString -> m ()
     broadcastFinalizationRecord :: FinalizationRecord -> m ()
     requestMissingFinalization :: FinalizationIndex -> m ()
@@ -329,7 +330,7 @@ liftWMVBA a = do
                 pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
                 pVRFKey party = partyVRFKey (parties _finsCommittee Vec.! fromIntegral party)
                 inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight pVRFKey roundMe finMyVRFKey
-                (r, newState, evs) = runWMVBA a inst roundWMVBA
+            (r, newState, evs) <- liftIO $ runWMVBA a inst roundWMVBA
             finCurrentRound ?= fr {roundWMVBA = newState}
             -- logEvent Afgjort LLTrace $ "New WMVBA state: " ++ show newState
             handleWMVBAOutputEvents evs

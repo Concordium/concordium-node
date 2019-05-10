@@ -5,6 +5,7 @@ import GHC.Generics
 import Control.Monad.Trans.Maybe
 import Lens.Micro.Platform
 import Control.Monad
+import Control.Monad.IO.Class
 
 import Data.Serialize
 
@@ -48,16 +49,16 @@ processTransactions slot bh finalizedP = do
   -- This is done in the method below once a block pointer is constructed.
 
 
-bakeForSlot :: (SkovMonad m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
+bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe BakedBlock)
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
     BirkParameters{..} <- getBirkParameters slot
-    electionProof <- MaybeT . pure $ do
-        lotteryPower <- bakerLotteryPower <$> birkBakers ^? ix bakerId
+    lotteryPower <- MaybeT . pure $ bakerLotteryPower <$> birkBakers ^? ix bakerId
+    electionProof <- MaybeT . liftIO $
         leaderElection birkLeadershipElectionNonce birkElectionDifficulty slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot
-    let nonce = computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
+    nonce <- liftIO $ computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
     (transactions, newState) <- processTransactions slot bb lastFinal
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions

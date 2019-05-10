@@ -5,7 +5,9 @@ module Concordium.Logger where
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.Trans.State (StateT)
+import qualified Control.Monad.State.Strict as Strict
 import Control.Monad.Trans.RWS (RWST)
+import qualified Control.Monad.RWS.Strict as Strict
 import Control.Monad.Trans.Maybe (MaybeT)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Word
@@ -92,7 +94,13 @@ instance MonadTrans LoggerT where
 instance (LoggerMonad m, Monoid w) => LoggerMonad (RWST r w s m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
+instance (LoggerMonad m, Monoid w) => LoggerMonad (Strict.RWST r w s m) where
+    logEvent src lvl msg = lift (logEvent src lvl msg)
+
 instance LoggerMonad m => LoggerMonad (StateT s m) where
+    logEvent src lvl msg = lift (logEvent src lvl msg)
+
+instance LoggerMonad m => LoggerMonad (Strict.StateT s m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 instance LoggerMonad m => LoggerMonad (MaybeT m) where

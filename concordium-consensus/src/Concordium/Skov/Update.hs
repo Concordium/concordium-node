@@ -5,6 +5,7 @@ module Concordium.Skov.Update where
 import Control.Monad
 import Control.Monad.State.Class
 import Control.Monad.RWS
+import qualified Control.Monad.RWS.Strict as SRWS
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
@@ -432,12 +433,12 @@ doReceiveTransaction tr slot = do
 newtype TSSkovFinalizationWrapper r w s m a = TSSkovFinalizationWrapper {runTSSkovFinalizationWrapper :: m a}
     deriving (Functor, Applicative, Monad, BlockStateOperations,
             BlockStateQuery, TreeStateMonad, TimeMonad, LoggerMonad,
-            MonadReader r, MonadWriter w, MonadState s)
+            MonadReader r, MonadWriter w, MonadState s, MonadIO)
     deriving SkovQueryMonad via (TSSkovWrapper m)
 type instance BlockPointer (TSSkovFinalizationWrapper r w s m) = BlockPointer m
 type instance UpdatableBlockState (TSSkovFinalizationWrapper r w s m) = UpdatableBlockState m
 
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader FinalizationInstance m,
+instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader FinalizationInstance m, MonadIO m,
         MonadState s m, FinalizationStateLenses s, MonadWriter w m, MissingEvent w, FinalizationEvent w) 
             => SkovMonad (TSSkovFinalizationWrapper FinalizationInstance w s m) where
     storeBlock = doStoreBlock finalizationListeners
@@ -445,7 +446,7 @@ instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader Finalization
     receiveTransaction tr = doReceiveTransaction tr 0
     finalizeBlock = doFinalizeBlock finalizationListeners
 
-instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader FinalizationInstance m,
+instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader FinalizationInstance m, MonadIO m,
         MonadState s m, FinalizationStateLenses s, MonadWriter w m, MissingEvent w, FinalizationEvent w) 
             => FinalizationMonad s (TSSkovFinalizationWrapper FinalizationInstance w s m) where
     broadcastFinalizationMessage = tell . embedFinalizationEvent . BroadcastFinalizationMessage
@@ -529,3 +530,27 @@ execFSM (FinalizationSkovMonad a) fi gd bs0 = fst <$> evalRWST a fi (initialSkov
 -- any output events.
 runFSM :: FSM m a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [SkovFinalizationEvent])
 runFSM (FinalizationSkovMonad a) fi fs = runRWST a fi fs
+
+
+-- |Implementation of the 'SkovMonad' with finalization.
+newtype FSM' m a = FinalizationSkovMonad' {runFinalizationSkovMonad' :: SRWS.RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m a}
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovFinalizationState, MonadReader FinalizationInstance, MonadWriter (Endo [SkovFinalizationEvent]), MonadIO)
+    deriving BlockStateQuery via (Basic.SkovTreeState SkovFinalizationState (SRWS.RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m))
+    deriving BlockStateOperations via (Basic.SkovTreeState SkovFinalizationState (SRWS.RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m))
+    deriving TreeStateMonad via (Basic.SkovTreeState SkovFinalizationState (SRWS.RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m))
+    deriving SkovQueryMonad via (TSSkovWrapper (Basic.SkovTreeState SkovFinalizationState (SRWS.RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m)))
+    deriving SkovMonad via (TSSkovFinalizationWrapper FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState (FSM' m))
+    deriving (FinalizationMonad SkovFinalizationState) via (TSSkovFinalizationWrapper FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState (FSM' m))
+type instance UpdatableBlockState (FSM' m) = Basic.BlockState
+type instance BlockPointer (FSM' m) = Basic.BlockPointer
+
+-- |Run an action in the 'FSM'' monad from the initial state defined by the supplied parameters.
+execFSM' :: (Monad m) => FSM' m a -> FinalizationInstance -> GenesisData -> BlockState (FSM' m) -> m a
+execFSM' (FinalizationSkovMonad' a) fi gd bs0 = fst <$> SRWS.evalRWST a fi (initialSkovFinalizationState fi gd bs0)
+
+-- |Run an action in the 'FSM' monad from the given state, returning the updated state and
+-- any output events.
+runFSM' :: FSM' m a -> FinalizationInstance -> SkovFinalizationState -> m (a, SkovFinalizationState, Endo [SkovFinalizationEvent])
+runFSM' (FinalizationSkovMonad' a) fi fs = SRWS.runRWST a fi fs
+
+
