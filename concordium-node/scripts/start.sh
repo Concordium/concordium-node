@@ -32,11 +32,6 @@ then
     ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
 fi
 
-if [ -n "$BAKER_MIN_PEER_SATISFACTION_PERCENTAGE" ];
-then
-    ARGS="$ARGS --baker-min-peer-satisfaction-percentage $BAKER_MIN_PEER_SATISFACTION_PERCENTAGE"
-fi
-
 if [ -n "$PROMETHEUS_METRICS_SERVER" ];
 then
     ARGS="$ARGS --prometheus-server"
