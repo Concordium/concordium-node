@@ -110,7 +110,7 @@ fn setup_baker_guards(
             match _baker_clone.out_queue().recv_block() {
                 Ok(block) => {
                     let bytes = block.serialize();
-                    let mut out_bytes = vec![];
+                    let mut out_bytes = Vec::with_capacity(2 + bytes.len());
                     match out_bytes
                         .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_BLOCK)
                     {
@@ -138,7 +138,7 @@ fn setup_baker_guards(
             match _baker_clone_2.out_queue().recv_finalization() {
                 Ok(msg) => {
                     let bytes = msg.serialize();
-                    let mut out_bytes = vec![];
+                    let mut out_bytes = Vec::with_capacity(2 + bytes.len());
                     match out_bytes
                         .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION)
                     {
@@ -167,7 +167,7 @@ fn setup_baker_guards(
             match _baker_clone_3.out_queue().recv_finalization_record() {
                 Ok(rec) => {
                     let bytes = rec.serialize();
-                    let mut out_bytes = vec![];
+                    let mut out_bytes = Vec::with_capacity(2 + bytes.len());
                     match out_bytes.write_u16::<NetworkEndian>(
                         consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
                     ) {
@@ -252,13 +252,14 @@ fn setup_baker_guards(
                 match _baker_clone_5.out_queue().recv_finalization_catchup() {
                     Ok((receiver_id_raw, msg)) => {
                         let receiver_id = P2PNodeId(receiver_id_raw);
-                        let mut out_bytes = vec![];
+                        let bytes = &*msg.serialize();
+                        let mut out_bytes = Vec::with_capacity(2 + bytes.len());
                         out_bytes
                             .write_u16::<NetworkEndian>(
                                 consensus::PACKET_TYPE_CONSENSUS_FINALIZATION,
                             )
                             .expect("Can't write to buffer");
-                        out_bytes.extend(&*msg.serialize());
+                        out_bytes.extend(bytes);
                         match &_node_ref_5.send_message(
                             Some(receiver_id),
                             _network_id,
@@ -1001,7 +1002,7 @@ fn _send_retransmit_packet(
     payload_type: u16,
     data: &[u8],
 ) {
-    let mut out_bytes = vec![];
+    let mut out_bytes = Vec::with_capacity(2 + data.len());
     match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
