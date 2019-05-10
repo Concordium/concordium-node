@@ -2,9 +2,12 @@ use concordium_common::functor::FuncResult;
 use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp},
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
+        serialization::serialize_into_memory,
+    },
     connection::connection_private::ConnectionPrivate,
-    network::{NetworkId, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 
 use super::{fails, handler_utils::*};
@@ -44,7 +47,12 @@ pub fn default_network_request_ping_handle(
                 make_fn_error_peer("Can't perform this action pre-handshake")
             })?;
 
-        NetworkResponse::Pong(remote_peer).serialize()
+        let pong_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::Pong(remote_peer),
+            Some(get_current_stamp()),
+            None,
+        );
+        serialize_into_memory(&pong_msg, 64)?
     };
 
     Ok(serialize_bytes(
@@ -74,7 +82,13 @@ pub fn default_network_request_find_node_handle(
                 .into_iter()
                 .map(|node| node.peer)
                 .collect::<Vec<_>>();
-            NetworkResponse::FindNode(remote_peer, nodes).serialize()
+
+            let find_node_msg = NetworkMessage::NetworkResponse(
+                NetworkResponse::FindNode(remote_peer, nodes),
+                Some(get_current_stamp()),
+                None,
+            );
+            serialize_into_memory(&find_node_msg, 256)?
         };
 
         Ok(serialize_bytes(
@@ -112,7 +126,12 @@ pub fn default_network_request_get_peers(
                 .post_handshake_peer_or_else(|| {
                     make_fn_error_peer("Can't perform this action pre-handshake")
                 })?;
-            NetworkResponse::PeerList(remote_peer, nodes).serialize()
+            let peer_list_msg = NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(remote_peer, nodes),
+                Some(get_current_stamp()),
+                None,
+            );
+            serialize_into_memory(&peer_list_msg, 256)?
         };
 
         Ok(serialize_bytes(

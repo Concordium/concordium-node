@@ -1,10 +1,9 @@
 use crate::{
-    common::{P2PNodeId, P2PPeer},
-    network::{
-        NetworkId, ProtocolMessageType, PROTOCOL_MESSAGE_ID_LENGTH, PROTOCOL_MESSAGE_TYPE_LENGTH,
-        PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH, PROTOCOL_NETWORK_ID_LENGTH,
-        PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH, PROTOCOL_VERSION,
+    common::{
+        serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+        P2PNodeId, P2PPeer,
     },
+    network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
 use concordium_common::UCursor;
 
@@ -13,10 +12,7 @@ use crate::{
     utils,
 };
 use rand::{rngs::OsRng, RngCore};
-use std::{
-    io::{Chain, Cursor, Read},
-    sync::RwLock,
-};
+use std::{convert::TryFrom, sync::RwLock};
 
 lazy_static! {
     static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
@@ -27,6 +23,43 @@ lazy_static! {
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
     BroadcastedMessage,
+}
+
+impl AsProtocolPacketType for NetworkPacketType {
+    fn protocol_packet_type(&self) -> ProtocolPacketType {
+        match self {
+            NetworkPacketType::DirectMessage(..) => ProtocolPacketType::Direct,
+            NetworkPacketType::BroadcastedMessage => ProtocolPacketType::Broadcast,
+        }
+    }
+}
+
+impl Serializable for NetworkPacketType {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u8(self.protocol_packet_type() as u8)?;
+
+        match self {
+            NetworkPacketType::DirectMessage(ref receiver) => receiver.serialize(archive),
+            NetworkPacketType::BroadcastedMessage => Ok(()),
+        }
+    }
+}
+
+impl Deserializable for NetworkPacketType {
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacketType>
+    where
+        A: ReadArchive, {
+        let protocol_type = ProtocolPacketType::try_from(archive.read_u8()?)?;
+        let ptype = match protocol_type {
+            ProtocolPacketType::Direct => {
+                NetworkPacketType::DirectMessage(P2PNodeId::deserialize(archive)?)
+            }
+            ProtocolPacketType::Broadcast => NetworkPacketType::BroadcastedMessage,
+        };
+        Ok(ptype)
+    }
 }
 
 /// # BUG
@@ -78,69 +111,6 @@ impl NetworkPacketBuilder {
 }
 
 impl NetworkPacket {
-    fn direct_header_as_vec(&self, receiver: P2PNodeId) -> Vec<u8> {
-        serialize_message!(
-            ProtocolMessageType::DirectMessage,
-            format!(
-                "{}{}{}{:010}",
-                receiver,
-                self.message_id,
-                self.network_id,
-                self.message.len()
-            )
-        )
-    }
-
-    fn broadcast_header_as_vec(&self) -> Vec<u8> {
-        serialize_message!(
-            ProtocolMessageType::BroadcastedMessage,
-            format!(
-                "{}{}{:010}",
-                self.message_id,
-                self.network_id,
-                self.message.len()
-            )
-        )
-    }
-
-    fn header_as_vec(&self) -> Vec<u8> {
-        match self.packet_type {
-            NetworkPacketType::DirectMessage(receiver) => self.direct_header_as_vec(receiver),
-            NetworkPacketType::BroadcastedMessage => self.broadcast_header_as_vec(),
-        }
-    }
-
-    fn expected_serialize_message_len(&self) -> usize {
-        let common_part_len = PROTOCOL_NAME.len()
-            + PROTOCOL_VERSION.len()
-            + PROTOCOL_SENT_TIMESTAMP_LENGTH
-            + PROTOCOL_MESSAGE_TYPE_LENGTH
-            + PROTOCOL_MESSAGE_ID_LENGTH
-            + PROTOCOL_NETWORK_ID_LENGTH
-            + PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH
-            + self.message.len() as usize;
-
-        if let NetworkPacketType::DirectMessage(..) = self.packet_type {
-            common_part_len + PROTOCOL_NODE_ID_LENGTH
-        } else {
-            common_part_len
-        }
-    }
-
-    pub fn reader(&self) -> Chain<Cursor<Vec<u8>>, UCursor> {
-        let header_reader = Cursor::new(self.header_as_vec());
-        header_reader.chain(self.message.clone())
-    }
-
-    pub fn serialize(&self) -> Vec<u8> {
-        let buf_exp_size = self.expected_serialize_message_len();
-        let mut buf = Vec::with_capacity(buf_exp_size);
-        let _bytes_read = self.reader().read_to_end(&mut buf).unwrap_or(0 as usize);
-
-        // debug_assert_eq!( buf_exp_size, bytes_read);
-        buf
-    }
-
     pub fn generate_message_id() -> String {
         let mut secure_bytes = vec![0u8; 256];
         match safe_write!(RNG) {
@@ -148,5 +118,31 @@ impl NetworkPacket {
             Err(_) => return String::new(),
         }
         utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
+    }
+}
+
+impl Serializable for NetworkPacket {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        self.packet_type.serialize(archive)?;
+        self.message_id.serialize(archive)?;
+        self.network_id.serialize(archive)?;
+        self.message.serialize(archive)
+    }
+}
+
+impl Deserializable for NetworkPacket {
+    fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacket>
+    where
+        A: ReadArchive, {
+        let packet = NetworkPacket {
+            packet_type: NetworkPacketType::deserialize(archive)?,
+            peer:        archive.post_handshake_peer()?,
+            message_id:  String::deserialize(archive)?,
+            network_id:  NetworkId::deserialize(archive)?,
+            message:     UCursor::deserialize(archive)?,
+        };
+        Ok(packet)
     }
 }

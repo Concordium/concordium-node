@@ -2,9 +2,12 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
 
 use crate::{
-    common::{counter::TOTAL_MESSAGES_SENT_COUNTER, P2PPeer},
+    common::{
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
+        serialization::serialize_into_memory, P2PPeer,
+    },
     connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
-    network::{NetworkId, NetworkRequest, NetworkResponse},
+    network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
 use concordium_common::{fails::FunctorError, functor::FuncResult};
 use std::sync::atomic::Ordering;
@@ -77,12 +80,24 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
     };
 
     let session = &mut *priv_conn.borrow_mut().tls_session;
-    serialize_bytes(
-        session,
-        &NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]).serialize(),
-    )?;
 
-    serialize_bytes(session, &NetworkRequest::Ping(local_peer).serialize())?;
+    // Send handshake
+    let handshake_msg = NetworkMessage::NetworkResponse(
+        NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]),
+        Some(get_current_stamp()),
+        None,
+    );
+    let handshake_data = serialize_into_memory(&handshake_msg, 128)?;
+    serialize_bytes(session, &handshake_data)?;
+
+    // Send ping
+    let ping_msg = NetworkMessage::NetworkRequest(
+        NetworkRequest::Ping(local_peer),
+        Some(get_current_stamp()),
+        None,
+    );
+    let ping_data = serialize_into_memory(&ping_msg, 64)?;
+    serialize_bytes(session, &ping_data)?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
@@ -108,7 +123,12 @@ pub fn send_peer_list(
         );
 
         let local_peer = &priv_conn_borrow.local_peer;
-        NetworkResponse::PeerList(local_peer.to_owned(), random_nodes).serialize()
+        let peer_list_msg = NetworkMessage::NetworkResponse(
+            NetworkResponse::PeerList(local_peer.to_owned(), random_nodes),
+            Some(get_current_stamp()),
+            None,
+        );
+        serialize_into_memory(&peer_list_msg, 256)?
     };
 
     serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;

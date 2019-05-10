@@ -976,3 +976,380 @@ impl P2P for RpcServerImpl {
         ctx.spawn(f);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        common::PeerType,
+        configuration::Config,
+        connection::network_handler::message_handler::MessageManager,
+        db::P2PDB,
+        network::NetworkMessage,
+        proto::concordium_p2p_rpc_grpc::P2PClient,
+        rpc::RpcServerImpl,
+        test_utils::{
+            connect_and_wait_handshake, log_any_message_handler, make_node_and_sync,
+            next_port_offset_node, next_port_offset_rpc, wait_broadcast_message,
+        },
+    };
+    use chrono::prelude::Utc;
+    use failure::Fallible;
+    use grpcio::{ChannelBuilder, EnvBuilder};
+    use std::sync::{Arc, RwLock};
+
+    // Creates P2PClient, RpcServImpl and CallOption instances.
+    // The intended use is for spawning nodes for testing gRPC api.
+    // The port number is safe as it uses a AtomicUsize for respecting the order.
+    fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
+        let (node, _) = make_node_and_sync(next_port_offset_node(1), vec![100], false, nt).unwrap();
+
+        let rpc_port = next_port_offset_rpc(1);
+        let mut config = Config::default();
+        config.cli.rpc.rpc_server_port = rpc_port;
+        config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
+        config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
+        let mut rpc_server = RpcServerImpl::new(node, P2PDB::default(), None, &config.cli.rpc);
+        rpc_server.start_server().expect("rpc");
+
+        let env = Arc::new(EnvBuilder::new().build());
+        let ch = ChannelBuilder::new(env).connect(&format!("127.0.0.1:{}", rpc_port));
+
+        let client = P2PClient::new(ch);
+
+        let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
+        req_meta_builder
+            .add_str("Authentication", "rpcadmin")
+            .unwrap();
+        let meta_data = req_meta_builder.build();
+
+        let call_options = ::grpcio::CallOption::default().headers(meta_data);
+
+        (client, rpc_server, call_options)
+    }
+
+    #[test]
+    pub fn test_grpc_noauth() -> Fallible<()> {
+        let (client, _, _) = create_node_rpc_call_option(PeerType::Node);
+        match client.peer_version(&crate::proto::Empty::new()) {
+            Err(::grpcio::Error::RpcFailure(ref x)) => {
+                assert_eq!(x.status, grpcio::RpcStatusCode::Unauthenticated)
+            }
+            _ => panic!("Wrong rejection"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_connect() -> Fallible<()> {
+        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let mut ip = protobuf::well_known_types::StringValue::new();
+        ip.set_value("127.0.0.1".to_owned());
+        let mut port_pb = protobuf::well_known_types::Int32Value::new();
+        port_pb.set_value(1);
+        let mut pcr = crate::proto::PeerConnectRequest::new();
+        pcr.set_ip(ip.clone());
+        pcr.set_port(port_pb);
+        // test it can not connect to inexistent peer
+        assert!(!client
+            .peer_connect_opt(&pcr, callopts.clone())
+            .unwrap()
+            .get_value());
+
+        let port = next_port_offset_node(1);
+        let (_node, _) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+
+        let mut port_pb = protobuf::well_known_types::Int32Value::new();
+        port_pb.set_value(port as i32);
+        let mut pcr = crate::proto::PeerConnectRequest::new();
+        pcr.set_ip(ip);
+        pcr.set_port(port_pb);
+
+        // test it can connect to existing peer
+        assert!(client.peer_connect_opt(&pcr, callopts).unwrap().get_value());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_version() -> Fallible<()> {
+        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let emp = crate::proto::Empty::new();
+        assert_eq!(
+            client.peer_version_opt(&emp, callopts).unwrap().get_value(),
+            crate::VERSION.to_owned()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_uptime() -> Fallible<()> {
+        let t0 = Utc::now().timestamp_millis() as u64;
+        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let emp = crate::proto::Empty::new();
+        let t1 = Utc::now().timestamp_millis() as u64;
+        let nt1 = client
+            .peer_uptime_opt(&emp.clone(), callopts.clone())?
+            .get_value();
+        let t2 = Utc::now().timestamp_millis() as u64;
+        let nt2 = client
+            .peer_uptime_opt(&emp.clone(), callopts.clone())?
+            .get_value();
+        let t3 = Utc::now().timestamp_millis() as u64;
+        // t0 - n0 - t1 - n1 - t2 - n2 - t3
+        // nt{n} := n{n} - n0
+        assert!(nt1 <= (t2 - t0));
+        assert!((nt2 - nt1) <= (t3 - t1));
+        assert!(nt2 <= (t3 - t0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_total_received() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        let n = safe_lock!(rpc_serv.node)?;
+        connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        let emp = crate::proto::Empty::new();
+        let rcv = client
+            .peer_total_received_opt(&emp.clone(), callopts.clone())?
+            .get_value();
+        assert!(rcv > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_total_sent() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        let n = safe_lock!(rpc_serv.node)?;
+        connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        let emp = crate::proto::Empty::new();
+        let snt = client
+            .peer_total_sent_opt(&emp.clone(), callopts.clone())?
+            .get_value();
+        assert!(snt > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_send_message() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        }
+        safe_write!(node2.message_handler())?.add_callback(make_atomic_callback!(
+            move |m: &NetworkMessage| {
+                log_any_message_handler(port, m);
+                Ok(())
+            }
+        ));
+        let mut message = protobuf::well_known_types::BytesValue::new();
+        message.set_value(b"Hey".to_vec());
+        let mut node_id = protobuf::well_known_types::StringValue::new();
+        node_id.set_value(node2.id().to_string());
+        let mut network_id = protobuf::well_known_types::Int32Value::new();
+        network_id.set_value(100);
+        let mut broadcast = protobuf::well_known_types::BoolValue::new();
+        broadcast.set_value(true);
+        let mut smr = crate::proto::SendMessageRequest::new();
+        // smr.set_node_id(node_id);
+        smr.set_network_id(network_id);
+        smr.set_message(message);
+        smr.set_broadcast(broadcast);
+        client.send_message_opt(&smr, callopts)?;
+        assert_eq!(
+            wait_broadcast_message(&wt1)
+                .unwrap()
+                .read_all_into_view()?
+                .as_slice(),
+            b"Hey"
+        );
+        Ok(())
+    }
+
+    // test_send_transaction is not implemented as it is more of an integration test
+    // rather that a unit test. The corresponding flow test is in
+    // `tests/consensus-tests.rs`
+
+    #[test]
+    fn test_join_network() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        }
+        let mut net = protobuf::well_known_types::Int32Value::new();
+        net.set_value(10);
+        let mut ncr = crate::proto::NetworkChangeRequest::new();
+        ncr.set_network_id(net);
+        assert!(client.join_network_opt(&ncr, callopts)?.get_value());
+        Ok(())
+    }
+
+    #[test]
+    fn test_leave_network() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        }
+        let mut net = protobuf::well_known_types::Int32Value::new();
+        net.set_value(100);
+        let mut ncr = crate::proto::NetworkChangeRequest::new();
+        ncr.set_network_id(net);
+        assert!(client.leave_network_opt(&ncr, callopts)?.get_value());
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_stats() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let emp = crate::proto::Empty::new();
+        let rcv = client
+            .peer_stats_opt(&emp.clone(), callopts.clone())?
+            .get_peerstats()
+            .to_vec();
+        assert!(rcv.is_empty());
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        }
+        let emp = crate::proto::Empty::new();
+        let rcv = client
+            .peer_stats_opt(&emp.clone(), callopts.clone())?
+            .get_peerstats()
+            .to_vec();
+        assert!(rcv.len() == 1);
+        assert_eq!(rcv[0].node_id, node2.id().to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_peer_list() -> Fallible<()> {
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let emp = crate::proto::Empty::new();
+        let rcv = client.peer_list_opt(&emp.clone(), callopts.clone())?;
+        assert!(rcv.get_peer().to_vec().is_empty());
+        assert_eq!(rcv.get_peer_type(), "Node");
+        let port = next_port_offset_node(1);
+        let (mut node2, wt1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt1)?;
+        }
+        let emp = crate::proto::Empty::new();
+        let rcv = client
+            .peer_list_opt(&emp.clone(), callopts.clone())?
+            .get_peer()
+            .to_vec();
+        assert!(rcv.len() == 1);
+        let elem = rcv[0].clone();
+        assert_eq!(elem.node_id.unwrap().get_value(), node2.id().to_string());
+        assert_eq!(
+            elem.ip.unwrap().get_value(),
+            node2.internal_addr.ip().to_string()
+        );
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_grpc_peer_list_node_type() -> Fallible<()> {
+        let types = [PeerType::Node, PeerType::Bootstrapper];
+        types
+            .into_iter()
+            .map(|m| grpc_peer_list_node_type_str(*m))
+            .collect::<Fallible<Vec<()>>>()?;
+
+        Ok(())
+    }
+
+    fn grpc_peer_list_node_type_str(peer_type: PeerType) -> Fallible<()> {
+        let (client, _, callopts) = create_node_rpc_call_option(peer_type);
+        let reply = client
+            .peer_list_opt(&crate::proto::Empty::new(), callopts)
+            .expect("rpc");
+        assert_eq!(reply.peer_type, peer_type.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_node_info() -> Fallible<()> {
+        let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let reply = client
+            .node_info_opt(&crate::proto::Empty::new(), callopts)
+            .expect("rpc");
+        let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
+        assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
+        assert_eq!(reply.peer_type, "Node");
+        assert_eq!(
+            reply.node_id.unwrap().get_value(),
+            safe_lock!(rpc_serv.node)?.id().to_string()
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_subscription_start() -> Fallible<()> {
+        let _ = create_node_rpc_call_option(PeerType::Node);
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_subscription_stop() -> Fallible<()> {
+        let _ = create_node_rpc_call_option(PeerType::Node);
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_subscription_poll() -> Fallible<()> {
+        let _ = create_node_rpc_call_option(PeerType::Node);
+
+        Ok(())
+    }
+
+    // Ban node/unban node/get banned peers are not easily testable as they involve
+    // the database. The banning functionalities of a P2PNode are tested in
+    // `p2p2::tests::test_banned_functionalities`. The process succeds but it
+    // encounters a problem when inserting in the database as it's a default dummy
+    // one.
+
+    // Some tests involve a baker so they might be tested as flow tests:
+    // - Consensus status
+    // - Get branches
+    // - Get block info
+    // - Get ancestors
+    // - Get last final account list
+    // - Get last final instances
+    // - Get last final account info
+    // - Get last final instance info
+
+    #[test]
+    fn test_shutdown() -> Fallible<()> {
+        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+        assert!(client
+            .shutdown_opt(&crate::proto::Empty::new(), callopts)
+            .expect("rpc")
+            .get_value());
+        Ok(())
+    }
+
+}

@@ -451,7 +451,6 @@ mod tests {
     pub fn e2e_002_small_mesh_net() -> Fallible<()> {
         const MESH_NODE_COUNT: usize = 15;
         utils::setup();
-
         let port_base: u16 = utils::next_port_offset(MESH_NODE_COUNT);
         let message_counter = Counter::new(0);
         let mut peers: Vec<(P2PNode, _)> = Vec::with_capacity(MESH_NODE_COUNT);
