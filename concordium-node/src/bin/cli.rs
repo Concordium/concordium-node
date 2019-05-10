@@ -648,6 +648,46 @@ fn send_catchup_finalization_messages_by_point_to_baker(
     Ok(())
 }
 
+macro_rules! send_catchup_request_to_baker {
+    (
+        $req_type:tt,
+        $req_resp_type:expr,
+        $node:ident,
+        $baker:ident,
+        $content:ident,
+        $peer_id:ident,
+        $network_id:ident,
+        $consensus_req_call:expr
+    ) => {{
+        debug!("Got consensus catch-up request for \"{}\"", $req_type);
+        let res = $consensus_req_call($baker, $content)?;
+        if NetworkEndian::read_u64(&res[..8]) > 0 {
+            let mut out_bytes = Vec::with_capacity(2 + res.len());
+            out_bytes
+                .write_u16::<NetworkEndian>($req_resp_type)
+                .expect("Can't write to buffer");
+            out_bytes.extend(res);
+            match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
+                Ok(_) => info!(
+                    "Responded to a catchup-request type \"{}\"from the network peer {}",
+                    $req_type, $peer_id
+                ),
+                Err(_) => error!(
+                    "Couldn't respond to a catch-up request type \"{}\" from the network peer {}!",
+                    $req_type, $peer_id
+                ),
+            }
+        } else {
+            error!(
+                "Consensus doesn't have the data to fulfill a catch-up request type \"{}\"  that \
+                 the network peer {} requested",
+                $req_type, $peer_id
+            );
+        }
+        Ok(())
+    }};
+}
+
 // This function requests the finalization record for a certain finalization
 // index (this function is triggered by consensus on another peer actively asks
 // the p2p layer to request this for it)
@@ -658,32 +698,19 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    debug!("Got consensus catch-up request for finalization record by index");
-    let index = NetworkEndian::read_u64(&content[..8]);
-    let res = baker.get_indexed_finalization(index)?;
-    if NetworkEndian::read_u64(&res[..8]) > 0 {
-        let mut out_bytes = Vec::with_capacity(2 + res.len());
-        out_bytes
-            .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD)
-            .expect("Can't write to buffer");
-        out_bytes.extend(res);
-        match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!(
-                "Responded to a catchu-request from the network peer {}",
-                peer_id
-            ),
-            Err(_) => error!(
-                "Couldn't respond to a catch-up request from the network peer {}!",
-                peer_id
-            ),
+    send_catchup_request_to_baker!(
+        "finalization record by index",
+        consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+        node,
+        baker,
+        content,
+        peer_id,
+        network_id,
+        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
+            let index = NetworkEndian::read_u64(&content[..8]);
+            baker.get_indexed_finalization(index)
         }
-    } else {
-        error!(
-            "Consensus doesn't have the finalization record the network peer {} requested",
-            peer_id
-        );
-    }
-    Ok(())
+    )
 }
 
 fn send_catchup_request_finalization_record_by_bash_baker(
@@ -693,31 +720,18 @@ fn send_catchup_request_finalization_record_by_bash_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    debug!("Got consensus catch-up request for finalization record by the hash");
-    let res = baker.get_block_finalization(&content[..])?;
-    if NetworkEndian::read_u64(&res[..8]) > 0 {
-        let mut out_bytes = Vec::with_capacity(2 + res.len());
-        out_bytes
-            .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD)
-            .expect("Can't write to buffer");
-        out_bytes.extend(res);
-        match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!(
-                "Responded to a catch-up request from the network peer {}",
-                peer_id
-            ),
-            Err(_) => error!(
-                "Couldn't respond to a catch-up request from the network peer {}!",
-                peer_id
-            ),
+    send_catchup_request_to_baker!(
+        "finalization record by hash",
+        consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
+        node,
+        baker,
+        content,
+        peer_id,
+        network_id,
+        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
+            baker.get_block_finalization(&content[..])
         }
-    } else {
-        error!(
-            "Consensus doesn't have the finalization record the network peer {} requested",
-            peer_id
-        );
-    }
-    Ok(())
+    )
 }
 
 fn send_catchup_request_block_by_bash_baker(
@@ -727,30 +741,18 @@ fn send_catchup_request_block_by_bash_baker(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    let res = baker.get_block(&content[..])?;
-    if NetworkEndian::read_u64(&res[..8]) > 0 {
-        let mut out_bytes = Vec::with_capacity(2 + res.len());
-        out_bytes
-            .write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_BLOCK)
-            .expect("Can't write to buffer");
-        out_bytes.extend(res);
-        match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!(
-                "Responded to a catch-up request from the network peer {}",
-                peer_id
-            ),
-            Err(_) => error!(
-                "Couldn't respond to a catch-up request from the network peer {}!",
-                peer_id
-            ),
+    send_catchup_request_to_baker!(
+        "block by hash",
+        consensus::PACKET_TYPE_CONSENSUS_BLOCK,
+        node,
+        baker,
+        content,
+        peer_id,
+        network_id,
+        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
+            baker.get_block(&content[..])
         }
-    } else {
-        error!(
-            "Consensus doesn't have the block the network peer {} requested",
-            peer_id
-        );
-    }
-    Ok(())
+    )
 }
 
 fn main() -> Fallible<()> {
