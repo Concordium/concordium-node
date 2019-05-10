@@ -154,18 +154,11 @@ dispatch msg = do
 handleModule :: TransactionMonad m => TransactionHeader -> Core.Module -> m (Core.ModuleRef, Interface, ValueInterface)
 handleModule meta mod = do
   -- TODO: Charge for processing.
-  case runExcept (Core.makeInternal mod) of
-    Left err -> rejectTransaction (ModuleNotWF err)
-    Right imod -> do
-      miface <- runExceptT (TC.typeModule imod)
-      case miface of
-        Left tyerror -> rejectTransaction (ModuleNotWF tyerror)
-        Right iface ->
-          let mhash = Core.moduleHash mod
-          in do modVals <- runExceptT (I.evalModule imod mhash)
-                case modVals of
-                  Left eerr -> rejectTransaction (EvaluationError eerr)
-                  Right viface -> return (mhash, iface, viface)
+  imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` ModuleNotWF
+  iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
+  let mhash = Core.moduleHash mod
+  viface <- runExceptT (I.evalModule imod mhash) `rejectingWith'` EvaluationError
+  return (mhash, iface, viface)
 
 handleInit
   :: (TransactionMonad m, InterpreterMonad m)
@@ -179,26 +172,22 @@ handleInit
 handleInit meta senderAmount amount modref cname param = do
 --  energy <- getEnergy
   -- TODO: Charge for different operations
-  if senderAmount >= amount then do
-    miface <- getModuleInterfaces modref
-    case miface of
-      Nothing -> rejectTransaction (InvalidModuleReference modref)
-      Just (iface, viface) -> do
-        case Map.lookup cname (exportedContracts iface) of
-          Nothing -> rejectTransaction (InvalidContractReference modref cname)
-          Just ciface -> do
-            qparamExpE <- runExceptT (TC.checkTyInCtx iface param (paramTy ciface))
-            case qparamExpE of
-              Left err -> rejectTransaction (ParamsTypeError err)
-              Right qparamExp ->
-                let contract = (exportedDefsConts viface) Map.! cname
-                    initFun = initMethod contract
-                in do params' <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qparamExp)
-                      cm <- getChainMetadata
-                      res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
-                      return (contract, iface, viface, (msgTy ciface), res, amount)
-  else rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
+  -- if the sender does not have the funds available we fail the transaction immediately
+  unless (senderAmount >= amount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
 
+  -- otherwise we proceed with normal execution.
+  -- first try to get the module interface of the parent module of the contract
+  (iface, viface) <- getModuleInterfaces modref `rejectingWith` InvalidModuleReference modref
+  -- and then the particular contract interface (in particular the type of the init method)
+  ciface <- pure (Map.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
+  -- first type check the parameters, whether they have the expected type
+  qparamExp <- runExceptT (TC.checkTyInCtx iface param (paramTy ciface)) `rejectingWith'` ParamsTypeError
+  let contract = (exportedDefsConts viface) Map.! cname -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
+      initFun = initMethod contract
+  params' <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qparamExp) -- linking must succeed because type-checking succeeded
+  cm <- getChainMetadata
+  res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
+  return (contract, iface, viface, (msgTy ciface), res, amount)
 
 handleUpdate
   :: (TransactionMonad m, InterpreterMonad m)
@@ -209,29 +198,24 @@ handleUpdate
      -> Core.Expr Core.ModuleName
      -> m [Event]
 handleUpdate meta accountamount amount cref msg = do
-  cinstance <- getCurrentContractInstance cref
-  case cinstance of
-    Nothing -> rejectTransaction (InvalidContractAddress cref)
-    Just i -> let rf = Ins.ireceiveFun i
-                  msgType = Ins.imsgTy i
-                  (iface, viface) = Ins.iModuleIface i
-                  model = Ins.instanceModel i
-                  contractamount = Ins.instanceAmount i
-                  -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
-              in do qmsgExpE <- runExceptT (TC.checkTyInCtx iface msg msgType)
-                    case qmsgExpE of
-                      Left err -> rejectTransaction (MessageTypeError err)
-                      Right qmsgExp -> do
-                        qmsgExpLinked <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qmsgExp)
-                        handleTransaction (thSender meta)
-                                          cref
-                                          rf
-                                          (AddressAccount (thSender meta))
-                                          accountamount
-                                          amount
-                                          (ExprMessage (I.mkJustE qmsgExpLinked))
-                                          model
-                                          contractamount
+  i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+  let rf = Ins.ireceiveFun i
+      msgType = Ins.imsgTy i
+      (iface, viface) = Ins.iModuleIface i
+      model = Ins.instanceModel i
+      contractamount = Ins.instanceAmount i
+      -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
+  do qmsgExp <- runExceptT (TC.checkTyInCtx iface msg msgType) `rejectingWith'` MessageTypeError
+     qmsgExpLinked <- fromJust <$> runMaybeT (link (exportedDefsVals viface) qmsgExp)
+     handleTransaction (thSender meta)
+                       cref
+                       rf
+                       (AddressAccount (thSender meta))
+                       accountamount
+                       amount
+                       (ExprMessage (I.mkJustE qmsgExpLinked))
+                       model
+                       contractamount
 
 -- this will always be run when we know that the contract exists and we can lookup its local state
 handleTransaction ::
@@ -326,22 +310,21 @@ handleTransfer
 handleTransfer meta accountamount amount addr =
   case addr of
     AddressContract cref -> do
-      cinstance <- getCurrentContractInstance cref
-      case cinstance of
-        Nothing -> rejectTransaction (InvalidContractAddress cref)
-        Just i -> let rf = Ins.ireceiveFun i
-                      model = Ins.instanceModel i
-                      contractamount = Ins.instanceAmount i
-                  -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
-                  in do 
-                        let qmsgExpLinked = I.mkNothingE -- give Nothing as argument to the receive method
-                        handleTransaction (thSender meta)
-                                          cref
-                                          rf
-                                          (AddressAccount (thSender meta))
-                                          accountamount
-                                          amount
-                                          (ExprMessage (I.mkJustE qmsgExpLinked)) model contractamount
+      i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+      let rf = Ins.ireceiveFun i
+          model = Ins.instanceModel i
+          contractamount = Ins.instanceAmount i
+          -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
+
+          qmsgExpLinked = I.mkNothingE -- give Nothing as argument to the receive method
+      handleTransaction (thSender meta)
+                        cref
+                        rf
+                        (AddressAccount (thSender meta))
+                        accountamount
+                        amount
+                        (ExprMessage (I.mkJustE qmsgExpLinked)) model contractamount
+
     AddressAccount acc ->
       handleTransferAccount (thSender meta) acc (AddressAccount (thSender meta)) accountamount amount
 
@@ -354,20 +337,21 @@ handleTransferAccount ::
   -> Amount -- amount that was sent in the transaction
   -> m [Event]
 handleTransferAccount origin acc txsender senderamount amount = do
-  mtargetAmount <- getCurrentAmount acc -- check if target account exists and get its public balance
-                                        -- FIXME: Should pay for execution here as well.
-  case mtargetAmount of 
-    Nothing -> rejectTransaction (InvalidAccountReference acc)
-    Just targetAmount -> 
-        if senderamount >= amount then  -- if we have the funds after subtracting the deposit for energy costs
-          case txsender of
-            AddressAccount acc' | acc == acc' -> do -- if sender and receiver are the same then we do nothing
-              return [Transferred txsender amount (AddressAccount acc)]
-            _ ->  -- and otherwise
-              withAmount txsender (senderamount - amount) $ -- decrease sender's amount
-                  withAmount (AddressAccount acc) (targetAmount + amount) $ do -- NB: Consider whether an overflow can happen
-                    return [Transferred txsender amount (AddressAccount acc)]
-          else rejectTransaction (AmountTooLarge txsender amount) -- amount insufficient
+  -- the sender must have the amount available. Otherwise we reject the transaction immediately.
+  unless (senderamount >= amount) $! rejectTransaction (AmountTooLarge txsender amount)
+
+  -- check if target account exists and get its public balance, 
+  targetAmount <- getCurrentAmount acc `rejectingWith` InvalidAccountReference acc
+  -- FIXME: Should pay for execution here as well.
+
+  -- and if we have the funds after subtracting the deposit for energy costs we can proceed with the transaction
+  case txsender of
+    AddressAccount acc' | acc == acc' -> do -- if sender and receiver are the same then we do nothing
+      return [Transferred txsender amount (AddressAccount acc)]
+    _ ->  -- and otherwise
+      withAmount txsender (senderamount - amount) $ -- decrease sender's amount
+          withAmount (AddressAccount acc) (targetAmount + amount) $ do -- NB: Consider whether an overflow can happen
+            return [Transferred txsender amount (AddressAccount acc)]
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
 -- runs out of gas set the remaining gas to 0 and reject the transaction,

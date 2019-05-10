@@ -101,7 +101,23 @@ class StaticEnvironmentMonad m => TransactionMonad m where
   -- |Set the remaining energy to be the given value.
   putEnergy :: Energy -> m ()
 
+  -- |Reject a transaction with a given reason, terminating processing of this transaction.
   rejectTransaction :: RejectReason -> m a
+
+  -- |If the computation yields a @Just a@ result return it, otherwise fail the
+  -- transaction with the given reason.
+  {-# INLINE rejectingWith #-}
+  rejectingWith :: m (Maybe a) -> RejectReason -> m a
+  rejectingWith c reason = c >>= \case Just a -> return a
+                                       Nothing -> rejectTransaction reason
+
+
+  -- |If the computation yields a @Right b@ result return it, otherwise fail the
+  -- transaction after transforming the reject message.
+  {-# INLINE rejectingWith' #-}
+  rejectingWith' :: m (Either a b) -> (a -> RejectReason) -> m b
+  rejectingWith' c reason = c >>= \case Right b -> return b
+                                        Left a -> rejectTransaction (reason a)
 
 
 -- |The set of changes to be commited on a successful transaction.
