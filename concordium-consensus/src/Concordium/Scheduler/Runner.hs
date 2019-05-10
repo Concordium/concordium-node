@@ -59,11 +59,11 @@ transactionHelper t = do
       case Map.lookup cNameText tys of
         Just contName -> do
           params <- processTmInCtx mnameText paramExpr
-          return $ signTx keys meta (Types.encodePayload (Types.InitContract amount mref contName params))
+          return $ signTx keys meta (Types.encodePayload (Types.InitContract amount mref contName params 0)) -- NB: 0 is fine as size as that is not serialized
         Nothing -> error (show cNameText)
     (TJSON meta (Update mnameText amount address msgText) keys) -> do
       msg <- processTmInCtx mnameText msgText
-      return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg))
+      return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg 0)) -- NB: 0 is fine as size as that is not serialized
     (TJSON meta (Transfer to amount) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amount))
     (TJSON meta (CreateAccount verifyKey16) keys) -> do

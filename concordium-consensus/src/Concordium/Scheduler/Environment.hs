@@ -95,7 +95,7 @@ class StaticEnvironmentMonad m => TransactionMonad m where
   getEnergy :: m Energy
 
   -- |Decrease the remaining energy by the given amount. If not enough is left
-  -- reject the transaction.
+  -- reject the transaction and set remaining amount to 0
   tickEnergy :: Energy -> m ()
 
   -- |Set the remaining energy to be the given value.
@@ -223,7 +223,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE tickEnergy #-}
   tickEnergy tick = do
     energy <- use _1
-    if tick > energy then rejectTransaction OutOfEnergy
+    if tick > energy then _1 .= 0 >> rejectTransaction OutOfEnergy  -- set remaining to 0
     else _1 -= tick
 
   {-# INLINE putEnergy #-}

@@ -89,13 +89,13 @@ initSimpleCounter :: Int -> Types.Transaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
                              (makeHeader mateuszKP (fromIntegral n) 10000)
-                             (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0))))
+                             (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0)) (-1))) -- -1 as the size is ignore by encodePayload
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
 makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
     where
         hdr = makeHeader mateuszKP n 100000
-        payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))))
+        payload = Types.encodePayload (Types.Update 0 ca (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec")) (Core.Literal (Core.Int64 10))) (-1))
 
 
 -- |State with the given number of contract instances of the counter contract specified.

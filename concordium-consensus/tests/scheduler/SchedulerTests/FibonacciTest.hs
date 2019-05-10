@@ -42,7 +42,7 @@ initialBlockState =
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = makeHeader alesKP 1 1000
+         , metadata = makeHeader alesKP 1 10000
          , keypair = alesKP
          }
 
@@ -51,7 +51,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeHeader alesKP 2 1000
+        , metadata = makeHeader alesKP 2 10000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -59,7 +59,7 @@ transactionsInput =
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
-        , metadata = makeHeader alesKP 3 100000
+        , metadata = makeHeader alesKP 3 1000000
         , keypair = alesKP
         }
   ]
