@@ -1,4 +1,5 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use digest::Digest;
 use failure::Fallible;
 
 use std::{
@@ -38,7 +39,7 @@ impl Deref for HashBytes {
 
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:0x}", (&self.0[..]).read_u64::<NetworkEndian>().unwrap(),)
+        write!(f, "{:08x}", (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),)
     }
 }
 
@@ -141,4 +142,8 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     buf.write_all(&read_sized!(input, value_size))?;
 
     Ok(buf.into_inner().into_boxed_slice())
+}
+
+pub fn sha256(bytes: &[u8]) -> HashBytes {
+    HashBytes::new(&Sha256::digest(bytes))
 }

@@ -2,6 +2,7 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
+    fmt,
     io::{Cursor, Read, Write},
     mem::size_of,
 };
@@ -24,9 +25,15 @@ pub struct FinalizationMessage {
     signature: ByteString,
 }
 
+impl fmt::Display for FinalizationMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "finalization message ({})", self.message)
+    }
+}
+
 impl FinalizationMessage {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("FinalizationMessage", bytes);
+        // debug_deserialization!("FinalizationMessage", bytes);
 
         let mut cursor = Cursor::new(bytes);
 
@@ -120,6 +127,20 @@ enum WmvbaMessage {
     CssDoneReporting(CssDoneReporting),
     AreWeDone(bool),
     WitnessCreator(Val),
+}
+
+impl fmt::Display for WmvbaMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match self {
+            WmvbaMessage::Proposal(prop) => format!("Proposal: {:?}", prop),
+            WmvbaMessage::Vote(vote) => format!("Vote: {}", if let Some(v) = vote { format!("{:?}", v) } else { "blank".to_owned() }),
+            WmvbaMessage::AbbaInput(_) => "AbbaInput".to_owned(),
+            WmvbaMessage::CssSeen(_) => "CssSeen".to_owned(),
+            WmvbaMessage::CssDoneReporting(_) => "CssDoneReporting".to_owned(),
+            WmvbaMessage::AreWeDone(arewe) => if *arewe { "We're done" } else { "We're not done" }.to_owned(),
+            WmvbaMessage::WitnessCreator(_) => "WitnessCreator".to_owned(),
+        })
+    }
 }
 
 impl WmvbaMessage {
@@ -300,9 +321,15 @@ pub struct FinalizationRecord {
     delay:         BlockHeight,
 }
 
+impl fmt::Display for FinalizationRecord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "finalization record ({:?})", self.block_pointer)
+    }
+}
+
 impl FinalizationRecord {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("FinalizationRecord", bytes);
+        // debug_deserialization!("FinalizationRecord", bytes);
 
         let mut cursor = Cursor::new(bytes);
 

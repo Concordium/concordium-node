@@ -1,6 +1,4 @@
 use chrono::prelude::{DateTime, Utc};
-use digest::Digest;
-use ec_vrf_ed25519::Sha256;
 
 use crate::{block::*, common::*, finalization::FinalizationRecord};
 
@@ -53,7 +51,7 @@ pub struct PendingBlock {
 
 impl PendingBlock {
     pub fn new(block: Block, received: DateTime<Utc>) -> Self {
-        let hash = HashBytes::new(&Sha256::digest(&block.serialize()));
+        let hash = sha256(&block.serialize());
 
         Self {
             hash,

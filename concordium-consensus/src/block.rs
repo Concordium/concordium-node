@@ -97,7 +97,7 @@ impl Block {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("Block", bytes);
+        // debug_deserialization!("Block", bytes);
 
         let mut cursor = Cursor::new(bytes);
 
