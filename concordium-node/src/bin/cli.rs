@@ -204,13 +204,13 @@ fn setup_baker_guards(
                                 )
                                 .expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
-                            (P2PNodeId(receiver_id), inner_out_bytes.to_owned())
+                            (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
                             let mut inner_out_bytes = vec![];
                             inner_out_bytes.write_u16::<NetworkEndian>(consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_FINALIZATION_RECORD_BY_HASH).expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
-                            (P2PNodeId(receiver_id), inner_out_bytes.to_owned())
+                            (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         consensus::CatchupRequest::FinalizationRecordByIndex(
                             receiver_id,
@@ -221,7 +221,7 @@ fn setup_baker_guards(
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(index)
                                 .expect("Can't write to buffer");
-                            (P2PNodeId(receiver_id), inner_out_bytes.to_owned())
+                            (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                     };
                     match &_node_ref_4.send_message(
@@ -247,7 +247,7 @@ fn setup_baker_guards(
         let _baker_clone_5 = baker.to_owned();
         let mut _node_ref_5 = node.clone();
         spawn_or_die!(
-            "Process baker catchup finalization messages outbound",
+            "Process outbound baker catch-up finalization messages",
             move || loop {
                 match _baker_clone_5.out_queue().recv_finalization_catchup() {
                     Ok((receiver_id_raw, msg)) => {

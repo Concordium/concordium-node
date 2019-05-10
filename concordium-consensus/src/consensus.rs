@@ -358,7 +358,7 @@ impl Default for ConsensusOutQueue {
             mpsc::channel::<FinalizationRecord>();
         let (sender_catchup, receiver_catchup) = mpsc::channel::<CatchupRequest>();
         let (sender_finalization_catchup, receiver_finalization_catchup) =
-            mpsc::channel::<(PeerID, FinalizationMessage)>();
+            mpsc::channel::<(PeerId, FinalizationMessage)>();
         ConsensusOutQueue {
             receiver_block: Arc::new(Mutex::new(receiver)),
             sender_block: Arc::new(Mutex::new(sender)),
