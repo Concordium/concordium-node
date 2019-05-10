@@ -815,9 +815,7 @@ pub enum CatchupRequest {
 
 fn catchup_en_queue(req: CatchupRequest) {
     match CALLBACK_QUEUE.clone().send_catchup(req) {
-        Ok(_) => {
-            debug!("Queueing catchup request");
-        }
+        Ok(_) => debug!("Queueing catchup request"),
         _ => error!("Didn't queue catchup requestproperly"),
     }
 }
@@ -831,9 +829,7 @@ extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const 
                 .clone()
                 .send_finalization_catchup((peer_id, msg))
             {
-                Ok(_) => {
-                    debug!("Queueing {} bytes of finalization", s.len());
-                }
+                Ok(_) => debug!("Queueing {} bytes of finalization", s.len()),
                 _ => error!("Didn't queue finalization message properly"),
             },
             Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
