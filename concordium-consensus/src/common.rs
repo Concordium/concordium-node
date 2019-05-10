@@ -19,10 +19,15 @@ pub const SESSION_ID: u8 = SHA256 + INCARNATION;
 use crate::block::{BlockHash, BLOCK_HASH};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct HashBytes(Box<[u8]>);
+pub struct HashBytes([u8; BLOCK_HASH as usize]);
 
 impl HashBytes {
-    pub fn new(bytes: &[u8]) -> Self { HashBytes(Box::from(bytes)) }
+    pub fn new(bytes: &[u8]) -> Self {
+        let mut buf = [0u8; BLOCK_HASH as usize];
+        let _ = buf.copy_from_slice(bytes);
+
+        HashBytes(buf)
+    }
 }
 
 impl Deref for HashBytes {
@@ -33,7 +38,7 @@ impl Deref for HashBytes {
 
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:0x}", (&*self.0).read_u64::<NetworkEndian>().unwrap(),)
+        write!(f, "{:0x}", (&self.0[..]).read_u64::<NetworkEndian>().unwrap(),)
     }
 }
 
