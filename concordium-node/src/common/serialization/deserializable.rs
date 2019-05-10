@@ -71,6 +71,9 @@ impl Deserializable for Ipv4Addr {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
+        // IPs are deserialized very frequently, so `mem::unitialized` is used to
+        // improve performance. Safety is ensured by the early return in case
+        // `read_exact` fails.
         let mut octects: [u8; 4] = unsafe { std::mem::uninitialized() };
         archive.read_exact(&mut octects)?;
         Ok(Ipv4Addr::from(octects))
@@ -81,6 +84,9 @@ impl Deserializable for Ipv6Addr {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
+        // IPs are deserialized very frequently, so `mem::unitialized` is used to
+        // improve performance. Safety is ensured by the early return in case
+        // `read_exact` fails.
         let mut segments: [u16; 8] = unsafe { std::mem::uninitialized() };
         for segment in &mut segments {
             *segment = archive.read_u16()?;
