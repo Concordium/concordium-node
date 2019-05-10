@@ -415,7 +415,7 @@ fn setup_process_output(
 
                 match consensus_type {
                     consensus::PACKET_TYPE_CONSENSUS_BLOCK => send_block_to_baker(baker, peer_id, &content[..]),
-                    consensus::PACKET_TYPE_CONSENSUS_TRANSACTION => send_transaction_to_baker(baker, &content[..]),
+                    consensus::PACKET_TYPE_CONSENSUS_TRANSACTION => send_transaction_to_baker(baker, peer_id, &content[..]),
                     consensus::PACKET_TYPE_CONSENSUS_FINALIZATION => send_finalization_message_to_baker(baker, peer_id, &content[..]),
                     consensus::PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => send_finalization_record_to_baker(baker, peer_id, &content[..]),
                     consensus::PACKET_TYPE_CONSENSUS_CATCHUP_REQUEST_BLOCK_BY_HASH => send_catchup_request_block_by_bash_baker(baker, node, peer_id, network_id, &content[..]),
@@ -482,7 +482,7 @@ fn setup_process_output(
                             );
                             if _node_self_clone
                                 .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                                .map_err(|e| info!("{}", e))
+                                .map_err(|e| error!("{}", e))
                                 .is_ok()
                             {
                                 new_peers += 1;
@@ -561,10 +561,14 @@ fn setup_process_output(
 
 fn send_transaction_to_baker(
     baker: &mut consensus::ConsensusContainer,
+    peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
     baker.send_transaction(content);
-    info!("Sent transaction to baker");
+    info!(
+        "Sent a transaction from the network peer {} to the consensus layer",
+        peer_id
+    );
     Ok(())
 }
 
@@ -576,10 +580,14 @@ fn send_finalization_record_to_baker(
     match baker
         .send_finalization_record(peer_id.as_raw(), &FinalizationRecord::deserialize(content)?)
     {
-        0i64 => info!("Sent finalization record from network to baker"),
-        x => error!(
-            "Can't send finalization record from network to baker due to error code #{}",
-            x
+        0i64 => info!(
+            "Sent finalization record from the network peer {} to baker",
+            peer_id
+        ),
+        err_code => error!(
+            "Can't send finalization record from the network peer {} to baker due to error code \
+             #{}",
+            peer_id, err_code
         ),
     }
     Ok(())
@@ -594,7 +602,10 @@ fn send_finalization_message_to_baker(
         peer_id.as_raw(),
         &FinalizationMessage::deserialize(content)?,
     );
-    info!("Sent finalization package to consensus layer");
+    info!(
+        "Sent finalization message from the network peer {} to consensus layer",
+        peer_id
+    );
     Ok(())
 }
 
@@ -605,10 +616,10 @@ fn send_block_to_baker(
 ) -> Fallible<()> {
     let block = Block::deserialize(content)?;
     match baker.send_block(peer_id.as_raw(), &block) {
-        0i64 => info!("Sent block from network to baker"),
-        x => error!(
-            "Can't send block from network to baker due to error code #{}",
-            x
+        0i64 => info!("Sent block from the network peer {} to baker", peer_id),
+        err_code => error!(
+            "Can't send block from the network peer {} to baker due to error code #{}",
+            peer_id, err_code,
         ),
     }
     Ok(())
@@ -621,13 +632,15 @@ fn send_catchup_finalization_messages_by_point_to_baker(
 ) -> Fallible<()> {
     debug!("Got consensus catch-up request for finalization messages by point");
     match baker.get_finalization_messages(&content[..], peer_id.as_raw())? {
-        0i64 => {
-            info!("Successfully requested finalization messages for requested point from consensus")
-        }
+        0i64 => info!(
+            "Successfully requested finalization messages for requested point for the network \
+             peer {} from consensus",
+            peer_id
+        ),
         err_code => error!(
-            "Could not request finalization messages from point from consensus due to error code \
-             {}",
-            err_code
+            "Could not request finalization messages from point for the network peer {} from \
+             consensus due to error code {}",
+            peer_id, err_code
         ),
     }
     Ok(())
@@ -650,11 +663,20 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
             .expect("Can't write to buffer");
         out_bytes.extend(res);
         match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!("Responded to a catchu-request from {}", peer_id),
-            Err(_) => error!("Couldn't respond to a catch-up request from {}!", peer_id),
+            Ok(_) => info!(
+                "Responded to a catchu-request from the network peer {}",
+                peer_id
+            ),
+            Err(_) => error!(
+                "Couldn't respond to a catch-up request from the network peer {}!",
+                peer_id
+            ),
         }
     } else {
-        error!("Consensus doesn't have the requested finalization record");
+        error!(
+            "Consensus doesn't have the finalization record the network peer {} requested",
+            peer_id
+        );
     }
     Ok(())
 }
@@ -675,11 +697,20 @@ fn send_catchup_request_finalization_record_by_bash_baker(
             .expect("Can't write to buffer");
         out_bytes.extend(res);
         match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!("Responded to a catch-up request from {}", peer_id),
-            Err(_) => error!("Couldn't respond to a catch-up request from {}!", peer_id),
+            Ok(_) => info!(
+                "Responded to a catch-up request from the network peer {}",
+                peer_id
+            ),
+            Err(_) => error!(
+                "Couldn't respond to a catch-up request from the network peer {}!",
+                peer_id
+            ),
         }
     } else {
-        error!("Consensus doesn't have the requested finalization record");
+        error!(
+            "Consensus doesn't have the finalization record the network peer {} requested",
+            peer_id
+        );
     }
     Ok(())
 }
@@ -699,11 +730,20 @@ fn send_catchup_request_block_by_bash_baker(
             .expect("Can't write to buffer");
         out_bytes.extend(res);
         match &node.send_message(Some(peer_id), network_id, None, out_bytes, true) {
-            Ok(_) => info!("Responded to a catch-up request from {}", peer_id),
-            Err(_) => error!("Couldn't respond to a catch-up request from {}!", peer_id),
+            Ok(_) => info!(
+                "Responded to a catch-up request from the network peer {}",
+                peer_id
+            ),
+            Err(_) => error!(
+                "Couldn't respond to a catch-up request from the network peer {}!",
+                peer_id
+            ),
         }
     } else {
-        error!("Consensus doesn't have the requested block");
+        error!(
+            "Consensus doesn't have the block the network peer {} requested",
+            peer_id
+        );
     }
     Ok(())
 }
