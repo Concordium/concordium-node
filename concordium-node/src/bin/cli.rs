@@ -716,7 +716,7 @@ macro_rules! send_catchup_request_to_baker {
             out_bytes.extend(res);
             match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
                 Ok(_) => info!(
-                    "Responded to a catchup-request type \"{}\" from the network peer {}",
+                    "Responded to a catch-up request type \"{}\" from the network peer {}",
                     $req_type, $peer_id
                 ),
                 Err(_) => error!(

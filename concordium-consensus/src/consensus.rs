@@ -816,18 +816,18 @@ extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data
 }
 
 extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
-    debug!("Got a request for catchup from consensus");
+    debug!("Got a request for catch-up from consensus");
     unsafe {
         let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
-        catchup_en_queue(CatchupRequest::BlockByHash(peer_id, s));
+        catchup_enqueue(CatchupRequest::BlockByHash(peer_id, s));
     }
 }
 
 extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    debug!("Got a request for catchup from consensus");
+    debug!("Got a request for catch-up from consensus");
     unsafe {
         let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
-        catchup_en_queue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
+        catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
     }
 }
 
@@ -835,7 +835,7 @@ extern "C" fn on_catchup_finalization_record_by_index(
     peer_id: PeerId,
     index: FinalizationRecordIndex,
 ) {
-    catchup_en_queue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
+    catchup_enqueue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
 }
 
 pub enum CatchupRequest {
@@ -844,10 +844,10 @@ pub enum CatchupRequest {
     FinalizationRecordByIndex(PeerId, FinalizationRecordIndex),
 }
 
-fn catchup_en_queue(req: CatchupRequest) {
+fn catchup_enqueue(req: CatchupRequest) {
     match CALLBACK_QUEUE.clone().send_catchup(req) {
-        Ok(_) => debug!("Queueing catchup request"),
-        _ => error!("Didn't queue catchup requestproperly"),
+        Ok(_) => debug!("Queueing catch-up request"),
+        _ => error!("Didn't queue catch-up request properly"),
     }
 }
 
