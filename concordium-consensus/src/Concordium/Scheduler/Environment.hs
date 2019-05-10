@@ -13,9 +13,9 @@ module Concordium.Scheduler.Environment where
 
 import qualified Data.HashMap.Strict as Map
 
-import Control.Monad.Except
 import Control.Monad.RWS.Strict
 import Control.Monad.State.Strict
+import Control.Monad.Cont hiding (cont)
 
 import Data.Maybe(fromJust)
 import Lens.Micro.Platform
@@ -148,36 +148,40 @@ addContractAmountToCS :: ChangeSet -> ContractAddress -> Amount -> ChangeSet
 addContractAmountToCS cs addr amnt =
   cs & newContractStates . at addr . mapped . _1 .~ amnt
 
--- |A concrete implementation of TransactionMonad based on SchedulerMonad.
-newtype LocalT m a = LocalT { _runLocalT :: ExceptT RejectReason (StateT (Energy, ChangeSet) m) a }
-  deriving(Functor, Applicative, Monad, MonadState (Energy, ChangeSet), MonadError RejectReason)
+-- |A concrete implementation of TransactionMonad based on SchedulerMonad. We
+-- use the continuation monad transformer instead of the ExceptT transformer in
+-- order to avoid expensive bind operation of the latter. The bind operation is
+-- expensive because it needs to check at each step whether the result is @Left@
+-- or @Right@.
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either RejectReason r) (StateT (Energy, ChangeSet) m) a }
+  deriving(Functor, Applicative, Monad, MonadState (Energy, ChangeSet))
 
-runLocalT :: LocalT m a -> Energy -> m (Either RejectReason a, (Energy, ChangeSet))
-runLocalT (LocalT st) energy = runStateT (runExceptT st) (energy, emptyCS)
+runLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a, (Energy, ChangeSet))
+runLocalT (LocalT st) energy = runStateT (runContT st (return . Right)) (energy, emptyCS)
 
 {-# INLINE evalLocalT #-}
-evalLocalT :: Monad m => LocalT m a -> Energy -> m (Either RejectReason a)
-evalLocalT (LocalT st) energy = evalStateT (runExceptT st) (energy, emptyCS)
+evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)
+evalLocalT (LocalT st) energy = evalStateT (runContT st (return . Right)) (energy, emptyCS)
 
-evalLocalT' :: Monad m => LocalT m a -> Energy -> m (Either RejectReason a, Energy)
-evalLocalT' (LocalT st) energy = do (a, (energy', _)) <- runStateT (runExceptT st) (energy, emptyCS)
+evalLocalT' :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a, Energy)
+evalLocalT' (LocalT st) energy = do (a, (energy', _)) <- runStateT (runContT st (return . Right)) (energy, emptyCS)
                                     return (a, energy')
 
-execLocalT :: Monad m => LocalT m a -> Energy -> m (Energy, ChangeSet)
-execLocalT (LocalT st) energy = execStateT (runExceptT st) (energy, emptyCS)
+execLocalT :: Monad m => LocalT a m a -> Energy -> m (Energy, ChangeSet)
+execLocalT (LocalT st) energy = execStateT (runContT st (return . Right)) (energy, emptyCS)
 
-liftLocal :: Monad m => m a -> LocalT m a
-liftLocal m = LocalT (ExceptT (StateT (\s -> do x <- m
-                                                return (Right x, s))))
-
-instance StaticEnvironmentMonad m => StaticEnvironmentMonad (LocalT m) where
+{-# INLINE liftLocal #-}
+liftLocal :: Monad m => m a -> LocalT r m a
+liftLocal m = LocalT (ContT (\k -> StateT (\s -> m >>= flip runStateT s . k)))
+                                                    
+instance StaticEnvironmentMonad m => StaticEnvironmentMonad (LocalT r m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = liftLocal getChainMetadata
 
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces = liftLocal . getModuleInterfaces
 
-instance SchedulerMonad m => TransactionMonad (LocalT m) where
+instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withInstance #-}
   withInstance cref amount val cont = do
     modify' (\(en, s) -> (en, addContractStatesToCS s cref amount val))
@@ -226,9 +230,9 @@ instance SchedulerMonad m => TransactionMonad (LocalT m) where
   putEnergy en = _1 .= en
 
   {-# INLINE rejectTransaction #-}
-  rejectTransaction = throwError
+  rejectTransaction reason = LocalT (ContT (\_ -> return (Left reason)))
 
-instance SchedulerMonad m => InterpreterMonad (LocalT m) where
+instance SchedulerMonad m => InterpreterMonad (LocalT r m) where
   getCurrentContractState caddr = do
     newStates <- use (_2 . newContractStates)
     liftLocal $ do mistance <- getContractInstance caddr
