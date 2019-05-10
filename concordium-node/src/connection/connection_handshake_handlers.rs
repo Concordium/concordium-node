@@ -30,16 +30,6 @@ pub fn handshake_response_handle(
             safe_write!(service)?.peers_inc();
         };
 
-        // TODO - only issue when needed externally, after global state knows it needs
-        // to do this
-        if priv_conn.borrow().remote_peer.peer_type() != PeerType::Bootstrapper
-            && priv_conn.borrow().local_peer.peer_type() != PeerType::Bootstrapper
-        {
-            let one_net = priv_conn.borrow().remote_end_networks.clone();
-            if let Some(one_net) = one_net.iter().next() {
-                send_retransmit_request(priv_conn, 0, *one_net)?
-            };
-        }
         Ok(())
     } else {
         bail!(fails::UnwantedMessageError {
@@ -55,7 +45,7 @@ pub fn handshake_request_handle(
     if let NetworkRequest::Handshake(sender, nets, _) = req {
         debug!("Got request for Handshake");
 
-        // Setup peer and networks before send Handshake.
+        // Setup peer and networks before sending handshake.
         {
             let mut priv_conn_mut = priv_conn.borrow_mut();
             priv_conn_mut.add_remote_end_networks(nets);

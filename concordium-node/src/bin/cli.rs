@@ -13,10 +13,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    lock_or_die, safe_lock, spawn_or_die, UCursor,
+    make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
     block::Block,
@@ -27,8 +27,9 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{get_current_stamp, P2PNodeId, P2PPeerBuilder, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration,
+    connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
@@ -43,20 +44,16 @@ use p2p_client::{
 
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     fs::OpenOptions,
     io::{Read, Write},
     net::SocketAddr,
     str::{self, FromStr},
-    sync::{mpsc, Arc, Mutex, RwLock},
+    sync::{mpsc, Arc, RwLock},
     thread,
-    time::Duration,
 };
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
-const PACKET_TYPE_CONSENSUS_BLOCK: u16 = 0;
-const PACKET_TYPE_CONSENSUS_TRANSACTION: u16 = 1;
-const PACKET_TYPE_CONSENSUS_FINALIZATION: u16 = 2;
-const PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD: u16 = 3;
 
 fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     // Get config and app preferences
@@ -113,35 +110,19 @@ fn setup_baker_guards(
             match _baker_clone.out_queue().recv_block() {
                 Ok(block) => {
                     let bytes = block.serialize();
-                    let mut out_bytes = vec![];
-                    let msg_id = NetworkPacket::generate_message_id();
-                    match out_bytes.write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_BLOCK as u16) {
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes.write_u16::<NetworkEndian>(consensus::PacketType::Block as u16)
+                    {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
-                            match &_node_ref.send_message(
-                                None,
-                                _network_id,
-                                Some(msg_id.clone()),
-                                out_bytes,
-                                true,
-                            ) {
-                                Ok(_) => {
-                                    client_utils::add_transmission_to_seenlist(
-                                        client_utils::SeenTransmissionType::Block,
-                                        msg_id,
-                                        get_current_stamp(),
-                                        &bytes,
-                                    )
-                                    .map_err(|err| {
-                                        error!("Can't store block in transmission list {}", err)
-                                    })
-                                    .ok();
-                                    info!(
-                                        "Broadcasted block {}/{}",
-                                        block.slot_id(),
-                                        block.baker_id()
-                                    )
-                                }
+                            match &_node_ref.send_message(None, _network_id, None, out_bytes, true)
+                            {
+                                Ok(_) => info!(
+                                    "Broadcasted block {}/{}",
+                                    block.slot_id(),
+                                    block.baker_id()
+                                ),
                                 Err(_) => error!("Couldn't broadcast block!"),
                             }
                         }
@@ -157,36 +138,21 @@ fn setup_baker_guards(
             match _baker_clone_2.out_queue().recv_finalization() {
                 Ok(msg) => {
                     let bytes = msg.serialize();
-                    let mut out_bytes = vec![];
-                    let msg_id = NetworkPacket::generate_message_id();
-                    match out_bytes
-                        .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION as u16)
-                    {
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes.write_u16::<NetworkEndian>(
+                        consensus::PacketType::FinalizationMessage as u16,
+                    ) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_2.send_message(
                                 None,
                                 _network_id,
-                                Some(msg_id.clone()),
+                                None,
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => {
-                                    client_utils::add_transmission_to_seenlist(
-                                        client_utils::SeenTransmissionType::Finalization,
-                                        msg_id,
-                                        get_current_stamp(),
-                                        &bytes,
-                                    )
-                                    .map_err(|err| {
-                                        error!(
-                                            "Can't store finalization in transmission list {}",
-                                            err
-                                        )
-                                    })
-                                    .ok();
-                                    info!("Broadcasted finalization packet");
-                                }
+                                Ok(_) => info!("Broadcasted finalization packet"),
                                 Err(_) => error!("Couldn't broadcast finalization packet!"),
                             }
                         }
@@ -202,11 +168,11 @@ fn setup_baker_guards(
             match _baker_clone_3.out_queue().recv_finalization_record() {
                 Ok(rec) => {
                     let bytes = rec.serialize();
-                    let mut out_bytes = vec![];
-                    let msg_id = NetworkPacket::generate_message_id();
-                    match out_bytes
-                        .write_u16::<BigEndian>(PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD as u16)
-                    {
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes.write_u16::<NetworkEndian>(
+                        consensus::PacketType::FinalizationRecord as u16,
+                    ) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_3.send_message(
@@ -216,23 +182,7 @@ fn setup_baker_guards(
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => {
-                                    client_utils::add_transmission_to_seenlist(
-                                        client_utils::SeenTransmissionType::FinalizationRecord,
-                                        msg_id,
-                                        get_current_stamp(),
-                                        &bytes,
-                                    )
-                                    .map_err(|err| {
-                                        error!(
-                                            "Can't store finalization record in transmission list \
-                                             {}",
-                                            err
-                                        )
-                                    })
-                                    .ok();
-                                    info!("Broadcasted finalization record");
-                                }
+                                Ok(_) => info!("Broadcasted finalization record"),
                                 Err(_) => error!("Couldn't broadcast finalization record!"),
                             }
                         }
@@ -242,6 +192,109 @@ fn setup_baker_guards(
                 _ => error!("Error receiving finalization record from baker"),
             }
         });
+        let _baker_clone_4 = baker.to_owned();
+        let mut _node_ref_4 = node.clone();
+        spawn_or_die!("Process baker catch-up requests", move || loop {
+            match _baker_clone_4.out_queue().recv_catchup() {
+                Ok(msg) => {
+                    let (receiver_id, serialized_bytes) = match msg {
+                        consensus::CatchupRequest::BlockByHash(receiver_id, bytes) => {
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                            inner_out_bytes
+                                .write_u16::<NetworkEndian>(
+                                    consensus::PacketType::CatchupBlockByHash as u16,
+                                )
+                                .expect("Can't write to buffer");
+                            inner_out_bytes.extend(bytes);
+                            (P2PNodeId(receiver_id), inner_out_bytes)
+                        }
+                        consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                            inner_out_bytes
+                                .write_u16::<NetworkEndian>(
+                                    consensus::PacketType::CatchupFinalizationRecordByHash as u16,
+                                )
+                                .expect("Can't write to buffer");
+                            inner_out_bytes.extend(bytes);
+                            (P2PNodeId(receiver_id), inner_out_bytes)
+                        }
+                        consensus::CatchupRequest::FinalizationRecordByIndex(
+                            receiver_id,
+                            index,
+                        ) => {
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + 8);
+                            inner_out_bytes
+                                .write_u16::<NetworkEndian>(
+                                    consensus::PacketType::CatchupFinalizationRecordByIndex as u16,
+                                )
+                                .expect("Can't write to buffer");
+                            inner_out_bytes
+                                .write_u64::<NetworkEndian>(index)
+                                .expect("Can't write to buffer");
+                            (P2PNodeId(receiver_id), inner_out_bytes)
+                        }
+                    };
+                    match &_node_ref_4.send_message(
+                        Some(receiver_id),
+                        _network_id,
+                        None,
+                        serialized_bytes,
+                        false,
+                    ) {
+                        Ok(_) => info!(
+                            "Sent the consensus catch-up request to the peer {}",
+                            receiver_id
+                        ),
+                        Err(_) => error!(
+                            "Couldn't send the consensus catch-up request to the peer {}",
+                            receiver_id
+                        ),
+                    }
+                }
+                Err(_) => error!("Can't read from queue"),
+            }
+        });
+        let _baker_clone_5 = baker.to_owned();
+        let mut _node_ref_5 = node.clone();
+        spawn_or_die!(
+            "Process outbound baker catch-up finalization messages",
+            move || loop {
+                match _baker_clone_5.out_queue().recv_finalization_catchup() {
+                    Ok((receiver_id_raw, msg)) => {
+                        let receiver_id = P2PNodeId(receiver_id_raw);
+                        let bytes = &*msg.serialize();
+                        let mut out_bytes =
+                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                        out_bytes
+                            .write_u16::<NetworkEndian>(
+                                consensus::PacketType::FinalizationMessage as u16,
+                            )
+                            .expect("Can't write to buffer");
+                        out_bytes.extend(bytes);
+                        match &_node_ref_5.send_message(
+                            Some(receiver_id),
+                            _network_id,
+                            None,
+                            out_bytes,
+                            false,
+                        ) {
+                            Ok(_) => info!(
+                                "Sent the consensus catch-up request to the peer {}",
+                                receiver_id
+                            ),
+                            Err(_) => error!(
+                                "Couldn't send the consensus catch-up request to the peer {}",
+                                receiver_id
+                            ),
+                        }
+                    }
+                    Err(_) => error!("Can't read from queue"),
+                }
+            }
+        );
     }
 }
 
@@ -302,123 +355,47 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
-fn start_tps_test(conf: &configuration::Config, node: Arc<Mutex<P2PNode>>) {
+fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
     if let Some(ref tps_test_recv_id) = conf.cli.tps.tps_test_recv_id {
         let mut _id_clone = tps_test_recv_id.to_owned();
         let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
-        let mut _node_ref = Arc::clone(&node);
+        let mut _node_ref = node.clone();
         let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
         spawn_or_die!("TPS processing", move || {
             let mut done = false;
             while !done {
                 // Test if we have any peers yet. Otherwise keep trying until we do
-                let node_list = lock_or_die!(_node_ref).get_peer_stats(&[_network_id]);
+                let node_list = _node_ref.get_peer_stats(&[_network_id]);
                 if !node_list.is_empty() {
                     let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
                     for message in test_messages {
                         let out_bytes_len = message.len();
                         let to_send = P2PNodeId::from_str(&_id_clone).ok();
-                        match lock_or_die!(_node_ref).send_message(
-                            to_send,
-                            _network_id,
-                            None,
-                            message,
-                            false,
-                        ) {
+                        match _node_ref.send_message(to_send, _network_id, None, message, false) {
                             Ok(_) => {
                                 info!("Sent TPS test bytes of len {}", out_bytes_len);
                             }
                             Err(_) => error!("Couldn't send TPS test message!"),
                         }
                     }
-
                     done = true;
                 }
             }
+            thread::park();
         });
     }
 }
 
-fn setup_lower_process_output(
+fn setup_process_output(
     node: &P2PNode,
-    conf: &configuration::Config,
-    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
-    db: P2PDB,
-) -> mpsc::Receiver<Arc<NetworkMessage>> {
-    let mut _node_self_clone = node.clone();
-
-    let (pkt_higher_in, pkt_higher_out) = mpsc::channel::<Arc<NetworkMessage>>();
-
-    let _no_trust_bans = conf.common.no_trust_bans;
-    let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
-    let _desired_nodes_clone = conf.connection.desired_nodes;
-    let _guard_pkt = spawn_or_die!("Lower queue processing", move || loop {
-        if let Ok(full_msg) = pkt_out.recv() {
-            match *full_msg {
-                NetworkMessage::NetworkPacket(..) => match pkt_higher_in.send(full_msg) {
-                    Ok(_) => trace!("Relayed message to higher queue"),
-                    Err(err) => error!("Could not relay message to higher queue {}", err),
-                },
-                NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
-                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                }
-                NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
-                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
-                }
-                NetworkMessage::NetworkResponse(
-                    NetworkResponse::PeerList(ref peer, ref peers),
-                    ..
-                ) => {
-                    debug!("Received PeerList response, attempting to satisfy desired peers");
-                    let mut new_peers = 0;
-                    let peer_count = _node_self_clone
-                        .get_peer_stats(&[])
-                        .iter()
-                        .filter(|x| x.peer_type == PeerType::Node)
-                        .count();
-                    for peer_node in peers {
-                        info!(
-                            "Peer {}/{}/{} sent us peer info for {}/{}/{}",
-                            peer.id(),
-                            peer.ip(),
-                            peer.port(),
-                            peer_node.id(),
-                            peer_node.ip(),
-                            peer_node.port()
-                        );
-                        if _node_self_clone
-                            .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                            .map_err(|e| info!("{}", e))
-                            .is_ok()
-                        {
-                            new_peers += 1;
-                        }
-                        if new_peers + peer_count as u8 >= _desired_nodes_clone {
-                            break;
-                        }
-                    }
-                }
-                NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
-                    match pkt_higher_in.send(full_msg) {
-                        Ok(_) => trace!("Relayed message to higher queue"),
-                        Err(err) => error!("Could not relay message to higher queue {}", err),
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
-    pkt_higher_out
-}
-
-fn setup_higher_process_output(
-    node: &P2PNode,
+    db: &P2PDB,
     conf: &configuration::Config,
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
 ) {
     let mut _node_self_clone = node.clone();
+    let mut _db = db.clone();
 
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
@@ -430,11 +407,14 @@ fn setup_higher_process_output(
     let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
     let mut _msg_count = 0;
     let _tps_message_count = conf.cli.tps.tps_message_count;
+    let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         fn send_msg_to_baker(
+            node: &mut P2PNode,
             baker_ins: &mut Option<consensus::ConsensusContainer>,
+            peer_id: P2PNodeId,
+            network_id: NetworkId,
             mut msg: UCursor,
-            message_id: String,
         ) -> Fallible<()> {
             if let Some(ref mut baker) = baker_ins {
                 ensure!(
@@ -443,85 +423,123 @@ fn setup_higher_process_output(
                     PAYLOAD_TYPE_LENGTH
                 );
 
-                let consensus_type = msg.read_u16::<BigEndian>()?;
+                let consensus_type = msg.read_u16::<NetworkEndian>()?;
                 let view = msg.read_all_into_view()?;
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
-                match consensus_type {
-                    PACKET_TYPE_CONSENSUS_BLOCK => {
-                        let block = Block::deserialize(content)?;
-
-                        match client_utils::add_transmission_to_seenlist(
-                            client_utils::SeenTransmissionType::Block,
-                            message_id,
-                            get_current_stamp(),
-                            &content,
-                        ) {
-                            Ok(_) => match baker.send_block(&block) {
-                                0i64 => info!("Sent block from network to baker"),
-                                x => error!(
-                                    "Can't send block from network to baker due to error code #{}",
-                                    x
-                                ),
-                            },
-                            Err(err) => error!("Can't store block in transmission list {}", err),
-                        }
+                match consensus::PacketType::try_from(consensus_type)? {
+                    consensus::PacketType::Block => {
+                        send_block_to_baker(baker, peer_id, &content[..])
                     }
-                    PACKET_TYPE_CONSENSUS_TRANSACTION => {
-                        baker.send_transaction(content);
-                        info!("Sent transaction to baker");
+                    consensus::PacketType::Transaction => {
+                        send_transaction_to_baker(baker, peer_id, &content[..])
                     }
-                    PACKET_TYPE_CONSENSUS_FINALIZATION => {
-                        match client_utils::add_transmission_to_seenlist(
-                            client_utils::SeenTransmissionType::Finalization,
-                            message_id,
-                            get_current_stamp(),
-                            &content,
-                        ) {
-                            Ok(_) => {
-                                baker
-                                    .send_finalization(&FinalizationMessage::deserialize(content)?);
-                                info!("Sent finalization package to consensus layer");
-                            }
-                            Err(err) => {
-                                error!("Can't store finalization in transmission list {}", err)
-                            }
-                        }
+                    consensus::PacketType::FinalizationMessage => {
+                        send_finalization_message_to_baker(baker, peer_id, &content[..])
                     }
-                    PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD => {
-                        match client_utils::add_transmission_to_seenlist(
-                            client_utils::SeenTransmissionType::FinalizationRecord,
-                            message_id,
-                            get_current_stamp(),
-                            &content,
-                        ) {
-                            Ok(_) => match baker.send_finalization_record(
-                                &FinalizationRecord::deserialize(content)?,
-                            ) {
-                                0i64 => info!("Sent finalization record from network to baker"),
-                                x => error!(
-                                    "Can't send finalization record from network to baker due to \
-                                     error code #{}",
-                                    x
-                                ),
-                            },
-                            Err(err) => error!(
-                                "Can't store finalization record in transmission list {}",
-                                err
-                            ),
-                        }
+                    consensus::PacketType::FinalizationRecord => {
+                        send_finalization_record_to_baker(baker, peer_id, &content[..])
                     }
-                    _ => {
-                        error!("Couldn't read bytes properly for type");
+                    consensus::PacketType::CatchupBlockByHash => {
+                        send_catchup_request_block_by_bash_baker(
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            &content[..],
+                        )
+                    }
+                    consensus::PacketType::CatchupFinalizationRecordByHash => {
+                        send_catchup_request_finalization_record_by_bash_baker(
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            &content[..],
+                        )
+                    }
+                    consensus::PacketType::CatchupFinalizationRecordByIndex => {
+                        send_catchup_request_finalization_record_by_index_to_baker(
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            &content[..],
+                        )
+                    }
+                    consensus::PacketType::CatchupFinalizationMessagesByPoint => {
+                        send_catchup_finalization_messages_by_point_to_baker(
+                            baker,
+                            peer_id,
+                            &content[..],
+                        )
                     }
                 }
+            } else {
+                Ok(())
             }
-            Ok(())
         }
 
         loop {
             if let Ok(full_msg) = pkt_out.recv() {
                 match *full_msg {
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::BanNode(ref peer, peer_to_ban),
+                        ..
+                    ) => {
+                        utils::ban_node(
+                            &mut _node_self_clone,
+                            peer,
+                            peer_to_ban,
+                            &_db,
+                            _no_trust_bans,
+                        );
+                    }
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::UnbanNode(ref peer, peer_to_ban),
+                        ..
+                    ) => {
+                        utils::unban_node(
+                            &mut _node_self_clone,
+                            peer,
+                            peer_to_ban,
+                            &_db,
+                            _no_trust_bans,
+                        );
+                    }
+                    NetworkMessage::NetworkResponse(
+                        NetworkResponse::PeerList(ref peer, ref peers),
+                        ..
+                    ) => {
+                        debug!("Received PeerList response, attempting to satisfy desired peers");
+                        let mut new_peers = 0;
+                        let peer_count = _node_self_clone
+                            .get_peer_stats(&[])
+                            .iter()
+                            .filter(|x| x.peer_type == PeerType::Node)
+                            .count();
+                        for peer_node in peers {
+                            info!(
+                                "Peer {}/{}/{} sent us peer info for {}/{}/{}",
+                                peer.id(),
+                                peer.ip(),
+                                peer.port(),
+                                peer_node.id(),
+                                peer_node.ip(),
+                                peer_node.port()
+                            );
+                            if _node_self_clone
+                                .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
+                                .map_err(|e| error!("{}", e))
+                                .is_ok()
+                            {
+                                new_peers += 1;
+                            }
+                            if new_peers + peer_count as u8 >= _desired_nodes_clone {
+                                break;
+                            }
+                        }
+                    }
                     NetworkMessage::NetworkPacket(ref pac, ..) => {
                         match pac.packet_type {
                             NetworkPacketType::DirectMessage(..) => {
@@ -565,74 +583,17 @@ fn setup_higher_process_output(
                             }
                         };
                         if let Err(e) = send_msg_to_baker(
+                            &mut _node_self_clone,
                             &mut _baker_pkt_clone,
+                            pac.peer.id(),
+                            _network_id,
                             pac.message.clone(),
-                            (*pac.message_id).to_string(),
                         ) {
                             error!("Send network message to baker has failed: {:?}", e);
                         }
                     }
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::Retransmit(ref peer, since_stamp, network_id),
-                        ..
-                    ) => {
-                        if let Ok(res) = client_utils::get_transmissions_since_from_seenlist(
-                            client_utils::SeenTransmissionType::Block,
-                            since_stamp,
-                        )
-                        .map_err(|err| {
-                            error!("Can't get list of block packets to retransmit {}", err)
-                        }) {
-                            res.iter().for_each(|(msg_id, pkt)| {
-                                send_retransmit_packet(
-                                    &mut _node_self_clone,
-                                    peer.id(),
-                                    network_id,
-                                    msg_id,
-                                    PACKET_TYPE_CONSENSUS_BLOCK,
-                                    pkt,
-                                );
-                            })
-                        };
-                        if let Ok(res) = client_utils::get_transmissions_since_from_seenlist(
-                            client_utils::SeenTransmissionType::Finalization,
-                            since_stamp,
-                        )
-                        .map_err(|err| {
-                            error!("Can't get list of finalizations to retransmit {}", err)
-                        }) {
-                            res.iter().for_each(|(msg_id, pkt)| {
-                                send_retransmit_packet(
-                                    &mut _node_self_clone,
-                                    peer.id(),
-                                    network_id,
-                                    msg_id,
-                                    PACKET_TYPE_CONSENSUS_FINALIZATION,
-                                    pkt,
-                                );
-                            })
-                        };
-                        if let Ok(res) = client_utils::get_transmissions_since_from_seenlist(
-                            client_utils::SeenTransmissionType::FinalizationRecord,
-                            since_stamp,
-                        )
-                        .map_err(|err| {
-                            error!(
-                                "Can't get list of finalization records to retransmit {}",
-                                err
-                            )
-                        }) {
-                            res.iter().for_each(|(msg_id, pkt)| {
-                                send_retransmit_packet(
-                                    &mut _node_self_clone,
-                                    peer.id(),
-                                    network_id,
-                                    msg_id,
-                                    PACKET_TYPE_CONSENSUS_FINALIZATION_RECORD,
-                                    pkt,
-                                );
-                            })
-                        };
+                    NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
+                        panic!("Not implemented yet");
                     }
                     _ => {}
                 }
@@ -644,6 +605,198 @@ fn setup_higher_process_output(
         "Concordium P2P layer. Network disabled: {}",
         conf.cli.no_network
     );
+}
+
+fn send_transaction_to_baker(
+    baker: &mut consensus::ConsensusContainer,
+    peer_id: P2PNodeId,
+    content: &[u8],
+) -> Fallible<()> {
+    baker.send_transaction(content);
+    info!(
+        "Sent a transaction from the network peer {} to the consensus layer",
+        peer_id
+    );
+    Ok(())
+}
+
+fn send_finalization_record_to_baker(
+    baker: &mut consensus::ConsensusContainer,
+    peer_id: P2PNodeId,
+    content: &[u8],
+) -> Fallible<()> {
+    match baker
+        .send_finalization_record(peer_id.as_raw(), &FinalizationRecord::deserialize(content)?)
+    {
+        0i64 => info!(
+            "Sent finalization record from the network peer {} to baker",
+            peer_id
+        ),
+        err_code => error!(
+            "Can't send finalization record from the network peer {} to baker due to error code \
+             #{}",
+            peer_id, err_code
+        ),
+    }
+    Ok(())
+}
+
+fn send_finalization_message_to_baker(
+    baker: &mut consensus::ConsensusContainer,
+    peer_id: P2PNodeId,
+    content: &[u8],
+) -> Fallible<()> {
+    baker.send_finalization(
+        peer_id.as_raw(),
+        &FinalizationMessage::deserialize(content)?,
+    );
+    info!(
+        "Sent finalization message from the network peer {} to consensus layer",
+        peer_id
+    );
+    Ok(())
+}
+
+fn send_block_to_baker(
+    baker: &mut consensus::ConsensusContainer,
+    peer_id: P2PNodeId,
+    content: &[u8],
+) -> Fallible<()> {
+    let block = Block::deserialize(content)?;
+    match baker.send_block(peer_id.as_raw(), &block) {
+        0i64 => info!("Sent block from the network peer {} to baker", peer_id),
+        err_code => error!(
+            "Can't send block from the network peer {} to baker due to error code #{}",
+            peer_id, err_code,
+        ),
+    }
+    Ok(())
+}
+
+// Upon handshake completion we ask the consensus layer for a finalization point
+// we want to catchup from. This information is relayed to the peer we just
+// connected to, which will then emit all finalizations past this point.
+fn send_catchup_finalization_messages_by_point_to_baker(
+    baker: &mut consensus::ConsensusContainer,
+    peer_id: P2PNodeId,
+    content: &[u8],
+) -> Fallible<()> {
+    match baker.get_finalization_messages(&content[..], peer_id.as_raw())? {
+        0i64 => info!(
+            "Successfully requested finalization messages for requested point for the network \
+             peer {} from consensus",
+            peer_id
+        ),
+        err_code => error!(
+            "Could not request finalization messages from point for the network peer {} from \
+             consensus due to error code {}",
+            peer_id, err_code
+        ),
+    }
+    Ok(())
+}
+
+macro_rules! send_catchup_request_to_baker {
+    (
+        $req_type:expr,
+        $node:ident,
+        $baker:ident,
+        $content:ident,
+        $peer_id:ident,
+        $network_id:ident,
+        $consensus_req_call:expr
+    ) => {{
+        debug!("Got consensus catch-up request for \"{}\"", $req_type);
+        let res = $consensus_req_call($baker, $content)?;
+        if !res.is_empty() && NetworkEndian::read_u64(&res[..8]) > 0 {
+            let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
+            out_bytes
+                .write_u16::<NetworkEndian>($req_type as u16)
+                .expect("Can't write to buffer");
+            out_bytes.extend(res);
+            match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
+                Ok(_) => info!(
+                    "Responded to a catch-up request type \"{}\" from the network peer {}",
+                    $req_type, $peer_id
+                ),
+                Err(_) => error!(
+                    "Couldn't respond to a catch-up request type \"{}\" from the network peer {}!",
+                    $req_type, $peer_id
+                ),
+            }
+        } else {
+            error!(
+                "Consensus doesn't have the data to fulfill a catch-up request type \"{}\" that \
+                 the network peer {} requested",
+                $req_type, $peer_id
+            );
+        }
+        Ok(())
+    }};
+}
+
+// This function requests the finalization record for a certain finalization
+// index (this function is triggered by consensus on another peer actively asks
+// the p2p layer to request this for it)
+fn send_catchup_request_finalization_record_by_index_to_baker(
+    baker: &mut consensus::ConsensusContainer,
+    node: &mut P2PNode,
+    peer_id: P2PNodeId,
+    network_id: NetworkId,
+    content: &[u8],
+) -> Fallible<()> {
+    send_catchup_request_to_baker!(
+        consensus::PacketType::CatchupFinalizationRecordByIndex,
+        node,
+        baker,
+        content,
+        peer_id,
+        network_id,
+        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
+            let index = NetworkEndian::read_u64(&content[..8]);
+            baker.get_indexed_finalization(index)
+        }
+    )
+}
+
+fn send_catchup_request_finalization_record_by_bash_baker(
+    baker: &mut consensus::ConsensusContainer,
+    node: &mut P2PNode,
+    peer_id: P2PNodeId,
+    network_id: NetworkId,
+    content: &[u8],
+) -> Fallible<()> {
+    send_catchup_request_to_baker!(
+        consensus::PacketType::CatchupFinalizationRecordByHash,
+        node,
+        baker,
+        content,
+        peer_id,
+        network_id,
+        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
+            baker.get_block_finalization(&content[..])
+        }
+    )
+}
+
+fn send_catchup_request_block_by_bash_baker(
+    baker: &mut consensus::ConsensusContainer,
+    node: &mut P2PNode,
+    peer_id: P2PNodeId,
+    network_id: NetworkId,
+    content: &[u8],
+) -> Fallible<()> {
+    send_catchup_request_to_baker!(
+        consensus::PacketType::CatchupBlockByHash,
+        node,
+        baker,
+        content,
+        peer_id,
+        network_id,
+        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
+            baker.get_block(&content[..])
+        }
+    )
 }
 
 fn main() -> Fallible<()> {
@@ -685,7 +838,7 @@ fn main() -> Fallible<()> {
     info!("Debugging enabled: {}", conf.common.debug);
 
     // Instantiate the p2p node
-    let (mut node, pkt_lower_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
+    let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
     // Banning nodes in database
     match db.get_banlist() {
@@ -720,61 +873,64 @@ fn main() -> Fallible<()> {
         }
     }
 
-    // Connect outgoing messages to handle bans, peer lists - and forward the rest
-    // to the higher packet queue (baker messages, retransmits, etc).
-    //
-    // Thread #4: Read P2PNode output
-    let pkt_higher_out = setup_lower_process_output(&node, &conf, pkt_lower_out, db.clone());
-
     let mut baker = if conf.cli.baker.baker_id.is_some() {
-        // Wait until we have at least a certain percentage of peers out of desired
-        // before starting the baker
-        let needed_peers = (f64::from(conf.connection.desired_nodes)
-            * (f64::from(conf.cli.baker.baker_min_peer_satisfaction_percentage) / 100.0))
-            .floor();
-
-        let network_ids: Vec<NetworkId> = conf
-            .common
-            .network_ids
-            .iter()
-            .map(|x| NetworkId::from(x.to_owned()))
-            .collect();
-
-        let mut peer_count_opt = Some(
-            node.get_peer_stats(&network_ids)
-                .iter()
-                .filter(|x| x.peer_type == PeerType::Node)
-                .count(),
-        );
-
-        while let Some(peer_count) = peer_count_opt {
-            if peer_count < needed_peers as usize {
-                // Sleep until we've gotten more peers
-                info!(
-                    "Waiting for {} peers before starting baker. Currently have {}",
-                    needed_peers, peer_count,
-                );
-
-                thread::sleep(Duration::from_secs(5));
-
-                peer_count_opt = Some(
-                    node.get_peer_stats(&network_ids)
-                        .iter()
-                        .filter(|x| x.peer_type == PeerType::Node)
-                        .count(),
-                );
-            } else {
-                peer_count_opt = None;
-            }
-        }
-
-        // We've gotten enough peers. We'll let it start the baker now.
-        info!("We've gotten enough peers. Beginning baker startup!");
         // Starting baker
         start_baker(&conf.cli.baker, &app_prefs)
     } else {
         None
     };
+
+    if let Some(ref baker) = baker {
+        // Register handler for sending out a consensus catch-up request after handshake
+        // by finalization point.
+        let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
+        let baker_clone = baker.clone();
+        let message_handshake_response_handler = &node.message_handler();
+        safe_write!(message_handshake_response_handler)?.add_response_callback(
+            make_atomic_callback!(move |msg: &NetworkResponse| {
+                if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
+                    if let Some(net) = nets.iter().next() {
+                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
+                        if let Ok(bytes) = baker_clone.get_finalization_point() {
+                            let mut out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                            match out_bytes.write_u16::<NetworkEndian>(
+                                consensus::PacketType::CatchupFinalizationMessagesByPoint as u16,
+                            ) {
+                                Ok(_) => {
+                                    out_bytes.extend(&bytes);
+                                    match locked_cloned_node.send_message(
+                                        Some(remote_peer.id()),
+                                        *net,
+                                        None,
+                                        out_bytes,
+                                        false,
+                                    ) {
+                                        Ok(_) => info!(
+                                            "Sent request for the current round finalization \
+                                             messages by point to {}",
+                                            remote_peer.id()
+                                        ),
+                                        Err(_) => error!(
+                                            "Couldn't send catch-up request for finalization \
+                                             messages by point!"
+                                        ),
+                                    }
+                                }
+                                Err(_) => error!(
+                                    "Can't write type to packet {}",
+                                    consensus::PacketType::CatchupFinalizationMessagesByPoint
+                                ),
+                            }
+                        }
+                    } else {
+                        error!("Handshake without network, so can't ask for finalization messages");
+                    }
+                }
+                Ok(())
+            }),
+        );
+    }
 
     // Starting rpc server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
@@ -787,27 +943,19 @@ fn main() -> Fallible<()> {
 
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
-    // Thread #5: Read P2PNode output
-    setup_higher_process_output(&node, &conf, &rpc_serv, &mut baker, pkt_higher_out);
+    // Thread #4: Read P2PNode output
+    setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out);
 
     // Create listeners on baker output to forward to P2PNode
     //
-    // Threads #6, #7, #8
+    // Threads #5, #6, #7, #8, #9
     setup_baker_guards(&mut baker, &node, &conf);
 
-    let arc_node = Arc::new(Mutex::new(node));
-
-    // Create the temporary guard to keep requesting retransmit for a period during
-    // first startup
-    replaceme_retransmit_auto_hook(Arc::clone(&arc_node), &conf);
-
     // TPS test
-    start_tps_test(&conf, Arc::clone(&arc_node));
+    start_tps_test(&conf, &node);
 
     // Wait for node closing
-    lock_or_die!(arc_node)
-        .join()
-        .expect("Node thread panicked!");
+    node.join().expect("Node thread panicked!");
 
     // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {
@@ -907,7 +1055,7 @@ fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &Networ
 #[cfg(not(feature = "instrumentation"))]
 fn send_packet_to_testrunner(_: &P2PNode, _: &str, _: &NetworkPacket) {}
 
-fn send_retransmit_packet(
+fn _send_retransmit_packet(
     node: &mut P2PNode,
     receiver: P2PNodeId,
     network_id: NetworkId,
@@ -915,8 +1063,8 @@ fn send_retransmit_packet(
     payload_type: u16,
     data: &[u8],
 ) {
-    let mut out_bytes = vec![];
-    match out_bytes.write_u16::<BigEndian>(payload_type as u16) {
+    let mut out_bytes = Vec::with_capacity(2 + data.len());
+    match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
             match node.send_message(
@@ -932,41 +1080,6 @@ fn send_retransmit_packet(
         }
         Err(_) => error!("Can't write payload type, so failing retransmit of packet"),
     }
-}
-
-fn replaceme_retransmit_auto_hook(node: Arc<Mutex<P2PNode>>, conf: &configuration::Config) {
-    let _retransmit_times = conf.cli.baker.baker_retransmit_request_times;
-    let _retransmit_sleep_time = conf.cli.baker.baker_retransmit_request_interval;
-    let _retransmit_back_in_time = conf.cli.baker.baker_retransmit_request_since;
-    let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
-    let _node_clone = Arc::clone(&node);
-    spawn_or_die!("Retransmit hook", move || {
-        for slot in 0.._retransmit_times {
-            info!(
-                "Retransmit Request #{}: Sleeping {} seconds before next retransmit request",
-                slot, _retransmit_sleep_time
-            );
-            thread::sleep(Duration::from_secs(u64::from(_retransmit_sleep_time)));
-            lock_or_die!(_node_clone)
-                .get_peer_stats(&[])
-                .iter()
-                .filter(|peer| peer.peer_type == PeerType::Node)
-                .for_each(|peer| {
-                    let p2p_peer = P2PPeerBuilder::default()
-                        .id(P2PNodeId::from_str(&peer.id).unwrap())
-                        .addr(peer.addr)
-                        .peer_type(peer.peer_type)
-                        .build()
-                        .unwrap();
-                    lock_or_die!(_node_clone).send_retransmit(
-                        p2p_peer,
-                        p2p_client::common::get_current_stamp()
-                            - u64::from(_retransmit_back_in_time),
-                        _network_id,
-                    );
-                });
-        }
-    });
 }
 
 fn get_baker_data(

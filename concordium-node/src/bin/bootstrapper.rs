@@ -21,14 +21,13 @@ use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration,
-    connection::MessageManager,
     db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
     stats_export_service::StatsServiceMode,
     utils,
 };
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{mpsc, Arc};
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config();
@@ -102,18 +101,18 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
 
     let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
-    let node = if conf.common.debug {
+    let mut node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = spawn_or_die!("Log loop", move || loop {
             if let Ok(msg) = receiver.recv() {
                 info!("{}", msg);
             }
         });
-        Arc::new(RwLock::new(P2PNode::new(
+        P2PNode::new(
             Some(id),
             &conf,
             pkt_in,
@@ -121,9 +120,9 @@ fn main() -> Result<(), Error> {
             PeerType::Bootstrapper,
             arc_stats_export_service,
             Arc::clone(&broadcasting_checks),
-        )))
+        )
     } else {
-        Arc::new(RwLock::new(P2PNode::new(
+        P2PNode::new(
             Some(id),
             &conf,
             pkt_in,
@@ -131,15 +130,14 @@ fn main() -> Result<(), Error> {
             PeerType::Bootstrapper,
             arc_stats_export_service,
             Arc::clone(&broadcasting_checks),
-        )))
+        )
     };
 
     match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
-            let mut locked_node = write_or_die!(node);
             for n in nodes {
-                locked_node.ban_node(n);
+                node.ban_node(n);
             }
         }
         None => {
@@ -148,47 +146,74 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let cloned_node = Arc::clone(&node);
-    let _no_trust_bans = conf.common.no_trust_bans;
-
-    // Register handles for ban & unban requests.
-    let message_handler = read_or_die!(node).message_handler();
-    safe_write!(message_handler)?.add_request_callback(make_atomic_callback!(
-        move |msg: &NetworkRequest| {
-            match msg {
-                NetworkRequest::BanNode(ref peer, x) => {
-                    let mut locked_cloned_node = write_or_die!(cloned_node);
-                    utils::ban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
-                }
-                NetworkRequest::UnbanNode(ref peer, x) => {
-                    let mut locked_cloned_node = write_or_die!(cloned_node);
-                    utils::unban_node(&mut locked_cloned_node, peer, *x, &db, _no_trust_bans);
-                }
-                _ => {}
-            };
-            Ok(())
-        }
-    ));
-
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
-    client_utils::start_push_gateway(
-        &conf.prometheus,
-        &stats_export_service,
-        safe_read!(node)?.id(),
-    )?;
+    client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
+
+    // Connect outgoing messages to be forwarded into the baker and RPC streams.
+    //
+    // Thread #4: Read P2PNode output
+    setup_process_output(&node, &db, &conf, pkt_out);
 
     {
-        let mut locked_node = safe_write!(node)?;
-        locked_node.max_nodes = Some(conf.bootstrapper.max_nodes);
-        locked_node.print_peers = true;
-        locked_node.spawn();
+        node.max_nodes = Some(conf.bootstrapper.max_nodes);
+        node.print_peers = true;
+        node.spawn();
     }
 
-    write_or_die!(node).join().expect("Node thread panicked!");
+    node.join().expect("Node thread panicked!");
 
     // Close stats server export if present
     client_utils::stop_stats_export_engine(&conf, &stats_export_service);
 
     Ok(())
+}
+
+fn setup_process_output(
+    node: &P2PNode,
+    db: &P2PDB,
+    conf: &configuration::Config,
+    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+) {
+    let mut _node_self_clone = node.clone();
+    let mut _db = db.clone();
+    let _no_trust_bans = conf.common.no_trust_bans;
+    let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
+        loop {
+            if let Ok(full_msg) = pkt_out.recv() {
+                match *full_msg {
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::BanNode(ref peer, peer_to_ban),
+                        ..
+                    ) => {
+                        utils::ban_node(
+                            &mut _node_self_clone,
+                            peer,
+                            peer_to_ban,
+                            &_db,
+                            _no_trust_bans,
+                        );
+                    }
+                    NetworkMessage::NetworkRequest(
+                        NetworkRequest::UnbanNode(ref peer, peer_to_ban),
+                        ..
+                    ) => {
+                        utils::unban_node(
+                            &mut _node_self_clone,
+                            peer,
+                            peer_to_ban,
+                            &_db,
+                            _no_trust_bans,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    info!(
+        "Concordium P2P layer. Network disabled: {}",
+        conf.cli.no_network
+    );
 }

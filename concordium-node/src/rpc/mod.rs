@@ -203,7 +203,7 @@ macro_rules! successful_json_response {
     ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
         if let Some(ref consensus) = $self.consensus {
             match $inner_match(consensus) {
-                Some(ref res) => {
+                Ok(ref res) => {
                     let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
                     r.set_json_value(res.to_owned());
                     let f = $sink
@@ -229,7 +229,7 @@ macro_rules! successful_byte_response {
     ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
         if let Some(ref consensus) = $self.consensus {
             match $inner_match(consensus) {
-                Some(res) => {
+                Ok(res) => {
                     let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
                     r.set_payload(res);
                     let f = $sink

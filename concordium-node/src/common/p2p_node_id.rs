@@ -48,3 +48,7 @@ impl Deserializable for P2PNodeId {
         Ok(P2PNodeId(archive.read_u64()?))
     }
 }
+
+impl P2PNodeId {
+    pub fn as_raw(self) -> u64 { self.0 }
+}

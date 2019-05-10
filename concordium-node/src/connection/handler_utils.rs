@@ -143,33 +143,6 @@ pub fn send_peer_list(
     Ok(())
 }
 
-/// It sends a retransmit request.
-pub fn send_retransmit_request(
-    priv_conn: &RefCell<ConnectionPrivate>,
-    since_stamp: u64,
-    network_id: NetworkId,
-) -> FuncResult<()> {
-    let retransmit = NetworkMessage::NetworkRequest(
-        NetworkRequest::Retransmit(
-            priv_conn.borrow().local_peer.to_owned(),
-            since_stamp,
-            network_id,
-        ),
-        Some(get_current_stamp()),
-        None,
-    );
-    let retransmit_data = serialize_into_memory(&retransmit, 256)?;
-
-    serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &retransmit_data)?;
-
-    if let Some(ref service) = priv_conn.borrow().stats_export_service {
-        let mut writable_service = safe_write!(service)?;
-        writable_service.pkt_sent_inc();
-    };
-    TOTAL_MESSAGES_SENT_COUNTER.fetch_add(1, Ordering::Relaxed);
-    Ok(())
-}
-
 pub fn update_buckets(
     priv_conn: &RefCell<ConnectionPrivate>,
     sender: &P2PPeer,

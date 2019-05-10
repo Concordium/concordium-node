@@ -375,18 +375,22 @@ impl TlsServerPrivate {
     ///   returns `true`.
     /// * `send_status` - It will called after each sent, to notify the result
     ///   of the operation.
+    /// # Returns
+    /// * amount of packets written to connections
     pub fn send_over_all_connections(
         &mut self,
         data: &[u8],
         filter_conn: &dyn Fn(&Connection) -> bool,
         send_status: &dyn Fn(&Connection, Fallible<usize>),
-    ) {
-        for rc_conn in self.connections.iter() {
-            let mut conn = rc_conn.borrow_mut();
-            if filter_conn(&conn) {
-                let status = conn.serialize_bytes(data);
-                send_status(&conn, status)
-            }
-        }
+    ) -> usize {
+        self.connections
+            .iter_mut()
+            .filter(|conn| filter_conn(&conn.borrow()))
+            .map(|conn| {
+                let mut conn_mut_borrowed = conn.borrow_mut();
+                let status = conn_mut_borrowed.serialize_bytes(data);
+                send_status(&conn_mut_borrowed, status)
+            })
+            .count()
     }
 }
