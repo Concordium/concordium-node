@@ -12,8 +12,7 @@ use std::convert::TryFrom;
 
 pub const NETWORK_MESSAGE_PROTOCOL_TYPE_IDX: usize = 13 +    // PROTOCOL_NAME.len()
     2 +     // PROTOCOL_VERSION
-    8 +     // Timestamp: get_current_stamp
-    1; // self.protocol_message_type
+    8; // Timestamp: get_current_stamp
 
 #[cfg(feature = "s11n_nom")]
 use crate::network::serialization::nom::s11n_network_message;
@@ -94,7 +93,7 @@ impl Serializable for NetworkMessage {
         // `self.protocol_message_type()`, or if we change type of any field (It
         // means, replace `.write_u16` by `.write_u8`).
         #[cfg(test)]
-        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8 +1);
+        const_assert!(network_message_protocol_type; NETWORK_MESSAGE_PROTOCOL_TYPE_IDX == 13 + 2 + 8);
 
         match self {
             NetworkMessage::NetworkRequest(ref request, ..) => request.serialize(archive),
