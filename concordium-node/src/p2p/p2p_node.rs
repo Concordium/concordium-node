@@ -421,9 +421,18 @@ impl P2PNode {
         trace!("Checking for needed peers");
         if self.peer_type != PeerType::Bootstrapper
             && !self.config.no_net
-            && self.config.desired_nodes_count > peer_stat_list.iter().count() as u8
+            && self.config.desired_nodes_count
+                > peer_stat_list
+                    .iter()
+                    .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
+                    .count() as u8
         {
             if peer_stat_list.is_empty() {
+                info!("Sending out GetPeers to any bootstrappers we may still be connected to");
+                let nets = read_or_die!(self.tls_server).networks();
+                if let Ok(nids) = safe_read!(nets).map(|nets| nets.clone()) {
+                    self.send_get_peers(nids);
+                }
                 if !self.config.no_bootstrap_dns {
                     info!("No nodes at all - retrying bootstrapping");
                     match utils::get_bootstrap_nodes(

@@ -889,42 +889,48 @@ fn main() -> Fallible<()> {
         safe_write!(message_handshake_response_handler)?.add_response_callback(
             make_atomic_callback!(move |msg: &NetworkResponse| {
                 if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
-                    if let Some(net) = nets.iter().next() {
-                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
-                        if let Ok(bytes) = baker_clone.get_finalization_point() {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                consensus::PacketType::CatchupFinalizationMessagesByPoint as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&bytes);
-                                    match locked_cloned_node.send_message(
-                                        Some(remote_peer.id()),
-                                        *net,
-                                        None,
-                                        out_bytes,
-                                        false,
-                                    ) {
-                                        Ok(_) => info!(
-                                            "Sent request for the current round finalization \
-                                             messages by point to {}",
-                                            remote_peer.id()
-                                        ),
-                                        Err(_) => error!(
-                                            "Couldn't send catch-up request for finalization \
-                                             messages by point!"
-                                        ),
-                                    }
-                                }
-                                Err(_) => error!(
-                                    "Can't write type to packet {}",
+                    if remote_peer.peer_type() == PeerType::Node {
+                        if let Some(net) = nets.iter().next() {
+                            let mut locked_cloned_node =
+                                write_or_die!(cloned_handshake_response_node);
+                            if let Ok(bytes) = baker_clone.get_finalization_point() {
+                                let mut out_bytes =
+                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                                match out_bytes.write_u16::<NetworkEndian>(
                                     consensus::PacketType::CatchupFinalizationMessagesByPoint
-                                ),
+                                        as u16,
+                                ) {
+                                    Ok(_) => {
+                                        out_bytes.extend(&bytes);
+                                        match locked_cloned_node.send_message(
+                                            Some(remote_peer.id()),
+                                            *net,
+                                            None,
+                                            out_bytes,
+                                            false,
+                                        ) {
+                                            Ok(_) => info!(
+                                                "Sent request for the current round finalization \
+                                                 messages by point to {}",
+                                                remote_peer.id()
+                                            ),
+                                            Err(_) => error!(
+                                                "Couldn't send catch-up request for finalization \
+                                                 messages by point!"
+                                            ),
+                                        }
+                                    }
+                                    Err(_) => error!(
+                                        "Can't write type to packet {}",
+                                        consensus::PacketType::CatchupFinalizationMessagesByPoint
+                                    ),
+                                }
                             }
+                        } else {
+                            error!(
+                                "Handshake without network, so can't ask for finalization messages"
+                            );
                         }
-                    } else {
-                        error!("Handshake without network, so can't ask for finalization messages");
                     }
                 }
                 Ok(())
