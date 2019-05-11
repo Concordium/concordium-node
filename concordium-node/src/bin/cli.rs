@@ -1097,7 +1097,7 @@ fn get_baker_data(
 
     let (generated_genesis, generated_private_data) =
         if !genesis_loc.exists() || !private_loc.exists() {
-            consensus::ConsensusContainer::generate_data(conf.baker_num_bakers)?
+            consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers)?
         } else {
             (vec![], HashMap::new())
         };
