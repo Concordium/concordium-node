@@ -1,10 +1,10 @@
 #!/bin/bash
 if [[ "$OSTYPE" == "darwin"* ]]; then
-	LIBEXTENSION="$LIBEXTENSION"
-        PLATFORM="osx"
+	LIBEXTENSION="dylib"
+    PLATFORM="osx"
 else
 	LIBEXTENSION="so"
-        PLATFORM="linux"
+    PLATFORM="linux"
 fi
 sudo rm -f /usr/local/lib/libHSConcordium-*.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libHSlanguage-glsl-*.$LIBEXTENSION
