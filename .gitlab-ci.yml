@@ -17,14 +17,14 @@ stages:
     GIT_SUBMODULE_STRATEGY: recursive
 
 "cargo:test":
-  <<: *compile-cache-settings
+  #<<: *compile-cache-settings
   extends: .generic
   stage: test
   script:
-    - mkdir -p stack
-    - mkdir -p /root/.stack
-    - touch stack/do-not-touch
-    - cp -rf stack/* /root/.stack/
+    #- mkdir -p stack
+    #- mkdir -p /root/.stack
+    #- touch stack/do-not-touch
+    #- cp -rf stack/* /root/.stack/
     - cp scripts/init.build.env.sh .
     - pacman -Sy && pacman -Syyu --noconfirm
     - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound capnproto --noconfirm
@@ -43,7 +43,7 @@ stages:
     - cargo test --all --verbose --color=always --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor
     - echo "Compile but don't run benches"
     - cargo bench --no-run --features=s11n_nom,s11n_serde_json,s11n_serde_cbor,s11n_capnp,instrumentation --verbose --color=always
-    - cp -rf /root/.stack/* stack/
+    #- cp -rf /root/.stack/* stack/
 
 .generic-lint:
   extends: .generic
@@ -68,13 +68,13 @@ stages:
 "lint:clippy":
   extends: .generic-lint
   stage: lint
-  <<: *compile-cache-settings
+  #<<: *compile-cache-settings
   script:
     - rustc --version && cargo --version
-    - mkdir -p stack
-    - mkdir -p /root/.stack
-    - touch stack/do-not-touch
-    - cp -rf stack/* /root/.stack/
+    #- mkdir -p stack
+    #- mkdir -p /root/.stack
+    #- touch stack/do-not-touch
+    #- cp -rf stack/* /root/.stack/
     - cp scripts/init.build.env.sh .
     - pacman -Sy && pacman -Syyu --noconfirm
     - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound capnproto --noconfirm
@@ -88,4 +88,4 @@ stages:
     - cargo clippy --features=instrumentation --color=always --all
     - echo "Running clippy with s11n extra features enabled"
     - cargo clippy --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor --color=always --all
-    - cp -rf /root/.stack/* stack/
+    #- cp -rf /root/.stack/* stack/
