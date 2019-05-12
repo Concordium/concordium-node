@@ -9,6 +9,7 @@ format_macro_bodies = true
 merge_imports = true
 normalize_comments = true
 reorder_impl_items = true
+reorder_imports = true
 struct_field_align_threshold = 20
 trailing_semicolon = true
 type_punctuation_density = "Wide"

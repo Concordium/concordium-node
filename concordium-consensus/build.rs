@@ -26,8 +26,8 @@ fn main() {
             .expect("No version returned from ghc");
 
             println!(
-                "cargo:rustc-link-search=native={}/../.stack/programs/x86_64-{}/ghc-tinfo6-{}/\
-                 lib/ghc-{}/rts",
+                "cargo:rustc-link-search=native={}/../.stack/programs/x86_64-{}/ghc-tinfo6-{}/lib/\
+                 ghc-{}/rts",
                 env!("CARGO_HOME"),
                 ghc_arc,
                 &version,
