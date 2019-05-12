@@ -7,7 +7,11 @@ fn main() {
             println!("cargo:rustc-link-search=native=.");
             println!("cargo:rustc-link-lib=dylib=HSdll");
         }
-        _ => {
+        Ok(other_arch) => {
+            let ghc_arc = match other_arch {
+                "darwin" => "osx",
+                _ => "linux",
+            };
             let version = String::from_utf8(
                 Command::new("stack")
                     .args(&["ghc", "--", "--version"])
@@ -22,9 +26,10 @@ fn main() {
             .expect("No version returned from ghc");
 
             println!(
-                "cargo:rustc-link-search=native={}/../.stack/programs/x86_64-linux/ghc-tinfo6-{}/\
-                 lib/ghc-{}/rts",
+                "cargo:rustc-link-search=native={}/../.stack/programs/x86_64-{}/ghc-tinfo6-{}/lib/\
+                 ghc-{}/rts",
                 env!("CARGO_HOME"),
+                ghc_arc,
                 &version,
                 &version,
             );
@@ -35,5 +40,6 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=HSglobalstate-0.1");
             println!("cargo:rustc-link-lib=dylib=HSglobalstate-types-0.1.0.0");
         }
+        _ => panic!("Unknown architecture / OS"),
     }
 }
