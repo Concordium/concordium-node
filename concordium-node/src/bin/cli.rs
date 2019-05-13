@@ -201,43 +201,38 @@ fn setup_baker_guards(
         let _baker_clone_4 = baker.to_owned();
         let mut _node_ref_4 = node.clone();
         spawn_or_die!("Process baker catch-up requests", move || loop {
+            use concordium_consensus::{
+                common::SHA256,
+                consensus::{CatchupRequest::*, PacketType::*},
+            };
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
-                        consensus::CatchupRequest::BlockByHash(receiver_id, bytes) => {
-                            assert_eq!(bytes.len(), concordium_consensus::common::SHA256 as usize);
+                        BlockByHash(receiver_id, bytes) => {
+                            assert_eq!(bytes.len(), SHA256 as usize);
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             inner_out_bytes
-                                .write_u16::<NetworkEndian>(
-                                    consensus::PacketType::CatchupBlockByHash as u16,
-                                )
+                                .write_u16::<NetworkEndian>(CatchupBlockByHash as u16)
                                 .expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
-                        consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
-                            assert_eq!(bytes.len(), concordium_consensus::common::SHA256 as usize);
+                        FinalizationRecordByHash(receiver_id, bytes) => {
+                            assert_eq!(bytes.len(), SHA256 as usize);
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             inner_out_bytes
-                                .write_u16::<NetworkEndian>(
-                                    consensus::PacketType::CatchupFinalizationRecordByHash as u16,
-                                )
+                                .write_u16::<NetworkEndian>(CatchupFinalizationRecordByHash as u16)
                                 .expect("Can't write to buffer");
                             inner_out_bytes.extend(bytes);
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
-                        consensus::CatchupRequest::FinalizationRecordByIndex(
-                            receiver_id,
-                            index,
-                        ) => {
+                        FinalizationRecordByIndex(receiver_id, index) => {
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + 8);
                             inner_out_bytes
-                                .write_u16::<NetworkEndian>(
-                                    consensus::PacketType::CatchupFinalizationRecordByIndex as u16,
-                                )
+                                .write_u16::<NetworkEndian>(CatchupFinalizationRecordByIndex as u16)
                                 .expect("Can't write to buffer");
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(index)
@@ -427,7 +422,10 @@ fn setup_process_output(
             mut msg: UCursor,
         ) -> Fallible<()> {
             if let Some(ref mut baker) = baker_ins {
-                use consensus::PacketType::{self, *};
+                use concordium_consensus::{
+                    common::SHA256,
+                    consensus::PacketType::{self, *},
+                };
                 ensure!(
                     msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
                     "Message needs at least {} bytes",
@@ -449,10 +447,10 @@ fn setup_process_output(
                     }
                     CatchupBlockByHash => {
                         ensure!(
-                            content.len() == concordium_consensus::common::SHA256 as usize,
+                            content.len() == SHA256 as usize,
                             "{} needs {} bytes",
                             CatchupBlockByHash,
-                            concordium_consensus::common::SHA256
+                            SHA256
                         );
                         send_catchup_request_block_by_hash_baker(
                             baker,
@@ -464,10 +462,10 @@ fn setup_process_output(
                     }
                     CatchupFinalizationRecordByHash => {
                         ensure!(
-                            content.len() == concordium_consensus::common::SHA256 as usize,
+                            content.len() == SHA256 as usize,
                             "{} needs {} bytes",
                             CatchupFinalizationRecordByHash,
-                            concordium_consensus::common::SHA256
+                            SHA256
                         );
                         send_catchup_request_finalization_record_by_hash_baker(
                             baker,
@@ -479,7 +477,7 @@ fn setup_process_output(
                     }
                     CatchupFinalizationRecordByIndex => {
                         ensure!(
-                            content.len() == concordium_consensus::common::SHA256 as usize,
+                            content.len() == 8,
                             "{} needs {} bytes",
                             CatchupFinalizationRecordByIndex,
                             8
