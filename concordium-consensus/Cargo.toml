@@ -25,15 +25,6 @@ env_logger = "0.6"
 failure = "0.1.5"
 digest = "0.8.0"
 
-[target.'cfg(windows)'.dependencies]
-curryrswin = { path = "../deps/windows/curryrs", features = [
-  "threaded"
-], package = "curryrs" }
-
-[target.'cfg(unix)'.dependencies]
-curryrsunix = { version = "^0.2.0", features = [
-  "threaded"
-], package = "curryrs" }
-
 [build-dependencies]
 bindgen = "0.49"
+walkdir = "2"

@@ -972,7 +972,7 @@ fn main() -> Fallible<()> {
         if let Some(baker_id) = conf.cli.baker.baker_id {
             baker_ref.stop_baker(baker_id)
         };
-        consensus::ConsensusContainer::stop_haskell();
+        consensus::stop_haskell();
     }
 
     // Close stats server export if present
@@ -994,7 +994,7 @@ fn start_baker(
         }
 
         info!("Starting up baker thread");
-        consensus::ConsensusContainer::start_haskell();
+        consensus::start_haskell();
         match get_baker_data(app_prefs, conf) {
             Ok((genesis, private_data)) => {
                 let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
