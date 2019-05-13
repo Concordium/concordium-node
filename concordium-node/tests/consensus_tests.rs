@@ -43,9 +43,9 @@ mod tests {
 
     #[test]
     pub fn test_consensus_tests() {
-        ConsensusContainer::start_haskell();
+        start_haskell();
         test_grpc_consensus();
-        ConsensusContainer::stop_haskell();
+        stop_haskell();
     }
 
     pub fn test_grpc_consensus() {
