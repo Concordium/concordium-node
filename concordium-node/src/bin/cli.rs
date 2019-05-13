@@ -642,8 +642,12 @@ fn send_finalization_record_to_baker(
     match baker.send_finalization_record(peer_id.as_raw(), &record) {
         0i64 => info!("Peer {} sent a {} to a baker", peer_id, record),
         err_code => error!(
-            "Peer {} can't send a finalization record to a baker due to error code #{}",
-            peer_id, err_code
+            "Peer {} can't send a finalization record to a baker due to error code #{} (bytes: \
+             {:?}, length: {})",
+            peer_id,
+            err_code,
+            content,
+            content.len(),
         ),
     }
 
@@ -677,8 +681,12 @@ fn send_block_to_baker(
             sha256(content)
         ),
         err_code => error!(
-            "Peer {} can't send block from network to baker due to error code #{}",
-            peer_id, err_code,
+            "Peer {} can't send block from network to baker due to error code #{} (bytes: {:?}, \
+             length: {})",
+            peer_id,
+            err_code,
+            content,
+            content.len(),
         ),
     }
 
@@ -700,8 +708,11 @@ fn send_catchup_finalization_messages_by_point_to_baker(
         ),
         err_code => error!(
             "Peer {} could not request finalization messages by point from consensus due to error \
-             code {}",
-            peer_id, err_code
+             code {} (bytes: {:?}, length: {})",
+            peer_id,
+            err_code,
+            content,
+            content.len(),
         ),
     }
 
