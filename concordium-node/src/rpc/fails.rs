@@ -1,10 +1,6 @@
 use failure::{Backtrace, Fail};
 
 #[derive(Debug, Fail)]
-#[fail(display = "Can't queue message for RPC retrieval queue")]
-pub struct QueueingError;
-
-#[derive(Debug, Fail)]
 #[fail(display = "Can't build RPC server")]
 pub struct ServerBuildError;
 

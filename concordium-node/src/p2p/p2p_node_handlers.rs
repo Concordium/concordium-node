@@ -9,7 +9,8 @@ use crate::{
 use concordium_common::functor::FuncResult;
 use std::{
     collections::HashSet,
-    sync::{mpsc::Sender, Arc, RwLock},
+    ops::Deref,
+    sync::{mpsc::Sender, Arc, Mutex, RwLock},
 };
 
 /// It forwards network response message into `queue`.
@@ -51,6 +52,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &Sender<Arc<NetworkMessage>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
+    rpc_queue: &Mutex<Option<Sender<Arc<NetworkMessage>>>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
@@ -65,6 +67,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             own_networks,
             send_queue,
             packet_queue,
+            rpc_queue,
             pac,
             blind_trust_broadcast,
         )
@@ -100,6 +103,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &Sender<Arc<NetworkMessage>>,
     packet_queue: &Sender<Arc<NetworkMessage>>,
+    rpc_queue: &Mutex<Option<Sender<Arc<NetworkMessage>>>>,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
@@ -115,6 +119,16 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
                 if let Some(ref service) = stats_export_service {
                     safe_write!(service)?.queue_size_inc();
                 };
+            }
+        }
+        if let Ok(locked) = safe_lock!(rpc_queue) {
+            if let Some(queue) = locked.deref() {
+                if let Err(e) = queue.send(outer.clone()) {
+                    warn!(
+                        "Forward network packet cannot be sent to rpc_queue: {}",
+                        e.to_string()
+                    );
+                }
             }
         }
 

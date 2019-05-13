@@ -565,10 +565,6 @@ fn setup_process_output(
                                         _stats_engine.clear();
                                     }
                                 }
-                                if let Some(ref mut rpc) = _rpc_clone {
-                                    rpc.queue_message(&full_msg)
-                                        .unwrap_or_else(|e| error!("Couldn't queue message {}", e));
-                                }
                                 info!(
                                     "DirectMessage/{}/{} with size {} received",
                                     pac.network_id,
@@ -577,10 +573,6 @@ fn setup_process_output(
                                 );
                             }
                             NetworkPacketType::BroadcastedMessage => {
-                                if let Some(ref mut rpc) = _rpc_clone {
-                                    rpc.queue_message(&full_msg)
-                                        .unwrap_or_else(|e| error!("Couldn't queue message {}", e));
-                                }
                                 if let Some(ref testrunner_url) = _test_runner_url {
                                     send_packet_to_testrunner(
                                         &_node_self_clone,
