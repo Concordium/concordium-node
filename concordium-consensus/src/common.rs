@@ -1,4 +1,5 @@
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use digest::Digest;
 use failure::Fallible;
 
 use std::{
@@ -18,11 +19,16 @@ pub const SESSION_ID: u8 = SHA256 + INCARNATION;
 
 use crate::block::{BlockHash, BLOCK_HASH};
 
-#[derive(Clone)]
-pub struct HashBytes(Box<[u8]>);
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct HashBytes([u8; BLOCK_HASH as usize]);
 
 impl HashBytes {
-    pub fn new(bytes: &[u8]) -> Self { HashBytes(Box::from(bytes)) }
+    pub fn new(bytes: &[u8]) -> Self {
+        let mut buf = [0u8; BLOCK_HASH as usize];
+        buf.copy_from_slice(bytes);
+
+        HashBytes(buf)
+    }
 }
 
 impl Deref for HashBytes {
@@ -33,7 +39,11 @@ impl Deref for HashBytes {
 
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:0x}", (&*self.0).read_u64::<NetworkEndian>().unwrap(),)
+        write!(
+            f,
+            "{:08x}",
+            (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
+        )
     }
 }
 
@@ -44,12 +54,13 @@ pub struct ContractAddress {
 }
 
 pub enum Address {
-    Account(AccountAddress),
+    Account(Encoded),
     Contract(ContractAddress),
 }
 
 pub type Amount = u64;
 
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Nonce(NonZeroU64);
 
 pub type Slot = u64;
@@ -88,7 +99,7 @@ impl SessionId {
 }
 
 // a type used for objects we only need to store, but not handle
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Encoded(Box<[u8]>);
 
 impl Encoded {
@@ -137,5 +148,4 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     Ok(buf.into_inner().into_boxed_slice())
 }
 
-// temporary type placeholders
-pub type AccountAddress = usize;
+pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }

@@ -12,22 +12,23 @@ use std::{
 
 use crate::{block::*, common::*};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TransactionHeader {
     scheme_id:         Encoded,
     sender_key:        Encoded,
-    nonce:             Encoded,
+    nonce:             Nonce,
     gas_amount:        Amount,
     finalized_pointer: BlockHash,
-    // sender_account: AccountAddress,
+    sender_account:    Encoded,
 }
 
-pub type TransactionHash = Sha256;
+pub type TransactionHash = HashBytes;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Transaction {
-    // transaction_type: TransactionType,
-    payload: Encoded,
+    signature: ByteString,
+    header:    TransactionHeader,
+    payload:   Encoded,
 }
 
 impl Transaction {
@@ -45,9 +46,9 @@ impl Transaction {
     }
 }
 
-type TransactionCount = u64;
+pub type TransactionCount = u64;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Transactions(Vec<Transaction>);
 
 impl Transactions {
@@ -124,7 +125,7 @@ pub struct AccountNonFinalizedTransactions {
 #[allow(dead_code)]
 pub struct TransactionTable {
     map: HashMap<TransactionHash, (Transaction, Slot)>,
-    non_finalized_transactions: HashMap<AccountAddress, AccountNonFinalizedTransactions>,
+    non_finalized_transactions: HashMap<Encoded, AccountNonFinalizedTransactions>,
 }
 
-pub type PendingTransactionTable = HashMap<AccountAddress, (Nonce, Nonce)>;
+pub type PendingTransactionTable = HashMap<Encoded, (Nonce, Nonce)>;

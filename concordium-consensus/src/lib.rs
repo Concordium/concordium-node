@@ -59,3 +59,4 @@ pub mod consensus;
 pub mod finalization;
 pub mod parameters;
 pub mod transaction;
+pub mod tree;
