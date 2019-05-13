@@ -326,7 +326,7 @@ macro_rules! wrap_c_call {
 }
 
 impl ConsensusBaker {
-    pub fn new(baker_id: BakerId, genesis_data: &GenesisData, private_data: Vec<u8>) -> Self {
+    pub fn new(baker_id: BakerId, genesis_data: &[u8], private_data: Vec<u8>) -> Self {
         info!("Starting up baker {}", baker_id);
 
         let genesis_data_len = genesis_data.len();
@@ -348,12 +348,11 @@ impl ConsensusBaker {
             )
         };
 
-        /* private_data appears to (might be too early to deserialize yet) contain:
-         * a u64 BakerId
-         * 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are identical
-         * 32B of unknown content
-         * 2x identical 32B-long byte sequences
-         */
+        // private_data appears to (might be too early to deserialize yet) contain:
+        // a u64 BakerId
+        // 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are
+        // identical 32B of unknown content
+        // 2x identical 32B-long byte sequences
 
         ConsensusBaker {
             id: baker_id,
@@ -653,7 +652,7 @@ impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
         ConsensusContainer {
             genesis_data,
-            bakers:       Arc::new(RwLock::new(HashMap::new())),
+            bakers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

@@ -994,7 +994,7 @@ fn start_baker(
         }
 
         info!("Starting up baker thread");
-        consensus::ConsensusContainer::start_haskell();
+        consensus::start_haskell();
 
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
