@@ -11,12 +11,17 @@ pub struct BlockPtr {
     last_finalized: Box<BlockPtr>,
     height:         BlockHeight,
     // state:       BlockState,
-    received:       DateTime<Utc>,
-    validated:      DateTime<Utc>,
+    received:  DateTime<Utc>,
+    validated: DateTime<Utc>,
 }
 
 impl BlockPtr {
-    pub fn new(pb: PendingBlock, parent: Self, last_finalized: Self, validated: DateTime<Utc>) -> Self {
+    pub fn new(
+        pb: PendingBlock,
+        parent: Self,
+        last_finalized: Self,
+        validated: DateTime<Utc>,
+    ) -> Self {
         assert_eq!(parent.hash, pb.block.pointer());
         assert_eq!(last_finalized.hash, pb.block.last_finalized());
 

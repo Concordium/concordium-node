@@ -48,9 +48,7 @@ pub struct Block {
 }
 
 impl Hash for Block {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state)
-    }
+    fn hash<H: Hasher>(&self, state: &mut H) { self.data.hash(state) }
 }
 
 impl Block {

@@ -25,7 +25,7 @@ pub struct HashBytes([u8; BLOCK_HASH as usize]);
 impl HashBytes {
     pub fn new(bytes: &[u8]) -> Self {
         let mut buf = [0u8; BLOCK_HASH as usize];
-        let _ = buf.copy_from_slice(bytes);
+        buf.copy_from_slice(bytes);
 
         HashBytes(buf)
     }
@@ -39,7 +39,11 @@ impl Deref for HashBytes {
 
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:08x}", (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),)
+        write!(
+            f,
+            "{:08x}",
+            (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
+        )
     }
 }
 
@@ -144,6 +148,4 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     Ok(buf.into_inner().into_boxed_slice())
 }
 
-pub fn sha256(bytes: &[u8]) -> HashBytes {
-    HashBytes::new(&Sha256::digest(bytes))
-}
+pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }

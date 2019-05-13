@@ -20,10 +20,10 @@ use concordium_common::{
 };
 use concordium_consensus::{
     block::Block,
+    common::sha256,
     consensus,
     finalization::{FinalizationMessage, FinalizationRecord},
 };
-use concordium_consensus::common::sha256;
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -125,7 +125,8 @@ fn setup_baker_guards(
                                     sha256(&bytes),
                                     block.baker_id(),
                                 ),
-                                Err(_) => error!("Peer {} couldn't broadcast a block ({:?})!",
+                                Err(_) => error!(
+                                    "Peer {} couldn't broadcast a block ({:?})!",
                                     _node_ref.id(),
                                     sha256(&bytes),
                                 ),
@@ -157,11 +158,7 @@ fn setup_baker_guards(
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => info!(
-                                    "Peer {} broadcasted a {}",
-                                    _node_ref_2.id(),
-                                    msg,
-                                ),
+                                Ok(_) => info!("Peer {} broadcasted a {}", _node_ref_2.id(), msg,),
                                 Err(_) => error!("Couldn't broadcast a finalization packet!"),
                             }
                         }
@@ -191,11 +188,7 @@ fn setup_baker_guards(
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => info!(
-                                    "Peer {} broadcasted a {}",
-                                    _node_ref_3.id(),
-                                    rec
-                                ),
+                                Ok(_) => info!("Peer {} broadcasted a {}", _node_ref_3.id(), rec),
                                 Err(_) => error!("Couldn't broadcast a finalization record!"),
                             }
                         }
@@ -628,10 +621,7 @@ fn send_transaction_to_baker(
     content: &[u8],
 ) -> Fallible<()> {
     baker.send_transaction(content);
-    info!(
-        "Peer {} sent a transaction to the consensus layer",
-        peer_id
-    );
+    info!("Peer {} sent a transaction to the consensus layer", peer_id);
     Ok(())
 }
 
@@ -645,8 +635,7 @@ fn send_finalization_record_to_baker(
     match baker.send_finalization_record(peer_id.as_raw(), &record) {
         0i64 => info!("Peer {} sent a {} to a baker", peer_id, record),
         err_code => error!(
-            "Peer {} can't send a finalization record to a baker due to error code \
-             #{}",
+            "Peer {} can't send a finalization record to a baker due to error code #{}",
             peer_id, err_code
         ),
     }
@@ -675,7 +664,11 @@ fn send_block_to_baker(
     let block = Block::deserialize(content)?;
 
     match baker.send_block(peer_id.as_raw(), &block) {
-        0i64 => info!("Peer {} sent a block ({:?}) to a baker", peer_id, sha256(content)),
+        0i64 => info!(
+            "Peer {} sent a block ({:?}) to a baker",
+            peer_id,
+            sha256(content)
+        ),
         err_code => error!(
             "Peer {} can't send block from network to baker due to error code #{}",
             peer_id, err_code,
@@ -699,8 +692,8 @@ fn send_catchup_finalization_messages_by_point_to_baker(
             peer_id
         ),
         err_code => error!(
-            "Peer {} could not request finalization messages by point from \
-             consensus due to error code {}",
+            "Peer {} could not request finalization messages by point from consensus due to error \
+             code {}",
             peer_id, err_code
         ),
     }
@@ -922,8 +915,8 @@ fn main() -> Fallible<()> {
                                             false,
                                         ) {
                                             Ok(_) => info!(
-                                                "Peer {} requested finalization \
-                                                 messages by point from peer {}",
+                                                "Peer {} requested finalization messages by point \
+                                                 from peer {}",
                                                 locked_cloned_node.id(),
                                                 remote_peer.id()
                                             ),

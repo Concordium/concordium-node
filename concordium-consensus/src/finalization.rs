@@ -131,15 +131,31 @@ enum WmvbaMessage {
 
 impl fmt::Display for WmvbaMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            WmvbaMessage::Proposal(prop) => format!("Proposal: {:?}", prop),
-            WmvbaMessage::Vote(vote) => format!("Vote: {}", if let Some(v) = vote { format!("{:?}", v) } else { "blank".to_owned() }),
-            WmvbaMessage::AbbaInput(_) => "AbbaInput".to_owned(),
-            WmvbaMessage::CssSeen(_) => "CssSeen".to_owned(),
-            WmvbaMessage::CssDoneReporting(_) => "CssDoneReporting".to_owned(),
-            WmvbaMessage::AreWeDone(arewe) => if *arewe { "We're done" } else { "We're not done" }.to_owned(),
-            WmvbaMessage::WitnessCreator(_) => "WitnessCreator".to_owned(),
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                WmvbaMessage::Proposal(prop) => format!("Proposal: {:?}", prop),
+                WmvbaMessage::Vote(vote) => format!(
+                    "Vote: {}",
+                    if let Some(v) = vote {
+                        format!("{:?}", v)
+                    } else {
+                        "blank".to_owned()
+                    }
+                ),
+                WmvbaMessage::AbbaInput(_) => "AbbaInput".to_owned(),
+                WmvbaMessage::CssSeen(_) => "CssSeen".to_owned(),
+                WmvbaMessage::CssDoneReporting(_) => "CssDoneReporting".to_owned(),
+                WmvbaMessage::AreWeDone(arewe) => if *arewe {
+                    "We're done"
+                } else {
+                    "We're not done"
+                }
+                .to_owned(),
+                WmvbaMessage::WitnessCreator(_) => "WitnessCreator".to_owned(),
+            }
+        )
     }
 }
 
