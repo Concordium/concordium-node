@@ -14,12 +14,13 @@ use std::alloc::System;
 static A: System = System;
 
 use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
-    block::Block,
+    block::*,
     common::sha256,
     consensus,
     finalization::{FinalizationMessage, FinalizationRecord},
@@ -640,7 +641,7 @@ fn send_block_to_baker(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    let block = Block::deserialize(content)?;
+    let block = BakedBlock::deserialize(content)?;
 
     match baker.send_block(peer_id.as_raw(), &block) {
         0i64 => info!(
@@ -1166,5 +1167,6 @@ fn get_baker_data(
             _ => bail!("Unexpected"),
         }
     };
+
     Ok((given_genesis, given_private_data))
 }

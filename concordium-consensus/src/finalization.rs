@@ -65,7 +65,7 @@ impl FinalizationMessage {
     }
 }
 
-type FinalizationIndex = u64;
+pub type FinalizationIndex = u64;
 
 type Party = u32;
 
