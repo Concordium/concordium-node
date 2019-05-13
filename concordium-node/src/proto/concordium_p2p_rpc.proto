@@ -114,6 +114,12 @@ message ContractInstanceAddress {
   bytes payload = 1;
 }
 
+message TpsRequest {
+  uint32 network_id = 1;
+  string id = 2;
+  string directory = 3;
+}
+
 message Empty {}
 
 service P2P {
@@ -157,4 +163,5 @@ service P2P {
   rpc GetLastFinalInstanceInfo(ContractInstanceAddress) returns (SuccessfulBytePayloadResponse) {}
   rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
   rpc Shutdown(Empty) returns (SuccessResponse) {}
+  rpc TpsTest(TpsRequest) returns (SuccessResponse) {}
 }

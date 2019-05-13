@@ -3,7 +3,7 @@ use crate::proto::{
     ContractInstanceAddress, Empty, NetworkChangeRequest, NodeInfoResponse, NumberResponse,
     P2PNetworkMessage, PeerConnectRequest, PeerElement, PeerListResponse, PeerStatsResponse,
     SendMessageRequest, SendTransactionRequest, StringResponse, SuccessResponse,
-    SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
+    SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse, TpsRequest,
 };
 use futures::future::Future;
 use std::sync::Arc;
@@ -297,5 +297,14 @@ impl P2P for P2PServiceForwarder {
             .success(r)
             .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
+    }
+
+    fn tps_test(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: TpsRequest,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        forward_to_targets!(self.targets, tps_test, ctx, req, sink);
     }
 }
