@@ -4,7 +4,7 @@ use crate::{
     common::{P2PNodeId, PeerType},
     configuration,
     db::P2PDB,
-    failure::{Error, Fallible},
+    failure::Fallible,
     network::{NetworkId, NetworkMessage, NetworkPacketType},
 };
 
@@ -25,8 +25,8 @@ use std::{
 
 pub struct RpcServerImplShared {
     pub server:                 Option<grpcio::Server>,
-    pub subscription_queue_out: mpsc::Receiver<NetworkMessage>,
-    pub subscription_queue_in:  mpsc::Sender<NetworkMessage>,
+    pub subscription_queue_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    pub subscription_queue_in:  mpsc::Sender<Arc<NetworkMessage>>,
 }
 
 impl Default for RpcServerImplShared {
@@ -35,19 +35,13 @@ impl Default for RpcServerImplShared {
 
 impl RpcServerImplShared {
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel::<NetworkMessage>();
+        let (sender, receiver) = mpsc::channel::<Arc<NetworkMessage>>();
 
         RpcServerImplShared {
             server:                 None,
             subscription_queue_out: receiver,
             subscription_queue_in:  sender,
         }
-    }
-
-    pub fn queue_message(&mut self, msg: &NetworkMessage) -> Fallible<()> {
-        self.subscription_queue_in
-            .send(msg.to_owned())
-            .map_err(|_| Error::from(fails::QueueingError))
     }
 
     pub fn stop_server(&mut self) -> Fallible<()> {
@@ -87,11 +81,6 @@ impl RpcServerImpl {
             consensus,
             dptr: Arc::new(Mutex::new(RpcServerImplShared::new())),
         }
-    }
-
-    #[inline]
-    pub fn queue_message(&self, msg: &NetworkMessage) -> Fallible<()> {
-        safe_lock!(self.dptr)?.queue_message(msg)
     }
 
     #[inline]
@@ -619,11 +608,18 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            r.set_value(true);
-            let f = sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            let f = if let Ok(mut node) = self.node.lock() {
+                node.rpc_subscription_start(lock_or_die!(self.dptr).subscription_queue_in.clone());
+                let mut r: SuccessResponse = SuccessResponse::new();
+                r.set_value(true);
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Node can't be locked".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
@@ -635,11 +631,17 @@ impl P2P for RpcServerImpl {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            r.set_value(true);
-            let f = sink
-                .success(r)
-                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+            let f = if let Ok(mut node) = self.node.lock() {
+                let mut r: SuccessResponse = SuccessResponse::new();
+                r.set_value(node.rpc_subscription_stop());
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::ResourceExhausted,
+                    Some("Node can't be locked".to_string()),
+                ))
+            };
+            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
             ctx.spawn(f);
         });
     }
@@ -655,7 +657,7 @@ impl P2P for RpcServerImpl {
 
             let f = if let Ok(read_lock_dptr) = self.dptr.lock() {
                 if let Ok(msg) = read_lock_dptr.subscription_queue_out.try_recv() {
-                    if let NetworkMessage::NetworkPacket(ref packet, ..) = msg {
+                    if let NetworkMessage::NetworkPacket(ref packet, ..) = *msg {
                         let mut inner_msg = packet.message.to_owned();
                         if let Ok(view_inner_msg) = inner_msg.read_all_into_view() {
                             let msg = view_inner_msg.as_slice().to_vec();
@@ -997,11 +999,16 @@ mod tests {
     use grpcio::{ChannelBuilder, EnvBuilder};
     use std::sync::{Arc, RwLock};
 
-    // Creates P2PClient, RpcServImpl and CallOption instances.
-    // The intended use is for spawning nodes for testing gRPC api.
-    // The port number is safe as it uses a AtomicUsize for respecting the order.
-    fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
-        let (node, _) = make_node_and_sync(next_port_offset_node(1), vec![100], false, nt).unwrap();
+    // Same as create_node_rpc_call_option but also outputs the Message receiver
+    fn create_node_rpc_call_option_waiter(
+        nt: PeerType,
+    ) -> (
+        P2PClient,
+        RpcServerImpl,
+        grpcio::CallOption,
+        std::sync::mpsc::Receiver<NetworkMessage>,
+    ) {
+        let (node, w) = make_node_and_sync(next_port_offset_node(1), vec![100], false, nt).unwrap();
 
         let rpc_port = next_port_offset_rpc(1);
         let mut config = Config::default();
@@ -1024,6 +1031,14 @@ mod tests {
 
         let call_options = ::grpcio::CallOption::default().headers(meta_data);
 
+        (client, rpc_server, call_options, w)
+    }
+
+    // Creates P2PClient, RpcServImpl and CallOption instances.
+    // The intended use is for spawning nodes for testing gRPC api.
+    // The port number is safe as it uses a AtomicUsize for respecting the order.
+    fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
+        let (client, rpc_server, call_options, _) = create_node_rpc_call_option_waiter(nt);
         (client, rpc_server, call_options)
     }
 
@@ -1303,26 +1318,58 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_subscription_start() -> Fallible<()> {
-        let _ = create_node_rpc_call_option(PeerType::Node);
-
+        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+        assert!(client
+            .subscription_start_opt(&crate::proto::Empty::new(), callopts)
+            .unwrap()
+            .get_value());
         Ok(())
     }
 
     #[test]
-    #[ignore]
     fn test_subscription_stop() -> Fallible<()> {
-        let _ = create_node_rpc_call_option(PeerType::Node);
-
+        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
+        assert!(!client
+            .subscription_stop_opt(&crate::proto::Empty::new(), callopts.clone())
+            .unwrap()
+            .get_value());
+        client
+            .subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())
+            .unwrap();
+        assert!(client
+            .subscription_stop_opt(&crate::proto::Empty::new(), callopts)
+            .unwrap()
+            .get_value());
         Ok(())
     }
 
     #[test]
-    #[ignore]
     fn test_subscription_poll() -> Fallible<()> {
-        let _ = create_node_rpc_call_option(PeerType::Node);
-
+        let (client, rpc_serv, callopts, wt1) = create_node_rpc_call_option_waiter(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt2) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt2)?;
+        }
+        client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
+        node2.send_message(
+            None,
+            crate::network::NetworkId::from(100),
+            None,
+            b"Hey".to_vec(),
+            true,
+        )?;
+        wait_broadcast_message(&wt1).unwrap();
+        let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;
+        if let crate::proto::P2PNetworkMessage_oneof_payload::message_broadcast(b) =
+            ans.payload.unwrap()
+        {
+            assert_eq!(b.data, b"Hey");
+        } else {
+            bail!("Wrong message received");
+        }
         Ok(())
     }
 

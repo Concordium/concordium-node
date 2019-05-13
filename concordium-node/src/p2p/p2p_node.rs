@@ -46,7 +46,7 @@ use std::{
     sync::{
         atomic::Ordering,
         mpsc::{channel, Receiver, Sender},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
     thread::{JoinHandle, ThreadId},
     time::{Duration, SystemTime},
@@ -82,6 +82,7 @@ pub struct P2PNode {
     send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
     pub internal_addr:    SocketAddr,
     queue_to_super:       Sender<Arc<NetworkMessage>>,
+    rpc_queue:            Arc<Mutex<Option<Sender<Arc<NetworkMessage>>>>>,
     start_time:           DateTime<Utc>,
     stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     peer_type:            PeerType,
@@ -289,6 +290,7 @@ impl P2PNode {
             send_queue_out: Rc::new(send_queue_out),
             internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             queue_to_super: pkt_queue,
+            rpc_queue: Arc::new(Mutex::new(None)),
             start_time: Utc::now(),
             stats_export_service,
             external_addr: SocketAddr::new(own_peer_ip, own_peer_port),
@@ -327,6 +329,7 @@ impl P2PNode {
         let own_networks = Arc::clone(&read_or_die!(self.tls_server).networks());
         let stats_export_service = self.stats_export_service.clone();
         let packet_queue = self.queue_to_super.clone();
+        let rpc_queue = Arc::clone(&self.rpc_queue);
         let send_queue = self.send_queue_in.clone();
         let trusted_broadcast = self.config.blind_trusted_broadcast;
         let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
@@ -341,6 +344,7 @@ impl P2PNode {
                             &own_networks,
                             &send_queue,
                             &packet_queue,
+                            &rpc_queue,
                             pac,
                             trusted_broadcast,
                         )
@@ -354,6 +358,7 @@ impl P2PNode {
                     &own_networks,
                     &send_queue,
                     &packet_queue,
+                    &rpc_queue,
                     pac,
                     trusted_broadcast,
                 ),
@@ -377,7 +382,6 @@ impl P2PNode {
 
     fn make_requeue_handler(&self) -> NetworkRequestCW {
         let packet_queue = self.queue_to_super.clone();
-
         make_atomic_callback!(move |req: &NetworkRequest| {
             forward_network_request(req, &packet_queue)
         })
@@ -1130,6 +1134,20 @@ impl P2PNode {
     }
 
     pub fn get_banlist(&self) -> Vec<BannedNode> { read_or_die!(self.tls_server).get_banlist() }
+
+    pub fn rpc_subscription_start(&mut self, sender: Sender<Arc<NetworkMessage>>) {
+        if let Ok(mut locked) = safe_lock!(self.rpc_queue) {
+            locked.replace(sender);
+        }
+    }
+
+    pub fn rpc_subscription_stop(&mut self) -> bool {
+        if let Ok(locked) = safe_lock!(self.rpc_queue) {
+            locked.is_some()
+        } else {
+            false
+        }
+    }
 }
 
 impl Drop for P2PNode {
