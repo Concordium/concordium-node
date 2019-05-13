@@ -205,6 +205,7 @@ fn setup_baker_guards(
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
                         consensus::CatchupRequest::BlockByHash(receiver_id, bytes) => {
+                            assert_eq!(bytes.len(), concordium_consensus::common::SHA256 as usize);
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             inner_out_bytes
@@ -216,6 +217,7 @@ fn setup_baker_guards(
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         consensus::CatchupRequest::FinalizationRecordByHash(receiver_id, bytes) => {
+                            assert_eq!(bytes.len(), concordium_consensus::common::SHA256 as usize);
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             inner_out_bytes
@@ -449,6 +451,7 @@ fn setup_process_output(
                         send_finalization_record_to_baker(baker, peer_id, &content[..])
                     }
                     consensus::PacketType::CatchupBlockByHash => {
+                        ensure!(content.len(), concordium_consensus::common::SHA256 as usize);
                         send_catchup_request_block_by_hash_baker(
                             baker,
                             node,
@@ -458,6 +461,7 @@ fn setup_process_output(
                         )
                     }
                     consensus::PacketType::CatchupFinalizationRecordByHash => {
+                        ensure!(content.len(), concordium_consensus::common::SHA256 as usize);
                         send_catchup_request_finalization_record_by_hash_baker(
                             baker,
                             node,
@@ -467,6 +471,7 @@ fn setup_process_output(
                         )
                     }
                     consensus::PacketType::CatchupFinalizationRecordByIndex => {
+                        ensure!(content.len(), 8);
                         send_catchup_request_finalization_record_by_index_to_baker(
                             baker,
                             node,
@@ -713,10 +718,17 @@ macro_rules! send_catchup_request_to_baker {
     ) => {{
         debug!("Got a consensus catch-up request for \"{}\"", $req_type);
         let res = $consensus_req_call($baker, $content)?;
+        let return_type = match $req_type {
+            consensus::PacketType::CatchupBlockByHash => consensus::PacketType::Block,
+            consensus::PacketType::CatchupFinalizationRecordByHash => consensus::PacketType::FinalizationRecord,
+            consensus::PacketType::CatchupFinalizationRecordByIndex => consensus::PacketType::FinalizationRecord,
+            catchall_val => panic!("Can't respond to catchup type {}", catchall_val),
+
+        };
         if !res.is_empty() && NetworkEndian::read_u64(&res[..8]) > 0 {
             let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
             out_bytes
-                .write_u16::<NetworkEndian>($req_type as u16)
+                .write_u16::<NetworkEndian>(return_type as u16)
                 .expect("Can't write to buffer");
             out_bytes.extend(res);
             match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
