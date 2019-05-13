@@ -172,10 +172,10 @@ handleModule meta msize mod = do
   -- This is done even if the transaction is rejected in the end.
   -- NB: The next line will reject the transaction in case there are not enough funds.
   tickEnergy (Cost.deployModule msize)
-  imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` ModuleNotWF
+  imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` MissingImports
   iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
   let mhash = Core.moduleHash mod
-  viface <- runExceptT (I.evalModule imod mhash) `rejectingWith'` EvaluationError
+  viface <- runMaybeT (I.evalModule imod mhash) `rejectingWith` EvaluationError
   return (mhash, iface, viface)
 
 handleInit

@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -6,7 +5,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
@@ -19,16 +17,7 @@ import qualified Data.HashMap.Strict as Map
 import Control.Monad.Except
 import Control.Monad.Fail(MonadFail)
 
--- import qualified Data.Aeson as AE
--- import qualified Data.Aeson.TH as AETH
--- import Data.ByteString.Lazy(ByteString)
--- import Data.ByteString.Lazy(ByteString)
-
--- import Data.Aeson(ToJSON, FromJSON, Value(..), (.:), (.:?), parseJSON, parseJSONList)
--- import Data.Aeson.Types(typeMismatch)
-
 import qualified Concordium.ID.AccountHolder as AH
--- import qualified Data.Base58String.Bitcoin as Base58
 
 import Concordium.Crypto.SHA256(hash)
 import Concordium.Crypto.SignatureScheme(KeyPair)
@@ -39,12 +28,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Acorn.Parser.Runner
 
 import Prelude hiding(mod, exp)
-
--- processTransaction :: MonadFail m => ByteString -> Context m Types.Transaction
--- processTransaction txt = do
---   case AE.eitherDecode txt of
---     Left err -> fail $ "Error decoding JSON: " ++ err
---     Right t -> transactionHelper t
 
 signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.Transaction
 signTx kp th = Types.signTransaction kp th
@@ -102,48 +85,3 @@ data TransactionJSON = TJSON { metadata :: Types.TransactionHeader
                              , keypair :: KeyPair
                              }
   deriving(Generic)
-
--- instance AE.FromJSON TransactionJSON
-
-
--- -- auxiliary instances for testing
-
--- instance FromJSON Types.TransactionHeader where
---   parseJSON (Object v) = Types.TransactionHeader <$> (v .: "sender") <*> (v .: "nonce") <*> (v .: "gasAmount")
---   parseJSON invalid = typeMismatch "TransactionHeader" invalid
-
--- -- instance ToJSON Header where
-
--- instance FromJSON ContractAddress
-
--- instance ToJSON ContractAddress
-
--- -- inherid word64 instances
--- instance FromJSON Nonce where
---   parseJSON v = Nonce <$> parseJSON v
---   parseJSONList v = map Nonce <$> parseJSONList v
-
--- -- inherit text instances
--- instance FromJSON AccountAddress where
---   parseJSON v = AH.base58decodeAddr <$> parseJSON v
---   parseJSONList v = map AH.base58decodeAddr <$> parseJSONList v
-
--- -- inherit Word64 instances
--- instance FromJSON Amount where
---   parseJSON v = Amount <$> (parseJSON v)
---   parseJSONList v = map Amount <$> parseJSONList v
-
--- instance FromJSON Address where
---   parseJSON (Object v) =  do
---     r <- v .:? "accountAddress"
---     case r of
---       Nothing -> AddressContract <$> (v .: "contractAddress")
---       Just a -> return (AddressAccount a)
-
---   parseJSON invalid = typeMismatch "Address" invalid
-
--- instance IsString AccountAddress where
---   fromString = AH.base58decodeAddr . Base58.fromText . fromString
-
--- $(AETH.deriveFromJSON (AETH.defaultOptions { AETH.sumEncoding = AETH.TaggedObject "transactionType" "contents"}) ''PayloadJSON)
-

@@ -149,7 +149,7 @@ outLoop logm chan cbk missingBlock missingFinBlock missingFinIx = do
         MsgMissingFinalization src (Right (FinalizationIndex finIx)) -> do
             logm External LLDebug $ "Requestion missing finalization record at index " ++ show finIx ++ " from peer " ++ show src
             missingFinIx src finIx
-            
+
     outLoop logm chan cbk missingBlock missingFinBlock missingFinIx
 
 startBaker ::
