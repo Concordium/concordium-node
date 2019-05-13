@@ -993,9 +993,13 @@ fn start_baker(
 
         info!("Starting up baker thread");
         consensus::start_haskell();
+
         match get_baker_data(app_prefs, conf) {
-            Ok((genesis, private_data)) => {
-                let mut consensus_runner = consensus::ConsensusContainer::new(genesis);
+            Ok((genesis_data, private_data)) => {
+                info!("Genesis data short hash: {:?}", sha256(&genesis_data));
+
+                let mut consensus_runner = consensus::ConsensusContainer::new(genesis_data);
+
                 consensus_runner.start_baker(baker_id, private_data);
                 Some(consensus_runner)
             }
