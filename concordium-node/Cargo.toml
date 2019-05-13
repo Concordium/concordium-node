@@ -109,6 +109,10 @@ path = "src/lib.rs"
 name = "p2p_client"
 
 [[bin]]
+path = "src/bin/block_dump_reader.rs"
+name = "read_block_dump"
+
+[[bin]]
 path = "src/bin/cli.rs"
 name = "p2p_client-cli"
 
