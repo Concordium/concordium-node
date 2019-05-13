@@ -250,8 +250,7 @@ extern "C" {
 
 #[derive(Clone)]
 pub struct ConsensusBaker {
-    id:           u64,
-    genesis_data: Arc<GenesisData>,
+    id:           BakerId,
     private_data: Vec<u8>,
     runner:       Arc<AtomicPtr<baker_runner>>,
 }
@@ -327,13 +326,14 @@ macro_rules! wrap_c_call {
 }
 
 impl ConsensusBaker {
-    pub fn new(baker_id: u64, genesis_data: Arc<GenesisData>, private_data: Vec<u8>) -> Self {
+    pub fn new(baker_id: BakerId, genesis_data: &GenesisData, private_data: Vec<u8>) -> Self {
         info!("Starting up baker {}", baker_id);
 
         let genesis_data_len = genesis_data.len();
 
         let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.to_vec()) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
+
         let baker = unsafe {
             startBaker(
                 c_string_genesis.as_ptr() as *const u8,
@@ -347,9 +347,16 @@ impl ConsensusBaker {
                 on_catchup_finalization_record_by_index,
             )
         };
+
+        /* private_data appears to (might be too early to deserialize yet) contain:
+         * a u64 BakerId
+         * 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are identical
+         * 32B of unknown content
+         * 2x identical 32B-long byte sequences
+         */
+
         ConsensusBaker {
             id: baker_id,
-            genesis_data: Arc::clone(&genesis_data),
             private_data,
             runner: Arc::new(AtomicPtr::new(baker)),
         }
@@ -638,14 +645,14 @@ type PrivateData = HashMap<i64, Vec<u8>>;
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    genesis_data: Arc<GenesisData>,
-    bakers:       Arc<RwLock<HashMap<u64, ConsensusBaker>>>,
+    genesis_data: GenesisData,
+    bakers:       Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
     pub fn new(genesis_data: Vec<u8>) -> Self {
         ConsensusContainer {
-            genesis_data: Arc::new(genesis_data),
+            genesis_data,
             bakers:       Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -653,11 +660,11 @@ impl ConsensusContainer {
     pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
         safe_write!(self.bakers).insert(
             baker_id,
-            ConsensusBaker::new(baker_id, Arc::clone(&self.genesis_data), private_data),
+            ConsensusBaker::new(baker_id, &self.genesis_data, private_data),
         );
     }
 
-    pub fn stop_baker(&mut self, baker_id: u64) {
+    pub fn stop_baker(&mut self, baker_id: BakerId) {
         let bakers = &mut safe_write!(self.bakers);
 
         match bakers.get_mut(&baker_id) {
