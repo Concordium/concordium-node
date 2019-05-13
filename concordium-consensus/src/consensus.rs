@@ -715,9 +715,11 @@ impl ConsensusContainer {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
+
         if let Ok(ref mut lock) = GENERATED_PRIVATE_DATA.write() {
             lock.clear();
         }
+
         unsafe {
             makeGenesisData(
                 genesis_time,
@@ -726,6 +728,7 @@ impl ConsensusContainer {
                 on_private_data_generated,
             );
         }
+
         for _ in 0..num_bakers {
             if !safe_read!(GENERATED_GENESIS_DATA).is_some()
                 || safe_read!(GENERATED_PRIVATE_DATA).len() < num_bakers as usize
@@ -738,6 +741,7 @@ impl ConsensusContainer {
             Ok(ref mut genesis) if genesis.is_some() => genesis.take().unwrap(),
             _ => bail!("Didn't get genesis data from Haskell"),
         };
+
         if let Ok(priv_data) = GENERATED_PRIVATE_DATA.read() {
             if priv_data.len() < num_bakers as usize {
                 bail!("Didn't get private data from Haskell");
