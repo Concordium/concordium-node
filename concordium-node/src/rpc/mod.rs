@@ -1,17 +1,17 @@
 mod fails;
 
 use crate::{
-    common::{P2PNodeId, PeerType},
+    common::{
+        counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
+        P2PNodeId, PeerType,
+    },
     configuration,
     db::P2PDB,
     failure::Fallible,
     network::{NetworkId, NetworkMessage, NetworkPacketType},
-};
-
-use crate::{
-    common::counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
     p2p::{banned_nodes::BannedNode, P2PNode},
     proto::*,
+    utils,
 };
 use concordium_consensus::consensus::ConsensusContainer;
 use futures::future::Future;
@@ -977,6 +977,60 @@ impl P2P for RpcServerImpl {
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
     }
+
+    fn tps_test(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: TpsRequest,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = if let Ok(mut locked_node) = self.node.lock() {
+            let (network_id, id, dir) = (
+                NetworkId::from(req.network_id as u16),
+                req.id.clone(),
+                req.directory.clone(),
+            );
+            let _node_list = locked_node.get_peer_stats(&[network_id]);
+            while _node_list.is_empty() {
+                std::thread::yield_now();
+                let _node_list = locked_node.get_peer_stats(&[network_id]);
+            }
+            let test_messages = utils::get_tps_test_messages(Some(dir));
+            let mut r: SuccessResponse = SuccessResponse::new();
+            let result = test_messages
+                .iter()
+                .map(|message| {
+                    let out_bytes_len = message.len();
+                    let to_send = P2PNodeId::from_str(&id).ok();
+                    match locked_node.send_message(
+                        to_send,
+                        network_id,
+                        None,
+                        message.to_vec(),
+                        false,
+                    ) {
+                        Ok(_) => {
+                            info!("Sent TPS test bytes of len {}", out_bytes_len);
+                            Ok(())
+                        }
+                        Err(_) => {
+                            error!("Couldn't send TPS test message!");
+                            Err(())
+                        }
+                    }
+                })
+                .collect::<Result<Vec<()>, ()>>();
+            r.set_value(result.is_ok());
+            sink.success(r)
+        } else {
+            sink.fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::ResourceExhausted,
+                Some("Node can't be locked".to_string()),
+            ))
+        };
+        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
 }
 
 #[cfg(test)]
@@ -992,6 +1046,7 @@ mod tests {
         test_utils::{
             connect_and_wait_handshake, log_any_message_handler, make_node_and_sync,
             next_port_offset_node, next_port_offset_rpc, wait_broadcast_message,
+            wait_direct_message,
         },
     };
     use chrono::prelude::Utc;
@@ -1396,6 +1451,30 @@ mod tests {
             .shutdown_opt(&crate::proto::Empty::new(), callopts)
             .expect("rpc")
             .get_value());
+        Ok(())
+    }
+
+    #[test]
+    fn test_tps_tests() -> Fallible<()> {
+        let data = "Hey";
+        std::fs::create_dir_all("/tmp/blobs")?;
+        std::fs::write("/tmp/blobs/test", data)?;
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt2) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt2)?;
+        }
+        let mut req = crate::proto::TpsRequest::new();
+        req.set_network_id(100);
+        req.set_id(node2.id().to_string());
+        req.set_directory("/tmp/blobs".to_string());
+        client.tps_test_opt(&req, callopts)?;
+        assert_eq!(
+            wait_direct_message(&wt2)?.read_all_into_view()?.as_slice(),
+            b"Hey"
+        );
         Ok(())
     }
 

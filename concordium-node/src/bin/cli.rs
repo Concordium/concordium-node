@@ -49,9 +49,8 @@ use std::{
     fs::OpenOptions,
     io::{Read, Write},
     net::SocketAddr,
-    str::{self, FromStr},
+    str,
     sync::{mpsc, Arc, RwLock},
-    thread,
 };
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
@@ -358,37 +357,6 @@ fn instantiate_node(
         )
     };
     (node, pkt_out)
-}
-
-fn start_tps_test(conf: &configuration::Config, node: &P2PNode) {
-    if let Some(ref tps_test_recv_id) = conf.cli.tps.tps_test_recv_id {
-        let mut _id_clone = tps_test_recv_id.to_owned();
-        let mut _dir_clone = conf.cli.tps.tps_test_data_dir.to_owned();
-        let mut _node_ref = node.clone();
-        let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned());
-        spawn_or_die!("TPS processing", move || {
-            let mut done = false;
-            while !done {
-                // Test if we have any peers yet. Otherwise keep trying until we do
-                let node_list = _node_ref.get_peer_stats(&[_network_id]);
-                if !node_list.is_empty() {
-                    let test_messages = utils::get_tps_test_messages(_dir_clone.clone());
-                    for message in test_messages {
-                        let out_bytes_len = message.len();
-                        let to_send = P2PNodeId::from_str(&_id_clone).ok();
-                        match _node_ref.send_message(to_send, _network_id, None, message, false) {
-                            Ok(_) => {
-                                info!("Sent TPS test bytes of len {}", out_bytes_len);
-                            }
-                            Err(_) => error!("Couldn't send TPS test message!"),
-                        }
-                    }
-                    done = true;
-                }
-            }
-            thread::park();
-        });
-    }
 }
 
 fn setup_process_output(
@@ -988,9 +956,6 @@ fn main() -> Fallible<()> {
     //
     // Threads #5, #6, #7, #8, #9
     setup_baker_guards(&mut baker, &node, &conf);
-
-    // TPS test
-    start_tps_test(&conf, &node);
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
