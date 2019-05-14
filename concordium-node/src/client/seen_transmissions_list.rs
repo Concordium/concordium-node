@@ -33,12 +33,8 @@ where
     fn append(&self, payload: T) -> Fallible<bool> {
         let mut list = safe_write!(self.seen_transmissions)?;
         if !list.contains(&payload) {
-            if self.max_elements != 0 && list.len() >= self.max_elements as usize {
-                // TODO: Manage cache length
-                Ok(list.insert(payload))
-            } else {
-                Ok(list.insert(payload))
-            }
+            // TODO: Manage cache length
+            Ok(list.insert(payload))
         } else {
             bail!(fails::DuplicateSeenTransmissionElementAttempted::new(
                 format!("{:?}", payload)
@@ -60,16 +56,9 @@ where
         // TODO : ignore this for now, but implemented later
         _since_timestamp: u64,
     ) -> Fallible<Vec<Box<[u8]>>> {
-        if _since_timestamp == 0 {
-            Ok(safe_read!(self.seen_transmissions)?
-                .iter()
-                .map(|element| element.serialize())
-                .collect())
-        } else {
-            Ok(safe_read!(self.seen_transmissions)?
-                .iter()
-                .map(|element| element.serialize())
-                .collect())
-        }
+        Ok(safe_read!(self.seen_transmissions)?
+            .iter()
+            .map(SerializeToBytes::serialize)
+            .collect())
     }
 }
