@@ -45,17 +45,6 @@ impl BakedBlock {
         Ok(block)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
-        let data = self.data.serialize();
-
-        let mut cursor = create_serialization_cursor(size_of::<Slot>() + data.len());
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
-        let _ = cursor.write_all(&data);
-
-        cursor.into_inner()
-    }
-
     pub fn baker_id(&self) -> BakerId { self.data.baker_id }
 
     pub fn pointer_ref(&self) -> &HashBytes { &self.data.pointer }
@@ -65,6 +54,19 @@ impl BakedBlock {
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
+}
+
+impl SerializeToBytes for BakedBlock {
+    fn serialize(&self) -> Box<[u8]> {
+        let data = self.data.serialize();
+
+        let mut cursor = create_serialization_cursor(size_of::<Slot>() + data.len());
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
+        let _ = cursor.write_all(&data);
+
+        cursor.into_inner()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
