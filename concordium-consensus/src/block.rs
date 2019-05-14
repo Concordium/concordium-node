@@ -25,50 +25,6 @@ pub enum Block {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot: Slot,
-    pub data: BlockData,
-}
-
-impl BakedBlock {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("Block", bytes);
-
-        let mut cursor = Cursor::new(bytes);
-
-        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-
-        let data = BlockData::deserialize(&read_all(&mut cursor)?)?;
-
-        let block = BakedBlock { slot, data };
-
-        check_serialization!(block, cursor);
-
-        Ok(block)
-    }
-
-    pub fn serialize(&self) -> Box<[u8]> {
-        let data = self.data.serialize();
-
-        let mut cursor = create_serialization_cursor(size_of::<Slot>() + data.len());
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
-        let _ = cursor.write_all(&data);
-
-        cursor.into_inner()
-    }
-
-    pub fn baker_id(&self) -> BakerId { self.data.baker_id }
-
-    pub fn pointer_ref(&self) -> &HashBytes { &self.data.pointer }
-
-    pub fn last_finalized_ref(&self) -> &HashBytes { &self.data.last_finalized }
-
-    pub fn slot_id(&self) -> Slot { self.slot }
-
-    pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct BlockData {
     pointer:        BlockHash,
     baker_id:       BakerId,
     proof:          Encoded,
@@ -78,10 +34,13 @@ pub struct BlockData {
     signature:      ByteString,
 }
 
-impl BlockData {
+impl BakedBlock {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        // debug_deserialization!("Block", bytes);
+
         let mut cursor = Cursor::new(bytes);
 
+        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
         let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
@@ -91,7 +50,8 @@ impl BlockData {
         let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
         let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
-        let data = Self {
+        let block = BakedBlock {
+            slot,
             pointer,
             baker_id,
             proof,
@@ -101,14 +61,15 @@ impl BlockData {
             signature,
         };
 
-        check_serialization!(data, cursor);
+        check_serialization!(block, cursor);
 
-        Ok(data)
+        Ok(block)
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
         let transactions = Transactions::serialize(&self.transactions);
-        let consts = POINTER as usize
+        let consts = size_of::<Slot>()
+            + POINTER as usize
             + size_of::<BakerId>()
             + PROOF_LENGTH
             + NONCE as usize
@@ -116,6 +77,7 @@ impl BlockData {
             + SIGNATURE as usize;
         let mut cursor = create_serialization_cursor(consts + transactions.len());
 
+        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
         let _ = cursor.write_all(&self.pointer);
         let _ = cursor.write_u64::<NetworkEndian>(self.baker_id);
         let _ = cursor.write_all(&self.proof);
@@ -126,6 +88,16 @@ impl BlockData {
 
         cursor.into_inner()
     }
+
+    pub fn baker_id(&self) -> BakerId { self.baker_id }
+
+    pub fn pointer_ref(&self) -> &HashBytes { &self.pointer }
+
+    pub fn last_finalized_ref(&self) -> &HashBytes { &self.last_finalized }
+
+    pub fn slot_id(&self) -> Slot { self.slot }
+
+    pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
 }
 
 #[derive(Debug)]
