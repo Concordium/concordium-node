@@ -418,8 +418,7 @@ impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count =
-            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
@@ -439,9 +438,7 @@ impl FinalizationProof {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            8 + self.0.len() * (4 + SIGNATURE as usize),
-        );
+        let mut cursor = create_serialization_cursor(8 + self.0.len() * (4 + SIGNATURE as usize));
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

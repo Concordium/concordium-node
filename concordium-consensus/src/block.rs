@@ -24,7 +24,7 @@ pub enum Block {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
-    pub slot: Slot,
+    pub slot:       Slot,
     pointer:        BlockHash,
     baker_id:       BakerId,
     proof:          Encoded,
