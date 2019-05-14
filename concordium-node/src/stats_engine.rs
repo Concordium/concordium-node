@@ -1,7 +1,6 @@
-use std::{
-    collections::VecDeque,
-    time::{Duration, SystemTime},
-};
+#[cfg(feature = "benchmark")]
+use std::time::Duration;
+use std::{collections::VecDeque, time::SystemTime};
 
 #[derive(Clone, Copy)]
 pub struct DataPoint {
@@ -19,10 +18,19 @@ pub struct StatsEngine {
 }
 
 impl StatsEngine {
-    pub fn new(save_amount: u64) -> Self {
+    #[cfg(feature = "benchmark")]
+    pub fn new(config: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
-            datapoints: VecDeque::new(),
-            save_amount,
+            datapoints:  VecDeque::new(),
+            save_amount: config.tps.tps_stats_save_amount,
+        }
+    }
+
+    #[cfg(not(feature = "benchmark"))]
+    pub fn new(_: &crate::configuration::CliConfig) -> Self {
+        StatsEngine {
+            datapoints:  VecDeque::new(),
+            save_amount: 0,
         }
     }
 
@@ -48,6 +56,7 @@ impl StatsEngine {
 
     pub fn clear(&mut self) { self.datapoints.clear(); }
 
+    #[cfg(feature = "benchmark")]
     pub fn calculate_total_tps_average(&self) -> f64 {
         // Get the first element and the last element in the queue.
         // We use their time fields to calculate total elapsed amount of time.
@@ -64,6 +73,10 @@ impl StatsEngine {
         avg_time.powi(-1)
     }
 
+    #[cfg(not(feature = "benchmark"))]
+    pub fn calculate_total_tps_average(&self) -> f64 { 0 as f64 }
+
+    #[cfg(feature = "benchmark")]
     pub fn calculate_last_five_min_tps_average(&self) -> f64 {
         let mut within_slot = VecDeque::new();
         let now = SystemTime::now()
@@ -91,6 +104,9 @@ impl StatsEngine {
         // Convert into transactions per second.
         avg_time.powi(-1)
     }
+
+    #[cfg(not(feature = "benchmark"))]
+    pub fn calculate_last_five_min_tps_average(&self) -> f64 { 0 as f64 }
 
     pub fn calculate_total_transferred_data_per_second(&self) -> f64 {
         // Get the first element and the last element in the queue.

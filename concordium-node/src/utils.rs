@@ -13,10 +13,11 @@ use hacl_star::{
     sha2,
 };
 use rand::rngs::OsRng;
+#[cfg(feature = "benchmark")]
+use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
-    fs,
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
@@ -429,6 +430,7 @@ pub fn read_peers_from_dns_entries(
 
 pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng::new().unwrap()).0).0 }
 
+#[cfg(feature = "benchmark")]
 pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     let mut ret = Vec::new();
 

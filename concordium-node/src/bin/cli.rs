@@ -359,6 +359,14 @@ fn instantiate_node(
     (node, pkt_out)
 }
 
+#[cfg(feature = "benchmark")]
+fn tps_setup_process_output(cli: &configuration::CliConfig) -> (bool, u64) {
+    (cli.tps.enable_tps_test, cli.tps.tps_message_count)
+}
+
+#[cfg(not(feature = "benchmark"))]
+fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (false, 0) }
+
 fn setup_process_output(
     node: &P2PNode,
     db: &P2PDB,
@@ -369,17 +377,16 @@ fn setup_process_output(
 ) {
     let mut _node_self_clone = node.clone();
     let mut _db = db.clone();
-
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.connection.desired_nodes;
     let _test_runner_url = conf.cli.test_runner_url.clone();
     let mut _baker_pkt_clone = baker.clone();
-    let _tps_test_enabled = conf.cli.tps.enable_tps_test;
-    let mut _stats_engine = StatsEngine::new(conf.cli.tps.tps_stats_save_amount);
+    let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
-    let _tps_message_count = conf.cli.tps.tps_message_count;
+    let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
+
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         fn send_msg_to_baker(

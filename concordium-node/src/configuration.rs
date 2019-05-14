@@ -74,6 +74,7 @@ pub struct PrometheusConfig {
     pub prometheus_push_interval: u64,
 }
 
+#[cfg(feature = "benchmark")]
 #[derive(StructOpt, Debug)]
 /// Flags related to TPS (only used in Cli)
 pub struct TpsConfig {
@@ -246,6 +247,7 @@ pub struct CommonConfig {
     pub print_config: bool,
 }
 
+#[cfg(feature = "benchmark")]
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
@@ -259,6 +261,22 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub tps: TpsConfig,
+    #[structopt(flatten)]
+    pub rpc: RpcCliConfig,
+}
+
+#[cfg(not(feature = "benchmark"))]
+#[derive(StructOpt, Debug)]
+pub struct CliConfig {
+    #[structopt(long = "no-network", help = "Disable network")]
+    pub no_network: bool,
+    #[structopt(
+        long = "testrunner-url",
+        help = "URL for the test runner to submit data to"
+    )]
+    pub test_runner_url: Option<String>,
+    #[structopt(flatten)]
+    pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
 }
@@ -308,6 +326,50 @@ pub struct Config {
     pub testrunner: TestRunnerConfig,
 }
 
+#[cfg(feature = "benchmark")]
+fn default_cli_config() -> CliConfig {
+    CliConfig {
+        no_network:      false,
+        test_runner_url: None,
+        baker:           BakerConfig {
+            baker_id:         None,
+            baker_num_bakers: 60,
+            baker_genesis:    0,
+        },
+        tps:             TpsConfig {
+            enable_tps_test:       false,
+            tps_test_recv_id:      None,
+            tps_stats_save_amount: 10000,
+            tps_message_count:     1000,
+        },
+        rpc:             RpcCliConfig {
+            no_rpc_server:    false,
+            rpc_server_port:  10000,
+            rpc_server_addr:  "127.0.0.1".to_owned(),
+            rpc_server_token: "rpcadmin".to_owned(),
+        },
+    }
+}
+
+#[cfg(not(feature = "benchmark"))]
+fn default_cli_config() -> CliConfig {
+    CliConfig {
+        no_network:      false,
+        test_runner_url: None,
+        baker:           BakerConfig {
+            baker_id:         None,
+            baker_num_bakers: 60,
+            baker_genesis:    0,
+        },
+        rpc:             RpcCliConfig {
+            no_rpc_server:    false,
+            rpc_server_port:  10000,
+            rpc_server_addr:  "127.0.0.1".to_owned(),
+            rpc_server_token: "rpcadmin".to_owned(),
+        },
+    }
+}
+
 //#[cfg(test)]
 impl Default for Config {
     fn default() -> Self {
@@ -351,27 +413,7 @@ impl Default for Config {
                 bootstrap_node:      vec![],
                 resolv_conf:         "/etc/resolv.conf".to_owned(),
             },
-            cli: CliConfig {
-                no_network:      false,
-                test_runner_url: None,
-                baker:           BakerConfig {
-                    baker_id:         None,
-                    baker_num_bakers: 60,
-                    baker_genesis:    0,
-                },
-                tps:             TpsConfig {
-                    enable_tps_test:       false,
-                    tps_test_recv_id:      None,
-                    tps_stats_save_amount: 10000,
-                    tps_message_count:     1000,
-                },
-                rpc:             RpcCliConfig {
-                    no_rpc_server:    false,
-                    rpc_server_port:  10000,
-                    rpc_server_addr:  "127.0.0.1".to_owned(),
-                    rpc_server_token: "rpcadmin".to_owned(),
-                },
-            },
+            cli: default_cli_config(),
             bootstrapper: BootstrapperConfig { max_nodes: 10000 },
             testrunner: TestRunnerConfig {
                 listen_http_port:    8950,

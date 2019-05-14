@@ -1,5 +1,7 @@
 mod fails;
 
+#[cfg(feature = "benchmark")]
+use crate::utils;
 use crate::{
     common::{
         counter::{TOTAL_MESSAGES_RECEIVED_COUNTER, TOTAL_MESSAGES_SENT_COUNTER},
@@ -11,7 +13,6 @@ use crate::{
     network::{NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{banned_nodes::BannedNode, P2PNode},
     proto::*,
-    utils,
 };
 use concordium_consensus::consensus::ConsensusContainer;
 use futures::future::Future;
@@ -978,6 +979,7 @@ impl P2P for RpcServerImpl {
         ctx.spawn(f);
     }
 
+    #[cfg(feature = "benchmark")]
     fn tps_test(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
@@ -1031,10 +1033,28 @@ impl P2P for RpcServerImpl {
         let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
     }
+
+    #[cfg(not(feature = "benchmark"))]
+    fn tps_test(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: TpsRequest,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = sink
+            .fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::Unavailable,
+                Some("Feature not activated".to_string()),
+            ))
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "benchmark")]
+    use crate::test_utils::wait_direct_message;
     use crate::{
         common::PeerType,
         configuration::Config,
@@ -1046,7 +1066,6 @@ mod tests {
         test_utils::{
             connect_and_wait_handshake, log_any_message_handler, make_node_and_sync,
             next_port_offset_node, next_port_offset_rpc, wait_broadcast_message,
-            wait_direct_message,
         },
     };
     use chrono::prelude::Utc;
@@ -1455,6 +1474,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "benchmark")]
     fn test_tps_tests() -> Fallible<()> {
         let data = "Hey";
         std::fs::create_dir_all("/tmp/blobs")?;
@@ -1476,6 +1496,33 @@ mod tests {
             b"Hey"
         );
         Ok(())
+    }
+
+    #[test]
+    #[cfg(not(feature = "benchmark"))]
+    fn test_tps_tests() -> Fallible<()> {
+        let data = "Hey";
+        std::fs::create_dir_all("/tmp/blobs")?;
+        std::fs::write("/tmp/blobs/test", data)?;
+        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+        let port = next_port_offset_node(1);
+        let (mut node2, wt2) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        {
+            let n = safe_lock!(rpc_serv.node)?;
+            connect_and_wait_handshake(&mut node2, &n, &wt2)?;
+        }
+        let mut req = crate::proto::TpsRequest::new();
+        req.set_network_id(100);
+        req.set_id(node2.id().to_string());
+        req.set_directory("/tmp/blobs".to_string());
+        if let Err(grpcio::Error::RpcFailure(s)) = client.tps_test_opt(&req, callopts) {
+            if grpcio::RpcStatusCode::Unavailable == s.status
+                && s.details.unwrap() == "Feature not activated"
+            {
+                return Ok(());
+            }
+        }
+        bail!("grpc: TPS test should have been deactivated but doesn't answer with the propererror")
     }
 
 }
