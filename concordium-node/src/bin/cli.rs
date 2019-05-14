@@ -21,7 +21,7 @@ use concordium_common::{
 };
 use concordium_consensus::{
     block::*,
-    common::sha256,
+    common::{sha256, SerializeToBytes},
     consensus,
     finalization::{FinalizationMessage, FinalizationRecord},
 };

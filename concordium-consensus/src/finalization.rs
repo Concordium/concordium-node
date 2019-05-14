@@ -391,8 +391,10 @@ impl FinalizationRecord {
 
         Ok(rec)
     }
+}
 
-    pub fn serialize(&self) -> Box<[u8]> {
+impl SerializeToBytes for FinalizationRecord {
+    fn serialize(&self) -> Box<[u8]> {
         let proof = self.proof.serialize();
 
         let mut cursor = create_serialization_cursor(

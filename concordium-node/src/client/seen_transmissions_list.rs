@@ -1,121 +1,74 @@
 use super::fails;
-use concordium_common::UCursor;
+use concordium_consensus::common::SerializeToBytes;
 use failure::{bail, Fallible};
-use std::sync::{Arc, Mutex, RwLock};
-
-#[derive(Debug)]
-pub struct SeenTransmission {
-    pub seen_in_message_id: String,
-    pub seen_at:            u64,
-    pub payload:            Arc<Mutex<UCursor>>,
-}
-
-impl SeenTransmission {
-    pub fn new(seen_in_message_id: String, seen_at: u64, payload: UCursor) -> Self {
-        SeenTransmission {
-            seen_in_message_id,
-            seen_at,
-            payload: Arc::new(Mutex::new(payload)),
-        }
-    }
-
-    pub fn read_payload(&mut self) -> Fallible<Vec<u8>> {
-        Ok(safe_lock!(self.payload)?.read_all_into_view()?.as_slice()[..].to_vec())
-    }
-}
-
-impl PartialEq for SeenTransmission {
-    fn eq(&self, other: &SeenTransmission) -> bool {
-        self.seen_in_message_id == other.seen_in_message_id
-    }
-}
+use std::{
+    cmp::Eq,
+    collections::HashSet,
+    fmt::Debug,
+    hash::Hash,
+    sync::{Arc, RwLock},
+};
 
 #[derive(Debug, Clone)]
-pub struct SeenTransmissionsList {
-    seen_transmissions:         Arc<RwLock<Vec<SeenTransmission>>>,
+pub struct SeenTransmissionsList<T>
+where
+    T: Eq + Debug + Hash + SerializeToBytes, {
+    seen_transmissions:         Arc<RwLock<HashSet<T>>>,
     max_elements:               u64,
     max_size_bytes_per_element: u64,
 }
 
-impl SeenTransmissionsList {
+impl<T> SeenTransmissionsList<T>
+where
+    T: Eq + Debug + Hash + SerializeToBytes,
+{
     pub fn new(max_elements: u64, max_size_bytes_per_element: u64) -> Self {
-        SeenTransmissionsList {
-            seen_transmissions: Arc::new(RwLock::new(Vec::with_capacity(max_elements as usize))),
+        Self {
+            seen_transmissions: Arc::new(RwLock::new(HashSet::new())),
             max_elements,
             max_size_bytes_per_element,
         }
     }
 
-    fn contains_seen_message_id(list: &[SeenTransmission], message_id: &str) -> bool {
-        list.iter().any(|msg| msg.seen_in_message_id == message_id)
-    }
-
-    fn append(&self, list: &mut Vec<SeenTransmission>, seen_transmission: SeenTransmission) {
-        if !list.contains(&seen_transmission) {
+    fn append(&self, payload: T) -> Fallible<bool> {
+        let mut list = safe_write!(self.seen_transmissions)?;
+        if !list.contains(&payload) {
             if self.max_elements != 0 && list.len() >= self.max_elements as usize {
-                list.remove(0);
-                list.push(seen_transmission);
+                // TODO: Manage cache length
+                Ok(list.insert(payload))
             } else {
-                list.push(seen_transmission);
+                Ok(list.insert(payload))
             }
+        } else {
+            bail!(fails::DuplicateSeenTransmissionElementAttempted::new(
+                format!("{:?}", payload)
+            ))
         }
     }
 
     pub fn add_transmission(
         &self,
-        seen_in_message_id: String,
-        seen_at: u64,
-        payload: &[u8],
-    ) -> Fallible<()> {
-        let mut inner_list = safe_write!(self.seen_transmissions)?;
-        if !Self::contains_seen_message_id(&inner_list, &seen_in_message_id) {
-            let mut cursor = UCursor::from(payload.to_owned());
-            if cursor.len() > self.max_size_bytes_per_element {
-                cursor.swap_to_file()?;
-            }
-            self.append(
-                &mut inner_list,
-                SeenTransmission::new(seen_in_message_id, seen_at, cursor),
-            );
-            Ok(())
-        } else {
-            bail!(fails::DuplicateSeenTransmissionElementAttempted::new(
-                seen_in_message_id
-            ))
-        }
+        // TODO : ignore this field for now
+        _seen_at: u64,
+        payload: T,
+    ) -> Fallible<bool> {
+        self.append(payload)
     }
 
     pub fn get_transmissions_since(
         &self,
-        since_timestamp: u64,
-    ) -> Fallible<Vec<(String, Vec<u8>)>> {
-        if since_timestamp == 0 {
-            Ok(safe_write!(self.seen_transmissions)?
-                .iter_mut()
-                .filter_map(|element| {
-                    if element.seen_at > since_timestamp {
-                        element
-                            .read_payload()
-                            .map(|bytes| (element.seen_in_message_id.to_owned(), bytes))
-                            .ok()
-                    } else {
-                        None
-                    }
-                })
+        // TODO : ignore this for now, but implemented later
+        _since_timestamp: u64,
+    ) -> Fallible<Vec<Box<[u8]>>> {
+        if _since_timestamp == 0 {
+            Ok(safe_read!(self.seen_transmissions)?
+                .iter()
+                .map(|element| element.serialize())
                 .collect())
         } else {
-            Ok(safe_write!(self.seen_transmissions)?
-                .iter_mut()
-                .filter_map(|element| {
-                    if element.seen_at > since_timestamp {
-                        element
-                            .read_payload()
-                            .map(|bytes| (element.seen_in_message_id.to_owned(), bytes))
-                            .ok()
-                    } else {
-                        None
-                    }
-                })
+            Ok(safe_read!(self.seen_transmissions)?
+                .iter()
+                .map(|element| element.serialize())
                 .collect())
         }
     }

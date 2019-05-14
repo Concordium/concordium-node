@@ -149,3 +149,7 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
+
+pub trait SerializeToBytes {
+    fn serialize(&self) -> Box<[u8]>;
+}

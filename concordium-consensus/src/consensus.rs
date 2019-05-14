@@ -1,4 +1,9 @@
-use crate::{block::*, common, fails::BakerNotRunning, finalization::*};
+use crate::{
+    block::*,
+    common::{self, SerializeToBytes},
+    fails::BakerNotRunning,
+    finalization::*,
+};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use concordium_common::into_err;
 use failure::{bail, format_err, Fallible};
@@ -686,7 +691,7 @@ impl ConsensusContainer {
                 return baker.send_block(peer_id, block);
             }
         }
-        1
+        -1
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &FinalizationMessage) -> i64 {
@@ -700,7 +705,7 @@ impl ConsensusContainer {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             return baker.send_finalization_record(peer_id, rec);
         }
-        0
+        -1
     }
 
     pub fn send_transaction(&self, tx: &[u8]) -> i64 {
