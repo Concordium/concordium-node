@@ -4,7 +4,6 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
-    hash::{Hash, Hasher},
     io::{Cursor, Read, Write},
     mem::size_of,
 };
@@ -17,83 +16,19 @@ const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
 const LAST_FINALIZED: u8 = BLOCK_HASH;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 
-macro_rules! get_block_content {
-    ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
-        pub fn $method_name(&self) -> $content_type {
-            if let BlockData::RegularData(ref data) = self.data {
-                data.$content_ident.clone()
-            } else {
-                panic!("Genesis block has no {}", $content_name)
-            }
-        }
-    }
-}
-
-macro_rules! get_block_content_ref {
-    ($method_name:ident, $content_type:ty, $content_ident:ident, $content_name:expr) => {
-        pub fn $method_name(&self) -> &$content_type {
-            if let BlockData::RegularData(ref data) = self.data {
-                &data.$content_ident
-            } else {
-                panic!("Genesis block has no {}", $content_name)
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
-pub struct Block {
+pub enum Block {
+    Genesis(GenesisData),
+    Regular(BakedBlock),
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct BakedBlock {
     pub slot: Slot,
     pub data: BlockData,
 }
 
-impl Hash for Block {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.data.hash(state) }
-}
-
-impl Block {
-    get_block_content!(pointer, BlockHash, pointer, "block pointer");
-
-    get_block_content_ref!(pointer_ref, BlockHash, pointer, "block pointer");
-
-    get_block_content!(baker_id, BakerId, baker_id, "baker");
-
-    get_block_content!(proof, Encoded, proof, "proof");
-
-    get_block_content_ref!(proof_ref, Encoded, proof, "proof");
-
-    get_block_content!(nonce, Encoded, nonce, "nonce");
-
-    get_block_content_ref!(nonce_ref, Encoded, nonce, "nonce");
-
-    get_block_content!(
-        last_finalized,
-        BlockHash,
-        last_finalized,
-        "last finalized pointer"
-    );
-
-    get_block_content_ref!(
-        last_finalized_ref,
-        BlockHash,
-        last_finalized,
-        "last finalized pointer"
-    );
-
-    get_block_content_ref!(transactions_ref, Transactions, transactions, "transactions");
-
-    get_block_content!(signature, ByteString, signature, "signature");
-
-    get_block_content_ref!(signature_ref, ByteString, signature, "signature");
-
-    pub fn get_genesis_data(&self) -> &GenesisData {
-        if let BlockData::GenesisData(ref data) = self.data {
-            data
-        } else {
-            panic!("Attempted to obtain genesis data from a regular block!");
-        }
-    }
-
+impl BakedBlock {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         // debug_deserialization!("Block", bytes);
 
@@ -101,12 +36,9 @@ impl Block {
 
         let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
-        let data = match slot {
-            0 => BlockData::GenesisData(GenesisData::deserialize(&read_all(&mut cursor)?)?),
-            _ => BlockData::RegularData(RegularData::deserialize(&read_all(&mut cursor)?)?),
-        };
+        let data = BlockData::deserialize(&read_all(&mut cursor)?)?;
 
-        let block = Block { slot, data };
+        let block = BakedBlock { slot, data };
 
         check_serialization!(block, cursor);
 
@@ -114,10 +46,7 @@ impl Block {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let data = match self.data {
-            BlockData::GenesisData(ref data) => data.serialize(),
-            BlockData::RegularData(ref data) => data.serialize(),
-        };
+        let data = self.data.serialize();
 
         let mut cursor = create_serialization_cursor(size_of::<Slot>() + data.len());
 
@@ -127,23 +56,75 @@ impl Block {
         cursor.into_inner()
     }
 
+    pub fn baker_id(&self) -> BakerId { self.data.baker_id }
+
+    pub fn pointer_ref(&self) -> &HashBytes { &self.data.pointer }
+
+    pub fn last_finalized_ref(&self) -> &HashBytes { &self.data.last_finalized }
+
     pub fn slot_id(&self) -> Slot { self.slot }
 
     pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
 }
 
-#[derive(Debug)]
-pub enum BlockData {
-    GenesisData(GenesisData),
-    RegularData(RegularData),
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct BlockData {
+    pointer:        BlockHash,
+    baker_id:       BakerId,
+    proof:          Encoded,
+    nonce:          Encoded,
+    last_finalized: BlockHash,
+    transactions:   Transactions,
+    signature:      ByteString,
 }
 
-impl Hash for BlockData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            BlockData::GenesisData(_) => unreachable!("The genesis block is not to be hashed"),
-            BlockData::RegularData(data) => data.hash(state),
-        }
+impl BlockData {
+    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
+        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
+        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
+        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
+        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
+        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
+        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
+
+        let data = Self {
+            pointer,
+            baker_id,
+            proof,
+            nonce,
+            last_finalized,
+            transactions,
+            signature,
+        };
+
+        check_serialization!(data, cursor);
+
+        Ok(data)
+    }
+
+    pub fn serialize(&self) -> Box<[u8]> {
+        let transactions = Transactions::serialize(&self.transactions);
+        let consts = POINTER as usize
+            + size_of::<BakerId>()
+            + PROOF_LENGTH
+            + NONCE as usize
+            + LAST_FINALIZED as usize
+            + SIGNATURE as usize;
+        let mut cursor = create_serialization_cursor(consts + transactions.len());
+
+        let _ = cursor.write_all(&self.pointer);
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id);
+        let _ = cursor.write_all(&self.proof);
+        let _ = cursor.write_all(&self.nonce);
+        let _ = cursor.write_all(&self.last_finalized);
+        let _ = cursor.write_all(&transactions);
+        let _ = cursor.write_all(&self.signature);
+
+        cursor.into_inner()
     }
 }
 
@@ -190,67 +171,6 @@ impl GenesisData {
         let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
         let _ = cursor.write_all(&birk_params);
         let _ = cursor.write_all(&finalization_params);
-
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct RegularData {
-    pointer:        BlockHash,
-    baker_id:       BakerId,
-    proof:          Encoded,
-    nonce:          Encoded,
-    last_finalized: BlockHash,
-    transactions:   Transactions,
-    signature:      ByteString,
-}
-
-impl RegularData {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
-        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
-        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
-        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
-        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
-        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
-
-        let data = RegularData {
-            pointer,
-            baker_id,
-            proof,
-            nonce,
-            last_finalized,
-            transactions,
-            signature,
-        };
-
-        check_serialization!(data, cursor);
-
-        Ok(data)
-    }
-
-    pub fn serialize(&self) -> Box<[u8]> {
-        let transactions = Transactions::serialize(&self.transactions);
-        let consts = POINTER as usize
-            + size_of::<BakerId>()
-            + PROOF_LENGTH
-            + NONCE as usize
-            + LAST_FINALIZED as usize
-            + SIGNATURE as usize;
-        let mut cursor = create_serialization_cursor(consts + transactions.len());
-
-        let _ = cursor.write_all(&self.pointer);
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id);
-        let _ = cursor.write_all(&self.proof);
-        let _ = cursor.write_all(&self.nonce);
-        let _ = cursor.write_all(&self.last_finalized);
-        let _ = cursor.write_all(&transactions);
-        let _ = cursor.write_all(&self.signature);
 
         cursor.into_inner()
     }

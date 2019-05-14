@@ -51,11 +51,9 @@ fn start_haskell_init() {
     let args = ::std::env::args_os();
     let mut argv = Vec::with_capacity(args.len() + 1);
     args.map(|arg| {
-        let e = CString::new(arg.as_os_str().as_bytes())
+        CString::new(arg.as_os_str().as_bytes())
             .unwrap()
-            .into_bytes_with_nul();
-        println!("{:?}", e.to_vec());
-        e
+            .into_bytes_with_nul()
     })
     .for_each(|mut arg| argv.push(arg.as_mut_ptr() as *mut c_char));
     argv.push(ptr::null_mut());
@@ -88,8 +86,8 @@ fn start_haskell_init() {
 pub fn stop_haskell() {
     if STOPPED.swap(true, Ordering::SeqCst) {
         panic!("curryrs: The GHC runtime may only be stopped once. See \
-		        https://downloads.haskell.org/%7Eghc/latest/docs/html/users_guide\
-		        /ffi-chap.html#id1 ");
+                https://downloads.haskell.org/%7Eghc/latest/docs/html/users_guide\
+                /ffi-chap.html#id1 ");
     }
     stop_nopanic();
 }
@@ -368,7 +366,7 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &Block) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
         wrap_send_data_to_c!(self, peer_id, block.serialize(), receiveBlock)
     }
 
@@ -472,8 +470,8 @@ impl ConsensusBaker {
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block: Arc<Mutex<mpsc::Receiver<Block>>>,
-    sender_block: Arc<Mutex<mpsc::Sender<Block>>>,
+    receiver_block: Arc<Mutex<mpsc::Receiver<BakedBlock>>>,
+    sender_block: Arc<Mutex<mpsc::Sender<BakedBlock>>>,
     receiver_finalization: Arc<Mutex<mpsc::Receiver<FinalizationMessage>>>,
     sender_finalization: Arc<Mutex<mpsc::Sender<FinalizationMessage>>>,
     receiver_finalization_record: Arc<Mutex<mpsc::Receiver<FinalizationRecord>>>,
@@ -486,7 +484,7 @@ pub struct ConsensusOutQueue {
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<Block>();
+        let (sender, receiver) = mpsc::channel::<BakedBlock>();
         let (sender_finalization, receiver_finalization) = mpsc::channel::<FinalizationMessage>();
         let (sender_finalization_record, receiver_finalization_record) =
             mpsc::channel::<FinalizationRecord>();
@@ -523,17 +521,19 @@ macro_rules! empty_queue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, block: Block) -> Fallible<()> {
+    pub fn send_block(self, block: BakedBlock) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_block).send(block))
     }
 
-    pub fn recv_block(self) -> Fallible<Block> { into_err!(safe_lock!(self.receiver_block).recv()) }
+    pub fn recv_block(self) -> Fallible<BakedBlock> {
+        into_err!(safe_lock!(self.receiver_block).recv())
+    }
 
-    pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<Block> {
+    pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<BakedBlock> {
         into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
     }
 
-    pub fn try_recv_block(self) -> Fallible<Block> {
+    pub fn try_recv_block(self) -> Fallible<BakedBlock> {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
@@ -644,8 +644,8 @@ type PrivateData = HashMap<i64, Vec<u8>>;
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    genesis_data: GenesisData,
-    bakers:       Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
+    pub genesis_data: GenesisData,
+    bakers:           Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
@@ -680,7 +680,7 @@ impl ConsensusContainer {
 
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &Block) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
             if block.baker_id() != *id {
                 return baker.send_block(peer_id, block);
@@ -843,7 +843,7 @@ extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, data
         };
 
         match callback_type {
-            CallbackType::Block => match Block::deserialize(data) {
+            CallbackType::Block => match BakedBlock::deserialize(data) {
                 Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
                     Ok(_) => debug!("Queueing {} block bytes", data_length),
                     _ => error!("Didn't queue block message properly"),
