@@ -51,11 +51,9 @@ fn start_haskell_init() {
     let args = ::std::env::args_os();
     let mut argv = Vec::with_capacity(args.len() + 1);
     args.map(|arg| {
-        let e = CString::new(arg.as_os_str().as_bytes())
+        CString::new(arg.as_os_str().as_bytes())
             .unwrap()
-            .into_bytes_with_nul();
-
-        e
+            .into_bytes_with_nul()
     })
     .for_each(|mut arg| argv.push(arg.as_mut_ptr() as *mut c_char));
     argv.push(ptr::null_mut());
@@ -527,7 +525,9 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_block).send(block))
     }
 
-    pub fn recv_block(self) -> Fallible<BakedBlock> { into_err!(safe_lock!(self.receiver_block).recv()) }
+    pub fn recv_block(self) -> Fallible<BakedBlock> {
+        into_err!(safe_lock!(self.receiver_block).recv())
+    }
 
     pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<BakedBlock> {
         into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
@@ -645,7 +645,7 @@ type PrivateData = HashMap<i64, Vec<u8>>;
 #[derive(Clone)]
 pub struct ConsensusContainer {
     pub genesis_data: GenesisData,
-    bakers: Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
+    bakers:           Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
