@@ -411,8 +411,6 @@ impl FinalizationRecord {
     }
 }
 
-type SignatureCount = u64;
-
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct FinalizationProof(Vec<(u32, Encoded)>);
 
@@ -421,7 +419,7 @@ impl FinalizationProof {
         let mut cursor = Cursor::new(bytes);
 
         let signature_count =
-            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<SignatureCount>()));
+            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
@@ -442,7 +440,7 @@ impl FinalizationProof {
 
     pub fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(
-            size_of::<SignatureCount>() + self.0.len() * (4 + SIGNATURE as usize),
+            8 + self.0.len() * (4 + SIGNATURE as usize),
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
