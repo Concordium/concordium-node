@@ -22,7 +22,7 @@ use concordium_common::{
 use concordium_consensus::{
     block::*,
     common::{sha256, SerializeToBytes},
-    consensus,
+    consensus::{self, SKOV_DATA},
     ffi::{self, *},
     finalization::{FinalizationMessage, FinalizationRecord},
 };
@@ -1014,7 +1014,9 @@ fn start_baker(
 
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
-                info!("Genesis data short hash: {:?}", sha256(&genesis_data));
+                let genesis_ptr = BlockPtr::genesis(&genesis_data);
+                info!("Genesis data short hash: {:?}", genesis_ptr.hash);
+                safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
 
                 let mut consensus_runner = consensus::ConsensusContainer::new(genesis_data);
 

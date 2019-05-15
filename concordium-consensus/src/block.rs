@@ -17,7 +17,7 @@ const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
 const LAST_FINALIZED: u8 = BLOCK_HASH;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Block {
     Genesis(GenesisData),
     Regular(BakedBlock),
@@ -32,7 +32,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:       Slot,
     pointer:        BlockHash,
@@ -112,7 +112,7 @@ impl SerializeToBytes for BakedBlock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GenesisData {
     timestamp:               Timestamp,
     slot_duration:           Duration,
@@ -172,24 +172,26 @@ pub type BlockHash = HashBytes;
 
 #[derive(Debug)]
 pub struct PendingBlock {
-    hash:     BlockHash,
-    block:    BakedBlock,
-    received: DateTime<Utc>,
+    pub hash:     BlockHash,
+    pub block:    BakedBlock,
+    pub received: DateTime<Utc>,
 }
 
 impl PendingBlock {
-    pub fn new(block: BakedBlock, received: DateTime<Utc>) -> Self {
-        let hash = sha256(&block.serialize());
+    pub fn new(bytes: &[u8]) -> Fallible<Self> {
+        let received = Utc::now();
+        let block = BakedBlock::deserialize(bytes)?;
+        let hash = sha256(bytes);
 
-        Self {
+        Ok(Self {
             hash,
             block,
             received,
-        }
+        })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,

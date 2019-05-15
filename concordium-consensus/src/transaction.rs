@@ -122,7 +122,7 @@ pub struct AccountNonFinalizedTransactions {
     next_nonce: Nonce,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TransactionTable {
     map: HashMap<TransactionHash, (Transaction, Slot)>,
     non_finalized_transactions: HashMap<Encoded, AccountNonFinalizedTransactions>,

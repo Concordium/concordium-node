@@ -1,7 +1,6 @@
-use crate::{block::*, fails::BakerNotRunning, ffi::*, finalization::*};
-
 use concordium_common::into_err;
 use failure::{bail, Fallible};
+
 use std::{
     collections::HashMap,
     str,
@@ -9,6 +8,8 @@ use std::{
     thread,
     time::{self, Duration},
 };
+
+use crate::{block::*, fails::BakerNotRunning, ffi::*, finalization::*, tree::*};
 
 pub type PeerId = u64;
 
@@ -181,6 +182,7 @@ lazy_static! {
     pub static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
         { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
+    pub static ref SKOV_DATA: RwLock<SkovData> = { RwLock::new(SkovData::default()) };
 }
 
 type GenesisData = Vec<u8>;
