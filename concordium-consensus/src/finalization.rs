@@ -391,6 +391,15 @@ impl FinalizationRecord {
 
         Ok(rec)
     }
+
+    pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
+        Self {
+            index:         0,
+            block_pointer: genesis_block_ptr.hash.to_owned(),
+            proof:         FinalizationProof::default(),
+            delay:         0,
+        }
+    }
 }
 
 impl SerializeToBytes for FinalizationRecord {
@@ -413,7 +422,7 @@ impl SerializeToBytes for FinalizationRecord {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
 pub struct FinalizationProof(Vec<(u32, Encoded)>);
 
 impl FinalizationProof {

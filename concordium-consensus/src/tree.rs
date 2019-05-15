@@ -2,94 +2,17 @@ use chrono::prelude::{DateTime, Utc};
 
 use std::collections::HashMap;
 
-use crate::{block::*, common::*, finalization::*, transaction::*};
-
-#[derive(Debug)]
-pub struct BlockPtr {
-    pub hash:           BlockHash,
-    pub block:          Block,
-    pub parent:         Option<Box<BlockPtr>>,
-    pub last_finalized: Option<Box<BlockPtr>>,
-    pub height:         BlockHeight,
-    // state:       BlockState,
-    pub received:  DateTime<Utc>,
-    pub validated: DateTime<Utc>,
-}
-
-impl BlockPtr {
-    pub fn genesis(genesis_bytes: &[u8]) -> Self {
-        let genesis_data = GenesisData::deserialize(genesis_bytes).expect("Invalid genesis data");
-        let genesis_block = Block::Genesis(genesis_data);
-        let timestamp = Utc::now(); // TODO: be more precise when Kontrol is there
-
-        BlockPtr {
-            hash:           sha256(genesis_bytes),
-            block:          genesis_block,
-            parent:         None,
-            last_finalized: None,
-            height:         0,
-            received:       timestamp,
-            validated:      timestamp,
-        }
-    }
-
-    pub fn new(
-        pb: PendingBlock,
-        parent: Self,
-        last_finalized: Self,
-        validated: DateTime<Utc>,
-    ) -> Self {
-        assert_eq!(parent.hash, *pb.block.pointer_ref());
-        assert_eq!(last_finalized.hash, *pb.block.last_finalized_ref());
-
-        let height = parent.height + 1;
-
-        Self {
-            hash: pb.hash,
-            block: Block::Regular(pb.block),
-            parent: Some(Box::new(parent)),
-            last_finalized: Some(Box::new(last_finalized)),
-            height,
-            received: pb.received,
-            validated,
-        }
-    }
-}
-
-impl PartialEq for BlockPtr {
-    fn eq(&self, other: &Self) -> bool { self.hash == other.hash }
-}
-
-impl Eq for BlockPtr {}
+use crate::{block::*, finalization::*, transaction::*};
 
 #[derive(Debug)]
 pub enum BlockStatus {
-    Alive(BlockPtr),
+    Alive,
     Dead,
-    Finalized(BlockPtr),
-}
-
-#[derive(Debug)]
-pub struct PendingBlock {
-    hash:     BlockHash,
-    block:    BakedBlock,
-    received: DateTime<Utc>,
-}
-
-impl PendingBlock {
-    pub fn new(block: BakedBlock, received: DateTime<Utc>) -> Self {
-        let hash = sha256(&block.serialize());
-
-        Self {
-            hash,
-            block,
-            received,
-        }
-    }
+    Finalized(FinalizationRecord),
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ConsensusStatistics {
     blocks_received:                 u64,
     blocks_verified:                 u64,
@@ -111,19 +34,35 @@ struct ConsensusStatistics {
     finalization_period_emvar:       Option<f64>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
-struct SkovData {
-    block_table:            HashMap<BlockHash, BlockStatus>,
+#[derive(Debug, Default)]
+pub struct SkovData {
+    block_table:            HashMap<BlockHash, (BlockPtr, BlockStatus)>,
     possibly_pending_table: HashMap<BlockHash, Vec<PendingBlock>>,
     // possibly_pending_queue: , // TODO: decide on a priority queue impl based on use
     // awaiting_last_finalized: , // ditto
-    finalization_list:    Vec<(FinalizationRecord, BlockPtr)>,
-    finalization_pool:    Vec<(FinalizationIndex, Vec<FinalizationRecord>)>,
-    branches:             Vec<BlockPtr>,
-    genesis_block_ptr:    BlockPtr,
-    focus_block:          BlockPtr,
-    pending_transactions: PendingTransactionTable,
-    transaction_table:    TransactionTable,
-    statistics:           ConsensusStatistics,
+    finalization_list: Vec<(FinalizationRecord, BlockPtr)>,
+    finalization_pool: Vec<(FinalizationIndex, Vec<FinalizationRecord>)>,
+    // branches:             Vec<BlockPtr>,
+    genesis_block_ptr: Option<BlockPtr>,
+    // focus_block:          BlockPtr,
+    // pending_transactions: PendingTransactionTable,
+    transaction_table: TransactionTable,
+    // statistics:           ConsensusStatistics,
+}
+
+impl SkovData {
+    pub fn add_genesis(&mut self, genesis_block_ptr: BlockPtr) {
+        let genesis_finalization_record = FinalizationRecord::genesis(&genesis_block_ptr);
+        let genesis_status = BlockStatus::Finalized(genesis_finalization_record.clone());
+
+        self.block_table.insert(
+            genesis_block_ptr.hash.clone(),
+            (genesis_block_ptr.clone(), genesis_status),
+        );
+
+        self.finalization_list
+            .push((genesis_finalization_record, genesis_block_ptr.clone()));
+
+        self.genesis_block_ptr = Some(genesis_block_ptr);
+    }
 }
