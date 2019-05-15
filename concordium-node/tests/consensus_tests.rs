@@ -11,7 +11,7 @@ mod tests {
         functor::{FilterFunctor, Functorable},
         spawn_or_die,
     };
-    use concordium_consensus::consensus::*;
+    use concordium_consensus::{consensus::*, ffi::*};
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
         common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,

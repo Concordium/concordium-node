@@ -23,6 +23,7 @@ use concordium_consensus::{
     block::*,
     common::{sha256, SerializeToBytes},
     consensus,
+    ffi::{self, *},
     finalization::{FinalizationMessage, FinalizationRecord},
 };
 use env_logger::{Builder, Env};
@@ -113,8 +114,7 @@ fn setup_baker_guards(
                     let bytes = block.serialize();
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes.write_u16::<NetworkEndian>(consensus::PacketType::Block as u16)
-                    {
+                    match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref.send_message(None, _network_id, None, out_bytes, true)
@@ -146,9 +146,9 @@ fn setup_baker_guards(
                     let bytes = msg.serialize();
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes.write_u16::<NetworkEndian>(
-                        consensus::PacketType::FinalizationMessage as u16,
-                    ) {
+                    match out_bytes
+                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
+                    {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_2.send_message(
@@ -176,9 +176,9 @@ fn setup_baker_guards(
                     let bytes = rec.serialize();
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes.write_u16::<NetworkEndian>(
-                        consensus::PacketType::FinalizationRecord as u16,
-                    ) {
+                    match out_bytes
+                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationRecord as u16)
+                    {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
                             match &_node_ref_3.send_message(
@@ -202,8 +202,7 @@ fn setup_baker_guards(
         let mut _node_ref_4 = node.clone();
         spawn_or_die!("Process baker catch-up requests", move || loop {
             use concordium_consensus::{
-                common::SHA256,
-                consensus::{CatchupRequest::*, PacketType::*},
+                common::SHA256, consensus::CatchupRequest::*, ffi::PacketType::*,
             };
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
@@ -274,9 +273,7 @@ fn setup_baker_guards(
                         let mut out_bytes =
                             Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                         out_bytes
-                            .write_u16::<NetworkEndian>(
-                                consensus::PacketType::FinalizationMessage as u16,
-                            )
+                            .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
                             .expect("Can't write to buffer");
                         out_bytes.extend(bytes);
                         match &_node_ref_5.send_message(
@@ -400,7 +397,7 @@ fn setup_process_output(
             if let Some(ref mut baker) = baker_ins {
                 use concordium_consensus::{
                     common::SHA256,
-                    consensus::PacketType::{self, *},
+                    ffi::PacketType::{self, *},
                 };
                 ensure!(
                     msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
@@ -720,7 +717,8 @@ macro_rules! send_catchup_request_to_baker {
         $consensus_req_call:expr
     ) => {{
         debug!("Got a consensus catch-up request for \"{}\"", $req_type);
-        use consensus::PacketType::*;
+        use PacketType::*;
+
         let res = $consensus_req_call($baker, $content)?;
         let return_type = match $req_type {
             CatchupBlockByHash => Block,
@@ -766,7 +764,7 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     content: &[u8],
 ) -> Fallible<()> {
     send_catchup_request_to_baker!(
-        consensus::PacketType::CatchupFinalizationRecordByIndex,
+        ffi::PacketType::CatchupFinalizationRecordByIndex,
         node,
         baker,
         content,
@@ -787,7 +785,7 @@ fn send_catchup_request_finalization_record_by_hash_baker(
     content: &[u8],
 ) -> Fallible<()> {
     send_catchup_request_to_baker!(
-        consensus::PacketType::CatchupFinalizationRecordByHash,
+        ffi::PacketType::CatchupFinalizationRecordByHash,
         node,
         baker,
         content,
@@ -807,7 +805,7 @@ fn send_catchup_request_block_by_hash_baker(
     content: &[u8],
 ) -> Fallible<()> {
     send_catchup_request_to_baker!(
-        consensus::PacketType::CatchupBlockByHash,
+        ffi::PacketType::CatchupBlockByHash,
         node,
         baker,
         content,
@@ -917,8 +915,7 @@ fn main() -> Fallible<()> {
                                 let mut out_bytes =
                                     Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                                 match out_bytes.write_u16::<NetworkEndian>(
-                                    consensus::PacketType::CatchupFinalizationMessagesByPoint
-                                        as u16,
+                                    ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
                                 ) {
                                     Ok(_) => {
                                         out_bytes.extend(&bytes);
@@ -944,7 +941,7 @@ fn main() -> Fallible<()> {
                                     }
                                     Err(_) => error!(
                                         "Can't write type to packet {}",
-                                        consensus::PacketType::CatchupFinalizationMessagesByPoint
+                                        ffi::PacketType::CatchupFinalizationMessagesByPoint
                                     ),
                                 }
                             }
@@ -992,7 +989,7 @@ fn main() -> Fallible<()> {
         if let Some(baker_id) = conf.cli.baker.baker_id {
             baker_ref.stop_baker(baker_id)
         };
-        consensus::stop_haskell();
+        ffi::stop_haskell();
     }
 
     // Close stats server export if present
@@ -1014,7 +1011,7 @@ fn start_baker(
         }
 
         info!("Starting up baker thread");
-        consensus::start_haskell();
+        ffi::start_haskell();
 
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
