@@ -394,10 +394,10 @@ impl FinalizationRecord {
 
     pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
         Self {
-            index: 0,
+            index:         0,
             block_pointer: genesis_block_ptr.hash.to_owned(),
-            proof: FinalizationProof::default(),
-            delay: 0,
+            proof:         FinalizationProof::default(),
+            delay:         0,
         }
     }
 }

@@ -40,13 +40,13 @@ pub struct SkovData {
     possibly_pending_table: HashMap<BlockHash, Vec<PendingBlock>>,
     // possibly_pending_queue: , // TODO: decide on a priority queue impl based on use
     // awaiting_last_finalized: , // ditto
-    finalization_list:    Vec<(FinalizationRecord, BlockPtr)>,
-    finalization_pool:    Vec<(FinalizationIndex, Vec<FinalizationRecord>)>,
+    finalization_list: Vec<(FinalizationRecord, BlockPtr)>,
+    finalization_pool: Vec<(FinalizationIndex, Vec<FinalizationRecord>)>,
     // branches:             Vec<BlockPtr>,
-    genesis_block_ptr:    Option<BlockPtr>,
+    genesis_block_ptr: Option<BlockPtr>,
     // focus_block:          BlockPtr,
     // pending_transactions: PendingTransactionTable,
-    transaction_table:    TransactionTable,
+    transaction_table: TransactionTable,
     // statistics:           ConsensusStatistics,
 }
 
@@ -57,10 +57,11 @@ impl SkovData {
 
         self.block_table.insert(
             genesis_block_ptr.hash.clone(),
-            (genesis_block_ptr.clone(), genesis_status)
+            (genesis_block_ptr.clone(), genesis_status),
         );
 
-        self.finalization_list.push((genesis_finalization_record, genesis_block_ptr.clone()));
+        self.finalization_list
+            .push((genesis_finalization_record, genesis_block_ptr.clone()));
 
         self.genesis_block_ptr = Some(genesis_block_ptr);
     }
