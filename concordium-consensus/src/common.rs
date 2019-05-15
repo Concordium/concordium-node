@@ -60,7 +60,7 @@ pub enum Address {
 
 pub type Amount = u64;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(NonZeroU64);
 
 pub type Slot = u64;
@@ -149,3 +149,7 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
+
+pub trait SerializeToBytes {
+    fn serialize(&self) -> Box<[u8]>;
+}

@@ -354,12 +354,12 @@ impl CssDoneReporting {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FinalizationRecord {
-    index:         FinalizationIndex,
-    block_pointer: BlockHash,
-    proof:         FinalizationProof,
-    delay:         BlockHeight,
+    pub index:         FinalizationIndex,
+    pub block_pointer: BlockHash,
+    pub proof:         FinalizationProof,
+    pub delay:         BlockHeight,
 }
 
 impl fmt::Display for FinalizationRecord {
@@ -391,8 +391,10 @@ impl FinalizationRecord {
 
         Ok(rec)
     }
+}
 
-    pub fn serialize(&self) -> Box<[u8]> {
+impl SerializeToBytes for FinalizationRecord {
+    fn serialize(&self) -> Box<[u8]> {
         let proof = self.proof.serialize();
 
         let mut cursor = create_serialization_cursor(
@@ -411,8 +413,8 @@ impl FinalizationRecord {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct FinalizationProof(Vec<(u32, Encoded)>);
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct FinalizationProof(Vec<(u32, Encoded)>);
 
 impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
