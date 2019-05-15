@@ -13,6 +13,7 @@ sudo rm -f /usr/local/lib/libHSmonadplus-*.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libHSacorn-*.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libHSconcordium-crypto-*.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libHSglobalstate-*.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libHSscheduler-*.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libconcordium-crypto.$LIBEXTENSION*
 sudo rm -f /usr/local/lib/libec_vrf_ed25519.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libeddsa_ed25519.$LIBEXTENSION
@@ -48,6 +49,7 @@ sudo ldconfig
   sudo find /usr/local/lib -name libHSacorn\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSacorn-0.1.0.0.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSglobalstate-0.1*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSglobalstate-0.1.$LIBEXTENSION \; &&
   sudo find /usr/local/lib -name libHSglobalstate-types-\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSglobalstate-types-0.1.0.0.$LIBEXTENSION \; &&
+  sudo find /usr/local/lib -name libHSscheduler-\*.$LIBEXTENSION -exec ln -s {} /usr/local/lib/libHSscheduler-0.1.0.0.$LIBEXTENSION \; &&
   sudo ln -s /usr/local/lib/libHSconcordium-crypto-0.1*.$LIBEXTENSION /usr/local/lib/libHSconcordium-crypto-0.1.$LIBEXTENSION &&
   rm -rf .stack-work
   ) 

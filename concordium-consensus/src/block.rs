@@ -22,7 +22,7 @@ pub enum Block {
     Regular(BakedBlock),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct BakedBlock {
     pub slot:       Slot,
     pointer:        BlockHash,

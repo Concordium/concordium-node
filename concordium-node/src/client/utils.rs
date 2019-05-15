@@ -3,14 +3,9 @@ use crate::{
     configuration,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_consensus::{common::SerializeToBytes, block::BakedBlock, finalization::FinalizationRecord};
+use concordium_consensus::{block::BakedBlock, finalization::FinalizationRecord};
 use failure::Fallible;
-use std::{
-    cmp::Eq,
-    fmt::Debug,
-    hash::Hash,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
@@ -19,47 +14,27 @@ cfg_if! {
     }
 }
 
-pub enum SeenTransmissionType {
-    Block,
-    FinalizationRecord,
-}
-
 lazy_static! {
     static ref SEEN_TRANSMISSIONS_LIST_BLOCKS: SeenTransmissionsList<BakedBlock> =
         { SeenTransmissionsList::<BakedBlock>::new(0, 5_000u64) };
-    static ref SEEN_TRANSMISSIONS_LIST_FINALIZATIONRECORDS: SeenTransmissionsList<FinalizationRecord> =
+    static ref SEEN_TRANSMISSIONS_LIST_FINALIZATION_RECORDS: SeenTransmissionsList<FinalizationRecord> =
         { SeenTransmissionsList::<FinalizationRecord>::new(0, 5_000u64) };
 }
 
-pub fn add_transmission_to_seenlist<T>(
-    transmission_type: SeenTransmissionType,
-    seen_at: u64,
-    payload: T,
-) -> Fallible<bool>
-where
-    T: Eq + Debug + Hash + SerializeToBytes, {
-    match transmission_type {
-        SeenTransmissionType::Block => {
-            SEEN_TRANSMISSIONS_LIST_BLOCKS.add_transmission(seen_at, payload)
-        }
-        SeenTransmissionType::FinalizationRecord => {
-            SEEN_TRANSMISSIONS_LIST_FINALIZATIONRECORDS.add_transmission(seen_at, payload)
-        }
-    }
+pub fn add_block_to_seenlist(seen_at: u64, block: &BakedBlock) -> Fallible<bool> {
+    SEEN_TRANSMISSIONS_LIST_BLOCKS.add_transmission(seen_at, block)
 }
 
-pub fn get_transmissions_since_from_seenlist(
-    transmission_type: SeenTransmissionType,
-    since_stamp: u64,
-) -> Fallible<Vec<Box<[u8]>>> {
-    match transmission_type {
-        SeenTransmissionType::Block => {
-            SEEN_TRANSMISSIONS_LIST_BLOCKS.get_transmissions_since(since_stamp)
-        }
-        SeenTransmissionType::FinalizationRecord => {
-            SEEN_TRANSMISSIONS_LIST_FINALIZATIONRECORDS.get_transmissions_since(since_stamp)
-        }
-    }
+pub fn add_record_to_seenlist(seen_at: u64, rec: &FinalizationRecord) -> Fallible<bool> {
+    SEEN_TRANSMISSIONS_LIST_FINALIZATION_RECORDS.add_transmission(seen_at, rec)
+}
+
+pub fn get_blocks_since_from_seenlist(since_stamp: u64) -> Fallible<Vec<Box<[u8]>>> {
+    SEEN_TRANSMISSIONS_LIST_BLOCKS.get_transmissions_since(since_stamp)
+}
+
+pub fn get_recs_since_from_seenlist(since_stamp: u64) -> Fallible<Vec<Box<[u8]>>> {
+    SEEN_TRANSMISSIONS_LIST_FINALIZATION_RECORDS.get_transmissions_since(since_stamp)
 }
 
 #[cfg(feature = "instrumentation")]

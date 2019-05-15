@@ -354,7 +354,7 @@ impl CssDoneReporting {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FinalizationRecord {
     index:         FinalizationIndex,
     block_pointer: BlockHash,
