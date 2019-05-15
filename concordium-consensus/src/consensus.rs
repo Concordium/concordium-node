@@ -691,7 +691,7 @@ impl ConsensusContainer {
                 return baker.send_block(peer_id, block);
             }
         }
-        1
+        -1
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: &FinalizationMessage) -> i64 {
