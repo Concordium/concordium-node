@@ -185,27 +185,18 @@ lazy_static! {
     pub static ref SKOV_DATA: RwLock<SkovData> = { RwLock::new(SkovData::default()) };
 }
 
-type GenesisData = Vec<u8>;
 type PrivateData = HashMap<i64, Vec<u8>>;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ConsensusContainer {
-    pub genesis_data: GenesisData,
-    bakers:           Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
+    bakers: Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
-    pub fn new(genesis_data: Vec<u8>) -> Self {
-        ConsensusContainer {
-            genesis_data,
-            bakers: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    pub fn start_baker(&mut self, baker_id: u64, private_data: Vec<u8>) {
+    pub fn start_baker(&mut self, baker_id: u64, genesis_data: &[u8], private_data: Vec<u8>) {
         safe_write!(self.bakers).insert(
             baker_id,
-            ConsensusBaker::new(baker_id, &self.genesis_data, private_data),
+            ConsensusBaker::new(baker_id, genesis_data, private_data),
         );
     }
 
