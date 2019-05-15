@@ -89,7 +89,7 @@ instance Show FinalizationRound where
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: BlockHash,
     fsidIncarnation :: Word64
-} deriving (Eq)
+} deriving (Eq, Show)
 
 instance S.Serialize FinalizationSessionId where
     put FinalizationSessionId{..} = S.put fsidGenesis >> putWord64be fsidIncarnation
@@ -439,6 +439,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} = sum 
             else 0
 
 data FinalizationPoint = FinalizationPoint FinalizationSessionId FinalizationIndex BlockHeight
+  deriving(Show)
 
 instance S.Serialize FinalizationPoint where
     put (FinalizationPoint session index delta) = do
@@ -449,14 +450,15 @@ instance S.Serialize FinalizationPoint where
 
 -- |Get all of the finalization messages received for indexes beyond the last finalized index
 -- and no sooner than the given finalization point.
-getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [BS.ByteString]
+getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [(String, BS.ByteString)]
 getPendingFinalizationMessages fs (FinalizationPoint sess lowIndex lowIndexDelta)
         | sess == fs ^. finSessionId = Map.foldrWithKey eachIndex [] (at lowIndex . non Map.empty %~ Map.dropWhileAntitone (<lowIndexDelta) $ Map.dropWhileAntitone (< lowIndex) $ fs ^. finPendingMessages)
         | otherwise = []
     where
         eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
         eachDelta ind delta msgs l = map (eachMsg ind delta) msgs ++ l
-        eachMsg ind delta (senderIndex, msgBody, msgSignature) = runPut $ S.put FinalizationMessage{..}
+        eachMsg ind delta (senderIndex, msgBody, msgSignature) = let fmsg = FinalizationMessage{..} in
+                                                                 (show fmsg, runPut (S.put fmsg))
             where
                 msgHeader = FinalizationMessageHeader {
                     msgSessionId = fs ^. finSessionId,

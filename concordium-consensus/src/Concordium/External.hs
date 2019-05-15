@@ -11,6 +11,7 @@ import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
 import Data.Serialize.Put as P
 import Data.IORef
+import Data.Foldable(forM_)
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
@@ -421,7 +422,8 @@ getFinalizationMessages bptr peer finPtStr finPtLen callback = do
                 return 1
             Right fpt -> do
                 finMsgs <- runLoggerT (Get.getFinalizationMessages sfsRef fpt) logm
-                mapM_  (\finMsg -> BS.useAsCStringLen finMsg $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)) finMsgs
+                forM_  finMsgs $ \(toLog, finMsg) -> do logm External LLDebug $ "Sending finalization catchup, data = " ++ toLog
+                                                        BS.useAsCStringLen finMsg $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)
                 return 0
 
 -- |Get the current point in the finalization protocol.
@@ -433,6 +435,7 @@ getFinalizationPoint bptr = do
         BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
         logm External LLInfo $ "Received request for finalization point"
         finPt <- Get.getFinalizationPoint sfsRef
+        logm External LLDebug $ "Replying with finalization point = " ++ show finPt
         byteStringToCString $ P.runPut $ put finPt
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()

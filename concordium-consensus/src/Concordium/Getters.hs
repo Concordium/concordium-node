@@ -177,7 +177,7 @@ getIndexedFinalization sfsRef finInd = do
         sfs <- liftIO $ readIORef sfsRef
         return $ fst <$> sfs ^? finalizationList . ix (fromIntegral finInd)
 
-getFinalizationMessages :: (MonadIO m) => IORef SkovFinalizationState -> FinalizationPoint -> m [BS.ByteString]
+getFinalizationMessages :: (MonadIO m) => IORef SkovFinalizationState -> FinalizationPoint -> m [(String, BS.ByteString)]
 getFinalizationMessages sfsRef finPt = do
         sfs <- liftIO $ readIORef sfsRef
         return $ getPendingFinalizationMessages sfs finPt
