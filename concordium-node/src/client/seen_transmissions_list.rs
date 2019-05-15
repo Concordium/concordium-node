@@ -12,7 +12,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct SeenTransmissionsList<T>
 where
-    T: Eq + Debug + Hash + SerializeToBytes, {
+    T: Eq + Debug + Hash + SerializeToBytes + Clone, {
     seen_transmissions:         Arc<RwLock<HashSet<T>>>,
     max_elements:               u64,
     max_size_bytes_per_element: u64,
@@ -20,7 +20,7 @@ where
 
 impl<T> SeenTransmissionsList<T>
 where
-    T: Eq + Debug + Hash + SerializeToBytes,
+    T: Eq + Debug + Hash + SerializeToBytes + Clone,
 {
     pub fn new(max_elements: u64, max_size_bytes_per_element: u64) -> Self {
         Self {
@@ -30,11 +30,11 @@ where
         }
     }
 
-    fn append(&self, payload: T) -> Fallible<bool> {
+    fn append(&self, payload: &T) -> Fallible<bool> {
         let mut list = safe_write!(self.seen_transmissions)?;
-        if !list.contains(&payload) {
+        if !list.contains(payload) {
             // TODO: Manage cache length
-            Ok(list.insert(payload))
+            Ok(list.insert(payload.clone()))
         } else {
             bail!(fails::DuplicateSeenTransmissionElementAttempted::new(
                 format!("{:?}", payload)
@@ -46,7 +46,7 @@ where
         &self,
         // TODO : ignore this field for now
         _seen_at: u64,
-        payload: T,
+        payload: &T,
     ) -> Fallible<bool> {
         self.append(payload)
     }

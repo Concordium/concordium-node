@@ -29,7 +29,7 @@ use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::utils as client_utils,
-    common::{P2PNodeId, PeerType},
+    common::{get_current_stamp, P2PNodeId, PeerType},
     configuration,
     connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
@@ -615,16 +615,24 @@ fn send_finalization_record_to_baker(
 ) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(content)?;
 
-    match baker.send_finalization_record(peer_id.as_raw(), &record) {
-        0i64 => info!("Peer {} sent a {} to a baker", peer_id, record),
-        err_code => error!(
-            "Peer {} can't send a finalization record to a baker due to error code #{} (bytes: \
-             {:?}, length: {})",
+    if let Ok(true) = client_utils::add_record_to_seenlist(get_current_stamp(), &record) {
+        match baker.send_finalization_record(peer_id.as_raw(), &record) {
+            0i64 => info!("Peer {} sent a {} to a baker", peer_id, record),
+            err_code => error!(
+                "Peer {} can't send a finalization record to a baker due to error code #{} \
+                 (bytes: {:?}, length: {})",
+                peer_id,
+                err_code,
+                content,
+                content.len(),
+            ),
+        }
+    } else {
+        error!(
+            "Peer {} sent us a duplicate finalization record ({:?})",
             peer_id,
-            err_code,
-            content,
-            content.len(),
-        ),
+            sha256(content)
+        );
     }
 
     Ok(())
@@ -649,21 +657,28 @@ fn send_block_to_baker(
     content: &[u8],
 ) -> Fallible<()> {
     let block = BakedBlock::deserialize(content)?;
-
-    match baker.send_block(peer_id.as_raw(), &block) {
-        0i64 => info!(
-            "Peer {} sent a block ({:?}) to a baker",
+    if let Ok(true) = client_utils::add_block_to_seenlist(get_current_stamp(), &block) {
+        match baker.send_block(peer_id.as_raw(), &block) {
+            0i64 => info!(
+                "Peer {} sent a block ({:?}) to a baker",
+                peer_id,
+                sha256(content)
+            ),
+            err_code => error!(
+                "Peer {} can't send block from network to baker due to error code #{} (bytes: \
+                 {:?}, length: {})",
+                peer_id,
+                err_code,
+                content,
+                content.len(),
+            ),
+        }
+    } else {
+        error!(
+            "Peer {} sent us a duplicate block ({:?})",
             peer_id,
             sha256(content)
-        ),
-        err_code => error!(
-            "Peer {} can't send block from network to baker due to error code #{} (bytes: {:?}, \
-             length: {})",
-            peer_id,
-            err_code,
-            content,
-            content.len(),
-        ),
+        );
     }
 
     Ok(())

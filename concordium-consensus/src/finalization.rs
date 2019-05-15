@@ -329,7 +329,7 @@ impl CssDoneReporting {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FinalizationRecord {
     index:         FinalizationIndex,
     block_pointer: BlockHash,
@@ -390,7 +390,7 @@ impl SerializeToBytes for FinalizationRecord {
 
 type SignatureCount = u64;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct FinalizationProof(Vec<(u32, Encoded)>);
 
 impl FinalizationProof {

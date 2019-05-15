@@ -12,7 +12,7 @@ use std::{
 
 use crate::{block::*, common::*};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct TransactionHeader {
     scheme_id:         Encoded,
     sender_key:        Encoded,
@@ -24,7 +24,7 @@ pub struct TransactionHeader {
 
 pub type TransactionHash = HashBytes;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Transaction {
     signature: ByteString,
     header:    TransactionHeader,
@@ -48,7 +48,7 @@ impl Transaction {
 
 pub type TransactionCount = u64;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Transactions(Vec<Transaction>);
 
 impl Transactions {

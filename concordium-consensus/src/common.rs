@@ -60,7 +60,7 @@ pub enum Address {
 
 pub type Amount = u64;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(NonZeroU64);
 
 pub type Slot = u64;
