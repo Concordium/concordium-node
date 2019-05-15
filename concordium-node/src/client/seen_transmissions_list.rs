@@ -30,25 +30,20 @@ where
         }
     }
 
-    fn append(&self, payload: &T) -> Fallible<bool> {
-        let mut list = safe_write!(self.seen_transmissions)?;
-        if !list.contains(payload) {
-            // TODO: Manage cache length
-            Ok(list.insert(payload.clone()))
-        } else {
-            bail!(fails::DuplicateSeenTransmissionElementAttempted::new(
-                format!("{:?}", payload)
-            ))
-        }
-    }
-
     pub fn add_transmission(
         &self,
         // TODO : ignore this field for now
         _seen_at: u64,
         payload: &T,
     ) -> Fallible<bool> {
-        self.append(payload)
+        let mut list = safe_write!(self.seen_transmissions)?;
+        // TODO: Manage cache length
+        if !list.insert(payload.to_owned()) {
+            bail!(fails::DuplicateSeenTransmissionElementAttempted::new(
+                format!("{:?}", payload)
+            ))
+        }
+        Ok(true)
     }
 
     pub fn get_transmissions_since(

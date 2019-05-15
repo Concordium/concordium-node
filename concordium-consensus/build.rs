@@ -1,4 +1,4 @@
-use std::{borrow, env, path::Path, process::Command, str};
+use std::{env, path::Path, process::Command, str};
 use walkdir;
 
 fn main() {

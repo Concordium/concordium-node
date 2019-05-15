@@ -356,10 +356,10 @@ impl CssDoneReporting {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FinalizationRecord {
-    index:         FinalizationIndex,
-    block_pointer: BlockHash,
-    proof:         FinalizationProof,
-    delay:         BlockHeight,
+    pub index:         FinalizationIndex,
+    pub block_pointer: BlockHash,
+    pub proof:         FinalizationProof,
+    pub delay:         BlockHeight,
 }
 
 impl fmt::Display for FinalizationRecord {
@@ -413,8 +413,8 @@ impl SerializeToBytes for FinalizationRecord {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct FinalizationProof(Vec<(u32, Encoded)>);
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct FinalizationProof(Vec<(u32, Encoded)>);
 
 impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {

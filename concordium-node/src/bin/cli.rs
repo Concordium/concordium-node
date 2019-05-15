@@ -630,8 +630,7 @@ fn send_finalization_record_to_baker(
     } else {
         error!(
             "Peer {} sent us a duplicate finalization record ({:?})",
-            peer_id,
-            sha256(content)
+            peer_id, &record.block_pointer
         );
     }
 

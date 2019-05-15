@@ -66,7 +66,19 @@ impl BakedBlock {
         Ok(block)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    pub fn baker_id(&self) -> BakerId { self.baker_id }
+
+    pub fn pointer_ref(&self) -> &HashBytes { &self.pointer }
+
+    pub fn last_finalized_ref(&self) -> &HashBytes { &self.last_finalized }
+
+    pub fn slot_id(&self) -> Slot { self.slot }
+
+    pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
+}
+
+impl SerializeToBytes for BakedBlock {
+    fn serialize(&self) -> Box<[u8]> {
         let transactions = Transactions::serialize(&self.transactions);
         let consts = size_of::<Slot>()
             + POINTER as usize
@@ -88,16 +100,6 @@ impl BakedBlock {
 
         cursor.into_inner()
     }
-
-    pub fn baker_id(&self) -> BakerId { self.baker_id }
-
-    pub fn pointer_ref(&self) -> &HashBytes { &self.pointer }
-
-    pub fn last_finalized_ref(&self) -> &HashBytes { &self.last_finalized }
-
-    pub fn slot_id(&self) -> Slot { self.slot }
-
-    pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
 }
 
 #[derive(Debug)]
