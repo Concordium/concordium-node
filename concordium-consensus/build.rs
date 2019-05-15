@@ -11,41 +11,18 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=HSdll");
         }
         Ok(other_arch) => {
-            match link_ghc_libs() {
-                Err(e) => panic!("Unable to link ghc_libs: {}", e),
-                Ok(_) => println!("cargo:rustc-link-search=native=htest"),
-            };
-            let ghc_arc = match other_arch {
-                "darwin" => "osx",
-                _ => "linux",
-            };
-            let version = String::from_utf8(
-                Command::new("stack")
-                    .args(&["ghc", "--", "--version"])
-                    .output()
-                    .expect("running stack failed")
-                    .stdout,
-            )
-            .expect("non-UTF8 string returned by stack")
-            .split_ascii_whitespace()
-            .last()
-            .map(borrow::ToOwned::to_owned)
-            .expect("No version returned from ghc");
-
-            println!(
-                "cargo:rustc-link-search=native={}/../.stack/programs/x86_64-{}/ghc-tinfo6-{}/lib/\
-                 ghc-{}/rts",
-                env!("CARGO_HOME"),
-                ghc_arc,
-                &version,
-                &version,
-            );
             println!("cargo:rustc-link-search=native=/usr/local/lib");
             println!("cargo:rustc-link-lib=dylib=HSConcordium-0.1.0.0");
             println!("cargo:rustc-link-lib=dylib=HSacorn-0.1.0.0");
             println!("cargo:rustc-link-lib=dylib=HSconcordium-crypto-0.1");
             println!("cargo:rustc-link-lib=dylib=HSglobalstate-0.1");
             println!("cargo:rustc-link-lib=dylib=HSglobalstate-types-0.1.0.0");
+            println!("cargo:rustc-link-lib=dylib=HSscheduler-0.1.0.0");
+
+            match link_ghc_libs() {
+                Err(e) => panic!("Unable to link ghc_libs: {}", e),
+                Ok(_) => println!("cargo:rustc-link-search=native=htest"),
+            };
         }
         _ => panic!("Unknown architecture / OS"),
     }
