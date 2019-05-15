@@ -153,6 +153,8 @@ impl P2PNode {
             P2PNodeId::default()
         };
 
+        info!("My Node ID is {}", id);
+
         let poll = Poll::new().unwrap_or_else(|_| panic!("Couldn't create poll"));
 
         let server =
