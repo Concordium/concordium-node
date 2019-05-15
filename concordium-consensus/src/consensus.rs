@@ -698,7 +698,7 @@ impl ConsensusContainer {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             baker.send_finalization(peer_id, msg);
         }
-        -1
+        0
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: &FinalizationRecord) -> i64 {
