@@ -22,7 +22,16 @@ pub enum Block {
     Regular(BakedBlock),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+impl Block {
+    pub fn is_genesis(&self) -> bool {
+        match self {
+            Block::Genesis(_) => true,
+            Block::Regular(_) => false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:       Slot,
     pointer:        BlockHash,
