@@ -44,6 +44,11 @@ pub fn forward_network_request(
     Ok(())
 }
 
+type OutgoingQueues<'a> = (
+    &'a Sender<Arc<NetworkMessage>>,
+    &'a Mutex<Option<Sender<Arc<NetworkMessage>>>>,
+);
+
 /// It forwards network packet message into `packet_queue` if message id has not
 /// been already seen and its `network id` belong to `own_networks`.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
@@ -51,8 +56,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &Sender<Arc<NetworkMessage>>,
-    packet_queue: &Sender<Arc<NetworkMessage>>,
-    rpc_queue: &Mutex<Option<Sender<Arc<NetworkMessage>>>>,
+    outgoing_queues: &OutgoingQueues,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
@@ -66,8 +70,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             stats_export_service,
             own_networks,
             send_queue,
-            packet_queue,
-            rpc_queue,
+            outgoing_queues,
             pac,
             blind_trust_broadcast,
         )
@@ -102,8 +105,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
     send_queue: &Sender<Arc<NetworkMessage>>,
-    packet_queue: &Sender<Arc<NetworkMessage>>,
-    rpc_queue: &Mutex<Option<Sender<Arc<NetworkMessage>>>>,
+    outgoing_queues: &OutgoingQueues,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
@@ -121,22 +123,17 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
                 };
             }
         }
-        if let Ok(locked) = safe_lock!(rpc_queue) {
+
+        if let Ok(locked) = outgoing_queues.1.lock() {
             if let Some(queue) = locked.deref() {
                 if let Err(e) = queue.send(outer.clone()) {
-                    warn!(
-                        "Forward network packet cannot be sent to rpc_queue: {}",
-                        e.to_string()
-                    );
+                    warn!("Cannot be sent from the rpc queue: {}", e.to_string());
                 }
             }
         }
 
-        if let Err(e) = packet_queue.send(outer) {
-            warn!(
-                "Forward network packet cannot be sent by incoming_pkts: {}",
-                e.to_string()
-            );
+        if let Err(e) = outgoing_queues.0.send(outer.clone()) {
+            warn!("Cannot be sent from the packet queue: {}", e.to_string());
         }
     } else if let Some(ref service) = stats_export_service {
         safe_write!(service)?.invalid_network_pkts_received_inc();
