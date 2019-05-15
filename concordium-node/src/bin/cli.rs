@@ -625,7 +625,7 @@ fn send_finalization_record_to_baker(
             ),
         }
     } else {
-        error!(
+        debug!(
             "Peer {} sent us a duplicate finalization record ({:?})",
             peer_id, &record.block_pointer
         );
@@ -670,7 +670,7 @@ fn send_block_to_baker(
             ),
         }
     } else {
-        error!(
+        debug!(
             "Peer {} sent us a duplicate block ({:?})",
             peer_id,
             sha256(content)
@@ -702,7 +702,6 @@ fn send_catchup_finalization_messages_by_point_to_baker(
             content.len(),
         ),
     }
-
     Ok(())
 }
 
@@ -1057,7 +1056,7 @@ fn create_connections_from_config(
                         .unwrap_or_else(|e| error!("{}", e));
                 }
             }
-            Err(err) => error!("{}", err),
+            Err(err) => error!("Can't parse data for node to connect to {}", err),
         }
     }
 }
