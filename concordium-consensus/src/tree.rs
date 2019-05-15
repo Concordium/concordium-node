@@ -2,7 +2,7 @@ use chrono::prelude::{DateTime, Utc};
 
 use std::collections::HashMap;
 
-use crate::{block::*, common::*, finalization::*, transaction::Transaction};
+use crate::{block::*, common::*, finalization::*, transaction::*};
 
 #[derive(Debug)]
 pub struct BlockPtr {
@@ -123,7 +123,7 @@ struct SkovData {
     branches:             Vec<BlockPtr>,
     genesis_block_ptr:    BlockPtr,
     focus_block:          BlockPtr,
-    pending_transactions: Vec<Transaction>,
-    transaction_table:    Vec<Transaction>,
+    pending_transactions: PendingTransactionTable,
+    transaction_table:    TransactionTable,
     statistics:           ConsensusStatistics,
 }

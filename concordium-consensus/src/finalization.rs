@@ -131,31 +131,29 @@ enum WmvbaMessage {
 
 impl fmt::Display for WmvbaMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                WmvbaMessage::Proposal(prop) => format!("Proposal: {:?}", prop),
-                WmvbaMessage::Vote(vote) => format!(
-                    "Vote: {}",
-                    if let Some(v) = vote {
-                        format!("{:?}", v)
-                    } else {
-                        "blank".to_owned()
-                    }
-                ),
-                WmvbaMessage::AbbaInput(_) => "AbbaInput".to_owned(),
-                WmvbaMessage::CssSeen(_) => "CssSeen".to_owned(),
-                WmvbaMessage::CssDoneReporting(_) => "CssDoneReporting".to_owned(),
-                WmvbaMessage::AreWeDone(arewe) => if *arewe {
-                    "We're done"
+        let output = match self {
+            WmvbaMessage::Proposal(prop) => format!("Proposal: {:?}", prop),
+            WmvbaMessage::Vote(vote) => format!(
+                "Vote: {}",
+                if let Some(v) = vote {
+                    format!("{:?}", v)
                 } else {
-                    "We're not done"
+                    "blank".to_owned()
                 }
-                .to_owned(),
-                WmvbaMessage::WitnessCreator(_) => "WitnessCreator".to_owned(),
+            ),
+            WmvbaMessage::AbbaInput(abba) => format!("AbbaInput phase {}", abba.phase),
+            WmvbaMessage::CssSeen(css) => format!("CssSeen phase {}", css.phase),
+            WmvbaMessage::CssDoneReporting(c) => format!("CssDoneReporting phase {}", c.phase),
+            WmvbaMessage::AreWeDone(arewe) => if *arewe {
+                "We're done"
+            } else {
+                "We're not done"
             }
-        )
+            .to_owned(),
+            WmvbaMessage::WitnessCreator(_) => "WitnessCreator".to_owned(),
+        };
+
+        write!(f, "{}", output)
     }
 }
 
@@ -295,14 +293,9 @@ impl CssSeen {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct CssDoneReporting {
-    phase: Phase,
-    rest:  Encoded, /* TODO when specs improve
-                     * nominatedFalseCount: u64,
-                     * nominatedFalse: u64, // FIXME: it's actually u64 * 4, which seems
-                     * excessive nominatedTrueCount: u64,
-                     * nominatedTrue: u64, // FIXME: it's actually u64 * 4, which seems
-                     * excessive
-                     */
+    phase:       Phase,
+    chose_false: Vec<Party>,
+    chose_true:  Vec<Party>,
 }
 
 impl CssDoneReporting {
@@ -310,9 +303,26 @@ impl CssDoneReporting {
         let mut cursor = Cursor::new(bytes);
 
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-        let rest = Encoded::new(&read_all(&mut cursor)?);
 
-        let cssr = CssDoneReporting { phase, rest };
+        let n_false = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let mut chose_false = Vec::with_capacity(n_false as usize);
+        for _ in 0..n_false {
+            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
+            chose_false.push(party);
+        }
+
+        let n_true = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let mut chose_true = Vec::with_capacity(n_true as usize);
+        for _ in 0..n_true {
+            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
+            chose_true.push(party);
+        }
+
+        let cssr = CssDoneReporting {
+            phase,
+            chose_false,
+            chose_true,
+        };
 
         check_serialization!(cssr, cursor);
 
@@ -320,10 +330,25 @@ impl CssDoneReporting {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<Phase>() + self.rest.len());
+        let mut cursor = create_serialization_cursor(
+            size_of::<Phase>()
+                + 8 // u64 count of those who chose "false"
+                + size_of::<Party>() * self.chose_false.len()
+                + 8 // u64 count of those who chose "true"
+                + size_of::<Party>() * self.chose_true.len(),
+        );
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
-        let _ = cursor.write_all(&self.rest);
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.chose_false.len() as u64);
+        for party in &self.chose_false {
+            let _ = cursor.write_u32::<NetworkEndian>(*party);
+        }
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.chose_true.len() as u64);
+        for party in &self.chose_true {
+            let _ = cursor.write_u32::<NetworkEndian>(*party);
+        }
 
         cursor.into_inner()
     }
@@ -386,8 +411,6 @@ impl FinalizationRecord {
     }
 }
 
-type SignatureCount = u64;
-
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct FinalizationProof(Vec<(u32, Encoded)>);
 
@@ -395,8 +418,7 @@ impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count =
-            NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<SignatureCount>()));
+        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
@@ -416,9 +438,7 @@ impl FinalizationProof {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            size_of::<SignatureCount>() + self.0.len() * (4 + SIGNATURE as usize),
-        );
+        let mut cursor = create_serialization_cursor(8 + self.0.len() * (4 + SIGNATURE as usize));
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

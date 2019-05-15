@@ -116,13 +116,13 @@ impl TryFrom<u8> for TransactionType {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct AccountNonFinalizedTransactions {
     map:        Vec<(Nonce, HashSet<Transaction>)>,
     next_nonce: Nonce,
 }
 
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct TransactionTable {
     map: HashMap<TransactionHash, (Transaction, Slot)>,
     non_finalized_transactions: HashMap<Encoded, AccountNonFinalizedTransactions>,
