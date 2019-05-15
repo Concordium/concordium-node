@@ -1019,8 +1019,8 @@ fn start_baker(
                 safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
 
                 let mut consensus_runner = consensus::ConsensusContainer::default();
+                consensus_runner.start_baker(baker_id, genesis_data, private_data);
 
-                consensus_runner.start_baker(baker_id, &genesis_data, private_data);
                 Some(consensus_runner)
             }
             Err(_) => {

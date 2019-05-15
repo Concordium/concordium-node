@@ -250,26 +250,26 @@ extern "C" {
 
 #[derive(Clone)]
 pub struct ConsensusBaker {
-    pub id:           BakerId,
-    pub private_data: Vec<u8>,
-    pub runner:       Arc<AtomicPtr<baker_runner>>,
+    pub id:     BakerId,
+    pub runner: Arc<AtomicPtr<baker_runner>>,
 }
 
 impl ConsensusBaker {
-    pub fn new(baker_id: BakerId, genesis_data: &[u8], private_data: Vec<u8>) -> Self {
+    pub fn new(baker_id: BakerId, genesis_data: Vec<u8>, private_data: Vec<u8>) -> Self {
         info!("Starting up baker {}", baker_id);
 
         let genesis_data_len = genesis_data.len();
+        let private_data_len = private_data.len();
 
-        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.to_vec()) };
-        let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data.clone()) };
+        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
+        let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
 
         let baker = unsafe {
             startBaker(
                 c_string_genesis.as_ptr() as *const u8,
                 genesis_data_len as i64,
                 c_string_private_data.as_ptr() as *const u8,
-                private_data.len() as i64,
+                private_data_len as i64,
                 on_consensus_data_out,
                 on_log_emited,
                 on_catchup_block_by_hash,
@@ -285,8 +285,7 @@ impl ConsensusBaker {
         // 2x identical 32B-long byte sequences
 
         ConsensusBaker {
-            id: baker_id,
-            private_data,
+            id:     baker_id,
             runner: Arc::new(AtomicPtr::new(baker)),
         }
     }

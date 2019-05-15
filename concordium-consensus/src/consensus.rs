@@ -193,7 +193,7 @@ pub struct ConsensusContainer {
 }
 
 impl ConsensusContainer {
-    pub fn start_baker(&mut self, baker_id: u64, genesis_data: &[u8], private_data: Vec<u8>) {
+    pub fn start_baker(&mut self, baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) {
         safe_write!(self.bakers).insert(
             baker_id,
             ConsensusBaker::new(baker_id, genesis_data, private_data),

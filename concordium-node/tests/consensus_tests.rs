@@ -55,8 +55,8 @@ mod tests {
 
         let (genesis_data, private_data) = ConsensusContainer::generate_data(0, 1)
             .unwrap_or_else(|_| panic!("Couldn't read haskell data"));
-        let mut consensus_container = ConsensusContainer::new(genesis_data);
-        &consensus_container.start_baker(0, private_data[&0].clone());
+        let mut consensus_container = ConsensusContainer::default();
+        &consensus_container.start_baker(0, genesis_data, private_data[&0].clone());
 
         let (sender, receiver) = mpsc::channel();
         let _guard = spawn_or_die!("Log loop", move || loop {
