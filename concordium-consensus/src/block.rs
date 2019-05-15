@@ -1,6 +1,7 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Block.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+use chrono::prelude::{DateTime, Utc};
 use failure::Fallible;
 
 use std::{
@@ -168,3 +169,80 @@ pub type Duration = u64;
 pub type BlockHeight = u64;
 
 pub type BlockHash = HashBytes;
+
+#[derive(Debug)]
+pub struct PendingBlock {
+    hash:     BlockHash,
+    block:    BakedBlock,
+    received: DateTime<Utc>,
+}
+
+impl PendingBlock {
+    pub fn new(block: BakedBlock, received: DateTime<Utc>) -> Self {
+        let hash = sha256(&block.serialize());
+
+        Self {
+            hash,
+            block,
+            received,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BlockPtr {
+    pub hash:           BlockHash,
+    pub block:          Block,
+    pub parent:         Option<Box<BlockPtr>>,
+    pub last_finalized: Option<Box<BlockPtr>>,
+    pub height:         BlockHeight,
+    // state:       BlockState,
+    pub received:  DateTime<Utc>,
+    pub validated: DateTime<Utc>,
+}
+
+impl BlockPtr {
+    pub fn genesis(genesis_bytes: &[u8]) -> Self {
+        let genesis_data = GenesisData::deserialize(genesis_bytes).expect("Invalid genesis data");
+        let genesis_block = Block::Genesis(genesis_data);
+        let timestamp = Utc::now(); // TODO: be more precise when Kontrol is there
+
+        BlockPtr {
+            hash:           sha256(genesis_bytes),
+            block:          genesis_block,
+            parent:         None,
+            last_finalized: None,
+            height:         0,
+            received:       timestamp,
+            validated:      timestamp,
+        }
+    }
+
+    pub fn new(
+        pb: PendingBlock,
+        parent: Self,
+        last_finalized: Self,
+        validated: DateTime<Utc>,
+    ) -> Self {
+        assert_eq!(parent.hash, *pb.block.pointer_ref());
+        assert_eq!(last_finalized.hash, *pb.block.last_finalized_ref());
+
+        let height = parent.height + 1;
+
+        Self {
+            hash: pb.hash,
+            block: Block::Regular(pb.block),
+            parent: Some(Box::new(parent)),
+            last_finalized: Some(Box::new(last_finalized)),
+            height,
+            received: pb.received,
+            validated,
+        }
+    }
+}
+
+impl PartialEq for BlockPtr {
+    fn eq(&self, other: &Self) -> bool { self.hash == other.hash }
+}
+
+impl Eq for BlockPtr {}
