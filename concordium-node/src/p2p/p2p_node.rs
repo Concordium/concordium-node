@@ -41,6 +41,7 @@ use std::{
         IpAddr::{self, V4, V6},
         SocketAddr,
     },
+    ops::Deref,
     rc::Rc,
     str::FromStr,
     sync::{
@@ -335,6 +336,7 @@ impl P2PNode {
         let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
+            let queues = (&packet_queue, rpc_queue.deref());
             match pac.packet_type {
                 NetworkPacketType::BroadcastedMessage => {
                     if broadcasting_checks.run_filters(pac) {
@@ -343,8 +345,7 @@ impl P2PNode {
                             &stats_export_service,
                             &own_networks,
                             &send_queue,
-                            &packet_queue,
-                            &rpc_queue,
+                            &queues,
                             pac,
                             trusted_broadcast,
                         )
@@ -357,8 +358,7 @@ impl P2PNode {
                     &stats_export_service,
                     &own_networks,
                     &send_queue,
-                    &packet_queue,
-                    &rpc_queue,
+                    &queues,
                     pac,
                     trusted_broadcast,
                 ),

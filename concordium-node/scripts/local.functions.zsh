@@ -1,14 +1,14 @@
 #####
 # Define an export for CONCORDIUM_P2P_DIR pointing to
-# the p2p-client checked out dir on your disk, and 
+# the p2p-client checked out dir on your disk, and
 # include this file in your .zshrc or the like.
 #
-# Then use the functions below to easily startup a 
+# Then use the functions below to easily startup a
 # local environment of nodes.
 #
 # Example (one bootstrapper, and two nodes)
 # testnet_bootstrap 1
-# testnet_node 1 1 
+# testnet_node 1 1
 #
 # For further examples simply use the functions without
 # any arguments.
@@ -82,7 +82,7 @@ function testnet_node() {
   instanceid=$1; shift
   bootstrappercount=$1; shift
   (
-    cmd="cargo run --bin p2p_client-cli -- --listen-port $((10800+$instanceid)) --id $((9800000000000000+$instanceid))"
+    cmd="cargo run --bin p2p_client-cli -- --listen-port $((10800+$instanceid)) --id $((9800000000000000+$instanceid)) --rpc-server-port $((10000+$instanceid))"
     for n ({1..$bootstrappercount})
     do
       cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
@@ -117,8 +117,8 @@ function testnet_docker_compose() {
 }
 
 #####
-# Start a tps receiver node, expecting 1000 packets 
-# 
+# Start a tps receiver node, expecting 1000 packets
+#
 # c_tps_recv 1000
 #
 #####
@@ -141,8 +141,8 @@ function c_tps_recv() {
 }
 
 #####
-# Start a tps sender node, expecting 1000 packets 
-# 
+# Start a tps sender node, expecting 1000 packets
+#
 # c_tps_recv 1000
 #
 #####
@@ -168,7 +168,7 @@ function c_tps_send() {
 
 #####
 # Generate 1000 dummy test paylods of 1MB for c_tps_send()
-# 
+#
 # c_make_test_pkts 1000 1m
 #
 #####

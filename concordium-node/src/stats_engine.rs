@@ -74,7 +74,7 @@ impl StatsEngine {
     }
 
     #[cfg(not(feature = "benchmark"))]
-    pub fn calculate_total_tps_average(&self) -> f64 { 0 as f64 }
+    pub fn calculate_total_tps_average(&self) -> f64 { 0.0 }
 
     #[cfg(feature = "benchmark")]
     pub fn calculate_last_five_min_tps_average(&self) -> f64 {
@@ -106,7 +106,7 @@ impl StatsEngine {
     }
 
     #[cfg(not(feature = "benchmark"))]
-    pub fn calculate_last_five_min_tps_average(&self) -> f64 { 0 as f64 }
+    pub fn calculate_last_five_min_tps_average(&self) -> f64 { 0.0 }
 
     pub fn calculate_total_transferred_data_per_second(&self) -> f64 {
         // Get the first element and the last element in the queue.
