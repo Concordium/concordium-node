@@ -79,7 +79,7 @@ pub fn main() -> Fallible<()> {
                     ),
                     Err(err) => {
                         error!(
-                            "Could not write genesisdata to file {} due to {}",
+                            "Could not write genesis data to file {} due to {}",
                             genesis_out_path.to_str().unwrap(),
                             err
                         );
