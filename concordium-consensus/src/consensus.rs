@@ -388,11 +388,14 @@ mod tests {
             let (genesis_data, private_data) =
                 ConsensusContainer::generate_data($genesis_time, $num_bakers)
                     .unwrap_or_else(|_| panic!("Couldn't read Haskell data"));
-            let mut consensus_container = ConsensusContainer::new(genesis_data);
+            let mut consensus_container = ConsensusContainer::default();
 
             for i in 0..$num_bakers {
-                &consensus_container
-                    .start_baker(i, private_data.get(&(i as i64)).unwrap().to_vec());
+                &consensus_container.start_baker(
+                    i,
+                    genesis_data.clone(),
+                    private_data.get(&(i as i64)).unwrap().to_vec(),
+                );
             }
 
             let relay_th_guard = Arc::new(RwLock::new(true));
