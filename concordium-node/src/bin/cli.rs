@@ -20,10 +20,13 @@ use concordium_common::{
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
-    block::*,
-    common::{sha256, SerializeToBytes},
+    block::{BakedBlock, BlockPtr},
+    common::{sha256, SerializeToBytes, SHA256},
     consensus::{self, SKOV_DATA},
-    ffi::{self, *},
+    ffi::{
+        self,
+        PacketType::{self, *},
+    },
     finalization::{FinalizationMessage, FinalizationRecord},
 };
 use env_logger::{Builder, Env};
@@ -204,9 +207,7 @@ fn setup_baker_guards(
         let _baker_clone_4 = baker.to_owned();
         let mut _node_ref_4 = node.clone();
         spawn_or_die!("Process baker catch-up requests", move || loop {
-            use concordium_consensus::{
-                common::SHA256, consensus::CatchupRequest::*, ffi::PacketType::*,
-            };
+            use concordium_consensus::consensus::CatchupRequest::*;
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
@@ -398,10 +399,6 @@ fn setup_process_output(
             mut msg: UCursor,
         ) -> Fallible<()> {
             if let Some(ref mut baker) = baker_ins {
-                use concordium_consensus::{
-                    common::SHA256,
-                    ffi::PacketType::{self, *},
-                };
                 ensure!(
                     msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
                     "Message needs at least {} bytes",
@@ -719,7 +716,6 @@ macro_rules! send_catchup_request_to_baker {
         $consensus_req_call:expr
     ) => {{
         debug!("Got a consensus catch-up request for \"{}\"", $req_type);
-        use PacketType::*;
 
         let res = $consensus_req_call($baker, $content)?;
         let return_type = match $req_type {
@@ -895,7 +891,7 @@ fn main() -> Fallible<()> {
 
     let mut baker = if conf.cli.baker.baker_id.is_some() {
         // Starting baker
-        start_baker(&conf.cli.baker, &app_prefs)
+        start_baker(&node, &conf.cli.baker, &app_prefs)
     } else {
         None
     };
@@ -1001,6 +997,7 @@ fn main() -> Fallible<()> {
 }
 
 fn start_baker(
+    node: &P2PNode,
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
@@ -1018,7 +1015,11 @@ fn start_baker(
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
                 let genesis_ptr = BlockPtr::genesis(&genesis_data);
-                info!("Genesis data short hash: {:?}", genesis_ptr.hash);
+                info!(
+                    "Peer {} has genesis data with a short hash {:?}",
+                    node.id(),
+                    genesis_ptr.hash
+                );
                 safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
 
                 let mut consensus_runner = consensus::ConsensusContainer::default();

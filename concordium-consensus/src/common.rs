@@ -117,7 +117,9 @@ impl Deref for Encoded {
 }
 
 impl fmt::Debug for Encoded {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "<{}B>", self.0.len()) }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} ({}B)", sha256(&self.0), self.0.len())
+    }
 }
 
 // we don't need to handle it in any special way for now, but we might like to

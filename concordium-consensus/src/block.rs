@@ -30,6 +30,13 @@ impl Block {
             Block::Regular(_) => false,
         }
     }
+
+    pub fn genesis_data(&self) -> &GenesisData {
+        match self {
+            Block::Genesis(ref data) => data,
+            Block::Regular(_) => unreachable!(), // the genesis block is unmistakeable
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -83,8 +90,6 @@ impl BakedBlock {
     pub fn last_finalized_ref(&self) -> &HashBytes { &self.last_finalized }
 
     pub fn slot_id(&self) -> Slot { self.slot }
-
-    pub fn is_genesis(&self) -> bool { self.slot_id() == 0 }
 }
 
 impl SerializeToBytes for BakedBlock {
@@ -116,7 +121,7 @@ impl SerializeToBytes for BakedBlock {
 pub struct GenesisData {
     timestamp:               Timestamp,
     slot_duration:           Duration,
-    birk_parameters:         BirkParameters,
+    pub birk_parameters:     BirkParameters,
     finalization_parameters: FinalizationParameters,
 }
 
