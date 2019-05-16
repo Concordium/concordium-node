@@ -22,11 +22,6 @@ then
     ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
 fi
 
-if [ -n "$NUM_BAKERS" ];
-then
-    ARGS="$ARGS --num-bakers $NUM_BAKERS"
-fi
-
 if [ -n "$BAKER_ID" ];
 then
     ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
@@ -58,6 +53,19 @@ then
     ARGS="$ARGS --override-data-dir $DATA_DIR"
     mkdir -p $DATA_DIR
     cd $DATA_DIR
+fi
+
+if [ -n "$NUM_BAKERS" ];
+then
+    ARGS="$ARGS --num-bakers $NUM_BAKERS"
+    if [ -n "$DATA_DIR" ];
+    then
+        cd /build-project/genesis-data
+        tar -xvf $NUM_BAKERS-bakers.tar.gz
+        cd genesis_data/
+        cp * $DATA_DIR/
+        cd $DATA_DIR
+    fi
 fi
 
 if [ -n "$BOOTSTRAP_FIRST_NODE" ];
