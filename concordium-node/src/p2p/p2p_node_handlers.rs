@@ -1,4 +1,5 @@
 use crate::{
+    common::P2PNodeId,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
@@ -52,6 +53,7 @@ type OutgoingQueues<'a> = (
 /// It forwards network packet message into `packet_queue` if message id has not
 /// been already seen and its `network id` belong to `own_networks`.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
+    own_id: P2PNodeId,
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
@@ -66,6 +68,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     };
     if !is_message_already_seen(seen_messages, pac, drop_msg) {
         forward_network_packet_message_common(
+            own_id,
             seen_messages,
             stats_export_service,
             own_networks,
@@ -101,6 +104,7 @@ fn is_message_already_seen(
 /// # TODO
 /// Avoid to create a new packet instead of reusing it.
 fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
+    own_id: P2PNodeId,
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
@@ -117,7 +121,12 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
         seen_messages.append(&pac.message_id);
         if blind_trust_broadcast {
             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                debug!("Rebroadcasting message {}", pac.message_id);
+                debug!(
+                    "Peer {} rebroadcasting message {} from {}",
+                    own_id,
+                    pac.message_id,
+                    pac.peer.id()
+                );
                 send_or_die!(send_queue, Arc::clone(&outer));
                 if let Some(ref service) = stats_export_service {
                     safe_write!(service)?.queue_size_inc();
