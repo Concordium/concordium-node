@@ -37,6 +37,13 @@ impl Block {
             Block::Regular(_) => unreachable!(), // the genesis block is unmistakeable
         }
     }
+
+    pub fn slot(&self) -> Slot {
+        match self {
+            Block::Genesis(_) => 0,
+            Block::Regular(block) => block.slot,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -88,8 +95,6 @@ impl BakedBlock {
     pub fn pointer_ref(&self) -> &HashBytes { &self.pointer }
 
     pub fn last_finalized_ref(&self) -> &HashBytes { &self.last_finalized }
-
-    pub fn slot_id(&self) -> Slot { self.slot }
 }
 
 impl SerializeToBytes for BakedBlock {
