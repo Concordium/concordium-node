@@ -36,7 +36,7 @@ const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() 
 pub struct BirkParameters {
     election_nonce:      ByteString,
     election_difficulty: ElectionDifficulty,
-    bakers:              Vec<(BakerId, BakerInfo)>,
+    pub bakers:          Vec<(BakerId, BakerInfo)>,
 }
 
 impl BirkParameters {

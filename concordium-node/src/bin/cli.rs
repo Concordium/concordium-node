@@ -20,10 +20,10 @@ use concordium_common::{
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
-    block::*,
-    common::{sha256, SerializeToBytes},
+    block::{BakedBlock, BlockPtr},
+    common::{sha256, SHA256, SerializeToBytes},
     consensus::{self, SKOV_DATA},
-    ffi::{self, *},
+    ffi::{self, PacketType::{self, *}},
     finalization::{FinalizationMessage, FinalizationRecord},
 };
 use env_logger::{Builder, Env};
@@ -202,7 +202,7 @@ fn setup_baker_guards(
         let mut _node_ref_4 = node.clone();
         spawn_or_die!("Process baker catch-up requests", move || loop {
             use concordium_consensus::{
-                common::SHA256, consensus::CatchupRequest::*, ffi::PacketType::*,
+                consensus::CatchupRequest::*, ffi::PacketType::*,
             };
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
@@ -395,10 +395,6 @@ fn setup_process_output(
             mut msg: UCursor,
         ) -> Fallible<()> {
             if let Some(ref mut baker) = baker_ins {
-                use concordium_consensus::{
-                    common::SHA256,
-                    ffi::PacketType::{self, *},
-                };
                 ensure!(
                     msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
                     "Message needs at least {} bytes",
@@ -716,7 +712,6 @@ macro_rules! send_catchup_request_to_baker {
         $consensus_req_call:expr
     ) => {{
         debug!("Got a consensus catch-up request for \"{}\"", $req_type);
-        use PacketType::*;
 
         let res = $consensus_req_call($baker, $content)?;
         let return_type = match $req_type {
