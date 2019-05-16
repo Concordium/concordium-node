@@ -21,9 +21,12 @@ use concordium_common::{
 };
 use concordium_consensus::{
     block::{BakedBlock, BlockPtr},
-    common::{sha256, SHA256, SerializeToBytes},
+    common::{sha256, SerializeToBytes, SHA256},
     consensus::{self, SKOV_DATA},
-    ffi::{self, PacketType::{self, *}},
+    ffi::{
+        self,
+        PacketType::{self, *},
+    },
     finalization::{FinalizationMessage, FinalizationRecord},
 };
 use env_logger::{Builder, Env};
@@ -201,9 +204,7 @@ fn setup_baker_guards(
         let _baker_clone_4 = baker.to_owned();
         let mut _node_ref_4 = node.clone();
         spawn_or_die!("Process baker catch-up requests", move || loop {
-            use concordium_consensus::{
-                consensus::CatchupRequest::*, ffi::PacketType::*,
-            };
+            use concordium_consensus::consensus::CatchupRequest::*;
             match _baker_clone_4.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
@@ -1011,7 +1012,11 @@ fn start_baker(
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
                 let genesis_ptr = BlockPtr::genesis(&genesis_data);
-                info!("Peer {} has genesis data with a short hash {:?}", node.id(), genesis_ptr.hash);
+                info!(
+                    "Peer {} has genesis data with a short hash {:?}",
+                    node.id(),
+                    genesis_ptr.hash
+                );
                 safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
 
                 let mut consensus_runner = consensus::ConsensusContainer::default();
