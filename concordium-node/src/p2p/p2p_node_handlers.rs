@@ -109,14 +109,15 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
-    trace!("Forward Broadcast Message: msgid: {}", pac.message_id);
+    trace!("Processing message for relaying");
     if safe_read!(own_networks)?.contains(&pac.network_id) {
-        trace!("Received direct message of size {}", pac.message.len());
+        trace!("Received message of size {}", pac.message.len());
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
         seen_messages.append(&pac.message_id);
         if blind_trust_broadcast {
             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                debug!("Rebroadcasting message {}", pac.message_id);
                 send_or_die!(send_queue, Arc::clone(&outer));
                 if let Some(ref service) = stats_export_service {
                     safe_write!(service)?.queue_size_inc();
