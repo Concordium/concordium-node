@@ -143,6 +143,10 @@ required-features = ["instrumentation"]
 path = "src/bin/generate-new-keypair.rs"
 name = "generate-new-keypair"
 
+[[bin]]
+path = "src/bin/make_bakers_data.rs"
+name = "make-bakers-data"
+
 [[bench]]
 name = "p2p_lib_benchmark"
 harness = false

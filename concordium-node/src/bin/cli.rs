@@ -29,7 +29,10 @@ use concordium_consensus::{
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
-    client::utils as client_utils,
+    client::{
+        utils as client_utils, FILE_NAME_GENESIS_DATA, FILE_NAME_PREFIX_BAKER_PRIVATE,
+        FILE_NAME_SUFFIX_BAKER_PRIVATE,
+    },
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration,
     connection::network_handler::message_handler::MessageManager,
@@ -1114,12 +1117,15 @@ fn get_baker_data(
     conf: &configuration::BakerConfig,
 ) -> Fallible<(Vec<u8>, Vec<u8>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir();
-    genesis_loc.push("genesis.dat");
+    genesis_loc.push(FILE_NAME_GENESIS_DATA);
 
     let mut private_loc = app_prefs.get_user_app_dir();
 
     if let Some(baker_id) = conf.baker_id {
-        private_loc.push(format!("baker_private_{}.dat", baker_id))
+        private_loc.push(format!(
+            "{}{}{}",
+            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
+        ))
     };
 
     let (generated_genesis, generated_private_data) =
