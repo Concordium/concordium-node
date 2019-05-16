@@ -892,7 +892,7 @@ fn main() -> Fallible<()> {
 
     let mut baker = if conf.cli.baker.baker_id.is_some() {
         // Starting baker
-        start_baker(&conf.cli.baker, &app_prefs)
+        start_baker(&node, &conf.cli.baker, &app_prefs)
     } else {
         None
     };
@@ -998,6 +998,7 @@ fn main() -> Fallible<()> {
 }
 
 fn start_baker(
+    node: &P2PNode,
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
@@ -1015,7 +1016,7 @@ fn start_baker(
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
                 let genesis_ptr = BlockPtr::genesis(&genesis_data);
-                info!("Genesis data short hash: {:?}", genesis_ptr.hash);
+                info!("Peer {} has genesis data with a short hash {:?}", node.id(), genesis_ptr.hash);
                 safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
 
                 let mut consensus_runner = consensus::ConsensusContainer::default();
