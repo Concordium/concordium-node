@@ -21,7 +21,7 @@ use structopt::StructOpt;
 struct ConfigCli {
     #[structopt(long = "output-dir", help = "Directory to output files to")]
     output_dir: String,
-    #[structopt(long = "num-bakers", help = "Amount of bakers in the network")]
+    #[structopt(long = "num-bakers", help = "Number of bakers in the network")]
     pub baker_num_bakers: u64,
     #[structopt(
         long = "baker-genesis",

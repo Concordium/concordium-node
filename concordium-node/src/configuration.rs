@@ -103,7 +103,7 @@ pub struct BakerConfig {
     pub baker_id: Option<u64>,
     #[structopt(
         long = "num-bakers",
-        help = "Amount of bakers in the network",
+        help = "Number of bakers in the network",
         default_value = "60"
     )]
     pub baker_num_bakers: u64,
