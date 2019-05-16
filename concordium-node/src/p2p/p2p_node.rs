@@ -330,6 +330,7 @@ impl P2PNode {
     fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
         let seen_messages = self.seen_messages.clone();
         let own_networks = Arc::clone(&read_or_die!(self.tls_server).networks());
+        let own_id = self.id();
         let stats_export_service = self.stats_export_service.clone();
         let packet_queue = self.queue_to_super.clone();
         let rpc_queue = Arc::clone(&self.rpc_queue);
@@ -343,6 +344,7 @@ impl P2PNode {
                 NetworkPacketType::BroadcastedMessage => {
                     if broadcasting_checks.run_filters(pac) {
                         forward_network_packet_message(
+                            own_id,
                             &seen_messages,
                             &stats_export_service,
                             &own_networks,
@@ -356,6 +358,7 @@ impl P2PNode {
                     }
                 }
                 NetworkPacketType::DirectMessage(..) => forward_network_packet_message(
+                    own_id,
                     &seen_messages,
                     &stats_export_service,
                     &own_networks,

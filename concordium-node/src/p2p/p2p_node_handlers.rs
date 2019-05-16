@@ -1,4 +1,5 @@
 use crate::{
+    common::P2PNodeId,
     connection::SeenMessagesList,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
@@ -52,6 +53,7 @@ type OutgoingQueues<'a> = (
 /// It forwards network packet message into `packet_queue` if message id has not
 /// been already seen and its `network id` belong to `own_networks`.
 pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
+    own_id: P2PNodeId,
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
@@ -66,6 +68,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     };
     if !is_message_already_seen(seen_messages, pac, drop_msg) {
         forward_network_packet_message_common(
+            own_id,
             seen_messages,
             stats_export_service,
             own_networks,
@@ -101,6 +104,7 @@ fn is_message_already_seen(
 /// # TODO
 /// Avoid to create a new packet instead of reusing it.
 fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
+    own_id: P2PNodeId,
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
@@ -109,14 +113,24 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
 ) -> FuncResult<()> {
-    trace!("Forward Broadcast Message: msgid: {}", pac.message_id);
+    trace!("Processing message for relaying");
     if safe_read!(own_networks)?.contains(&pac.network_id) {
-        trace!("Received direct message of size {}", pac.message.len());
+        trace!(
+            "Received message of size {} from {}",
+            pac.message.len(),
+            pac.peer.id()
+        );
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
         seen_messages.append(&pac.message_id);
         if blind_trust_broadcast {
             if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                debug!(
+                    "Peer {} rebroadcasting message {} from {}",
+                    own_id,
+                    pac.message_id,
+                    pac.peer.id()
+                );
                 send_or_die!(send_queue, Arc::clone(&outer));
                 if let Some(ref service) = stats_export_service {
                     safe_write!(service)?.queue_size_inc();
@@ -127,13 +141,19 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
         if let Ok(locked) = outgoing_queues.1.lock() {
             if let Some(queue) = locked.deref() {
                 if let Err(e) = queue.send(outer.clone()) {
-                    warn!("Cannot be sent from the rpc queue: {}", e.to_string());
+                    warn!(
+                        "Can't send message on to the RPC outbound queue: {}",
+                        e.to_string()
+                    );
                 }
             }
         }
 
         if let Err(e) = outgoing_queues.0.send(outer.clone()) {
-            warn!("Cannot be sent from the packet queue: {}", e.to_string());
+            warn!(
+                "Can't send message to the outer super queue: {}",
+                e.to_string()
+            );
         }
     } else if let Some(ref service) = stats_export_service {
         safe_write!(service)?.invalid_network_pkts_received_inc();
