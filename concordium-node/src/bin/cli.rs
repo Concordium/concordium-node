@@ -20,7 +20,7 @@ use concordium_common::{
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
-    block::{BakedBlock, BlockPtr},
+    block::{BlockPtr, PendingBlock},
     common::{sha256, SerializeToBytes, SHA256},
     consensus::{self, SKOV_DATA},
     ffi::{
@@ -28,6 +28,7 @@ use concordium_consensus::{
         PacketType::{self, *},
     },
     finalization::{FinalizationMessage, FinalizationRecord},
+    tree::SkovData,
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -36,7 +37,7 @@ use p2p_client::{
         utils as client_utils, FILE_NAME_GENESIS_DATA, FILE_NAME_PREFIX_BAKER_PRIVATE,
         FILE_NAME_SUFFIX_BAKER_PRIVATE,
     },
-    common::{get_current_stamp, P2PNodeId, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration,
     connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
@@ -118,6 +119,11 @@ fn setup_baker_guards(
             match _baker_clone.out_queue().recv_block() {
                 Ok(block) => {
                     let bytes = block.serialize();
+
+                    // FIXME: perhaps we should make the enclosing function Fallible?
+                    // the second unwrap is safe, but not necessarily the first one
+                    safe_write!(SKOV_DATA).unwrap().add_block(PendingBlock::new(&bytes).unwrap());
+
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                     match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
@@ -129,7 +135,7 @@ fn setup_baker_guards(
                                     "Peer {} broadcasted a block ({:?}) by baker {}",
                                     _node_ref.id(),
                                     sha256(&bytes),
-                                    block.baker_id(),
+                                    block.baker_id,
                                 ),
                                 Err(_) => error!(
                                     "Peer {} couldn't broadcast a block ({:?})!",
@@ -180,6 +186,11 @@ fn setup_baker_guards(
             match _baker_clone_3.out_queue().recv_finalization_record() {
                 Ok(rec) => {
                     let bytes = rec.serialize();
+
+                    // FIXME: perhaps we should make the enclosing function Fallible?
+                    // the second unwrap is safe, but not necessarily the first one
+                    safe_write!(SKOV_DATA).unwrap().add_finalization(FinalizationRecord::deserialize(&bytes).unwrap());
+
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                     match out_bytes
@@ -410,13 +421,13 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match PacketType::try_from(consensus_type)? {
-                    Block => send_block_to_baker(baker, peer_id, &content[..]),
+                    Block => send_block_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?),
                     Transaction => send_transaction_to_baker(baker, peer_id, &content[..]),
                     FinalizationMessage => {
                         send_finalization_message_to_baker(baker, peer_id, &content[..])
                     }
                     FinalizationRecord => {
-                        send_finalization_record_to_baker(baker, peer_id, &content[..])
+                        send_finalization_record_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
                     }
                     CatchupBlockByHash => {
                         ensure!(
@@ -609,10 +620,11 @@ fn send_finalization_record_to_baker(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
+    skov: &mut SkovData,
 ) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(content)?;
 
-    if let Ok(true) = client_utils::add_record_to_seenlist(get_current_stamp(), &record) {
+    if skov.add_finalization(record.clone()) {
         match baker.send_finalization_record(peer_id.as_raw(), &record) {
             0i64 => info!("Peer {} sent a {} to a baker", peer_id, record),
             err_code => error!(
@@ -651,14 +663,22 @@ fn send_block_to_baker(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
+    skov: &mut SkovData,
 ) -> Fallible<()> {
-    let block = BakedBlock::deserialize(content)?;
-    if let Ok(true) = client_utils::add_block_to_seenlist(get_current_stamp(), &block) {
-        match baker.send_block(peer_id.as_raw(), &block) {
+    let pending_block = PendingBlock::new(content)?;
+
+    if let Some((existing_ptr, _)) = skov.add_block(pending_block.clone()) {
+        debug!(
+            "Peer {} sent us a duplicate block ({:?})",
+            peer_id,
+            existing_ptr.hash,
+        );
+    } else {
+        match baker.send_block(peer_id.as_raw(), &pending_block.block) {
             0i64 => info!(
                 "Peer {} sent a block ({:?}) to a baker",
                 peer_id,
-                sha256(content)
+                pending_block.hash,
             ),
             err_code => error!(
                 "Peer {} can't send block from network to baker due to error code #{} (bytes: \
@@ -669,12 +689,6 @@ fn send_block_to_baker(
                 content.len(),
             ),
         }
-    } else {
-        debug!(
-            "Peer {} sent us a duplicate block ({:?})",
-            peer_id,
-            sha256(content)
-        );
     }
 
     Ok(())

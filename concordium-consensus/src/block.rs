@@ -5,6 +5,7 @@ use chrono::prelude::{DateTime, Utc};
 use failure::Fallible;
 
 use std::{
+    cmp::Ordering,
     io::{Cursor, Read, Write},
     mem::size_of,
 };
@@ -23,11 +24,35 @@ pub enum Block {
     Regular(BakedBlock),
 }
 
+impl PartialEq for Block {
+    fn eq(&self, other: &Self) -> bool {
+        self.pointer() == other.pointer()
+    }
+}
+
+impl Eq for Block {}
+
+impl PartialOrd for Block {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.slot().cmp(&other.slot()))
+    }
+}
+
+impl Ord for Block {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.slot().cmp(&other.slot())
+    }
+}
+
 impl Block {
-    pub fn is_genesis(&self) -> bool {
+    pub fn baker_id(&self) -> BakerId {
+        self.block_data().baker_id
+    }
+
+    pub fn block_data(&self) -> &BakedBlock {
         match self {
-            Block::Genesis(_) => true,
-            Block::Regular(_) => false,
+            Block::Genesis(_) => unreachable!(), // the genesis block is unmistakeable
+            Block::Regular(data) => data,
         }
     }
 
@@ -38,10 +63,24 @@ impl Block {
         }
     }
 
+    pub fn pointer(&self) -> Option<&BlockHash> {
+        match self {
+            Block::Genesis(_) => None,
+            Block::Regular(block) => Some(&block.pointer),
+        }
+    }
+
     pub fn slot(&self) -> Slot {
         match self {
             Block::Genesis(_) => 0,
             Block::Regular(block) => block.slot,
+        }
+    }
+
+    pub fn serialize(&self) -> Box<[u8]> {
+        match self {
+            Block::Genesis(genesis_data) => genesis_data.serialize(),
+            Block::Regular(block_data) => block_data.serialize(),
         }
     }
 }
@@ -49,8 +88,8 @@ impl Block {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:       Slot,
-    pointer:        BlockHash,
-    baker_id:       BakerId,
+    pub pointer:    BlockHash,
+    pub baker_id:   BakerId,
     proof:          Encoded,
     nonce:          Encoded,
     last_finalized: BlockHash,
@@ -89,12 +128,6 @@ impl BakedBlock {
 
         Ok(block)
     }
-
-    pub fn baker_id(&self) -> BakerId { self.baker_id }
-
-    pub fn pointer_ref(&self) -> &HashBytes { &self.pointer }
-
-    pub fn last_finalized_ref(&self) -> &HashBytes { &self.last_finalized }
 }
 
 impl SerializeToBytes for BakedBlock {
@@ -180,7 +213,7 @@ pub type BlockHeight = u64;
 
 pub type BlockHash = HashBytes;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PendingBlock {
     pub hash:     BlockHash,
     pub block:    BakedBlock,
@@ -220,7 +253,7 @@ impl BlockPtr {
         let timestamp = Utc::now(); // TODO: be more precise when Kontrol is there
 
         BlockPtr {
-            hash:           sha256(genesis_bytes),
+            hash:           sha256(&[&[0, 0, 0, 0, 0, 0, 0, 0], genesis_bytes].concat()),
             block:          genesis_block,
             parent:         None,
             last_finalized: None,
@@ -236,8 +269,9 @@ impl BlockPtr {
         last_finalized: Self,
         validated: DateTime<Utc>,
     ) -> Self {
-        assert_eq!(parent.hash, *pb.block.pointer_ref());
-        assert_eq!(last_finalized.hash, *pb.block.last_finalized_ref());
+        // FIXME: we want this validation as soon as we become catchup-aware
+        // assert_eq!(parent.hash, pb.block.pointer, "block hash mismatch!");
+        // assert_eq!(last_finalized.hash, pb.block.last_finalized, "finalization hash mismatch!");
 
         let height = parent.height + 1;
 
@@ -258,3 +292,15 @@ impl PartialEq for BlockPtr {
 }
 
 impl Eq for BlockPtr {}
+
+impl PartialOrd for BlockPtr {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.block.slot().cmp(&other.block.slot()))
+    }
+}
+
+impl Ord for BlockPtr {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.block.slot().cmp(&other.block.slot())
+    }
+}

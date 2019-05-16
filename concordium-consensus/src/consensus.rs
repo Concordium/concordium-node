@@ -219,7 +219,7 @@ impl ConsensusContainer {
 
     pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
-            if block.baker_id() != *id {
+            if block.baker_id != *id {
                 return baker.send_block(peer_id, block);
             }
         }

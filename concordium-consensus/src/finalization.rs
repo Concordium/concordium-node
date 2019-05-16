@@ -2,6 +2,7 @@ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
+    cmp::Ordering,
     fmt,
     io::{Cursor, Read, Write},
     mem::size_of,
@@ -354,12 +355,32 @@ impl CssDoneReporting {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Hash, Clone)]
 pub struct FinalizationRecord {
     pub index:         FinalizationIndex,
     pub block_pointer: BlockHash,
     pub proof:         FinalizationProof,
     pub delay:         BlockHeight,
+}
+
+impl PartialEq for FinalizationRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.block_pointer == other.block_pointer
+    }
+}
+
+impl Eq for FinalizationRecord {}
+
+impl PartialOrd for FinalizationRecord {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.index.cmp(&other.index))
+    }
+}
+
+impl Ord for FinalizationRecord {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.index.cmp(&other.index)
+    }
 }
 
 impl fmt::Display for FinalizationRecord {
@@ -423,7 +444,7 @@ impl SerializeToBytes for FinalizationRecord {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
-pub struct FinalizationProof(Vec<(u32, Encoded)>);
+pub struct FinalizationProof(Vec<(Party, Encoded)>);
 
 impl FinalizationProof {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
@@ -434,11 +455,10 @@ impl FinalizationProof {
         let mut signatures = Vec::with_capacity(signature_count as usize);
 
         for _ in 0..signature_count {
-            // FIXME: determine the use and apply a more informative name
-            let tbd = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
+            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
             let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
-            signatures.push((tbd, signature));
+            signatures.push((party, signature));
         }
 
         let proof = FinalizationProof(signatures);
@@ -449,7 +469,7 @@ impl FinalizationProof {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(8 + self.0.len() * (4 + SIGNATURE as usize));
+        let mut cursor = create_serialization_cursor(8 + self.0.len() * (size_of::<Party>() + SIGNATURE as usize));
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
