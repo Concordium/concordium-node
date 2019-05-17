@@ -14,7 +14,7 @@ import Concordium.Crypto.SHA256(Hash(..))
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
-import qualified Concordium.ID.AccountHolder as AH
+import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -106,7 +106,7 @@ initialState n =
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) mateuszACI) Acc.emptyAccounts
+        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) [] mateuszACI []) Acc.emptyAccounts
         gs = BlockState.emptyBlockState &
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods))

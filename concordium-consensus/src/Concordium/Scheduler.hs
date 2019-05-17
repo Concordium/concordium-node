@@ -15,7 +15,7 @@ import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
-import qualified Concordium.ID.AccountHolder as AH
+import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
 import qualified Concordium.GlobalState.Instances as Ins
@@ -32,9 +32,6 @@ import Control.Exception(assert)
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-
-getCurrentAmount :: TransactionMonad m => AccountAddress -> m (Maybe Amount)
-getCurrentAmount addr = ((^. accountAmount) <$>) <$> getCurrentAccount addr
 
 -- |Check that the transaction has a valid sender, and that the amount they have
 -- deposited is on their account.
@@ -144,27 +141,50 @@ dispatch msg = do
               -- before checking anything we check that the remaining amount of energy is sufficient to deploy the account.
               -- If not we simply reject the transaction, after we have withdrawn the deposit
               if Cost.deployAccount > energy then do
-                _ <- payForExecution (thSender meta) energy
+                _ <- payForExecution (thSender meta) energy -- note energy not the cost to deploy the account.
                 return $! TxValid (TxReject OutOfEnergy)
               else do
                 _ <- payForExecution (thSender meta) Cost.deployAccount
-                -- first check if account with given registration does not already exist.
-                ridExists <- accountRegIdExists (ID.aci_regId aci)
-                if ridExists then return $ TxValid (TxReject (DuplicateAccountRegistrationID (ID.aci_regId aci)))
-                else if AH.verifyAccount aci
-                then do -- if account information is correct then we create the account with initial nonce 'minNonce', and 0 balance.
+                -- validate the account creation data
+                if AH.verifyAccount aci then do
+                -- if account information is correct then we create the account with initial
+                -- nonce 'minNonce', and 0 balance, no credentials and no encrypted amounts.
                   let aaddr = AH.accountAddress aci
                   let account = Account { _accountAddress = aaddr
                                         , _accountNonce = minNonce
                                         , _accountAmount = 0
-                                        , _accountCreationInformation = aci }
+                                        , _accountCreationInformation = aci
+                                        , _accountEncryptedAmount = []
+                                        , _accountCredentials = []}
                   r <- putNewAccount account
                   if r then
                     return $ TxValid (TxSuccess [AccountCreated aaddr])
                   else
                     return $ TxValid (TxReject (AccountAlreadyExists aaddr))
                 else 
-                  return $ TxValid (TxReject AccountCredentialsFailure)
+                  return $ TxValid (TxReject AccountCreationInformationInvalid)
+            
+            DeployCredential cdi -> do
+              if Cost.deployCredential > energy then do
+                _ <- payForExecution (thSender meta) energy -- note energy not the cost to deploy the account.
+                return $! TxValid (TxReject OutOfEnergy)
+              else do
+                _ <- payForExecution (thSender meta) Cost.deployCredential
+                -- check that a registration id does not yet exist
+                regIdEx <- accountRegIdExists (ID.cdi_regId cdi)
+                if regIdEx then
+                  return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdi_regId cdi)
+                else do
+                  -- first check that the account with the address exists in the global store
+                  let aaddr = AH.accountAddress' (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
+                  acc <- getAccount aaddr
+                  case acc of
+                    Nothing -> return $ TxValid $ TxReject DeployCredentialToNonExistentAccount
+                    Just acc -> if AH.verifyCredential cdi then do
+                                  addAccountCredential aaddr cdi
+                                  return $! TxValid $ TxSuccess [CredentialDeployed cdi]
+                                else
+                                  return $! TxValid $ TxReject AccountCredentialInvalid
 
 handleModule :: TransactionMonad m => TransactionHeader -> Int -> Core.Module -> m (Core.ModuleRef, Interface, ValueInterface)
 handleModule meta msize mod = do

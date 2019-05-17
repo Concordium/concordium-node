@@ -33,7 +33,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState &
-    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 100000 alesACI) Acc.emptyAccounts) . 
+    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 100000 [] alesACI []) Acc.emptyAccounts) . 
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 chainMeta :: Types.ChainMetadata

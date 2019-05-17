@@ -22,6 +22,7 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
+import Concordium.GlobalState.TreeState(AccountUpdate(..), auAmount, auNonce, auAddress, auEncrypted, auCredential, emptyAccountUpdate)
 
 import qualified Concordium.ID.Types as ID
 
@@ -36,8 +37,8 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getAccount :: AccountAddress -> m (Maybe Account)
 
-  -- |Check whether an account with given registration id exists.
-  accountRegIdExists :: ID.AccountRegistrationID -> m Bool
+  -- |Check whether a given registration id exists in the global store.
+  accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution.
@@ -55,6 +56,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
 
   -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
   increaseAccountNonce :: AccountAddress -> m ()
+
+  -- |Add account credential to an account address. The account with this address is assumed to exist.
+  addAccountCredential :: AccountAddress -> ID.CredentialDeploymentInformation -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
   -- successfully created and @False@ if the account address already existed.
@@ -87,7 +91,7 @@ class StaticEnvironmentMonad m => TransactionMonad m where
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
-  getCurrentAccount :: AccountAddress -> m (Maybe Account)
+  getCurrentAmount :: AccountAddress -> m (Maybe Amount)
 
   getChanges :: m ChangeSet
 
@@ -122,8 +126,8 @@ class StaticEnvironmentMonad m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {_newAccounts :: Map.HashMap AccountAddress Account -- ^Accounts whose states changed.
-    ,_newContractStates :: Map.HashMap ContractAddress (Amount, Value) -- ^Contracts whose states changed.
+    {_accountUpdates :: Map.HashMap AccountAddress AccountUpdate -- ^Accounts whose states changed.
+    ,_instanceUpdates :: Map.HashMap ContractAddress (Amount, Value) -- ^Contracts whose states changed.
     }
 makeLenses ''ChangeSet
 
@@ -134,19 +138,21 @@ emptyCS = ChangeSet Map.empty Map.empty
 -- If the account is not yet in the changeset it is created.
 addAmountToCS :: ChangeSet -> Account -> Amount -> ChangeSet
 addAmountToCS cs acc amnt =
-  cs & newAccounts . at (acc ^. accountAddress) ?~ (acc & accountAmount .~ amnt)
+  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount ?~ amnt)
+                                          Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
+  where addr = acc ^. accountAddress
 
 -- |Add or update the contract state in the changeset with the given amount and value.
 addContractStatesToCS :: ChangeSet -> ContractAddress -> Amount -> Value -> ChangeSet
 addContractStatesToCS cs addr amnt val =
-  cs & newContractStates . at addr ?~ (amnt, val)
+  cs & instanceUpdates . at addr ?~ (amnt, val)
 
 -- |NB: INVARIANT: This function expects that the contract already exists in the
 -- changeset map. This will be true during execution since the only way a contract can
 -- possibly send a message is if its local state exists in this map
 addContractAmountToCS :: ChangeSet -> ContractAddress -> Amount -> ChangeSet
 addContractAmountToCS cs addr amnt =
-  cs & newContractStates . at addr . mapped . _1 .~ amnt
+  cs & instanceUpdates . at addr . mapped . _1 .~ amnt
 
 -- |A concrete implementation of TransactionMonad based on SchedulerMonad. We
 -- use the continuation monad transformer instead of the ExceptT transformer in
@@ -199,7 +205,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     cont
 
   getCurrentContractInstance addr = do
-    newStates <- use (_2 . newContractStates)
+    newStates <- use (_2 . instanceUpdates)
     liftLocal $ do mistance <- getContractInstance addr
                    case mistance of
                      Nothing -> return Nothing
@@ -207,13 +213,13 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
                                  Nothing -> return $ Just i
                                  Just (amnt, newmodel) -> return $ Just (updateInstance amnt newmodel i)
 
-  {-# INLINE getCurrentAccount #-}
-  getCurrentAccount acc = do
-    macc <- (^. at acc) <$> use (_2 . newAccounts)
+  {-# INLINE getCurrentAmount #-}
+  getCurrentAmount acc = do
+    macc <- (^. at acc) <$> use (_2 . accountUpdates)
     case macc of
-      Nothing -> liftLocal $! getAccount acc
-      Just a -> return $ Just a
-
+      Just upd | Just a <- upd ^. auAmount -> return (Just a)
+      _ -> liftLocal $! ((^. accountAmount) <$>) <$> getAccount acc
+      
   {-# INLINE getChanges #-}
   getChanges = use _2
 
@@ -234,7 +240,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
 instance SchedulerMonad m => InterpreterMonad (LocalT r m) where
   getCurrentContractState caddr = do
-    newStates <- use (_2 . newContractStates)
+    newStates <- use (_2 . instanceUpdates)
     liftLocal $ do mistance <- getContractInstance caddr
                    case mistance of
                      Nothing -> return Nothing

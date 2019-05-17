@@ -68,14 +68,16 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     put s'
     return res
 
+  -- FIXME: This function only works correctly if called at the top level of the
+  -- transaction. Once we have receiver pay we will need to change it.
   payForExecution addr amnt = do
     s <- get
     macc <- lift $ bsoGetAccount s addr
     case macc of
       Nothing -> error "payForExecution precondition violated."
-      Just acc ->
-        let (remaining, acc') = acc & accountAmount <%~ subtract (energyToGtu amnt) in do
-        s' <- lift (bsoModifyAccount s acc')
+      Just acc -> do
+        let remaining = acc ^. accountAmount - energyToGtu amnt
+        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auAmount ?~ remaining))
         put s'
         return remaining
 
@@ -85,8 +87,8 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     case macc of
       Nothing -> error "refundEnergy precondition violated."
       Just acc ->
-        let acc' = acc & accountAmount +~ (energyToGtu amnt) in do
-        s' <- lift (bsoModifyAccount s acc')
+        let current = acc ^. accountAmount in do
+        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auAmount ?~ (current + energyToGtu amnt)))
         put s'
 
   increaseAccountNonce addr = do
@@ -95,16 +97,23 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     case macc of
       Nothing -> error "increaseAccountNonce precondition violated."
       Just acc ->
-        let acc' = acc & accountNonce +~ 1 in do
-        s' <- lift (bsoModifyAccount s acc')
+        let nonce = acc ^. accountNonce in do
+        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
         put s'
+
+
+  addAccountCredential addr cdi = do
+    s <- get
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
+    put s'
+
 
   commitStateAndAccountChanges cs = do
     s <- get
     s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
                       s
-                      (HM.toList (cs ^. newContractStates)))
-    s'' <- lift (foldM bsoModifyAccount s' (cs ^. newAccounts))
+                      (HM.toList (cs ^. instanceUpdates)))
+    s'' <- lift (foldM bsoModifyAccount s' (cs ^. accountUpdates))
     put s''
 
 -- |Execute a block from a given starting state.

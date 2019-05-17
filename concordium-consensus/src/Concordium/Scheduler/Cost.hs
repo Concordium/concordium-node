@@ -56,3 +56,9 @@ interContractMessage = 10
 -- the account creation data.
 deployAccount :: Energy
 deployAccount = 1000
+
+
+-- |Cost to add a credential to an account. This cost is costant regardless of
+-- the details of the data, which is possibly going to change.
+deployCredential :: Energy
+deployCredential = 3000

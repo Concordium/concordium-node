@@ -14,6 +14,7 @@ import Control.Monad.Reader
 import Control.Monad.RWS.Strict
 
 import Concordium.Scheduler.Types
+import Concordium.GlobalState.TreeState(auAddress, updateAccount)
 import Concordium.GlobalState.TreeState.Basic
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
@@ -57,8 +58,11 @@ instance SchedulerMonad SchedulerImplementation where
     -- are distinct by the virtue of a HashMap being a function
     let instances' = Map.foldlWithKey' (\iis addr (amnt, val) -> Ins.updateInstanceAt addr amnt val iis)
                                                        (s ^. blockInstances)
-                                                       (cs ^. newContractStates)
-    let accounts' = Map.foldl' (flip Acc.putAccount) (s ^. blockAccounts) (cs ^. newAccounts)
+                                                       (cs ^. instanceUpdates)
+    let accounts' = Map.foldl' (\accs upd -> let acc = Acc.unsafeGetAccount (upd ^. auAddress) accs
+                                             in Acc.putAccount (updateAccount upd acc) accs)
+                               (s ^. blockAccounts)
+                               (cs ^. accountUpdates)
     blockInstances .= instances'
     blockAccounts .= accounts'
 
@@ -78,8 +82,12 @@ instance SchedulerMonad SchedulerImplementation where
     return ca
 
   {-# INLINE increaseAccountNonce #-}
-  increaseAccountNonce addr = do
+  increaseAccountNonce addr = 
     blockAccounts . ix addr . accountNonce += 1
+
+
+  {-# INLINE addAccountCredential #-}
+  addAccountCredential addr cdi = blockAccounts . ix addr . accountCredentials %= (cdi :)
 
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do

@@ -6,7 +6,7 @@ import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Types hiding (accountAddress)
 import Concordium.GlobalState.Transactions
 import Concordium.ID.Types
-import Concordium.ID.AccountHolder
+import Concordium.ID.Account
 import Concordium.Crypto.Ed25519Signature
 
 import System.Random

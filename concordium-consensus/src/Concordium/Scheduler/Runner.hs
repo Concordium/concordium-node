@@ -17,7 +17,7 @@ import qualified Data.HashMap.Strict as Map
 import Control.Monad.Except
 import Control.Monad.Fail(MonadFail)
 
-import qualified Concordium.ID.AccountHolder as AH
+import qualified Concordium.ID.Account as AH
 
 import Concordium.Crypto.SHA256(hash)
 import Concordium.Crypto.SignatureScheme(KeyPair)

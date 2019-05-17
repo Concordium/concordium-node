@@ -31,7 +31,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState &
-    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 1000000 alesACI) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 1000000 [] alesACI []) Acc.emptyAccounts) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
