@@ -1,4 +1,3 @@
-pub mod fails;
 pub mod utils;
 
 pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
