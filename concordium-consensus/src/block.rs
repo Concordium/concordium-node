@@ -87,14 +87,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
-    pub slot:       Slot,
-    pub pointer:    BlockHash,
-    pub baker_id:   BakerId,
-    proof:          Encoded,
-    nonce:          Encoded,
+    pub slot:           Slot,
+    pub pointer:        BlockHash,
+    pub baker_id:       BakerId,
+    proof:              Encoded,
+    nonce:              Encoded,
     pub last_finalized: BlockHash,
-    transactions:   Transactions,
-    signature:      ByteString,
+    transactions:       Transactions,
+    signature:          ByteString,
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
@@ -235,7 +235,7 @@ impl PendingBlock {
 impl From<BakedBlock> for PendingBlock {
     fn from(block: BakedBlock) -> Self {
         Self {
-            hash:     sha256(&block.serialize()),
+            hash: sha256(&block.serialize()),
             block,
             received: Utc::now(),
         }

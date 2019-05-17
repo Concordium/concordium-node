@@ -232,8 +232,7 @@ fn setup_baker_guards(
                     match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
-                            match &node_ref.send_message(None, network_id, None, out_bytes, true)
-                            {
+                            match &node_ref.send_message(None, network_id, None, out_bytes, true) {
                                 Ok(_) => info!(
                                     "Peer {} broadcasted a block ({:?}) by baker {}",
                                     node_ref.id(),
@@ -267,13 +266,7 @@ fn setup_baker_guards(
                     {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
-                            match &node_ref.send_message(
-                                None,
-                                network_id,
-                                None,
-                                out_bytes,
-                                true,
-                            ) {
+                            match &node_ref.send_message(None, network_id, None, out_bytes, true) {
                                 Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), msg,),
                                 Err(_) => error!("Couldn't broadcast a finalization packet!"),
                             }
@@ -303,13 +296,7 @@ fn setup_baker_guards(
                     {
                         Ok(_) => {
                             out_bytes.extend(&*bytes);
-                            match &node_ref.send_message(
-                                None,
-                                network_id,
-                                None,
-                                out_bytes,
-                                true,
-                            ) {
+                            match &node_ref.send_message(None, network_id, None, out_bytes, true) {
                                 Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), rec_info),
                                 Err(_) => error!("Couldn't broadcast a finalization record!"),
                             }
@@ -450,11 +437,7 @@ fn setup_process_output(
                             SHA256
                         );
                         send_catchup_request_block_by_hash_baker(
-                            baker,
-                            node,
-                            peer_id,
-                            network_id,
-                            content,
+                            baker, node, peer_id, network_id, content,
                         )
                     }
                     CatchupFinalizationRecordByHash => {
@@ -465,11 +448,7 @@ fn setup_process_output(
                             SHA256
                         );
                         send_catchup_request_finalization_record_by_hash_baker(
-                            baker,
-                            node,
-                            peer_id,
-                            network_id,
-                            content,
+                            baker, node, peer_id, network_id, content,
                         )
                     }
                     CatchupFinalizationRecordByIndex => {
@@ -480,18 +459,12 @@ fn setup_process_output(
                             8
                         );
                         send_catchup_request_finalization_record_by_index_to_baker(
-                            baker,
-                            node,
-                            peer_id,
-                            network_id,
-                            content,
+                            baker, node, peer_id, network_id, content,
                         )
                     }
                     CatchupFinalizationMessagesByPoint => {
                         send_catchup_finalization_messages_by_point_to_baker(
-                            baker,
-                            peer_id,
-                            content,
+                            baker, peer_id, content,
                         )
                     }
                 }

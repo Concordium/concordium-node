@@ -9,7 +9,9 @@ use std::{
     time::{self, Duration},
 };
 
-use crate::{block::*, common::HashBytes, fails::BakerNotRunning, ffi::*, finalization::*, tree::*};
+use crate::{
+    block::*, common::HashBytes, fails::BakerNotRunning, ffi::*, finalization::*, tree::*,
+};
 
 pub type PeerId = u64;
 
