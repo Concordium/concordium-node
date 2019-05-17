@@ -9,7 +9,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-const APP_INFO: AppInfo = AppInfo {
+pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
     author: "Concordium",
 };
@@ -247,7 +247,6 @@ pub struct CommonConfig {
     pub print_config: bool,
 }
 
-#[cfg(feature = "benchmark")]
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
@@ -259,24 +258,9 @@ pub struct CliConfig {
     pub test_runner_url: Option<String>,
     #[structopt(flatten)]
     pub baker: BakerConfig,
+    #[cfg(feature = "benchmark")]
     #[structopt(flatten)]
     pub tps: TpsConfig,
-    #[structopt(flatten)]
-    pub rpc: RpcCliConfig,
-}
-
-#[cfg(not(feature = "benchmark"))]
-#[derive(StructOpt, Debug)]
-pub struct CliConfig {
-    #[structopt(long = "no-network", help = "Disable network")]
-    pub no_network: bool,
-    #[structopt(
-        long = "testrunner-url",
-        help = "URL for the test runner to submit data to"
-    )]
-    pub test_runner_url: Option<String>,
-    #[structopt(flatten)]
-    pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
 }
@@ -326,117 +310,19 @@ pub struct Config {
     pub testrunner: TestRunnerConfig,
 }
 
-#[cfg(feature = "benchmark")]
-fn default_cli_config() -> CliConfig {
-    CliConfig {
-        no_network:      false,
-        test_runner_url: None,
-        baker:           BakerConfig {
-            baker_id:         None,
-            baker_num_bakers: 60,
-            baker_genesis:    0,
-        },
-        tps:             TpsConfig {
-            enable_tps_test:       false,
-            tps_test_recv_id:      None,
-            tps_stats_save_amount: 10000,
-            tps_message_count:     1000,
-        },
-        rpc:             RpcCliConfig {
-            no_rpc_server:    false,
-            rpc_server_port:  10000,
-            rpc_server_addr:  "127.0.0.1".to_owned(),
-            rpc_server_token: "rpcadmin".to_owned(),
-        },
-    }
-}
-
-#[cfg(not(feature = "benchmark"))]
-fn default_cli_config() -> CliConfig {
-    CliConfig {
-        no_network:      false,
-        test_runner_url: None,
-        baker:           BakerConfig {
-            baker_id:         None,
-            baker_num_bakers: 60,
-            baker_genesis:    0,
-        },
-        rpc:             RpcCliConfig {
-            no_rpc_server:    false,
-            rpc_server_port:  10000,
-            rpc_server_addr:  "127.0.0.1".to_owned(),
-            rpc_server_token: "rpcadmin".to_owned(),
-        },
-    }
-}
-
-//#[cfg(test)]
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            common: CommonConfig {
-                external_ip:      None,
-                external_port:    None,
-                id:               None,
-                listen_port:      8888,
-                listen_address:   None,
-                debug:            false,
-                trace:            false,
-                network_ids:      vec![1000],
-                config_dir:       None,
-                data_dir:         None,
-                no_log_timestamp: false,
-                no_trust_bans:    false,
-                min_peers_bucket: 100,
-                print_config:     false,
-            },
-            #[cfg(feature = "instrumentation")]
-            prometheus: PrometheusConfig {
-                prometheus_listen_addr:   "127.0.0.1".to_owned(),
-                prometheus_listen_port:   9090,
-                prometheus_server:        false,
-                prometheus_push_gateway:  None,
-                prometheus_job_name:      "p2p_node_push".to_owned(),
-                prometheus_instance_name: None,
-                prometheus_push_username: None,
-                prometheus_push_password: None,
-                prometheus_push_interval: 2,
-            },
-            connection: ConnectionConfig {
-                desired_nodes:       50,
-                no_bootstrap_dns:    true,
-                bootstrap_server:    "bootstrap.p2p.concordium.com".to_owned(),
-                no_trust_broadcasts: false,
-                connect_to:          vec![],
-                dnssec_disabled:     false,
-                dns_resolver:        vec![],
-                bootstrap_node:      vec![],
-                resolv_conf:         "/etc/resolv.conf".to_owned(),
-            },
-            cli: default_cli_config(),
-            bootstrapper: BootstrapperConfig { max_nodes: 10000 },
-            testrunner: TestRunnerConfig {
-                listen_http_port:    8950,
-                listen_http_address: "0.0.0.0".to_owned(),
-            },
-        }
-    }
-}
-
-//#[cfg(test)]
 impl Config {
-    pub fn new(
+    pub fn add_options(
+        mut self,
         listen_address: Option<String>,
         listen_port: u16,
         network_ids: Vec<u16>,
         min_peers_bucket: usize,
     ) -> Self {
-        let mut config = Config::default();
-        config.common.listen_address = listen_address;
-        config.common.listen_port = listen_port;
-        config.common.network_ids = network_ids;
-        config.common.min_peers_bucket = min_peers_bucket;
-        config
+        self.common.listen_address = listen_address;
+        self.common.listen_port = listen_port;
+        self.common.network_ids = network_ids;
+        self.common.min_peers_bucket = min_peers_bucket;
+        self
     }
 }
 

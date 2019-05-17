@@ -120,6 +120,11 @@ message TpsRequest {
   string directory = 3;
 }
 
+message DumpRequest {
+  string file = 1;
+  bool raw = 2;
+}
+
 message Empty {}
 
 service P2P {
@@ -164,4 +169,5 @@ service P2P {
   rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
   rpc Shutdown(Empty) returns (SuccessResponse) {}
   rpc TpsTest(TpsRequest) returns (SuccessResponse) {}
+  rpc Dump(DumpRequest) returns (SuccessResponse) {}
 }

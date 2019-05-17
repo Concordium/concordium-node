@@ -20,12 +20,15 @@ use std::{
     },
     time,
 };
+use structopt::StructOpt;
 
 static INIT: Once = ONCE_INIT;
 static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static PORT_RPC_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static PORT_START_NODE: u16 = 8888;
 static PORT_START_RPC: u16 = 10002;
+
+pub const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
 
 /// It returns next port available and it ensures that next `slot_size`
 /// ports will be available too.
@@ -115,7 +118,12 @@ pub fn make_node_and_sync(
     let (net_tx, _) = std::sync::mpsc::channel();
     let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::channel();
 
-    let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
+    let mut config = Config::from_iter(TESTCONFIG.to_vec()).add_options(
+        Some("127.0.0.1".to_owned()),
+        port,
+        networks,
+        100,
+    );
     config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
     let export_service = Arc::new(RwLock::new(

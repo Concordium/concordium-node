@@ -5,7 +5,7 @@ use std::{
     collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
     rc::Rc,
-    sync::{Arc, RwLock},
+    sync::{mpsc::Sender, Arc, RwLock},
 };
 
 use crate::{
@@ -392,5 +392,12 @@ impl TlsServerPrivate {
                 send_status(&conn_mut_borrowed, status)
             })
             .count()
+    }
+
+    pub fn dump_all_connections(&mut self, x: Sender<crate::dumper::DumpItem>) {
+        self.connections.iter_mut().for_each(|conn| {
+            let mut conn_mut_borrowed = conn.borrow_mut();
+            conn_mut_borrowed.dump_tx.replace(x.clone());
+        });
     }
 }

@@ -102,6 +102,7 @@ impl TlsServerBuilder {
                 dptr: mdptr,
                 blind_trusted_broadcast,
                 prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
+                dump_tx: None,
             };
 
             mself.add_default_prehandshake_validations();
@@ -174,6 +175,7 @@ pub struct TlsServer {
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
     blind_trusted_broadcast:  bool,
     prehandshake_validations: PreHandshake,
+    dump_tx:                  Option<Sender<crate::dumper::DumpItem>>,
 }
 
 impl TlsServer {
@@ -242,7 +244,7 @@ impl TlsServer {
 
         let networks = self.networks();
 
-        let mut conn = ConnectionBuilder::new()
+        let conn = ConnectionBuilder::new()
             .set_socket(socket)
             .set_token(token)
             .set_server_session(Some(tls_session))
@@ -253,8 +255,13 @@ impl TlsServer {
             .set_event_log(self.event_log.clone())
             .set_local_end_networks(networks)
             .set_buckets(Arc::clone(&self.buckets))
-            .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
-            .build()?;
+            .set_blind_trusted_broadcast(self.blind_trusted_broadcast);
+        let mut conn = if let Some(d) = &self.dump_tx {
+            conn.set_dump_tx(d.clone())
+        } else {
+            conn
+        }
+        .build()?;
 
         self.register_message_handlers(&mut conn);
 
@@ -314,7 +321,7 @@ impl TlsServer {
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
 
                 let networks = self.networks();
-                let mut conn = ConnectionBuilder::new()
+                let conn = ConnectionBuilder::new()
                     .set_socket(socket)
                     .set_token(token)
                     .set_server_session(None)
@@ -325,8 +332,13 @@ impl TlsServer {
                     .set_event_log(self.event_log.clone())
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_buckets(Arc::clone(&self.buckets))
-                    .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
-                    .build()?;
+                    .set_blind_trusted_broadcast(self.blind_trusted_broadcast);
+                let mut conn = if let Some(d) = &self.dump_tx {
+                    conn.set_dump_tx(d.clone())
+                } else {
+                    conn
+                }
+                .build()?;
 
                 self.register_message_handlers(&mut conn);
                 conn.register(poll)?;
@@ -433,6 +445,12 @@ impl TlsServer {
             }
             Ok(())
         })
+    }
+
+    pub fn dump_start(&mut self, dump_tx: Sender<crate::dumper::DumpItem>) {
+        let to_private = dump_tx.clone();
+        self.dump_tx.replace(dump_tx);
+        write_or_die!(self.dptr).dump_all_connections(to_private);
     }
 }
 
