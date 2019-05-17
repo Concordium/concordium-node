@@ -289,25 +289,8 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
 
     bsoModifyAccount bs accountUpdates = return $
         let account = bs ^. blockAccounts . singular (ix (accountUpdates ^. TS.auAddress))
-            updatedAccount = updateAccount accountUpdates account
+            updatedAccount = TS.updateAccount accountUpdates account
         in bs & blockAccounts %~ Account.putAccount updatedAccount
-
-updateAccount :: TS.AccountUpdate -> Account -> Account
-updateAccount upd acc =
-  acc &
-  (accountNonce %~ setMaybe (upd ^. TS.auNonce)) .
-  (accountAmount %~ setMaybe (upd ^. TS.auAmount)) .
-  (accountCredentials %~ (\cs -> case upd ^. TS.auCredential of
-                                   Just c -> c : cs
-                                   Nothing -> cs)) .
-  (accountEncryptedAmount %~ (\eas -> case upd ^. TS.auEncrypted of
-                                        TS.Empty -> eas
-                                        TS.Add ea -> ea:eas
-                                        TS.Replace ea -> [ea]
-                             ))
-  
-  where setMaybe (Just x) _ = x
-        setMaybe Nothing y = y
 
 type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
 

@@ -145,8 +145,8 @@ class Monad m => BlockStateQuery m where
 type family UpdatableBlockState (m :: * -> *) :: *
 
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- |Replace the encrypted amount, such as when compressing.
-                           | Add !EncryptedAmount     -- |Add an encryptedamount to the list of encrypted amounts.
-                           | Empty                   -- |Do nothing to the encrypted amount.
+                           | Add !EncryptedAmount     -- |Add an encrypted amount to the list of encrypted amounts.
+                           | Empty                    -- |Do nothing to the encrypted amount.
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -162,6 +162,29 @@ data AccountUpdate = AccountUpdate {
   ,_auCredential :: !(Maybe ID.CredentialDeploymentInformation)
   }
 makeLenses ''AccountUpdate
+
+emptyAccountUpdate :: AccountAddress -> AccountUpdate
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
+
+-- |Apply account updates to an account. It is assumed that the addresss in
+-- account updates and account are the same.
+updateAccount :: AccountUpdate -> Account -> Account
+updateAccount upd acc =
+  acc &
+  (accountNonce %~ setMaybe (upd ^. auNonce)) .
+  (accountAmount %~ setMaybe (upd ^. auAmount)) .
+  (accountCredentials %~ (\cs -> case upd ^. auCredential of
+                                   Just c -> c : cs
+                                   Nothing -> cs)) .
+  (accountEncryptedAmount %~ (\eas -> case upd ^. auEncrypted of
+                                        Empty -> eas
+                                        Add ea -> ea:eas
+                                        Replace ea -> [ea]
+                             ))
+  
+  where setMaybe (Just x) _ = x
+        setMaybe Nothing y = y
+
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
