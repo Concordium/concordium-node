@@ -1,5 +1,4 @@
 pub mod fails;
-mod seen_transmissions_list;
 pub mod utils;
 
 pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
