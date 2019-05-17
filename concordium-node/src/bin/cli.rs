@@ -112,118 +112,13 @@ fn setup_baker_guards(
     conf: &configuration::Config,
 ) {
     if let Some(ref mut baker) = baker {
-        let mut _baker_clone = baker.to_owned();
-        let mut _node_ref = node.clone();
-        let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-        spawn_or_die!("Process baker blocks output", move || loop {
-            match _baker_clone.out_queue().recv_block() {
-                Ok(block) => {
-                    let bytes = block.serialize();
+        let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
-                    // FIXME: perhaps we should make the enclosing function Fallible?
-                    // the second unwrap is safe, but not necessarily the first one
-                    safe_write!(SKOV_DATA)
-                        .unwrap()
-                        .add_block(PendingBlock::new(&bytes).unwrap());
-
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
-                        Ok(_) => {
-                            out_bytes.extend(&*bytes);
-                            match &_node_ref.send_message(None, _network_id, None, out_bytes, true)
-                            {
-                                Ok(_) => info!(
-                                    "Peer {} broadcasted a block ({:?}) by baker {}",
-                                    _node_ref.id(),
-                                    sha256(&bytes),
-                                    block.baker_id,
-                                ),
-                                Err(_) => error!(
-                                    "Peer {} couldn't broadcast a block ({:?})!",
-                                    _node_ref.id(),
-                                    sha256(&bytes),
-                                ),
-                            }
-                        }
-                        Err(_) => error!("Can't write type to packet"),
-                    }
-                }
-                _ => error!("Error receiving block from baker"),
-            }
-        });
-        let _baker_clone_2 = baker.to_owned();
-        let mut _node_ref_2 = node.clone();
-        spawn_or_die!("Process baker finalization output", move || loop {
-            match _baker_clone_2.out_queue().recv_finalization() {
-                Ok(msg) => {
-                    let bytes = msg.serialize();
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes
-                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
-                    {
-                        Ok(_) => {
-                            out_bytes.extend(&*bytes);
-                            match &_node_ref_2.send_message(
-                                None,
-                                _network_id,
-                                None,
-                                out_bytes,
-                                true,
-                            ) {
-                                Ok(_) => info!("Peer {} broadcasted a {}", _node_ref_2.id(), msg,),
-                                Err(_) => error!("Couldn't broadcast a finalization packet!"),
-                            }
-                        }
-                        Err(_) => error!("Can't write type to packet"),
-                    }
-                }
-                _ => error!("Error receiving finalization packet from baker"),
-            }
-        });
-        let _baker_clone_3 = baker.to_owned();
-        let mut _node_ref_3 = node.clone();
-        spawn_or_die!("Process baker finalization records output", move || loop {
-            match _baker_clone_3.out_queue().recv_finalization_record() {
-                Ok(rec) => {
-                    let bytes = rec.serialize();
-
-                    // FIXME: perhaps we should make the enclosing function Fallible?
-                    // the second unwrap is safe, but not necessarily the first one
-                    safe_write!(SKOV_DATA)
-                        .unwrap()
-                        .add_finalization(FinalizationRecord::deserialize(&bytes).unwrap());
-
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes
-                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationRecord as u16)
-                    {
-                        Ok(_) => {
-                            out_bytes.extend(&*bytes);
-                            match &_node_ref_3.send_message(
-                                None,
-                                _network_id,
-                                None,
-                                out_bytes,
-                                true,
-                            ) {
-                                Ok(_) => info!("Peer {} broadcasted a {}", _node_ref_3.id(), rec),
-                                Err(_) => error!("Couldn't broadcast a finalization record!"),
-                            }
-                        }
-                        Err(_) => error!("Can't write type to packet"),
-                    }
-                }
-                _ => error!("Error receiving finalization record from baker"),
-            }
-        });
-        let _baker_clone_4 = baker.to_owned();
-        let mut _node_ref_4 = node.clone();
+        let baker_clone = baker.to_owned();
+        let mut node_ref = node.clone();
         spawn_or_die!("Process baker catch-up requests", move || loop {
             use concordium_consensus::consensus::CatchupRequest::*;
-            match _baker_clone_4.out_queue().recv_catchup() {
+            match baker_clone.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
                         BlockByHash(receiver_id, bytes) => {
@@ -258,21 +153,21 @@ fn setup_baker_guards(
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                     };
-                    match &_node_ref_4.send_message(
+                    match &node_ref.send_message(
                         Some(receiver_id),
-                        _network_id,
+                        network_id,
                         None,
                         serialized_bytes,
                         false,
                     ) {
                         Ok(_) => info!(
                             "Peer {} sent a consensus catch-up request to peer {}",
-                            _node_ref_4.id(),
+                            node_ref.id(),
                             receiver_id,
                         ),
                         Err(_) => error!(
                             "Peer {} couldn't send a consensus catch-up request to peer {}",
-                            _node_ref_4.id(),
+                            node_ref.id(),
                             receiver_id,
                         ),
                     }
@@ -280,12 +175,13 @@ fn setup_baker_guards(
                 Err(_) => error!("Can't read from queue"),
             }
         });
-        let _baker_clone_5 = baker.to_owned();
-        let mut _node_ref_5 = node.clone();
+
+        let baker_clone = baker.to_owned();
+        let mut node_ref = node.clone();
         spawn_or_die!(
             "Process outbound baker catch-up finalization messages",
             move || loop {
-                match _baker_clone_5.out_queue().recv_finalization_catchup() {
+                match baker_clone.out_queue().recv_finalization_catchup() {
                     Ok((receiver_id_raw, msg)) => {
                         let receiver_id = P2PNodeId(receiver_id_raw);
                         let bytes = &*msg.serialize();
@@ -295,9 +191,9 @@ fn setup_baker_guards(
                             .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
                             .expect("Can't write to buffer");
                         out_bytes.extend(bytes);
-                        match &_node_ref_5.send_message(
+                        match &node_ref.send_message(
                             Some(receiver_id),
-                            _network_id,
+                            network_id,
                             None,
                             out_bytes,
                             false,
@@ -316,6 +212,115 @@ fn setup_baker_guards(
                 }
             }
         );
+
+        let baker_clone = baker.to_owned();
+        let mut node_ref = node.clone();
+        spawn_or_die!("Process baker blocks output", move || loop {
+            match baker_clone.out_queue().recv_block() {
+                Ok(block) => {
+                    let bytes = block.serialize();
+
+                    // FIXME: perhaps we should make the enclosing function Fallible?
+                    // the second unwrap is safe, but not necessarily the first one
+                    safe_write!(SKOV_DATA)
+                        .unwrap()
+                        .add_block(PendingBlock::new(&bytes).unwrap());
+
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
+                        Ok(_) => {
+                            out_bytes.extend(&*bytes);
+                            match &node_ref.send_message(None, network_id, None, out_bytes, true)
+                            {
+                                Ok(_) => info!(
+                                    "Peer {} broadcasted a block ({:?}) by baker {}",
+                                    node_ref.id(),
+                                    sha256(&bytes),
+                                    block.baker_id,
+                                ),
+                                Err(_) => error!(
+                                    "Peer {} couldn't broadcast a block ({:?})!",
+                                    node_ref.id(),
+                                    sha256(&bytes),
+                                ),
+                            }
+                        }
+                        Err(_) => error!("Can't write type to packet"),
+                    }
+                }
+                _ => error!("Error receiving block from baker"),
+            }
+        });
+
+        let baker_clone = baker.to_owned();
+        let mut node_ref = node.clone();
+        spawn_or_die!("Process baker finalization output", move || loop {
+            match baker_clone.out_queue().recv_finalization() {
+                Ok(msg) => {
+                    let bytes = msg.serialize();
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes
+                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
+                    {
+                        Ok(_) => {
+                            out_bytes.extend(&*bytes);
+                            match &node_ref.send_message(
+                                None,
+                                network_id,
+                                None,
+                                out_bytes,
+                                true,
+                            ) {
+                                Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), msg,),
+                                Err(_) => error!("Couldn't broadcast a finalization packet!"),
+                            }
+                        }
+                        Err(_) => error!("Can't write type to packet"),
+                    }
+                }
+                _ => error!("Error receiving finalization packet from baker"),
+            }
+        });
+
+        let baker_clone = baker.to_owned();
+        let mut node_ref = node.clone();
+        spawn_or_die!("Process baker finalization records output", move || loop {
+            match baker_clone.out_queue().recv_finalization_record() {
+                Ok(rec) => {
+                    let bytes = rec.serialize();
+
+                    // FIXME: perhaps we should make the enclosing function Fallible?
+                    // the second unwrap is safe, but not necessarily the first one
+                    safe_write!(SKOV_DATA)
+                        .unwrap()
+                        .add_finalization(FinalizationRecord::deserialize(&bytes).unwrap());
+
+                    let mut out_bytes =
+                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                    match out_bytes
+                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationRecord as u16)
+                    {
+                        Ok(_) => {
+                            out_bytes.extend(&*bytes);
+                            match &node_ref.send_message(
+                                None,
+                                network_id,
+                                None,
+                                out_bytes,
+                                true,
+                            ) {
+                                Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), rec),
+                                Err(_) => error!("Couldn't broadcast a finalization record!"),
+                            }
+                        }
+                        Err(_) => error!("Can't write type to packet"),
+                    }
+                }
+                _ => error!("Error receiving finalization record from baker"),
+            }
+        });
     }
 }
 
