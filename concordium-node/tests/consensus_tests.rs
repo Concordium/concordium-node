@@ -21,8 +21,10 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc,
     };
+    use structopt::StructOpt;
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
+    const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
 
     /// It returns next port available and it ensures that next `slot_size`
     /// ports will be available too.
@@ -65,7 +67,12 @@ mod tests {
             }
         });
 
-        let mut config = Config::new(Some("127.0.0.1".to_owned()), 18888 + port_node, vec![], 100);
+        let mut config = Config::from_iter(TESTCONFIG.to_vec()).add_options(
+            Some("127.0.0.1".to_owned()),
+            18888 + port_node,
+            vec![],
+            100,
+        );
         config.cli.rpc.rpc_server_port = 11000 + port_node;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();

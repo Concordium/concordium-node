@@ -87,6 +87,7 @@ pub mod p2p;
 
 pub mod stats_export_service;
 
+pub mod dumper;
 pub mod proto;
 pub mod rpc;
 pub mod stats_engine;

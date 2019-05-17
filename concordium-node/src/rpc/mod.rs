@@ -1049,6 +1049,58 @@ impl P2P for RpcServerImpl {
             .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
         ctx.spawn(f);
     }
+
+    #[cfg(not(feature = "network_dump"))]
+    fn dump(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: DumpRequest,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = sink
+            .fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::Unavailable,
+                Some("Feature not activated".to_string()),
+            ))
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
+
+    #[cfg(feature = "network_dump")]
+    fn dump(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: DumpRequest,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = if let Ok(locked_node) = self.node.lock() {
+            let mut r = SuccessResponse::new();
+            let file_path = req.get_file().to_owned();
+            if locked_node
+                .activate_dump(
+                    if file_path.is_empty() {
+                        "dump"
+                    } else {
+                        &file_path
+                    },
+                    req.get_raw(),
+                )
+                .is_ok()
+            {
+                r.set_value(true);
+            } else {
+                r.set_value(false);
+            }
+            sink.success(r)
+        } else {
+            sink.fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::ResourceExhausted,
+                Some("Node can't be locked".to_string()),
+            ))
+        };
+        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
 }
 
 #[cfg(test)]
@@ -1065,13 +1117,14 @@ mod tests {
         rpc::RpcServerImpl,
         test_utils::{
             connect_and_wait_handshake, log_any_message_handler, make_node_and_sync,
-            next_port_offset_node, next_port_offset_rpc, wait_broadcast_message,
+            next_port_offset_node, next_port_offset_rpc, wait_broadcast_message, TESTCONFIG,
         },
     };
     use chrono::prelude::Utc;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
     use std::sync::{Arc, RwLock};
+    use structopt::StructOpt;
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
     fn create_node_rpc_call_option_waiter(
@@ -1085,7 +1138,7 @@ mod tests {
         let (node, w) = make_node_and_sync(next_port_offset_node(1), vec![100], false, nt).unwrap();
 
         let rpc_port = next_port_offset_rpc(1);
-        let mut config = Config::default();
+        let mut config = Config::from_iter(TESTCONFIG.to_vec());
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();

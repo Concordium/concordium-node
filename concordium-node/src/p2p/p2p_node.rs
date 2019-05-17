@@ -1,3 +1,5 @@
+#[cfg(feature = "network_dump")]
+use crate::dumper::create_dump_thread;
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
@@ -95,6 +97,8 @@ pub struct P2PNode {
     pub print_peers:      bool,
     config:               P2PNodeConfig,
     broadcasting_checks:  Arc<FilterFunctor<NetworkPacket>>,
+    dump_switch:          Sender<(std::path::PathBuf, bool)>,
+    dump_tx:              Sender<crate::dumper::DumpItem>,
 }
 
 unsafe impl Send for P2PNode {}
@@ -248,6 +252,13 @@ impl P2PNode {
 
         let seen_messages = SeenMessagesList::new();
 
+        let (dump_tx, _dump_rx) = std::sync::mpsc::channel();
+
+        let (act_tx, _act_rx) = std::sync::mpsc::channel();
+
+        #[cfg(feature = "network_dump")]
+        create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
+
         let networks: HashSet<NetworkId> = conf
             .common
             .network_ids
@@ -305,6 +316,8 @@ impl P2PNode {
             print_peers: true,
             config,
             broadcasting_checks,
+            dump_switch: act_tx,
+            dump_tx,
         };
         mself.add_default_message_handlers();
         mself
@@ -1152,6 +1165,14 @@ impl P2PNode {
         } else {
             false
         }
+    }
+
+    #[cfg(feature = "network_dump")]
+    pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
+        let path = std::path::PathBuf::from(path);
+        self.dump_switch.send((path, raw))?;
+        write_or_die!(self.tls_server).dump_start(self.dump_tx.clone());
+        Ok(())
     }
 }
 

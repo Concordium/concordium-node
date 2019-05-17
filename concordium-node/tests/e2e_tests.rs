@@ -25,6 +25,7 @@ mod tests {
         },
         time,
     };
+    use structopt::StructOpt;
 
     mod utils {
         use concordium_common::{
@@ -49,10 +50,12 @@ mod tests {
             },
             time,
         };
+        use structopt::StructOpt;
 
         static INIT: Once = ONCE_INIT;
         static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
         static PORT_START: u16 = 8888;
+        pub const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
 
         /// It returns next port available and it ensures that next `slot_size`
         /// ports will be available too.
@@ -136,7 +139,12 @@ mod tests {
             let (net_tx, _) = std::sync::mpsc::channel();
             let (msg_wait_tx, msg_wait_rx) = std::sync::mpsc::channel();
 
-            let mut config = Config::new(Some("127.0.0.1".to_owned()), port, networks, 100);
+            let mut config = Config::from_iter(TESTCONFIG.to_vec()).add_options(
+                Some("127.0.0.1".to_owned()),
+                port,
+                networks,
+                100,
+            );
             config.connection.no_trust_broadcasts = blind_trusted_broadcast;
 
             let export_service = Arc::new(RwLock::new(
@@ -972,7 +980,12 @@ mod tests {
         let port = utils::next_port_offset(1);
 
         let (net_tx, _) = std::sync::mpsc::channel();
-        let config = Config::new(Some("127.0.0.1".to_owned()), port, vec![100], 100);
+        let config = Config::from_iter(utils::TESTCONFIG.to_vec()).add_options(
+            Some("127.0.0.1".to_owned()),
+            port,
+            vec![100],
+            100,
+        );
         let mut node = P2PNode::new(
             None,
             &config,

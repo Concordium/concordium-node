@@ -10,6 +10,7 @@ mod connection_private;
 pub mod fails;
 mod handler_utils;
 
+use chrono::prelude::*;
 use concordium_common::functor::FuncResult;
 use rustls::Session;
 
@@ -101,6 +102,7 @@ pub struct ConnectionBuilder {
     pub socket:              Option<TcpStream>,
     token:                   Option<Token>,
     blind_trusted_broadcast: Option<bool>,
+    dump_tx:                 Option<Sender<crate::dumper::DumpItem>>,
     priv_conn_builder:       ConnectionPrivateBuilder,
 }
 
@@ -114,6 +116,7 @@ impl ConnectionBuilder {
             socket:                  None,
             token:                   None,
             blind_trusted_broadcast: None,
+            dump_tx:                 None,
             priv_conn_builder:       ConnectionPrivateBuilder::new(),
         }
     }
@@ -141,6 +144,7 @@ impl ConnectionBuilder {
                 common_message_handler: Rc::new(RefCell::new(MessageHandler::new())),
                 blind_trusted_broadcast,
                 status: ConnectionStatus::Untrusted,
+                dump_tx: self.dump_tx,
             };
 
             lself.setup_handshake_handler();
@@ -213,6 +217,11 @@ impl ConnectionBuilder {
         self.priv_conn_builder = self.priv_conn_builder.set_blind_trusted_broadcast(btb);
         self
     }
+
+    pub fn set_dump_tx(mut self, sock: Sender<crate::dumper::DumpItem>) -> ConnectionBuilder {
+        self.dump_tx = Some(sock);
+        self
+    }
 }
 
 pub struct Connection {
@@ -236,6 +245,7 @@ pub struct Connection {
     pub message_handler: MessageHandler,
     pub common_message_handler: Rc<RefCell<MessageHandler>>,
     status: ConnectionStatus,
+    pub dump_tx: Option<Sender<crate::dumper::DumpItem>>,
 }
 
 impl Connection {
@@ -557,10 +567,24 @@ impl Connection {
         into_err!(self.dptr.borrow_mut().tls_session.write_all(bytes))
     }
 
+    fn send_to_dump(&self, buf: UCursor, inbound: bool) {
+        if let Some(sender) = &self.dump_tx {
+            let di = crate::dumper::DumpItem::new(
+                Utc::now(),
+                inbound,
+                self.remote_peer(),
+                self.remote_addr().ip(),
+                buf,
+            );
+            let _ = sender.send(di);
+        }
+    }
+
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
     fn process_complete_packet(&mut self, buf: Vec<u8>) -> FunctorResult<()> {
         let buf_cursor = UCursor::from(buf);
+        self.send_to_dump(buf_cursor.clone(), true);
 
         let mut archive = ReadArchiveAdapter::new(
             buf_cursor,
@@ -752,6 +776,7 @@ impl Connection {
         size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
         self.write_to_tls(&size_vec[..])?;
         self.write_to_tls(pkt)?;
+        self.send_to_dump(UCursor::from(pkt.to_vec()), false);
 
         self.flush_tls()
     }
