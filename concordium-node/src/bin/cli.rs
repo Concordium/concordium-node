@@ -433,9 +433,9 @@ fn setup_process_output(
                     Block => {
                         send_block_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
                     }
-                    Transaction => send_transaction_to_baker(baker, peer_id, &content[..]),
+                    Transaction => send_transaction_to_baker(baker, peer_id, content),
                     FinalizationMessage => {
-                        send_finalization_message_to_baker(baker, peer_id, &content[..])
+                        send_finalization_message_to_baker(baker, peer_id, content)
                     }
                     FinalizationRecord => send_finalization_record_to_baker(
                         baker,
@@ -455,7 +455,7 @@ fn setup_process_output(
                             node,
                             peer_id,
                             network_id,
-                            &content[..],
+                            content,
                         )
                     }
                     CatchupFinalizationRecordByHash => {
@@ -470,7 +470,7 @@ fn setup_process_output(
                             node,
                             peer_id,
                             network_id,
-                            &content[..],
+                            content,
                         )
                     }
                     CatchupFinalizationRecordByIndex => {
@@ -485,14 +485,14 @@ fn setup_process_output(
                             node,
                             peer_id,
                             network_id,
-                            &content[..],
+                            content,
                         )
                     }
                     CatchupFinalizationMessagesByPoint => {
                         send_catchup_finalization_messages_by_point_to_baker(
                             baker,
                             peer_id,
-                            &content[..],
+                            content,
                         )
                     }
                 }
@@ -714,7 +714,7 @@ fn send_catchup_finalization_messages_by_point_to_baker(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    match baker.get_finalization_messages(&content[..], peer_id.as_raw())? {
+    match baker.get_finalization_messages(content, peer_id.as_raw())? {
         0i64 => info!(
             "Peer {} requested finalization messages by point from consensus",
             peer_id
@@ -816,7 +816,7 @@ fn send_catchup_request_finalization_record_by_hash_baker(
         peer_id,
         network_id,
         |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
-            baker.get_block_finalization(&content[..])
+            baker.get_block_finalization(content)
         }
     )
 }
@@ -836,7 +836,7 @@ fn send_catchup_request_block_by_hash_baker(
         peer_id,
         network_id,
         |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
-            baker.get_block(&content[..])
+            baker.get_block(content)
         }
     )
 }
