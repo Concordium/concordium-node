@@ -14,10 +14,12 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
 
+import qualified Data.List as List
+
 data Accounts = Accounts {
     accountMap :: Map.Map AccountAddress AccountIndex,
     accountTable :: AccountTable,
-    accountRegIds :: Set.Set ID.AccountRegistrationID
+    accountRegIds :: Set.Set ID.CredentialRegistrationID
 }
 
 emptyAccounts :: Accounts
@@ -31,7 +33,7 @@ putAccount acct Accounts{..} =
     Just i -> Accounts accountMap (accountTable & ix i .~ acct) accountRegIds'
 
   where addr = acct ^. accountAddress
-        accountRegIds' = Set.insert (acct ^. accountCreationInformation . to ID.aci_regId) accountRegIds
+        accountRegIds' = List.foldl' (flip Set.insert) accountRegIds (map ID.cdi_regId (acct ^. accountCredentials))
 
 exists :: AccountAddress -> Accounts -> Bool
 exists addr Accounts{..} = Map.member addr accountMap
@@ -49,7 +51,7 @@ unsafeGetAccount addr Accounts{..} = case Map.lookup addr accountMap of
 -- |Check that an account registration ID is not already on the chain.
 -- See the foundation (Section 4.2) for why this is necessary.
 -- Return @True@ if the registration ID already exists in the set of known registration ids, and @False@ otherwise.
-regIdExists :: ID.AccountRegistrationID -> Accounts -> Bool
+regIdExists :: ID.CredentialRegistrationID -> Accounts -> Bool
 regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
 
 instance HashableTo H.Hash Accounts where

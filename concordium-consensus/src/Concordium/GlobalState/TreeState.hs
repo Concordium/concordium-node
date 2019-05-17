@@ -144,6 +144,25 @@ class Monad m => BlockStateQuery m where
 
 type family UpdatableBlockState (m :: * -> *) :: *
 
+data EncryptedAmountUpdate = Replace !EncryptedAmount -- |Replace the encrypted amount, such as when compressing.
+                           | Add !EncryptedAmount     -- |Add an encryptedamount to the list of encrypted amounts.
+                           | Empty                   -- |Do nothing to the encrypted amount.
+
+-- |An update to an account state.
+data AccountUpdate = AccountUpdate {
+  -- |Address of the affected account.
+  _auAddress :: !AccountAddress
+  -- |Optionally a new account nonce.
+  ,_auNonce :: !(Maybe Nonce)
+  -- |Optionally a new account amount.
+  ,_auAmount :: !(Maybe Amount)
+  -- |Optionally an update to the encrypted amounts.
+  ,_auEncrypted :: !EncryptedAmountUpdate
+  -- |Optionally a new credential.
+  ,_auCredential :: !(Maybe ID.CredentialDeploymentInformation)
+  }
+makeLenses ''AccountUpdate
+
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
@@ -154,9 +173,9 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
-  -- |Check whether an account with the given registration ID exists. Return
-  -- @True@ iff so.
-  bsoRegIdExists :: UpdatableBlockState m -> ID.AccountRegistrationID -> m Bool
+  -- |Check whether an the given credential registration ID exists.
+  -- Return @True@ iff so.
+  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m Bool
 
   -- |Try to add a new account to the state. If an account with the address already exists
   -- return @False@, and if the account was successfully added return @True@.
@@ -166,9 +185,11 @@ class BlockStateQuery m => BlockStateOperations m where
   -- already exists return @False@.
   bsoPutNewModule :: UpdatableBlockState m -> ModuleRef -> Interface -> ValueInterface -> m (Bool, UpdatableBlockState m)
 
-  -- |Replace the account with given data (which includes the address of the account).
-  bsoModifyAccount :: UpdatableBlockState m -> Account -> m (UpdatableBlockState m)
+  -- |Modify an existing account with given data (which includes the address of the account).
+  -- This method is only called when an account exists and can thus assume this.
+  bsoModifyAccount :: UpdatableBlockState m -> AccountUpdate -> m (UpdatableBlockState m)
   -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
+  -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m -> ContractAddress -> Amount -> Value -> m (UpdatableBlockState m)
 
 

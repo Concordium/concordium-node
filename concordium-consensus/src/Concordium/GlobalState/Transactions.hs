@@ -16,7 +16,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Crypto.SignatureScheme(SchemeId, Signature, KeyPair)
 import qualified Concordium.Crypto.AccountSignatureSchemes as SigScheme
 import qualified Concordium.ID.Types as IDTypes
-import qualified Concordium.ID.AccountHolder as AH
+import qualified Concordium.ID.Account as AH
 
 import Concordium.Types
 import Concordium.Types.HashableTo
