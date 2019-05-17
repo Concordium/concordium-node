@@ -279,7 +279,7 @@ impl BlockPtr {
         last_finalized: Self,
         validated: DateTime<Utc>,
     ) -> Self {
-        // FIXME: we want this validation as soon as we become catchup-aware
+        // FIXME: we want this validation as soon as we become catch-up aware
         // assert_eq!(parent.hash, pb.block.pointer, "block hash mismatch!");
         // assert_eq!(last_finalized.hash, pb.block.last_finalized, "finalization hash mismatch!");
 
