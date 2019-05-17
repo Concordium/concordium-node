@@ -76,8 +76,16 @@ impl Block {
             Block::Regular(block) => block.slot,
         }
     }
+}
 
-    pub fn serialize(&self) -> Box<[u8]> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
+    type Source = &'a [u8];
+
+    fn deserialize(_bytes: &[u8]) -> Fallible<Self> {
+        unimplemented!() // not used directly
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
         match self {
             Block::Genesis(genesis_data) => genesis_data.serialize(),
             Block::Regular(block_data) => block_data.serialize(),
@@ -97,8 +105,10 @@ pub struct BakedBlock {
     signature:      ByteString,
 }
 
-impl BakedBlock {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         // debug_deserialization!("Block", bytes);
 
         let mut cursor = Cursor::new(bytes);
@@ -128,9 +138,7 @@ impl BakedBlock {
 
         Ok(block)
     }
-}
 
-impl SerializeToBytes for BakedBlock {
     fn serialize(&self) -> Box<[u8]> {
         let transactions = Transactions::serialize(&self.transactions);
         let consts = size_of::<Slot>()
@@ -163,8 +171,10 @@ pub struct GenesisData {
     finalization_parameters: FinalizationParameters,
 }
 
-impl GenesisData {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
@@ -184,7 +194,7 @@ impl GenesisData {
         Ok(data)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
