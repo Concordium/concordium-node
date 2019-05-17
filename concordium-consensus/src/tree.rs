@@ -2,7 +2,12 @@ use chrono::prelude::{DateTime, Utc};
 
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::{block::*, common::{HashBytes, Slot}, finalization::*, transaction::*};
+use crate::{
+    block::*,
+    common::{HashBytes, Slot},
+    finalization::*,
+    transaction::*,
+};
 
 #[derive(Debug)]
 pub enum BlockStatus {
@@ -60,7 +65,10 @@ impl SkovData {
 
         self.genesis_block_ptr = Some(genesis_block_ptr);
 
-        debug!("block table: {:?}", self.block_table.keys().collect::<Vec<_>>());
+        debug!(
+            "block table: {:?}",
+            self.block_table.keys().collect::<Vec<_>>()
+        );
     }
 
     pub fn add_block(&mut self, pending_block: PendingBlock) -> Option<(BlockPtr, BlockStatus)> {
@@ -73,8 +81,13 @@ impl SkovData {
         let last_finalized = self.get_last_finalized().to_owned();
         let block_ptr = BlockPtr::new(pending_block, parent_block, last_finalized, Utc::now());
 
-        let ret = self.block_table.insert(block_ptr.hash.clone(), (block_ptr, BlockStatus::Alive));
-        debug!("block table: {:?}", self.block_table.keys().collect::<Vec<_>>());
+        let ret = self
+            .block_table
+            .insert(block_ptr.hash.clone(), (block_ptr, BlockStatus::Alive));
+        debug!(
+            "block table: {:?}",
+            self.block_table.keys().collect::<Vec<_>>()
+        );
         ret
     }
 
@@ -86,33 +99,45 @@ impl SkovData {
         &self.finalization_list.peek().unwrap().1 // safe; the genesis is always available
     }
 
-    pub fn get_last_finalized_slot(&self) -> Slot {
-        self.get_last_finalized().block.slot()
-    }
+    pub fn get_last_finalized_slot(&self) -> Slot { self.get_last_finalized().block.slot() }
 
-    pub fn get_last_finalized_height(&self) -> BlockHeight {
-        self.get_last_finalized().height
-    }
+    pub fn get_last_finalized_height(&self) -> BlockHeight { self.get_last_finalized().height }
 
     pub fn get_next_finalization_index(&self) -> FinalizationIndex {
         &self.finalization_list.peek().unwrap().0.index + 1 // safe; the genesis is always available
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> bool {
-        let block_ptr = if let Some((ref ptr, ref mut status)) = self.block_table
-            .get_mut(&record.block_pointer)
+        let block_ptr = if let Some((ref ptr, ref mut status)) =
+            self.block_table.get_mut(&record.block_pointer)
         {
             *status = BlockStatus::Finalized;
             ptr.clone()
         } else {
-            panic!("Can't find finalized block {:?} in the block table!", record.block_pointer);
+            panic!(
+                "Can't find finalized block {:?} in the block table!",
+                record.block_pointer
+            );
         };
 
-        // we should be ok with a linear search, as we are expecting only to keep the most recent
-        // finalization records
-        if self.finalization_list.iter().find(|&(rec, _)| *rec == record).is_none() {
+        // we should be ok with a linear search, as we are expecting only to keep the
+        // most recent finalization records
+        if self
+            .finalization_list
+            .iter()
+            .find(|&(rec, _)| *rec == record)
+            .is_none()
+        {
             self.finalization_list.push((record, block_ptr));
-            debug!("finalization list: {:?}", self.finalization_list.clone().into_sorted_vec().iter().map(|(rec, _)| &rec.block_pointer).collect::<Vec<_>>());
+            debug!(
+                "finalization list: {:?}",
+                self.finalization_list
+                    .clone()
+                    .into_sorted_vec()
+                    .iter()
+                    .map(|(rec, _)| &rec.block_pointer)
+                    .collect::<Vec<_>>()
+            );
             true
         } else {
             false

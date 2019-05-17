@@ -451,11 +451,9 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
 
         match callback_type {
             CallbackType::Block => match BakedBlock::deserialize(data) {
-                Ok(block) => {
-                    match CALLBACK_QUEUE.clone().send_block(block) {
-                        Ok(_) => debug!("Queueing {} block bytes", data_length),
-                        _ => error!("Didn't queue block message properly"),
-                    }
+                Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
+                    Ok(_) => debug!("Queueing {} block bytes", data_length),
+                    _ => error!("Didn't queue block message properly"),
                 },
                 Err(e) => error!("Deserialization of block failed: {:?}", e),
             },

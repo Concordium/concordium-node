@@ -25,29 +25,21 @@ pub enum Block {
 }
 
 impl PartialEq for Block {
-    fn eq(&self, other: &Self) -> bool {
-        self.pointer() == other.pointer()
-    }
+    fn eq(&self, other: &Self) -> bool { self.pointer() == other.pointer() }
 }
 
 impl Eq for Block {}
 
 impl PartialOrd for Block {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.slot().cmp(&other.slot()))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.slot().cmp(&other.slot())) }
 }
 
 impl Ord for Block {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.slot().cmp(&other.slot())
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.slot().cmp(&other.slot()) }
 }
 
 impl Block {
-    pub fn baker_id(&self) -> BakerId {
-        self.block_data().baker_id
-    }
+    pub fn baker_id(&self) -> BakerId { self.block_data().baker_id }
 
     pub fn block_data(&self) -> &BakedBlock {
         match self {
@@ -281,7 +273,8 @@ impl BlockPtr {
     ) -> Self {
         // FIXME: we want this validation as soon as we become catch-up aware
         // assert_eq!(parent.hash, pb.block.pointer, "block hash mismatch!");
-        // assert_eq!(last_finalized.hash, pb.block.last_finalized, "finalization hash mismatch!");
+        // assert_eq!(last_finalized.hash, pb.block.last_finalized, "finalization hash
+        // mismatch!");
 
         let height = parent.height + 1;
 
@@ -310,7 +303,5 @@ impl PartialOrd for BlockPtr {
 }
 
 impl Ord for BlockPtr {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.block.slot().cmp(&other.block.slot())
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.block.slot().cmp(&other.block.slot()) }
 }

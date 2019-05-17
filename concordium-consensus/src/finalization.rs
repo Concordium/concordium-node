@@ -363,7 +363,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for CssDoneReporting {
     }
 }
 
-#[derive(Debug, Hash, Clone)]
+#[derive(Debug, Clone)]
 pub struct FinalizationRecord {
     pub index:         FinalizationIndex,
     pub block_pointer: BlockHash,
@@ -372,23 +372,17 @@ pub struct FinalizationRecord {
 }
 
 impl PartialEq for FinalizationRecord {
-    fn eq(&self, other: &Self) -> bool {
-        self.block_pointer == other.block_pointer
-    }
+    fn eq(&self, other: &Self) -> bool { self.block_pointer == other.block_pointer }
 }
 
 impl Eq for FinalizationRecord {}
 
 impl PartialOrd for FinalizationRecord {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.index.cmp(&other.index))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.index.cmp(&other.index)) }
 }
 
 impl Ord for FinalizationRecord {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.index.cmp(&other.index)
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.index.cmp(&other.index) }
 }
 
 impl fmt::Display for FinalizationRecord {
@@ -481,7 +475,9 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(8 + self.0.len() * (size_of::<Party>() + SIGNATURE as usize));
+        let mut cursor = create_serialization_cursor(
+            8 + self.0.len() * (size_of::<Party>() + SIGNATURE as usize),
+        );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 

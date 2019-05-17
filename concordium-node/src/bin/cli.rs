@@ -122,7 +122,9 @@ fn setup_baker_guards(
 
                     // FIXME: perhaps we should make the enclosing function Fallible?
                     // the second unwrap is safe, but not necessarily the first one
-                    safe_write!(SKOV_DATA).unwrap().add_block(PendingBlock::new(&bytes).unwrap());
+                    safe_write!(SKOV_DATA)
+                        .unwrap()
+                        .add_block(PendingBlock::new(&bytes).unwrap());
 
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -189,7 +191,9 @@ fn setup_baker_guards(
 
                     // FIXME: perhaps we should make the enclosing function Fallible?
                     // the second unwrap is safe, but not necessarily the first one
-                    safe_write!(SKOV_DATA).unwrap().add_finalization(FinalizationRecord::deserialize(&bytes).unwrap());
+                    safe_write!(SKOV_DATA)
+                        .unwrap()
+                        .add_finalization(FinalizationRecord::deserialize(&bytes).unwrap());
 
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -421,14 +425,19 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match PacketType::try_from(consensus_type)? {
-                    Block => send_block_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?),
+                    Block => {
+                        send_block_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
+                    }
                     Transaction => send_transaction_to_baker(baker, peer_id, &content[..]),
                     FinalizationMessage => {
                         send_finalization_message_to_baker(baker, peer_id, &content[..])
                     }
-                    FinalizationRecord => {
-                        send_finalization_record_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
-                    }
+                    FinalizationRecord => send_finalization_record_to_baker(
+                        baker,
+                        peer_id,
+                        content,
+                        &mut *safe_write!(SKOV_DATA)?,
+                    ),
                     CatchupBlockByHash => {
                         ensure!(
                             content.len() == SHA256 as usize,
@@ -670,15 +679,13 @@ fn send_block_to_baker(
     if let Some((existing_ptr, _)) = skov.add_block(pending_block.clone()) {
         debug!(
             "Peer {} sent us a duplicate block ({:?})",
-            peer_id,
-            existing_ptr.hash,
+            peer_id, existing_ptr.hash,
         );
     } else {
         match baker.send_block(peer_id.as_raw(), &pending_block.block) {
             0i64 => info!(
                 "Peer {} sent a block ({:?}) to a baker",
-                peer_id,
-                pending_block.hash,
+                peer_id, pending_block.hash,
             ),
             err_code => error!(
                 "Peer {} can't send block from network to baker due to error code #{} (bytes: \
