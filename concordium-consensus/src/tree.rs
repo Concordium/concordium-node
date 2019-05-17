@@ -72,13 +72,24 @@ impl SkovData {
     }
 
     pub fn add_block(&mut self, pending_block: PendingBlock) -> Option<(BlockPtr, BlockStatus)> {
-        let parent_block = self.get_block_by_hash(&pending_block.block.pointer)?
-            // FIXME: we will want to be stricter here when we become catch-up aware
-            //.expect(&format!("Can't find the parent block ({:?}) of block {:?}!",
-            //                 &pending_block.block.pointer, &pending_block.hash))
-            .to_owned();
+        let parent_block = if let Some(block_ptr) = self.get_block_by_hash(&pending_block.block.pointer) {
+            block_ptr.to_owned()
+        } else {
+            panic!("Couldn't find the parent block ({:?}) of block {:?}",
+                pending_block.block.pointer,
+                pending_block.hash,
+            );
+        };
 
         let last_finalized = self.get_last_finalized().to_owned();
+        if last_finalized.hash != pending_block.block.last_finalized {
+            panic!("Block {:?} points to a finalization record ({:?}) which is not the last one ({:?})",
+                pending_block.hash,
+                pending_block.block.last_finalized,
+                last_finalized.hash,
+            );
+        }
+
         let block_ptr = BlockPtr::new(pending_block, parent_block, last_finalized, Utc::now());
 
         let ret = self
