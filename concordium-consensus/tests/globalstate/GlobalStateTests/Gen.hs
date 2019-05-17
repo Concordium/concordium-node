@@ -6,7 +6,7 @@ import Test.QuickCheck
 import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.GlobalState.Transactions
 import Concordium.Crypto.SignatureScheme
-import Concordium.ID.AccountHolder
+import Concordium.ID.Account
 
 import Concordium.Types
 
