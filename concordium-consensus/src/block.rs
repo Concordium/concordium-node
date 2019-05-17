@@ -92,7 +92,7 @@ pub struct BakedBlock {
     pub baker_id:   BakerId,
     proof:          Encoded,
     nonce:          Encoded,
-    last_finalized: BlockHash,
+    pub last_finalized: BlockHash,
     transactions:   Transactions,
     signature:      ByteString,
 }
@@ -224,15 +224,21 @@ pub struct PendingBlock {
 
 impl PendingBlock {
     pub fn new(bytes: &[u8]) -> Fallible<Self> {
-        let received = Utc::now();
-        let block = BakedBlock::deserialize(bytes)?;
-        let hash = sha256(bytes);
-
         Ok(Self {
-            hash,
-            block,
-            received,
+            hash:     sha256(bytes),
+            block:    BakedBlock::deserialize(bytes)?,
+            received: Utc::now(),
         })
+    }
+}
+
+impl From<BakedBlock> for PendingBlock {
+    fn from(block: BakedBlock) -> Self {
+        Self {
+            hash:     sha256(&block.serialize()),
+            block,
+            received: Utc::now(),
+        }
     }
 }
 

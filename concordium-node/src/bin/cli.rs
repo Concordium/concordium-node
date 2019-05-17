@@ -121,24 +121,24 @@ fn setup_baker_guards(
             match baker_clone.out_queue().recv_catchup() {
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
-                        BlockByHash(receiver_id, bytes) => {
-                            assert_eq!(bytes.len(), SHA256 as usize);
+                        BlockByHash(receiver_id, hash) => {
                             let mut inner_out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + hash.len());
                             inner_out_bytes
                                 .write_u16::<NetworkEndian>(CatchupBlockByHash as u16)
                                 .expect("Can't write to buffer");
-                            inner_out_bytes.extend(bytes);
+                            inner_out_bytes.extend(hash.iter());
+
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
-                        FinalizationRecordByHash(receiver_id, bytes) => {
-                            assert_eq!(bytes.len(), SHA256 as usize);
+                        FinalizationRecordByHash(receiver_id, hash) => {
                             let mut inner_out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + hash.len());
                             inner_out_bytes
                                 .write_u16::<NetworkEndian>(CatchupFinalizationRecordByHash as u16)
                                 .expect("Can't write to buffer");
-                            inner_out_bytes.extend(bytes);
+                            inner_out_bytes.extend(hash.iter());
+
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         FinalizationRecordByIndex(receiver_id, index) => {
@@ -150,6 +150,7 @@ fn setup_baker_guards(
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(index)
                                 .expect("Can't write to buffer");
+
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                     };
@@ -215,16 +216,16 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        spawn_or_die!("Process baker blocks output", move || loop {
+        spawn_or_die!("Process baker block output", move || loop {
             match baker_clone.out_queue().recv_block() {
                 Ok(block) => {
                     let bytes = block.serialize();
+                    let baker_id = block.baker_id;
+                    let pending_block = PendingBlock::from(block);
+                    let block_hash = pending_block.hash.clone();
 
                     // FIXME: perhaps we should make the enclosing function Fallible?
-                    // the second unwrap is safe, but not necessarily the first one
-                    safe_write!(SKOV_DATA)
-                        .unwrap()
-                        .add_block(PendingBlock::new(&bytes).unwrap());
+                    safe_write!(SKOV_DATA).unwrap().add_block(pending_block);
 
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -236,13 +237,13 @@ fn setup_baker_guards(
                                 Ok(_) => info!(
                                     "Peer {} broadcasted a block ({:?}) by baker {}",
                                     node_ref.id(),
-                                    sha256(&bytes),
-                                    block.baker_id,
+                                    block_hash,
+                                    baker_id,
                                 ),
                                 Err(_) => error!(
                                     "Peer {} couldn't broadcast a block ({:?})!",
                                     node_ref.id(),
-                                    sha256(&bytes),
+                                    block_hash,
                                 ),
                             }
                         }
@@ -255,7 +256,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        spawn_or_die!("Process baker finalization output", move || loop {
+        spawn_or_die!("Process baker finalization message output", move || loop {
             match baker_clone.out_queue().recv_finalization() {
                 Ok(msg) => {
                     let bytes = msg.serialize();
@@ -290,12 +291,10 @@ fn setup_baker_guards(
             match baker_clone.out_queue().recv_finalization_record() {
                 Ok(rec) => {
                     let bytes = rec.serialize();
+                    let rec_info = rec.to_string();
 
                     // FIXME: perhaps we should make the enclosing function Fallible?
-                    // the second unwrap is safe, but not necessarily the first one
-                    safe_write!(SKOV_DATA)
-                        .unwrap()
-                        .add_finalization(FinalizationRecord::deserialize(&bytes).unwrap());
+                    safe_write!(SKOV_DATA).unwrap().add_finalization(rec);
 
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -311,7 +310,7 @@ fn setup_baker_guards(
                                 out_bytes,
                                 true,
                             ) {
-                                Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), rec),
+                                Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), rec_info),
                                 Err(_) => error!("Couldn't broadcast a finalization record!"),
                             }
                         }
@@ -1042,9 +1041,10 @@ fn start_baker(
             Ok((genesis_data, private_data)) => {
                 let genesis_ptr = BlockPtr::genesis(&genesis_data);
                 info!(
-                    "Peer {} has genesis data with a short hash {:?}",
+                    "Peer {} has genesis data with hash {:?} and block hash {:?}",
                     node.id(),
-                    genesis_ptr.hash
+                    sha256(&genesis_data),
+                    genesis_ptr.hash,
                 );
                 safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
 

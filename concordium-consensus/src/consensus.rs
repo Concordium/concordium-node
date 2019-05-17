@@ -9,7 +9,7 @@ use std::{
     time::{self, Duration},
 };
 
-use crate::{block::*, fails::BakerNotRunning, ffi::*, finalization::*, tree::*};
+use crate::{block::*, common::HashBytes, fails::BakerNotRunning, ffi::*, finalization::*, tree::*};
 
 pub type PeerId = u64;
 
@@ -353,8 +353,8 @@ impl ConsensusContainer {
 }
 
 pub enum CatchupRequest {
-    BlockByHash(PeerId, Vec<u8>),
-    FinalizationRecordByHash(PeerId, Vec<u8>),
+    BlockByHash(PeerId, HashBytes),
+    FinalizationRecordByHash(PeerId, HashBytes),
     FinalizationRecordByIndex(PeerId, FinalizationIndex),
 }
 
