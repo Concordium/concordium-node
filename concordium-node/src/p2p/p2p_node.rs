@@ -409,19 +409,19 @@ impl P2PNode {
     fn print_stats(&self, peer_stat_list: &[PeerStatistic]) {
         trace!("Printing out stats");
         if let Some(max_nodes) = self.max_nodes {
-            info!(
+            debug!(
                 "I currently have {}/{} nodes!",
                 peer_stat_list.len(),
                 max_nodes
             )
         } else {
-            info!("I currently have {} nodes!", peer_stat_list.len())
+            debug!("I currently have {} nodes!", peer_stat_list.len())
         }
 
         // Print nodes
         if self.print_peers {
             for (i, peer) in peer_stat_list.iter().enumerate() {
-                info!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
+                debug!("Peer {}: {}/{}/{}", i, peer.id, peer.addr, peer.peer_type);
             }
         }
     }
