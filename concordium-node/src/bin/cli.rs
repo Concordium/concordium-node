@@ -622,9 +622,9 @@ fn send_finalization_record_to_consensus(
 
     if skov.add_finalization(record.clone()) {
         match baker.send_finalization_record(peer_id.as_raw(), &record) {
-            0i64 => info!("Peer {} sent a {} to a baker", peer_id, record),
+            0i64 => info!("Peer {} sent a {} to consensus", peer_id, record),
             err_code => error!(
-                "Peer {} can't send a finalization record to a baker due to error code #{} \
+                "Peer {} can't send a finalization record to consensus due to error code #{} \
                  (bytes: {:?}, length: {})",
                 peer_id,
                 err_code,
@@ -672,7 +672,7 @@ fn send_block_to_consensus(
         ),
         Ok(None) => match baker.send_block(peer_id.as_raw(), &pending_block.block) {
             0i64 => info!(
-                "Peer {} sent a block ({:?}) to a baker",
+                "Peer {} sent a block ({:?}) to consensus",
                 peer_id, pending_block.hash,
             ),
             err_code => error!(
