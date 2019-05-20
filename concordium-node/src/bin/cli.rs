@@ -402,7 +402,7 @@ fn setup_process_output(
 
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
-        fn send_msg_to_baker(
+        fn send_msg_to_consensus(
             node: &mut P2PNode,
             baker_ins: &mut Option<consensus::ConsensusContainer>,
             peer_id: P2PNodeId,
@@ -421,7 +421,7 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match PacketType::try_from(consensus_type)? {
-                    Block => send_block_to_baker(
+                    Block => send_block_to_consensus(
                         baker,
                         node,
                         network_id,
@@ -429,11 +429,11 @@ fn setup_process_output(
                         content,
                         &mut *safe_write!(SKOV_DATA)?,
                     ),
-                    Transaction => send_transaction_to_baker(baker, peer_id, content),
+                    Transaction => send_transaction_to_consensus(baker, peer_id, content),
                     FinalizationMessage => {
-                        send_finalization_message_to_baker(baker, peer_id, content)
+                        send_finalization_message_to_consensus(baker, peer_id, content)
                     }
-                    FinalizationRecord => send_finalization_record_to_baker(
+                    FinalizationRecord => send_finalization_record_to_consensus(
                         baker,
                         peer_id,
                         content,
@@ -446,7 +446,7 @@ fn setup_process_output(
                             CatchupBlockByHash,
                             SHA256
                         );
-                        send_catchup_request_block_by_hash_baker(
+                        send_catchup_request_block_by_hash_to_consensus(
                             baker, node, peer_id, network_id, content,
                         )
                     }
@@ -457,7 +457,7 @@ fn setup_process_output(
                             CatchupFinalizationRecordByHash,
                             SHA256
                         );
-                        send_catchup_request_finalization_record_by_hash_baker(
+                        send_catchup_request_finalization_record_by_hash_to_consensus(
                             baker, node, peer_id, network_id, content,
                         )
                     }
@@ -468,12 +468,12 @@ fn setup_process_output(
                             CatchupFinalizationRecordByIndex,
                             8
                         );
-                        send_catchup_request_finalization_record_by_index_to_baker(
+                        send_catchup_request_finalization_record_by_index_to_consensus(
                             baker, node, peer_id, network_id, content,
                         )
                     }
                     CatchupFinalizationMessagesByPoint => {
-                        send_catchup_finalization_messages_by_point_to_baker(
+                        send_catchup_finalization_messages_by_point_to_consensus(
                             baker, peer_id, content,
                         )
                     }
@@ -577,14 +577,14 @@ fn setup_process_output(
                                 };
                             }
                         };
-                        if let Err(e) = send_msg_to_baker(
+                        if let Err(e) = send_msg_to_consensus(
                             &mut _node_self_clone,
                             &mut _baker_pkt_clone,
                             pac.peer.id(),
                             _network_id,
                             pac.message.clone(),
                         ) {
-                            error!("Send network message to baker has failed: {:?}", e);
+                            error!("Send network message to consensus has failed: {:?}", e);
                         }
                     }
                     NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
@@ -602,7 +602,7 @@ fn setup_process_output(
     );
 }
 
-fn send_transaction_to_baker(
+fn send_transaction_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -612,7 +612,7 @@ fn send_transaction_to_baker(
     Ok(())
 }
 
-fn send_finalization_record_to_baker(
+fn send_finalization_record_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -642,7 +642,7 @@ fn send_finalization_record_to_baker(
     Ok(())
 }
 
-fn send_finalization_message_to_baker(
+fn send_finalization_message_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -655,7 +655,7 @@ fn send_finalization_message_to_baker(
     Ok(())
 }
 
-fn send_block_to_baker(
+fn send_block_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     network_id: NetworkId,
@@ -676,7 +676,7 @@ fn send_block_to_baker(
                 peer_id, pending_block.hash,
             ),
             err_code => error!(
-                "Peer {} can't send block from network to baker due to error code #{} (bytes: \
+                "Peer {} can't send block from network to consensus due to error code #{} (bytes: \
                  {:?}, length: {})",
                 peer_id,
                 err_code,
@@ -686,7 +686,7 @@ fn send_block_to_baker(
         },
         Err(e) => {
             warn!("{}", e);
-            send_catchup_request_block_by_hash_baker(
+            send_catchup_request_block_by_hash_to_consensus(
                 baker,
                 node,
                 peer_id,
@@ -702,7 +702,7 @@ fn send_block_to_baker(
 // Upon handshake completion we ask the consensus layer for a finalization point
 // we want to catchup from. This information is relayed to the peer we just
 // connected to, which will then emit all finalizations past this point.
-fn send_catchup_finalization_messages_by_point_to_baker(
+fn send_catchup_finalization_messages_by_point_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -724,7 +724,7 @@ fn send_catchup_finalization_messages_by_point_to_baker(
     Ok(())
 }
 
-macro_rules! send_catchup_request_to_baker {
+macro_rules! send_catchup_request_to_consensus {
     (
         $req_type:expr,
         $node:ident,
@@ -773,14 +773,14 @@ macro_rules! send_catchup_request_to_baker {
 // This function requests the finalization record for a certain finalization
 // index (this function is triggered by consensus on another peer actively asks
 // the p2p layer to request this for it)
-fn send_catchup_request_finalization_record_by_index_to_baker(
+fn send_catchup_request_finalization_record_by_index_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     peer_id: P2PNodeId,
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    send_catchup_request_to_baker!(
+    send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupFinalizationRecordByIndex,
         node,
         baker,
@@ -794,14 +794,14 @@ fn send_catchup_request_finalization_record_by_index_to_baker(
     )
 }
 
-fn send_catchup_request_finalization_record_by_hash_baker(
+fn send_catchup_request_finalization_record_by_hash_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     peer_id: P2PNodeId,
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    send_catchup_request_to_baker!(
+    send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupFinalizationRecordByHash,
         node,
         baker,
@@ -814,14 +814,14 @@ fn send_catchup_request_finalization_record_by_hash_baker(
     )
 }
 
-fn send_catchup_request_block_by_hash_baker(
+fn send_catchup_request_block_by_hash_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     peer_id: P2PNodeId,
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
-    send_catchup_request_to_baker!(
+    send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupBlockByHash,
         node,
         baker,
