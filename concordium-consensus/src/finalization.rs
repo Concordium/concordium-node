@@ -123,7 +123,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
 type Val = BlockHash;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-// FIXME: this one needs a better name
+// Weak Multi-Valued Byzantine Agreement
 enum WmvbaMessage {
     Proposal(Val),
     Vote(Option<Val>),

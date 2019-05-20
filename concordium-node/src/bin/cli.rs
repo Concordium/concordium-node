@@ -224,8 +224,13 @@ fn setup_baker_guards(
                     let pending_block = PendingBlock::from(block);
                     let block_hash = pending_block.hash.clone();
 
-                    // FIXME: perhaps we should make the enclosing function Fallible?
-                    safe_write!(SKOV_DATA).unwrap().add_block(pending_block);
+                    if let Ok(mut skov) = safe_write!(SKOV_DATA) {
+                        if let Err(e) = skov.add_block(pending_block) {
+                            warn!("{}", e);
+                        }
+                    } else {
+                        panic!("Could not write to Skov!");
+                    }
 
                     let mut out_bytes =
                         Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -417,7 +422,7 @@ fn setup_process_output(
 
                 match PacketType::try_from(consensus_type)? {
                     Block => {
-                        send_block_to_baker(baker, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
+                        send_block_to_baker(baker, node, network_id, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
                     }
                     Transaction => send_transaction_to_baker(baker, peer_id, content),
                     FinalizationMessage => {
@@ -647,19 +652,20 @@ fn send_finalization_message_to_baker(
 
 fn send_block_to_baker(
     baker: &mut consensus::ConsensusContainer,
+    node: &mut P2PNode,
+    network_id: NetworkId,
     peer_id: P2PNodeId,
     content: &[u8],
     skov: &mut SkovData,
 ) -> Fallible<()> {
     let pending_block = PendingBlock::new(content)?;
 
-    if let Some((existing_ptr, _)) = skov.add_block(pending_block.clone()) {
-        debug!(
+    match skov.add_block(pending_block.clone()) {
+        Ok(Some((existing_ptr, _))) => debug!(
             "Peer {} sent us a duplicate block ({:?})",
             peer_id, existing_ptr.hash,
-        );
-    } else {
-        match baker.send_block(peer_id.as_raw(), &pending_block.block) {
+        ),
+        Ok(None) => match baker.send_block(peer_id.as_raw(), &pending_block.block) {
             0i64 => info!(
                 "Peer {} sent a block ({:?}) to a baker",
                 peer_id, pending_block.hash,
@@ -672,6 +678,12 @@ fn send_block_to_baker(
                 content,
                 content.len(),
             ),
+        },
+        Err(e) => {
+            warn!("{}", e);
+            send_catchup_request_block_by_hash_baker(
+                baker, node, peer_id, network_id, &pending_block.hash,
+            )?
         }
     }
 
