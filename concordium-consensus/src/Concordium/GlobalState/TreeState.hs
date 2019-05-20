@@ -144,9 +144,9 @@ class Monad m => BlockStateQuery m where
 
 type family UpdatableBlockState (m :: * -> *) :: *
 
-data EncryptedAmountUpdate = Replace !EncryptedAmount -- |Replace the encrypted amount, such as when compressing.
-                           | Add !EncryptedAmount     -- |Add an encrypted amount to the list of encrypted amounts.
-                           | Empty                    -- |Do nothing to the encrypted amount.
+data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
+                           | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
+                           | Empty                    -- ^Do nothing to the encrypted amount.
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -166,7 +166,7 @@ makeLenses ''AccountUpdate
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
 emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
 
--- |Apply account updates to an account. It is assumed that the addresss in
+-- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
 updateAccount :: AccountUpdate -> Account -> Account
 updateAccount upd acc =
