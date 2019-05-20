@@ -174,10 +174,10 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
             0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
             1 => WmvbaMessage::Vote(None),
             2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
-            3 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&read_all(&mut cursor)?, false)?),
-            4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize(&read_all(&mut cursor)?, true)?),
-            5 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all(&mut cursor)?, false)?),
-            6 => WmvbaMessage::CssSeen(CssSeen::deserialize(&read_all(&mut cursor)?, true)?),
+            3 => WmvbaMessage::AbbaInput(AbbaInput::deserialize((&read_all(&mut cursor)?, false))?),
+            4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize((&read_all(&mut cursor)?, true))?),
+            5 => WmvbaMessage::CssSeen(CssSeen::deserialize((&read_all(&mut cursor)?, false))?),
+            6 => WmvbaMessage::CssSeen(CssSeen::deserialize((&read_all(&mut cursor)?, true))?),
             7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all(
                 &mut cursor,
             )?)?),
@@ -239,8 +239,10 @@ struct AbbaInput {
     justified: bool, // FIXME: verify that this is what True/False means here
 }
 
-impl AbbaInput {
-    pub fn deserialize(bytes: &[u8], justified: bool) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for AbbaInput {
+    type Source = (&'a [u8], bool);
+
+    fn deserialize((bytes, justified): (&[u8], bool)) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
@@ -257,7 +259,7 @@ impl AbbaInput {
         Ok(abba)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(size_of::<Phase>() + TICKET as usize);
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
@@ -274,8 +276,10 @@ struct CssSeen {
     saw:   bool,
 }
 
-impl CssSeen {
-    pub fn deserialize(bytes: &[u8], saw: bool) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for CssSeen {
+    type Source = (&'a [u8], bool);
+
+    fn deserialize((bytes, saw): (&[u8], bool)) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
@@ -288,7 +292,7 @@ impl CssSeen {
         Ok(css)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(size_of::<Phase>() + size_of::<Party>());
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
