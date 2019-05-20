@@ -68,29 +68,6 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     put s'
     return res
 
-  -- FIXME: This function only works correctly if called at the top level of the
-  -- transaction. Once we have receiver pay we will need to change it.
-  payForExecution addr amnt = do
-    s <- get
-    macc <- lift $ bsoGetAccount s addr
-    case macc of
-      Nothing -> error "payForExecution precondition violated."
-      Just acc -> do
-        let remaining = acc ^. accountAmount - energyToGtu amnt
-        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auAmount ?~ remaining))
-        put s'
-        return remaining
-
-  refundEnergy addr amnt = do
-    s <- get
-    macc <- lift $ bsoGetAccount s addr
-    case macc of
-      Nothing -> error "refundEnergy precondition violated."
-      Just acc ->
-        let current = acc ^. accountAmount in do
-        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auAmount ?~ (current + energyToGtu amnt)))
-        put s'
-
   increaseAccountNonce addr = do
     s <- get
     macc <- lift $ bsoGetAccount s addr

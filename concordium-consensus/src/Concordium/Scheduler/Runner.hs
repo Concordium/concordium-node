@@ -10,16 +10,13 @@ module Concordium.Scheduler.Runner where
 import GHC.Generics(Generic)
 
 import Data.Text(Text)
-import qualified Data.Text.Encoding as TE
-import qualified Data.Serialize as S
 import qualified Data.HashMap.Strict as Map
 
 import Control.Monad.Except
 import Control.Monad.Fail(MonadFail)
 
-import qualified Concordium.ID.Account as AH
+import qualified Concordium.ID.Types as IDTypes
 
-import Concordium.Crypto.SHA256(hash)
 import Concordium.Crypto.SignatureScheme(KeyPair)
 
 import Concordium.Types
@@ -49,11 +46,8 @@ transactionHelper t = do
       return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg 0)) -- NB: 0 is fine as size as that is not serialized
     (TJSON meta (Transfer to amount) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amount))
-    (TJSON meta (CreateAccount verifyKey16) keys) -> do
-      let d = S.decode (S.encode (hash (TE.encodeUtf8 verifyKey16))) -- NB: This is horrible, and a temporary hack
-      case d of
-        Left err -> fail err
-        Right key -> return $ signTx keys meta (Types.encodePayload (Types.CreateAccount (AH.createAccount key)))
+    (TJSON meta (CreateAccount aci) keys) -> do
+      return $ signTx keys meta (Types.encodePayload (Types.CreateAccount aci))
 
 -- decodeAndProcessTransactions :: MonadFail m => ByteString -> Context m [Types.Transaction]
 -- decodeAndProcessTransactions txt =
@@ -77,7 +71,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | Transfer { toaddress :: Address
                             , amount :: Amount
                             }
-                 | CreateAccount { verifyKey16 :: Text }
+                 | CreateAccount { aci :: IDTypes.AccountCreationInformation }
   deriving(Show, Generic)
 
 data TransactionJSON = TJSON { metadata :: Types.TransactionHeader

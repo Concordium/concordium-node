@@ -95,13 +95,3 @@ instance SchedulerMonad SchedulerImplementation where
     let addr = acc ^. accountAddress
     if addr `Acc.exists` accs then return False
     else True <$ (blockAccounts .= Acc.putAccount acc accs)
-
-  {-# INLINE payForExecution #-}
-  -- INVARIANT: should only be called when there are enough funds available, and thus it does not check the amounts.
-  payForExecution addr amnt = 
-    blockAccounts . singular (ix addr) . accountAmount <%= subtract (energyToGtu amnt)
-
-
-  {-# INLINE refundEnergy #-}
-  refundEnergy addr amnt = do
-    blockAccounts . ix addr . accountAmount += (energyToGtu amnt)

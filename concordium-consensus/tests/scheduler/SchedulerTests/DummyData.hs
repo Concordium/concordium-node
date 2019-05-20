@@ -27,7 +27,6 @@ alesACI = createAccount (verifyKey alesKP)
 alesAccount :: AccountAddress
 alesAccount = accountAddress alesACI
 
-
 thomasKP :: KeyPair
 thomasKP = fst (randomKeyPair (mkStdGen 2))
 
@@ -37,5 +36,9 @@ thomasACI = createAccount (verifyKey thomasKP)
 thomasAccount :: AccountAddress
 thomasAccount = accountAddress thomasACI
 
+createAccountFrom :: Int -> AccountCreationInformation
+createAccountFrom = createAccount . verifyKey . fst . randomKeyPair . mkStdGen 
 
+accountAddressFrom :: Int -> AccountAddress
+accountAddressFrom = accountAddress . createAccountFrom
 

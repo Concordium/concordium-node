@@ -22,7 +22,10 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.TreeState(AccountUpdate(..), auAmount, auNonce, auAddress, auEncrypted, auCredential, emptyAccountUpdate)
+import Concordium.GlobalState.TreeState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+
+import Control.Exception(assert)
+import Data.Maybe(isJust)
 
 import qualified Concordium.ID.Types as ID
 
@@ -64,14 +67,18 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- successfully created and @False@ if the account address already existed.
   putNewAccount :: Account -> m Bool
 
-  -- |Pay for execution. Return the amount remaining on the account.
-  -- Payment needs to be performed
-  -- PRECONDITION: There should be enough funds on the account before this function is called.
-  -- Otherwise the function should fail raising an exception.
-  payForExecution :: AccountAddress -> Energy -> m Amount
-
-  -- |Refund the remaining execution cost.
-  refundEnergy :: AccountAddress -> Energy -> m ()
+  -- |Reduce the public balance on the account to charge for execution cost. The
+  -- given amount is the amount to charge (subtract). The precondition of this
+  -- method is that the account address exists and its balance is sufficient to
+  -- cover the costs. These are not checked.
+  chargeExecutionCost :: AccountAddress -> Amount -> m ()
+  chargeExecutionCost addr amnt = do
+    macc <- getAccount addr
+    assert (isJust macc) $ do
+      case macc of
+        Nothing -> error "chargeExecutionCost precondition violated."
+        Just acc -> let balance = acc ^. accountAmount
+                    in assert (balance >= amnt) $ commitStateAndAccountChanges (csWithAccountBalance addr (balance - amnt))
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -86,14 +93,22 @@ class StaticEnvironmentMonad m => TransactionMonad m where
   withInstance :: ContractAddress -> Amount -> Value -> m a -> m a
 
   -- |And the same for amounts on accounts and contracts. The amounts can change
-  -- due to simple transfers and constract calls.
+  -- due to simple transfers and contract calls.
   withAmount :: Address -> Amount -> m a -> m a
+
+  -- |Specialized 'withAmount' with default implementation.
+  withAccountAmount :: AccountAddress -> Amount -> m a -> m a
+  withAccountAmount = withAmount . AddressAccount
+
+  -- |Specialized 'withAmount' with default implementation.
+  withContractAmount :: ContractAddress -> Amount -> m a -> m a
+  withContractAmount = withAmount . AddressContract
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
+  -- |Get the current amount on the given account address. This value changes
+  -- throughout the execution of the transaction.
   getCurrentAmount :: AccountAddress -> m (Maybe Amount)
-
-  getChanges :: m ChangeSet
 
   -- |Get the amount of gas remaining for the transaction.
   getEnergy :: m Energy
@@ -129,18 +144,34 @@ data ChangeSet = ChangeSet
     {_accountUpdates :: Map.HashMap AccountAddress AccountUpdate -- ^Accounts whose states changed.
     ,_instanceUpdates :: Map.HashMap ContractAddress (Amount, Value) -- ^Contracts whose states changed.
     }
-makeLenses ''ChangeSet
 
 emptyCS :: ChangeSet
 emptyCS = ChangeSet Map.empty Map.empty
 
+csWithAccountBalance :: AccountAddress -> Amount -> ChangeSet
+csWithAccountBalance addr amnt = ChangeSet (Map.singleton addr (emptyAccountUpdate addr & auAmount ?~ amnt)) Map.empty
+
+makeLenses ''ChangeSet
+
+-- |Update the amount on the account (given by address) in the changeset with
+-- the given amount. If the account is not yet in the changeset it is created.
+addAmountToCS' :: ChangeSet -> AccountAddress -> Amount -> ChangeSet
+addAmountToCS' cs addr amnt =
+  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount ?~ amnt)
+                                          Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
+
+-- |Increase the amount on the given account in the changeset.
+-- It is assumed that the account is already in the changeset and that its balance
+-- is already affected (the auAmount field is set).
+increaseAmountCS :: ChangeSet -> AccountAddress -> Amount -> ChangeSet
+increaseAmountCS cs addr amnt = cs & (accountUpdates . ix addr . auAmount ) %~
+                                     (\case Just a -> Just (a + amnt)
+                                            Nothing -> error "increaaseAmountCS precondition violated.")
+
 -- |Update the amount on the account in the changeset with the given amount.
 -- If the account is not yet in the changeset it is created.
 addAmountToCS :: ChangeSet -> Account -> Amount -> ChangeSet
-addAmountToCS cs acc amnt =
-  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount ?~ amnt)
-                                          Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
-  where addr = acc ^. accountAddress
+addAmountToCS cs acc = addAmountToCS' cs (acc ^. accountAddress)
 
 -- |Add or update the contract state in the changeset with the given amount and value.
 addContractStatesToCS :: ChangeSet -> ContractAddress -> Amount -> Value -> ChangeSet
@@ -164,6 +195,15 @@ newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either RejectReason r) (Sta
 
 runLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a, (Energy, ChangeSet))
 runLocalT (LocalT st) energy = runStateT (runContT st (return . Right)) (energy, emptyCS)
+
+runLocalTWithAmount ::
+  SchedulerMonad m =>
+  AccountAddress     -- ^Address of the account initiating the transaction.
+  -> Amount          -- ^The balance on the account after subtracting the deposit for gas.
+  -> LocalT a m a    -- ^The computation to run in the modified environment with reduced amount on the initial account.
+  -> Energy          -- ^Amount of gas allowed to be consumed.
+  -> m (Either RejectReason a, (Energy, ChangeSet))
+runLocalTWithAmount addr amount st = runLocalT (withAccountAmount addr amount st)
 
 {-# INLINE evalLocalT #-}
 evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)
@@ -220,9 +260,6 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Just upd | Just a <- upd ^. auAmount -> return (Just a)
       _ -> liftLocal $! ((^. accountAmount) <$>) <$> getAccount acc
       
-  {-# INLINE getChanges #-}
-  getChanges = use _2
-
   {-# INLINE getEnergy #-}
   getEnergy = use _1
 
