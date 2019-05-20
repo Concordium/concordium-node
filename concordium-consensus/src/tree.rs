@@ -54,7 +54,6 @@ pub struct SkovData {
     genesis_block_ptr: Option<BlockPtr>,
     // contains transactions
     transaction_table: TransactionTable,
-
     // focus_block: BlockPtr,
 }
 
@@ -79,14 +78,19 @@ impl SkovData {
         self.genesis_block_ptr = Some(genesis_block_ptr);
     }
 
-    pub fn add_block(&mut self, pending_block: PendingBlock) -> Fallible<Option<(BlockPtr, BlockStatus)>> {
+    pub fn add_block(
+        &mut self,
+        pending_block: PendingBlock,
+    ) -> Fallible<Option<(BlockPtr, BlockStatus)>> {
         // verify if the pending block's parent block is already in the tree
         let parent_block =
             if let Some(block_ptr) = self.get_block_by_hash(&pending_block.block.pointer) {
                 block_ptr.to_owned()
             } else {
-                let warning = format!("Couldn't find the parent block ({:?}) of block {:?}; \
-                    to the pending list!", pending_block.block.pointer, pending_block.hash);
+                let warning = format!(
+                    "Couldn't find the parent block ({:?}) of block {:?}; to the pending list!",
+                    pending_block.block.pointer, pending_block.hash
+                );
                 self.queue_orphan_block(pending_block);
                 bail!(warning);
             };
@@ -94,8 +98,9 @@ impl SkovData {
         // verify if the pending block's last finalized block is already in the tree
         let last_finalized = self.get_last_finalized().to_owned();
         if last_finalized.hash != pending_block.block.last_finalized {
-            let warning = format!("Block {:?} points to a finalization record ({:?}) which is not \
-                the last one ({:?})",
+            let warning = format!(
+                "Block {:?} points to a finalization record ({:?}) which is not the last one \
+                 ({:?})",
                 pending_block.hash, pending_block.block.last_finalized, last_finalized.hash,
             );
             self.queue_block_wo_last_finalized(pending_block);
@@ -108,14 +113,13 @@ impl SkovData {
         let ret = self
             .block_tree
             .insert(block_ptr.hash.clone(), (block_ptr, BlockStatus::Alive));
-        info!(
-            "block tree: {:?}",
-            {
-                let mut vals = self.block_tree.values().collect::<Vec<_>>();
-                vals.sort_by_key(|(ptr, _)| ptr.block.slot());
-                vals.into_iter().map(|(ptr, status)| (ptr.hash.to_owned(), status)).collect::<Vec<_>>()
-            }
-        );
+        info!("block tree: {:?}", {
+            let mut vals = self.block_tree.values().collect::<Vec<_>>();
+            vals.sort_by_key(|(ptr, _)| ptr.block.slot());
+            vals.into_iter()
+                .map(|(ptr, status)| (ptr.hash.to_owned(), status))
+                .collect::<Vec<_>>()
+        });
 
         Ok(ret)
     }
@@ -177,13 +181,40 @@ impl SkovData {
         let parent = pending_block.block.pointer.to_owned();
         let queued = self.orphan_blocks.entry(parent).or_default();
         queued.push(pending_block);
-        info!("pending blocks: {:?}", self.orphan_blocks.iter().map(|(parent, pending)| (parent, pending.iter().map(|pb| pb.hash.to_owned()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        info!(
+            "pending blocks: {:?}",
+            self.orphan_blocks
+                .iter()
+                .map(|(parent, pending)| (
+                    parent,
+                    pending
+                        .iter()
+                        .map(|pb| pb.hash.to_owned())
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>()
+        );
     }
 
     fn queue_block_wo_last_finalized(&mut self, pending_block: PendingBlock) {
         let last_finalized = pending_block.block.last_finalized.to_owned();
-        let queued = self.awaiting_last_finalized.entry(last_finalized).or_default();
+        let queued = self
+            .awaiting_last_finalized
+            .entry(last_finalized)
+            .or_default();
         queued.push(pending_block);
-        info!("blocks awaiting last finalized: {:?}", self.awaiting_last_finalized.iter().map(|(last_finalized, pending)| (last_finalized, pending.iter().map(|pb| pb.hash.to_owned()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        info!(
+            "blocks awaiting last finalized: {:?}",
+            self.awaiting_last_finalized
+                .iter()
+                .map(|(last_finalized, pending)| (
+                    last_finalized,
+                    pending
+                        .iter()
+                        .map(|pb| pb.hash.to_owned())
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>()
+        );
     }
 }

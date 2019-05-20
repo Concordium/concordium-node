@@ -421,9 +421,14 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match PacketType::try_from(consensus_type)? {
-                    Block => {
-                        send_block_to_baker(baker, node, network_id, peer_id, content, &mut *safe_write!(SKOV_DATA)?)
-                    }
+                    Block => send_block_to_baker(
+                        baker,
+                        node,
+                        network_id,
+                        peer_id,
+                        content,
+                        &mut *safe_write!(SKOV_DATA)?,
+                    ),
                     Transaction => send_transaction_to_baker(baker, peer_id, content),
                     FinalizationMessage => {
                         send_finalization_message_to_baker(baker, peer_id, content)
@@ -682,7 +687,11 @@ fn send_block_to_baker(
         Err(e) => {
             warn!("{}", e);
             send_catchup_request_block_by_hash_baker(
-                baker, node, peer_id, network_id, &pending_block.hash,
+                baker,
+                node,
+                peer_id,
+                network_id,
+                &pending_block.hash,
             )?
         }
     }
