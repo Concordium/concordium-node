@@ -6,6 +6,7 @@ use failure::Fallible;
 
 use std::{
     cmp::Ordering,
+    hash::{Hash, Hasher},
     io::{Cursor, Read, Write},
     mem::size_of,
 };
@@ -230,6 +231,16 @@ impl PendingBlock {
             received: Utc::now(),
         })
     }
+}
+
+impl PartialEq for PendingBlock {
+    fn eq(&self, other: &Self) -> bool { self.hash == other.hash }
+}
+
+impl Eq for PendingBlock {}
+
+impl Hash for PendingBlock {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.hash.hash(state) }
 }
 
 impl From<BakedBlock> for PendingBlock {

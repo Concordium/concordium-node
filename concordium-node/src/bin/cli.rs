@@ -116,7 +116,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        spawn_or_die!("Process baker catch-up requests", move || loop {
+        spawn_or_die!("Process consensus catch-up requests", move || loop {
             use concordium_consensus::consensus::CatchupRequest::*;
             match baker_clone.out_queue().recv_catchup() {
                 Ok(msg) => {
@@ -180,7 +180,7 @@ fn setup_baker_guards(
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
         spawn_or_die!(
-            "Process outbound baker catch-up finalization messages",
+            "Process consensus outbound catch-up finalization messages",
             move || loop {
                 match baker_clone.out_queue().recv_finalization_catchup() {
                     Ok((receiver_id_raw, msg)) => {
@@ -216,7 +216,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        spawn_or_die!("Process baker block output", move || loop {
+        spawn_or_die!("Process consensus block output", move || loop {
             match baker_clone.out_queue().recv_block() {
                 Ok(block) => {
                     let bytes = block.serialize();
@@ -254,64 +254,76 @@ fn setup_baker_guards(
                         Err(_) => error!("Can't write type to packet"),
                     }
                 }
-                _ => error!("Error receiving block from baker"),
+                _ => error!("Error receiving block from the consensus layer"),
             }
         });
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        spawn_or_die!("Process baker finalization message output", move || loop {
-            match baker_clone.out_queue().recv_finalization() {
-                Ok(msg) => {
-                    let bytes = msg.serialize();
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes
-                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
-                    {
-                        Ok(_) => {
-                            out_bytes.extend(&*bytes);
-                            match &node_ref.send_message(None, network_id, None, out_bytes, true) {
-                                Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), msg,),
-                                Err(_) => error!("Couldn't broadcast a finalization packet!"),
+        spawn_or_die!(
+            "Process consensus finalization message output",
+            move || loop {
+                match baker_clone.out_queue().recv_finalization() {
+                    Ok(msg) => {
+                        let bytes = msg.serialize();
+                        let mut out_bytes =
+                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                        match out_bytes
+                            .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationMessage as u16)
+                        {
+                            Ok(_) => {
+                                out_bytes.extend(&*bytes);
+                                match &node_ref
+                                    .send_message(None, network_id, None, out_bytes, true)
+                                {
+                                    Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), msg,),
+                                    Err(_) => error!("Couldn't broadcast a finalization packet!"),
+                                }
                             }
+                            Err(_) => error!("Can't write type to packet"),
                         }
-                        Err(_) => error!("Can't write type to packet"),
                     }
+                    _ => error!("Error receiving finalization packet from the consensus layer"),
                 }
-                _ => error!("Error receiving finalization packet from baker"),
             }
-        });
+        );
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        spawn_or_die!("Process baker finalization records output", move || loop {
-            match baker_clone.out_queue().recv_finalization_record() {
-                Ok(rec) => {
-                    let bytes = rec.serialize();
-                    let rec_info = rec.to_string();
+        spawn_or_die!(
+            "Process consensus finalization records output",
+            move || loop {
+                match baker_clone.out_queue().recv_finalization_record() {
+                    Ok(rec) => {
+                        let bytes = rec.serialize();
+                        let rec_info = rec.to_string();
 
-                    // FIXME: perhaps we should make the enclosing function Fallible?
-                    safe_write!(SKOV_DATA).unwrap().add_finalization(rec);
+                        // FIXME: perhaps we should make the enclosing function Fallible?
+                        safe_write!(SKOV_DATA).unwrap().add_finalization(rec);
 
-                    let mut out_bytes =
-                        Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                    match out_bytes
-                        .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationRecord as u16)
-                    {
-                        Ok(_) => {
-                            out_bytes.extend(&*bytes);
-                            match &node_ref.send_message(None, network_id, None, out_bytes, true) {
-                                Ok(_) => info!("Peer {} broadcasted a {}", node_ref.id(), rec_info),
-                                Err(_) => error!("Couldn't broadcast a finalization record!"),
+                        let mut out_bytes =
+                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                        match out_bytes
+                            .write_u16::<NetworkEndian>(ffi::PacketType::FinalizationRecord as u16)
+                        {
+                            Ok(_) => {
+                                out_bytes.extend(&*bytes);
+                                match &node_ref
+                                    .send_message(None, network_id, None, out_bytes, true)
+                                {
+                                    Ok(_) => {
+                                        info!("Peer {} broadcasted a {}", node_ref.id(), rec_info)
+                                    }
+                                    Err(_) => error!("Couldn't broadcast a finalization record!"),
+                                }
                             }
+                            Err(_) => error!("Can't write type to packet"),
                         }
-                        Err(_) => error!("Can't write type to packet"),
                     }
+                    _ => error!("Error receiving finalization record from the consensus layer"),
                 }
-                _ => error!("Error receiving finalization record from baker"),
             }
-        });
+        );
     }
 }
 
@@ -685,14 +697,26 @@ fn send_block_to_consensus(
             ),
         },
         Err(e) => {
-            warn!("{}", e);
-            send_catchup_request_block_by_hash_to_consensus(
-                baker,
-                node,
-                peer_id,
-                network_id,
-                &pending_block.hash,
-            )?
+            let e = e.to_string();
+            if e == "MissingParent" {
+                send_catchup_request_block_by_hash_to_consensus(
+                    baker,
+                    node,
+                    peer_id,
+                    network_id,
+                    &pending_block.block.pointer,
+                )?;
+            } else if e == "InvalidLastFinalized" {
+                send_catchup_request_finalization_record_by_hash_to_consensus(
+                    baker,
+                    node,
+                    peer_id,
+                    network_id,
+                    &pending_block.block.last_finalized,
+                )?;
+            } else {
+                unreachable!("Unexpected AddBlockError code!");
+            }
         }
     }
 
@@ -749,7 +773,7 @@ macro_rules! send_catchup_request_to_consensus {
                 .write_u16::<NetworkEndian>(return_type as u16)
                 .expect("Can't write to buffer");
             out_bytes.extend(res);
-            match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, true) {
+            match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
                 Ok(_) => info!(
                     "Responded to a catch-up request type \"{}\" from peer {}",
                     $req_type, $peer_id

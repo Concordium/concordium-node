@@ -1,7 +1,10 @@
 use chrono::prelude::{DateTime, Utc};
 use failure::{bail, Fallible};
 
-use std::collections::{BinaryHeap, HashMap};
+use std::{
+    collections::{BinaryHeap, HashMap, HashSet},
+    fmt,
+};
 
 use crate::{
     block::*,
@@ -45,11 +48,11 @@ pub struct SkovData {
     // the blocks whose parent and last finalized blocks are already in the tree
     pub block_tree: HashMap<BlockHash, (BlockPtr, BlockStatus)>,
     // blocks waiting for their parent to be added to the tree; the key is the parent's hash
-    orphan_blocks: HashMap<BlockHash, Vec<PendingBlock>>,
+    orphan_blocks: HashMap<BlockHash, HashSet<PendingBlock>>,
     // finalization records along with their finalized blocks; those must already be in the tree
     finalization_list: BinaryHeap<(FinalizationRecord, BlockPtr)>,
     // blocks waiting for their last finalized block to be added to the tree
-    awaiting_last_finalized: HashMap<BlockHash, Vec<PendingBlock>>,
+    awaiting_last_finalized: HashMap<BlockHash, HashSet<PendingBlock>>,
     // the pointer to the genesis block; optional only due to SkovData being a lazy_static
     genesis_block_ptr: Option<BlockPtr>,
     // contains transactions
@@ -92,7 +95,8 @@ impl SkovData {
                     pending_block.block.pointer, pending_block.hash
                 );
                 self.queue_orphan_block(pending_block);
-                bail!(warning);
+                warn!("{}", warning);
+                bail!(AddBlockError::MissingParent);
             };
 
         // verify if the pending block's last finalized block is already in the tree
@@ -104,7 +108,8 @@ impl SkovData {
                 pending_block.hash, pending_block.block.last_finalized, last_finalized.hash,
             );
             self.queue_block_wo_last_finalized(pending_block);
-            bail!(warning);
+            warn!("{}", warning);
+            bail!(AddBlockError::InvalidLastFinalized);
         }
 
         // if the above checks pass, a BlockPtr can be created
@@ -180,7 +185,9 @@ impl SkovData {
     fn queue_orphan_block(&mut self, pending_block: PendingBlock) {
         let parent = pending_block.block.pointer.to_owned();
         let queued = self.orphan_blocks.entry(parent).or_default();
-        queued.push(pending_block);
+
+        queued.insert(pending_block);
+
         info!(
             "pending blocks: {:?}",
             self.orphan_blocks
@@ -202,7 +209,9 @@ impl SkovData {
             .awaiting_last_finalized
             .entry(last_finalized)
             .or_default();
-        queued.push(pending_block);
+
+        queued.insert(pending_block);
+
         info!(
             "blocks awaiting last finalized: {:?}",
             self.awaiting_last_finalized
@@ -217,4 +226,54 @@ impl SkovData {
                 .collect::<Vec<_>>()
         );
     }
+
+    pub fn process_orphan_block_queue(&mut self) -> Fallible<()> {
+        let missing_parent_hashes = self
+            .orphan_blocks
+            .keys()
+            .map(std::borrow::ToOwned::to_owned)
+            .collect::<Vec<_>>();
+
+        for missing_parent in missing_parent_hashes.into_iter() {
+            if self
+                .block_tree
+                .iter()
+                .any(|(hash, _)| *hash == missing_parent)
+            {
+                if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
+                    for orphan in orphans {
+                        self.add_block(orphan)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn recheck_missing_parent(&mut self, missing_parent: &HashBytes) -> Fallible<()> {
+        if self
+            .block_tree
+            .iter()
+            .any(|(hash, _)| hash == missing_parent)
+        {
+            if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
+                for orphan in orphans {
+                    self.add_block(orphan)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddBlockError {
+    MissingParent,
+    InvalidLastFinalized,
+}
+
+impl fmt::Display for AddBlockError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
 }
