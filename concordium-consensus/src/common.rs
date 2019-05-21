@@ -71,6 +71,10 @@ pub struct SessionId {
     incarnation:   u64,
 }
 
+impl fmt::Display for SessionId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{}", self.incarnation) }
+}
+
 impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);

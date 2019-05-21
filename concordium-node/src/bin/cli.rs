@@ -604,7 +604,7 @@ fn setup_process_output(
                                         _stats_engine.clear();
                                     }
                                 }
-                                info!(
+                                debug!(
                                     "DirectMessage/{}/{} with size {} received",
                                     pac.network_id,
                                     pac.message_id,
@@ -713,24 +713,14 @@ fn send_block_to_consensus(
     let result = safe_write!(SKOV_DATA)?.add_block(pending_block.clone());
 
     match result {
-        Ok(Some((existing_ptr, _))) => debug!(
-            "Peer {} sent us a duplicate block ({:?})",
-            peer_id, existing_ptr.hash,
-        ),
-        Ok(None) => match baker.send_block(peer_id.as_raw(), &pending_block.block) {
-            0i64 => info!(
-                "Peer {} sent a block ({:?}) to consensus",
-                peer_id, pending_block.hash,
-            ),
-            err_code => error!(
-                "Peer {} can't send block from network to consensus due to error code #{} (bytes: \
-                 {:?}, length: {})",
-                peer_id,
-                err_code,
-                content,
-                content.len(),
-            ),
-        },
+        Ok(Some((existing_ptr, _))) => {
+            debug!(
+                "Peer {} sent us a duplicate block ({:?})",
+                peer_id, existing_ptr.hash,
+            );
+            return Ok(());
+        }
+        Ok(None) => { /* unique block, no errors; fall through */ }
         Err(e) => {
             let e = e.to_string();
             if e == "MissingParent" {
@@ -755,6 +745,22 @@ fn send_block_to_consensus(
                 // unreachable!("Unexpected AddBlockError code!");
             }
         }
+    }
+
+    // send unique blocks to the consensus layer
+    match baker.send_block(peer_id.as_raw(), &pending_block.block) {
+        0i64 => info!(
+            "Peer {} sent a block ({:?}) to consensus",
+            peer_id, pending_block.hash,
+        ),
+        err_code => error!(
+            "Peer {} can't send block from network to consensus due to error code #{} (bytes: \
+             {:?}, length: {})",
+            peer_id,
+            err_code,
+            content,
+            content.len(),
+        ),
     }
 
     Ok(())
