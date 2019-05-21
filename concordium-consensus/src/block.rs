@@ -80,7 +80,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
 
     fn serialize(&self) -> Box<[u8]> {
         match self {
-            Block::Genesis(genesis_data) => genesis_data.serialize(),
+            Block::Genesis(genesis_data) => {
+                [
+                    &[0, 0, 0, 0, 0, 0, 0, 0], // a 0u64 slot id prefix
+                    &*genesis_data.serialize(),
+                ]
+                .concat()
+                .into_boxed_slice()
+            }
             Block::Regular(block_data) => block_data.serialize(),
         }
     }
@@ -269,10 +276,13 @@ impl BlockPtr {
     pub fn genesis(genesis_bytes: &[u8]) -> Self {
         let genesis_data = GenesisData::deserialize(genesis_bytes).expect("Invalid genesis data");
         let genesis_block = Block::Genesis(genesis_data);
+        // the genesis block byte representation is the genesis data prefixed with a
+        // 0u64 slot id
+        let genesis_block_hash = sha256(&[&[0, 0, 0, 0, 0, 0, 0, 0], genesis_bytes].concat());
         let timestamp = Utc::now(); // TODO: be more precise when Kontrol is there
 
         BlockPtr {
-            hash:           sha256(&[&[0, 0, 0, 0, 0, 0, 0, 0], genesis_bytes].concat()),
+            hash:           genesis_block_hash,
             block:          genesis_block,
             parent:         None,
             last_finalized: None,
