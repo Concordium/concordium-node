@@ -118,6 +118,7 @@ impl SkovData {
         let ret = self
             .block_tree
             .insert(block_ptr.hash.clone(), (block_ptr, BlockStatus::Alive));
+
         info!("block tree: {:?}", {
             let mut vals = self.block_tree.values().collect::<Vec<_>>();
             vals.sort_by_key(|(ptr, _)| ptr.block.slot());

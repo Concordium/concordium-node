@@ -63,6 +63,12 @@ use std::{
 
 const PAYLOAD_TYPE_LENGTH: u64 = 2;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PacketDirection {
+    Inbound,
+    Outbound,
+}
+
 fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
     // Get config and app preferences
     let conf = configuration::parse_config();
@@ -470,7 +476,12 @@ fn setup_process_output(
                             SHA256
                         );
                         send_catchup_request_block_by_hash_to_consensus(
-                            baker, node, peer_id, network_id, content,
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            content,
+                            PacketDirection::Inbound,
                         )
                     }
                     CatchupFinalizationRecordByHash => {
@@ -481,7 +492,12 @@ fn setup_process_output(
                             SHA256
                         );
                         send_catchup_request_finalization_record_by_hash_to_consensus(
-                            baker, node, peer_id, network_id, content,
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            content,
+                            PacketDirection::Inbound,
                         )
                     }
                     CatchupFinalizationRecordByIndex => {
@@ -492,7 +508,12 @@ fn setup_process_output(
                             8
                         );
                         send_catchup_request_finalization_record_by_index_to_consensus(
-                            baker, node, peer_id, network_id, content,
+                            baker,
+                            node,
+                            peer_id,
+                            network_id,
+                            content,
+                            PacketDirection::Inbound,
                         )
                     }
                     CatchupFinalizationMessagesByPoint => {
@@ -719,6 +740,7 @@ fn send_block_to_consensus(
                     peer_id,
                     network_id,
                     &pending_block.block.pointer,
+                    PacketDirection::Outbound,
                 )?; // } else if e == "InvalidLastFinalized" {
                     // send_catchup_request_finalization_record_by_hash_to_consensus(
                     // baker,
@@ -726,6 +748,7 @@ fn send_block_to_consensus(
                     // peer_id,
                     // network_id,
                     // &pending_block.block.last_finalized,
+                    // PacketDirection::Outbound,
                     // )?;
             } else {
 
@@ -770,41 +793,62 @@ macro_rules! send_catchup_request_to_consensus {
         $content:ident,
         $peer_id:ident,
         $network_id:ident,
-        $consensus_req_call:expr
+        $consensus_req_call:expr,
+        $packet_direction:expr,
     ) => {{
         debug!("Got a consensus catch-up request for \"{}\"", $req_type);
 
-        let res = $consensus_req_call($baker, $content)?;
-        let return_type = match $req_type {
-            CatchupBlockByHash => Block,
-            CatchupFinalizationRecordByHash => FinalizationRecord,
-            CatchupFinalizationRecordByIndex => FinalizationRecord,
-            catchall_val => panic!("Can't respond to catchup type {}", catchall_val),
-        };
+        if $packet_direction == PacketDirection::Inbound {
+            let res = $consensus_req_call($baker, $content)?;
+            let return_type = match $req_type {
+                CatchupBlockByHash => Block,
+                CatchupFinalizationRecordByHash => FinalizationRecord,
+                CatchupFinalizationRecordByIndex => FinalizationRecord,
+                catchall_val => panic!("Can't respond to catchup type {}", catchall_val),
+            };
 
-        if !res.is_empty() && NetworkEndian::read_u64(&res[..8]) > 0 {
-            let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
+            if !res.is_empty() && NetworkEndian::read_u64(&res[..8]) > 0 {
+                let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
+                out_bytes
+                    .write_u16::<NetworkEndian>(return_type as u16)
+                    .expect("Can't write to buffer");
+                out_bytes.extend(res);
+
+                match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
+                    Ok(_) => info!(
+                        "Responded to a catch-up request type \"{}\" with a \"{}\" from peer {}",
+                        $req_type, return_type, $peer_id
+                    ),
+                    Err(_) => error!(
+                        "Couldn't respond to a catch-up request type \"{}\" with a \"{}\" from \
+                         peer {}!",
+                        $req_type, return_type, $peer_id
+                    ),
+                }
+            } else {
+                error!(
+                    "Consensus doesn't have the data to fulfill a catch-up request type \"{}\" \
+                     (to obtain a \"{}\") that peer {} requested (response: {:?})",
+                    $req_type, return_type, $peer_id, res
+                );
+            }
+        } else {
+            let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + $content.len());
             out_bytes
-                .write_u16::<NetworkEndian>(return_type as u16)
+                .write_u16::<NetworkEndian>($req_type as u16)
                 .expect("Can't write to buffer");
-            out_bytes.extend(res);
+            out_bytes.extend($content);
 
             match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
                 Ok(_) => info!(
-                    "Responded to a catch-up request type \"{}\" from peer {}",
+                    "Sent a catch-up request type \"{}\" to peer {}",
                     $req_type, $peer_id
                 ),
                 Err(_) => error!(
-                    "Couldn't respond to a catch-up request type \"{}\" from peer {}!",
+                    "Couldn't respond to a catch-up request type \"{}\" to peer {}!",
                     $req_type, $peer_id
                 ),
             }
-        } else {
-            error!(
-                "Consensus doesn't have the data to fulfill a catch-up request type \"{}\" that \
-                 peer {} requested (response: {:?})",
-                $req_type, $peer_id, res
-            );
         }
 
         Ok(())
@@ -820,6 +864,7 @@ fn send_catchup_request_finalization_record_by_index_to_consensus(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     content: &[u8],
+    direction: PacketDirection,
 ) -> Fallible<()> {
     send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupFinalizationRecordByIndex,
@@ -831,7 +876,8 @@ fn send_catchup_request_finalization_record_by_index_to_consensus(
         |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
             let index = NetworkEndian::read_u64(&content[..8]);
             baker.get_indexed_finalization(index)
-        }
+        },
+        direction,
     )
 }
 
@@ -841,6 +887,7 @@ fn send_catchup_request_finalization_record_by_hash_to_consensus(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     content: &[u8],
+    direction: PacketDirection,
 ) -> Fallible<()> {
     // extra debug
     if let Ok(skov) = safe_read!(SKOV_DATA) {
@@ -863,7 +910,8 @@ fn send_catchup_request_finalization_record_by_hash_to_consensus(
         network_id,
         |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
             baker.get_block_finalization(content)
-        }
+        },
+        direction,
     )
 }
 
@@ -873,6 +921,7 @@ fn send_catchup_request_block_by_hash_to_consensus(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     content: &[u8],
+    direction: PacketDirection,
 ) -> Fallible<()> {
     // extra debug
     if let Ok(skov) = safe_read!(SKOV_DATA) {
@@ -891,7 +940,8 @@ fn send_catchup_request_block_by_hash_to_consensus(
         network_id,
         |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
             baker.get_block(content)
-        }
+        },
+        direction,
     )
 }
 
