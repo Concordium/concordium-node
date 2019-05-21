@@ -133,6 +133,13 @@ impl SkovData {
         self.block_tree.get(hash).map(|(ptr, _)| ptr)
     }
 
+    pub fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
+        self.finalization_list
+            .iter()
+            .find(|&(rec, _)| rec.block_pointer == *hash)
+            .map(|(rec, _)| rec)
+    }
+
     pub fn get_last_finalized(&self) -> &BlockPtr {
         &self.finalization_list.peek().unwrap().1 // safe; the genesis is always available
     }

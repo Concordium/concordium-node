@@ -17,18 +17,17 @@ use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    make_atomic_callback, safe_write, spawn_or_die, write_or_die, UCursor,
+    make_atomic_callback, safe_read, safe_write, spawn_or_die, write_or_die, UCursor,
 };
 use concordium_consensus::{
     block::{BlockPtr, PendingBlock},
-    common::{sha256, SerializeToBytes, SHA256},
+    common::{sha256, HashBytes, SerializeToBytes, SHA256},
     consensus::{self, SKOV_DATA},
     ffi::{
         self,
         PacketType::{self, *},
     },
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::SkovData,
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -122,6 +121,17 @@ fn setup_baker_guards(
                 Ok(msg) => {
                     let (receiver_id, serialized_bytes) = match msg {
                         BlockByHash(receiver_id, hash) => {
+                            // extra debug
+                            if let Ok(skov) = safe_read!(SKOV_DATA) {
+                                if skov.get_block_by_hash(&hash).is_some() {
+                                    info!(
+                                        "Consensus is asking for block {:?}, but it already is in \
+                                         the global state",
+                                        hash
+                                    );
+                                }
+                            }
+
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + hash.len());
                             inner_out_bytes
@@ -132,6 +142,17 @@ fn setup_baker_guards(
                             (P2PNodeId(receiver_id), inner_out_bytes)
                         }
                         FinalizationRecordByHash(receiver_id, hash) => {
+                            // extra debug
+                            if let Ok(skov) = safe_read!(SKOV_DATA) {
+                                if skov.get_finalization_record_by_hash(&hash).is_some() {
+                                    info!(
+                                        "Consensus is asking for finalization record for {:?}, \
+                                         but it already is in the global state",
+                                        hash
+                                    );
+                                }
+                            }
+
                             let mut inner_out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + hash.len());
                             inner_out_bytes
@@ -433,24 +454,14 @@ fn setup_process_output(
                 let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
 
                 match PacketType::try_from(consensus_type)? {
-                    Block => send_block_to_consensus(
-                        baker,
-                        node,
-                        network_id,
-                        peer_id,
-                        content,
-                        &mut *safe_write!(SKOV_DATA)?,
-                    ),
+                    Block => send_block_to_consensus(baker, node, network_id, peer_id, content),
                     Transaction => send_transaction_to_consensus(baker, peer_id, content),
                     FinalizationMessage => {
                         send_finalization_message_to_consensus(baker, peer_id, content)
                     }
-                    FinalizationRecord => send_finalization_record_to_consensus(
-                        baker,
-                        peer_id,
-                        content,
-                        &mut *safe_write!(SKOV_DATA)?,
-                    ),
+                    FinalizationRecord => {
+                        send_finalization_record_to_consensus(baker, peer_id, content)
+                    }
                     CatchupBlockByHash => {
                         ensure!(
                             content.len() == SHA256 as usize,
@@ -628,11 +639,12 @@ fn send_finalization_record_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
-    skov: &mut SkovData,
 ) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(content)?;
 
-    if skov.add_finalization(record.clone()) {
+    let was_added = safe_write!(SKOV_DATA)?.add_finalization(record.clone());
+
+    if was_added {
         match baker.send_finalization_record(peer_id.as_raw(), &record) {
             0i64 => info!("Peer {} sent a {} to consensus", peer_id, record),
             err_code => error!(
@@ -673,11 +685,13 @@ fn send_block_to_consensus(
     network_id: NetworkId,
     peer_id: P2PNodeId,
     content: &[u8],
-    skov: &mut SkovData,
 ) -> Fallible<()> {
     let pending_block = PendingBlock::new(content)?;
 
-    match skov.add_block(pending_block.clone()) {
+    // don't pattern match directly in order to release the lock quickly
+    let result = safe_write!(SKOV_DATA)?.add_block(pending_block.clone());
+
+    match result {
         Ok(Some((existing_ptr, _))) => debug!(
             "Peer {} sent us a duplicate block ({:?})",
             peer_id, existing_ptr.hash,
@@ -825,6 +839,18 @@ fn send_catchup_request_finalization_record_by_hash_to_consensus(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
+    // extra debug
+    if let Ok(skov) = safe_read!(SKOV_DATA) {
+        let hash = HashBytes::new(content);
+        if skov.get_finalization_record_by_hash(&hash).is_some() {
+            info!(
+                "Peer {} here; I do have the finalization record for block {:?}",
+                node.id(),
+                hash
+            );
+        }
+    }
+
     send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupFinalizationRecordByHash,
         node,
@@ -845,6 +871,14 @@ fn send_catchup_request_block_by_hash_to_consensus(
     network_id: NetworkId,
     content: &[u8],
 ) -> Fallible<()> {
+    // extra debug
+    if let Ok(skov) = safe_read!(SKOV_DATA) {
+        let hash = HashBytes::new(content);
+        if skov.get_block_by_hash(&hash).is_some() {
+            info!("Peer {} here; I do have block {:?}", node.id(), hash);
+        }
+    }
+
     send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupBlockByHash,
         node,
