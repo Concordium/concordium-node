@@ -31,15 +31,17 @@ pub struct Transaction {
     payload:   Encoded,
 }
 
-impl Transaction {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for Transaction {
+    type Source = &'a [u8];
+
     // FIXME: finish
-    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         debug_deserialization!("Transaction", bytes);
 
         unimplemented!()
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         debug_serialization!(self);
 
         vec![].into_boxed_slice() // TODO
@@ -51,8 +53,10 @@ pub type TransactionCount = u64;
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Transactions(Vec<Transaction>);
 
-impl Transactions {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let transaction_count = NetworkEndian::read_u64(&read_const_sized!(
@@ -64,7 +68,7 @@ impl Transactions {
 
         if transaction_count > 0 {
             // FIXME: determine how to read each transaction
-            while let Some(transaction) = Transaction::deserialize(&read_all(&mut cursor)?) {
+            while let Ok(transaction) = Transaction::deserialize(&read_all(&mut cursor)?) {
                 transactions.0.push(transaction);
             }
         }
@@ -74,7 +78,7 @@ impl Transactions {
         Ok(transactions)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         // FIXME: add an estimated size of all Transactions
         let mut cursor = create_serialization_cursor(size_of::<TransactionCount>());
 

@@ -152,6 +152,11 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
 
-pub trait SerializeToBytes {
+pub trait SerializeToBytes<'a, 'b>
+where
+    Self: Sized, {
+    type Source; // either a byte slice or a mutable cursor (when total size is unknown)
+
+    fn deserialize(source: Self::Source) -> Fallible<Self>;
     fn serialize(&self) -> Box<[u8]>;
 }

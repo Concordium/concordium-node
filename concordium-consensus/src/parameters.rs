@@ -39,8 +39,10 @@ pub struct BirkParameters {
     pub bakers:          Vec<(BakerId, BakerInfo)>,
 }
 
-impl BirkParameters {
-    pub fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
         let election_nonce = Encoded::new(&read_bytestring(cursor)?);
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
@@ -67,7 +69,7 @@ impl BirkParameters {
         Ok(params)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let baker_info_size = 8 + self.bakers.len() * (size_of::<BakerId>() + BAKER_INFO as usize);
         let mut baker_cursor = create_serialization_cursor(baker_info_size);
 
@@ -100,8 +102,10 @@ pub struct BakerInfo {
     lottery_power:        LotteryPower,
 }
 
-impl BakerInfo {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
@@ -119,7 +123,7 @@ impl BakerInfo {
         Ok(info)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
@@ -133,8 +137,10 @@ impl BakerInfo {
 #[derive(Debug, Clone)]
 pub struct FinalizationParameters(Box<[VoterInfo]>);
 
-impl FinalizationParameters {
-    pub fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
         let param_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
         let mut params = Vec::with_capacity(param_count);
 
@@ -153,7 +159,7 @@ impl FinalizationParameters {
         Ok(params)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO as usize);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
@@ -173,8 +179,10 @@ pub struct VoterInfo {
     voting_power:         VoterPower,
 }
 
-impl VoterInfo {
-    pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
+    type Source = &'a [u8];
+
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, VOTER_SIGN_KEY));
@@ -192,7 +200,7 @@ impl VoterInfo {
         Ok(info)
     }
 
-    pub fn serialize(&self) -> Box<[u8]> {
+    fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(VOTER_INFO as usize);
 
         let _ = cursor.write_all(&self.signature_verify_key);

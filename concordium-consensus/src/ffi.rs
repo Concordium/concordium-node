@@ -16,7 +16,7 @@ use std::{
 
 use crate::{
     block::*,
-    common::{self, SerializeToBytes},
+    common::{self, HashBytes, SerializeToBytes},
     consensus::*,
     finalization::*,
 };
@@ -476,15 +476,18 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
 }
 
 pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8) {
-    debug!("Got a request for catch-up from consensus");
-    let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
-    catchup_enqueue(CatchupRequest::BlockByHash(peer_id, s));
+    let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
+    info!("Got a catch-up request for block {:?} from consensus", hash);
+    catchup_enqueue(CatchupRequest::BlockByHash(peer_id, hash));
 }
 
 pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    debug!("Got a request for catch-up from consensus");
-    let s = slice::from_raw_parts(hash, common::SHA256 as usize).to_vec();
-    catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, s));
+    let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
+    info!(
+        "Got a catch-up request for finalization record of block {:?} from consensus",
+        hash
+    );
+    catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, hash));
 }
 
 pub extern "C" fn on_catchup_finalization_record_by_index(

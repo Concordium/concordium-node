@@ -4,7 +4,10 @@ use std::{
     io::{self, Read},
 };
 
-use concordium_consensus::{block::GenesisData, common::sha256};
+use concordium_consensus::{
+    block::GenesisData,
+    common::{sha256, SerializeToBytes},
+};
 
 // for now it only reads genesis data, as only that is currently being dumped
 fn read_block_dump(bytes: &[u8]) {

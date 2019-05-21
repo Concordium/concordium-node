@@ -9,7 +9,9 @@ use std::{
     time::{self, Duration},
 };
 
-use crate::{block::*, fails::BakerNotRunning, ffi::*, finalization::*, tree::*};
+use crate::{
+    block::*, common::HashBytes, fails::BakerNotRunning, ffi::*, finalization::*, tree::*,
+};
 
 pub type PeerId = u64;
 
@@ -219,7 +221,7 @@ impl ConsensusContainer {
 
     pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
         for (id, baker) in safe_read!(self.bakers).iter() {
-            if block.baker_id() != *id {
+            if block.baker_id != *id {
                 return baker.send_block(peer_id, block);
             }
         }
@@ -353,8 +355,8 @@ impl ConsensusContainer {
 }
 
 pub enum CatchupRequest {
-    BlockByHash(PeerId, Vec<u8>),
-    FinalizationRecordByHash(PeerId, Vec<u8>),
+    BlockByHash(PeerId, HashBytes),
+    FinalizationRecordByHash(PeerId, HashBytes),
     FinalizationRecordByIndex(PeerId, FinalizationIndex),
 }
 
