@@ -169,5 +169,6 @@ service P2P {
   rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
   rpc Shutdown(Empty) returns (SuccessResponse) {}
   rpc TpsTest(TpsRequest) returns (SuccessResponse) {}
-  rpc Dump(DumpRequest) returns (SuccessResponse) {}
+  rpc DumpStart(DumpRequest) returns (SuccessResponse) {}
+  rpc DumpStop(Empty) returns (SuccessResponse) {}
 }

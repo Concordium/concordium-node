@@ -400,4 +400,11 @@ impl TlsServerPrivate {
             conn_mut_borrowed.dump_tx.replace(x.clone());
         });
     }
+
+    pub fn dump_stop_all_connections(&mut self) {
+        self.connections.iter_mut().for_each(|conn| {
+            let mut conn_mut_borrowed = conn.borrow_mut();
+            conn_mut_borrowed.dump_tx.take();
+        });
+    }
 }

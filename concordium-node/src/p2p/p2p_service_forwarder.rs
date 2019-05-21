@@ -308,12 +308,21 @@ impl P2P for P2PServiceForwarder {
         forward_to_targets!(self.targets, tps_test, ctx, req, sink);
     }
 
-    fn dump(
+    fn dump_start(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
-        forward_to_targets!(self.targets, dump, ctx, req, sink);
+        forward_to_targets!(self.targets, dump_start, ctx, req, sink);
+    }
+
+    fn dump_stop(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        forward_to_targets!(self.targets, dump_stop, ctx, req, sink);
     }
 }

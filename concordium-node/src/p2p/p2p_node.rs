@@ -1174,6 +1174,14 @@ impl P2PNode {
         write_or_die!(self.tls_server).dump_start(self.dump_tx.clone());
         Ok(())
     }
+
+    #[cfg(feature = "network_dump")]
+    pub fn stop_dump(&self) -> Fallible<()> {
+        let path = std::path::PathBuf::new();
+        self.dump_switch.send((path, false))?;
+        write_or_die!(self.tls_server).dump_stop();
+        Ok(())
+    }
 }
 
 impl Drop for P2PNode {
