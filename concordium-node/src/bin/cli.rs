@@ -138,6 +138,8 @@ fn setup_baker_guards(
                                             hash
                                         );
                                     }
+                                } else {
+                                    error!("Can't obtain a read lock on Skov!");
                                 }
 
                                 let mut inner_out_bytes =
@@ -159,6 +161,8 @@ fn setup_baker_guards(
                                             hash
                                         );
                                     }
+                                } else {
+                                    error!("Can't obtain a read lock on Skov!");
                                 }
 
                                 let mut inner_out_bytes =
@@ -270,7 +274,7 @@ fn setup_baker_guards(
                                 warn!("{}", e);
                             }
                         } else {
-                            panic!("Could not write to Skov!");
+                            error!("Can't obtain a write lock on Skov!");
                         }
 
                         let mut out_bytes =
@@ -342,8 +346,11 @@ fn setup_baker_guards(
                         let bytes = rec.serialize();
                         let rec_info = rec.to_string();
 
-                        // FIXME: perhaps we should make the enclosing function Fallible?
-                        safe_write!(SKOV_DATA).unwrap().add_finalization(rec);
+                        if let Ok(ref mut skov) = safe_write!(SKOV_DATA) {
+                            skov.add_finalization(rec);
+                        } else {
+                            error!("Can't obtain a write lock on Skov!");
+                        }
 
                         let mut out_bytes =
                             Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -688,7 +695,12 @@ fn send_finalization_record_to_consensus(
 ) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(content)?;
 
-    let was_added = safe_write!(SKOV_DATA)?.add_finalization(record.clone());
+    let was_added = if let Ok(ref mut skov) = safe_write!(SKOV_DATA) {
+        skov.add_finalization(record.clone())
+    } else {
+        error!("Can't obtain a write lock on Skov!");
+        true // temporary placeholder; we don't want to suggest a duplicate
+    };
 
     if was_added {
         match baker.send_finalization_record(peer_id.as_raw(), &record) {
@@ -735,7 +747,12 @@ fn send_block_to_consensus(
     let pending_block = PendingBlock::new(content)?;
 
     // don't pattern match directly in order to release the lock quickly
-    let result = safe_write!(SKOV_DATA)?.add_block(pending_block.clone());
+    let result = if let Ok(ref mut skov) = safe_write!(SKOV_DATA) {
+        skov.add_block(pending_block.clone())
+    } else {
+        error!("Can't obtain a write lock on Skov!");
+        Ok(None) // temporary placeholder; we don't want to suggest a duplicate
+    };
 
     match result {
         Ok(Some((existing_ptr, _))) => {
@@ -930,6 +947,8 @@ fn send_catchup_request_finalization_record_by_hash_to_consensus(
                 hash
             );
         }
+    } else {
+        error!("Can't obtain a read lock on Skov!");
     }
 
     send_catchup_request_to_consensus!(
@@ -960,6 +979,8 @@ fn send_catchup_request_block_by_hash_to_consensus(
         if skov.get_block_by_hash(&hash).is_some() {
             info!("Peer {} here; I do have block {:?}", node.id(), hash);
         }
+    } else {
+        error!("Can't obtain a read lock on Skov!");
     }
 
     send_catchup_request_to_consensus!(
@@ -1191,7 +1212,9 @@ fn start_baker(
                     sha256(&genesis_data),
                     genesis_ptr.hash,
                 );
-                safe_write!(SKOV_DATA).unwrap().add_genesis(genesis_ptr);
+                safe_write!(SKOV_DATA)
+                    .expect("Couldn't write the genesis data to Skov!")
+                    .add_genesis(genesis_ptr);
 
                 let mut consensus_runner = consensus::ConsensusContainer::default();
                 consensus_runner.start_baker(baker_id, genesis_data, private_data);
