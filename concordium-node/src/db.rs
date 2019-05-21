@@ -35,7 +35,8 @@ impl P2PDB {
         match self.conn {
             Some(ref conn) => {
                 let conn = safe_lock!(conn).ok()?;
-                conn.prepare("SELECT id, ip, port FROM bans_id")
+                let by_id = conn
+                    .prepare("SELECT id FROM bans_id")
                     .map_err(|e| error!("Couldn't execute query! {:?}", e))
                     .ok()
                     .and_then(|mut x| {
@@ -66,7 +67,47 @@ impl P2PDB {
                                 None
                             }
                         }
-                    })
+                    });
+                let by_addr = conn
+                    .prepare("SELECT addr FROM bans_addr")
+                    .map_err(|e| error!("Couldn't execute query! {:?}", e))
+                    .ok()
+                    .and_then(|mut x| {
+                        match x.query_map(&[] as &[&dyn ToSql], |row| {
+                            let s1: String = row.get(0)?;
+                            if let Ok(addr) = s1.parse() {
+                                Ok(BannedNode::ByAddr(addr))
+                            } else {
+                                Err(rusqlite::Error::InvalidColumnType(
+                                    s1.len(),
+                                    rusqlite::types::Type::Text,
+                                ))
+                            }
+                        }) {
+                            Ok(rows) => {
+                                let mut list = vec![];
+                                for row in rows {
+                                    match row {
+                                        Ok(x) => list.push(x),
+                                        Err(e) => error!("Couldn't get item, {:?}", e),
+                                    }
+                                }
+
+                                Some(list)
+                            }
+                            Err(e) => {
+                                error!("Couldn't map rows, {:?}", e);
+                                None
+                            }
+                        }
+                    });
+                Some(
+                    by_id
+                        .into_iter()
+                        .chain(by_addr.into_iter())
+                        .flat_map(std::iter::IntoIterator::into_iter)
+                        .collect::<Vec<BannedNode>>(),
+                )
             }
             None => None,
         }
