@@ -604,7 +604,7 @@ fn setup_process_output(
                                         _stats_engine.clear();
                                     }
                                 }
-                                info!(
+                                debug!(
                                     "DirectMessage/{}/{} with size {} received",
                                     pac.network_id,
                                     pac.message_id,

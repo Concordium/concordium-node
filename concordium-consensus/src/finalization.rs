@@ -28,7 +28,11 @@ pub struct FinalizationMessage {
 
 impl fmt::Display for FinalizationMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "finalization message ({})", self.message)
+        write!(
+            f,
+            "finalization message (sess {}, idx {}) from party {} ({})",
+            self.header.session_id, self.header.index, self.header.sender, self.message
+        )
     }
 }
 
@@ -127,7 +131,7 @@ type Val = BlockHash;
 enum WmvbaMessage {
     Proposal(Val),
     Vote(Option<Val>),
-    AbbaInput(AbbaInput),
+    Abba(Abba),
     CssSeen(CssSeen),
     CssDoneReporting(CssDoneReporting),
     AreWeDone(bool),
@@ -146,7 +150,7 @@ impl fmt::Display for WmvbaMessage {
                     "blank".to_owned()
                 }
             ),
-            WmvbaMessage::AbbaInput(abba) => format!("AbbaInput phase {}", abba.phase),
+            WmvbaMessage::Abba(abba) => format!("ABBA phase {}", abba.phase),
             WmvbaMessage::CssSeen(css) => format!("CssSeen phase {}", css.phase),
             WmvbaMessage::CssDoneReporting(c) => format!("CssDoneReporting phase {}", c.phase),
             WmvbaMessage::AreWeDone(arewe) => if *arewe {
@@ -174,8 +178,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
             0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
             1 => WmvbaMessage::Vote(None),
             2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
-            3 => WmvbaMessage::AbbaInput(AbbaInput::deserialize((&read_all(&mut cursor)?, false))?),
-            4 => WmvbaMessage::AbbaInput(AbbaInput::deserialize((&read_all(&mut cursor)?, true))?),
+            3 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, false))?),
+            4 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, true))?),
             5 => WmvbaMessage::CssSeen(CssSeen::deserialize((&read_all(&mut cursor)?, false))?),
             6 => WmvbaMessage::CssSeen(CssSeen::deserialize((&read_all(&mut cursor)?, true))?),
             7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all(
@@ -204,7 +208,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
                 None => vec![1],
                 Some(val) => [&[2], val.as_ref()].concat(),
             },
-            WmvbaMessage::AbbaInput(abba) => {
+            WmvbaMessage::Abba(abba) => {
                 if !abba.justified {
                     [&[3], &*abba.serialize()].concat()
                 } else {
@@ -233,13 +237,13 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
 type Phase = u32;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct AbbaInput {
+struct Abba {
     phase:     Phase,
     ticket:    Encoded,
     justified: bool, // FIXME: verify that this is what True/False means here
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for AbbaInput {
+impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
     type Source = (&'a [u8], bool);
 
     fn deserialize((bytes, justified): (&[u8], bool)) -> Fallible<Self> {
@@ -248,7 +252,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for AbbaInput {
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
         let ticket = Encoded::new(&read_const_sized!(&mut cursor, TICKET));
 
-        let abba = AbbaInput {
+        let abba = Abba {
             phase,
             ticket,
             justified,
