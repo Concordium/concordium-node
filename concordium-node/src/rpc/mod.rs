@@ -1051,7 +1051,7 @@ impl P2P for RpcServerImpl {
     }
 
     #[cfg(not(feature = "network_dump"))]
-    fn dump(
+    fn dump_start(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
@@ -1067,7 +1067,7 @@ impl P2P for RpcServerImpl {
     }
 
     #[cfg(feature = "network_dump")]
-    fn dump(
+    fn dump_start(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
         req: DumpRequest,
@@ -1091,6 +1091,44 @@ impl P2P for RpcServerImpl {
             } else {
                 r.set_value(false);
             }
+            sink.success(r)
+        } else {
+            sink.fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::ResourceExhausted,
+                Some("Node can't be locked".to_string()),
+            ))
+        };
+        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
+
+    #[cfg(not(feature = "network_dump"))]
+    fn dump_stop(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = sink
+            .fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::Unavailable,
+                Some("Feature not activated".to_string()),
+            ))
+            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
+
+    #[cfg(feature = "network_dump")]
+    fn dump_stop(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: Empty,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = if let Ok(locked_node) = self.node.lock() {
+            let mut r = SuccessResponse::new();
+            r.set_value(locked_node.stop_dump().is_ok());
+
             sink.success(r)
         } else {
             sink.fail(grpcio::RpcStatus::new(

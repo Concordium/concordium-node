@@ -452,6 +452,11 @@ impl TlsServer {
         self.dump_tx.replace(dump_tx);
         write_or_die!(self.dptr).dump_all_connections(to_private);
     }
+
+    pub fn dump_stop(&mut self) {
+        self.dump_tx.take();
+        write_or_die!(self.dptr).dump_stop_all_connections();
+    }
 }
 
 impl MessageManager for TlsServer {

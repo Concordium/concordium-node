@@ -84,6 +84,10 @@ pub fn create_dump_thread(
         let mut count = 0;
         loop {
             if let Ok((new_path, raw)) = act_rx.try_recv() {
+                if new_path.components().next().is_none() {
+                    info!("Dump process stopped");
+                    break;
+                }
                 let new_path = base_dir.join(&new_path);
                 // Create directory
                 let _ = std::fs::create_dir(&new_path.clone());
@@ -159,5 +163,6 @@ pub fn create_dump_thread(
             };
             std::thread::yield_now();
         }
+        Ok(())
     });
 }
