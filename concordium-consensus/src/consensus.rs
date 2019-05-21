@@ -1,12 +1,15 @@
-use concordium_common::into_err;
+use concordium_common::{
+    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
+};
 use failure::{bail, Fallible};
 
+#[cfg(test)]
+use std::time::Duration;
 use std::{
     collections::HashMap,
     str,
     sync::{mpsc, Arc, Mutex, RwLock},
-    thread,
-    time::{self, Duration},
+    thread, time,
 };
 
 use crate::{
@@ -17,27 +20,30 @@ pub type PeerId = u64;
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block: Arc<Mutex<mpsc::Receiver<BakedBlock>>>,
-    sender_block: Arc<Mutex<mpsc::Sender<BakedBlock>>>,
-    receiver_finalization: Arc<Mutex<mpsc::Receiver<FinalizationMessage>>>,
-    sender_finalization: Arc<Mutex<mpsc::Sender<FinalizationMessage>>>,
-    receiver_finalization_record: Arc<Mutex<mpsc::Receiver<FinalizationRecord>>>,
-    sender_finalization_record: Arc<Mutex<mpsc::Sender<FinalizationRecord>>>,
-    receiver_catchup_queue: Arc<Mutex<mpsc::Receiver<CatchupRequest>>>,
-    sender_catchup_queue: Arc<Mutex<mpsc::Sender<CatchupRequest>>>,
-    receiver_finalization_catchup_queue: Arc<Mutex<mpsc::Receiver<(PeerId, FinalizationMessage)>>>,
-    sender_finalization_catchup_queue: Arc<Mutex<mpsc::Sender<(PeerId, FinalizationMessage)>>>,
+    receiver_block: Arc<Mutex<RelayOrStopReceiver<BakedBlock>>>,
+    sender_block: Arc<Mutex<RelayOrStopSender<BakedBlock>>>,
+    receiver_finalization: Arc<Mutex<RelayOrStopReceiver<FinalizationMessage>>>,
+    sender_finalization: Arc<Mutex<RelayOrStopSender<FinalizationMessage>>>,
+    receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<FinalizationRecord>>>,
+    sender_finalization_record: Arc<Mutex<RelayOrStopSender<FinalizationRecord>>>,
+    receiver_catchup_queue: Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
+    sender_catchup_queue: Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
+    receiver_finalization_catchup_queue:
+        Arc<Mutex<RelayOrStopReceiver<(PeerId, FinalizationMessage)>>>,
+    sender_finalization_catchup_queue: Arc<Mutex<RelayOrStopSender<(PeerId, FinalizationMessage)>>>,
 }
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<BakedBlock>();
-        let (sender_finalization, receiver_finalization) = mpsc::channel::<FinalizationMessage>();
+        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<BakedBlock>>();
+        let (sender_finalization, receiver_finalization) =
+            mpsc::channel::<RelayOrStopEnvelope<FinalizationMessage>>();
         let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<FinalizationRecord>();
-        let (sender_catchup, receiver_catchup) = mpsc::channel::<CatchupRequest>();
+            mpsc::channel::<RelayOrStopEnvelope<FinalizationRecord>>();
+        let (sender_catchup, receiver_catchup) =
+            mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
         let (sender_finalization_catchup, receiver_finalization_catchup) =
-            mpsc::channel::<(PeerId, FinalizationMessage)>();
+            mpsc::channel::<RelayOrStopEnvelope<(PeerId, FinalizationMessage)>>();
         ConsensusOutQueue {
             receiver_block: Arc::new(Mutex::new(receiver)),
             sender_block: Arc::new(Mutex::new(sender)),
@@ -69,88 +75,74 @@ macro_rules! empty_queue {
 
 impl ConsensusOutQueue {
     pub fn send_block(self, block: BakedBlock) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_block).send(block))
+        into_err!(safe_lock!(self.sender_block).send_msg(block))
     }
 
-    pub fn recv_block(self) -> Fallible<BakedBlock> {
+    pub fn recv_block(self) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
         into_err!(safe_lock!(self.receiver_block).recv())
     }
 
-    pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<BakedBlock> {
-        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
-    }
-
-    pub fn try_recv_block(self) -> Fallible<BakedBlock> {
+    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
-    pub fn send_finalization(self, msg: FinalizationMessage) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization).send(msg))
+    #[cfg(test)]
+    pub fn recv_timeout_block(
+        self,
+        timeout: Duration,
+    ) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
+        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
     }
 
-    pub fn recv_finalization(self) -> Fallible<FinalizationMessage> {
+    pub fn send_finalization(self, msg: FinalizationMessage) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
+    }
+
+    pub fn recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationMessage>> {
         into_err!(safe_lock!(self.receiver_finalization).recv())
     }
 
-    pub fn recv_timeout_finalization(self, timeout: Duration) -> Fallible<FinalizationMessage> {
-        into_err!(safe_lock!(self.receiver_finalization).recv_timeout(timeout))
-    }
-
-    pub fn try_recv_finalization(self) -> Fallible<FinalizationMessage> {
+    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationMessage>> {
         into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 
     pub fn send_finalization_record(self, rec: FinalizationRecord) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization_record).send(rec))
+        into_err!(safe_lock!(self.sender_finalization_record).send_msg(rec))
     }
 
-    pub fn recv_finalization_record(self) -> Fallible<FinalizationRecord> {
+    pub fn recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<FinalizationRecord>> {
         into_err!(safe_lock!(self.receiver_finalization_record).recv())
     }
 
-    pub fn recv_timeout_finalization_record(
-        self,
-        timeout: Duration,
-    ) -> Fallible<FinalizationRecord> {
-        into_err!(safe_lock!(self.receiver_finalization_record).recv_timeout(timeout))
-    }
-
-    pub fn try_recv_finalization_record(self) -> Fallible<FinalizationRecord> {
+    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<FinalizationRecord>> {
         into_err!(safe_lock!(self.receiver_finalization_record).try_recv())
     }
 
     pub fn send_catchup(self, rec: CatchupRequest) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_catchup_queue).send(rec))
+        into_err!(safe_lock!(self.sender_catchup_queue).send_msg(rec))
     }
 
-    pub fn recv_catchup(self) -> Fallible<CatchupRequest> {
+    pub fn recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
         into_err!(safe_lock!(self.receiver_catchup_queue).recv())
     }
 
-    pub fn recv_timeout_catchup(self, timeout: Duration) -> Fallible<CatchupRequest> {
-        into_err!(safe_lock!(self.receiver_catchup_queue).recv_timeout(timeout))
-    }
-
-    pub fn try_recv_catchup(self) -> Fallible<CatchupRequest> {
+    pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
         into_err!(safe_lock!(self.receiver_catchup_queue).try_recv())
     }
 
     pub fn send_finalization_catchup(self, rec: (PeerId, FinalizationMessage)) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization_catchup_queue).send(rec))
+        into_err!(safe_lock!(self.sender_finalization_catchup_queue).send_msg(rec))
     }
 
-    pub fn recv_finalization_catchup(self) -> Fallible<(PeerId, FinalizationMessage)> {
+    pub fn recv_finalization_catchup(
+        self,
+    ) -> Fallible<RelayOrStopEnvelope<(PeerId, FinalizationMessage)>> {
         into_err!(safe_lock!(self.receiver_finalization_catchup_queue).recv())
     }
 
-    pub fn recv_timeout_finalization_catchup(
+    pub fn try_recv_finalization_catchup(
         self,
-        timeout: Duration,
-    ) -> Fallible<(PeerId, FinalizationMessage)> {
-        into_err!(safe_lock!(self.receiver_finalization_catchup_queue).recv_timeout(timeout))
-    }
-
-    pub fn try_recv_finalization_catchup(self) -> Fallible<(PeerId, FinalizationMessage)> {
+    ) -> Fallible<RelayOrStopEnvelope<(PeerId, FinalizationMessage)>> {
         into_err!(safe_lock!(self.receiver_finalization_catchup_queue).try_recv())
     }
 
@@ -166,6 +158,15 @@ impl ConsensusOutQueue {
             self.receiver_finalization_catchup_queue,
             "Finalization message catch-up queue"
         );
+    }
+
+    pub fn stop(&self) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender_block).send_stop())?;
+        into_err!(safe_lock!(self.sender_finalization).send_stop())?;
+        into_err!(safe_lock!(self.sender_finalization_record).send_stop())?;
+        into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
+        into_err!(safe_lock!(self.sender_finalization_catchup_queue).send_stop())?;
+        Ok(())
     }
 }
 
@@ -204,6 +205,10 @@ impl ConsensusContainer {
 
     pub fn stop_baker(&mut self, baker_id: BakerId) {
         let bakers = &mut safe_write!(self.bakers);
+
+        if CALLBACK_QUEUE.stop().is_err() {
+            error!("Some queues couldn't send a stop signal");
+        };
 
         match bakers.get_mut(&baker_id) {
             Some(baker) => baker.stop(),
@@ -370,18 +375,13 @@ pub fn catchup_enqueue(req: CatchupRequest) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use concordium_common::RelayOrStopEnvelope;
     use std::{
         sync::{Once, ONCE_INIT},
         time::Duration,
     };
 
     static INIT: Once = ONCE_INIT;
-
-    #[derive(Debug, Clone)]
-    pub enum NetworkStep {
-        Handshake(u16),
-        Broadcast(u16),
-    }
 
     fn setup() { INIT.call_once(|| env_logger::init()); }
 
@@ -411,11 +411,15 @@ mod tests {
                         return;
                     }
                 }
-                while let Ok(msg) = &_th_container.out_queue().try_recv_finalization() {
+                while let Ok(RelayOrStopEnvelope::Relay(msg)) =
+                    &_th_container.out_queue().try_recv_finalization()
+                {
                     debug!("Relaying {:?}", msg);
                     &_th_container.send_finalization(1, msg);
                 }
-                while let Ok(rec) = &_th_container.out_queue().try_recv_finalization_record() {
+                while let Ok(RelayOrStopEnvelope::Relay(rec)) =
+                    &_th_container.out_queue().try_recv_finalization_record()
+                {
                     debug!("Relaying {:?}", rec);
                     &_th_container.send_finalization_record(1, rec);
                 }
@@ -426,11 +430,12 @@ mod tests {
                     .out_queue()
                     .recv_timeout_block(Duration::from_millis(500_000))
                 {
-                    Ok(msg) => {
+                    Ok(RelayOrStopEnvelope::Relay(msg)) => {
                         debug!("{} Got block data => {:?}", i, msg);
                         &consensus_container.send_block(1, msg);
                     }
                     Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
+                    _ => {}
                 }
             }
             debug!("Stopping relay thread");

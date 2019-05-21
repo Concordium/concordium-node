@@ -29,7 +29,9 @@ use crate::{
     utils,
 };
 use chrono::prelude::*;
-use concordium_common::{functor::FilterFunctor, UCursor};
+use concordium_common::{
+    functor::FilterFunctor, RelayOrStopSender, RelayOrStopSenderHelper, UCursor,
+};
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -43,7 +45,6 @@ use std::{
         IpAddr::{self, V4, V6},
         SocketAddr,
     },
-    ops::Deref,
     rc::Rc,
     str::FromStr,
     sync::{
@@ -84,7 +85,7 @@ pub struct P2PNode {
     send_queue_in:        Sender<Arc<NetworkMessage>>,
     send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
     pub internal_addr:    SocketAddr,
-    queue_to_super:       Sender<Arc<NetworkMessage>>,
+    queue_to_super:       RelayOrStopSender<Arc<NetworkMessage>>,
     rpc_queue:            Arc<Mutex<Option<Sender<Arc<NetworkMessage>>>>>,
     start_time:           DateTime<Utc>,
     stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
@@ -107,7 +108,7 @@ impl P2PNode {
     pub fn new(
         supplied_id: Option<String>,
         conf: &configuration::Config,
-        pkt_queue: Sender<Arc<NetworkMessage>>,
+        pkt_queue: RelayOrStopSender<Arc<NetworkMessage>>,
         event_log: Option<Sender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
@@ -345,14 +346,18 @@ impl P2PNode {
         let own_networks = Arc::clone(&read_or_die!(self.tls_server).networks());
         let own_id = self.id();
         let stats_export_service = self.stats_export_service.clone();
-        let packet_queue = self.queue_to_super.clone();
+        let queue_to_super = self.queue_to_super.clone();
         let rpc_queue = Arc::clone(&self.rpc_queue);
         let send_queue = self.send_queue_in.clone();
         let trusted_broadcast = self.config.blind_trusted_broadcast;
         let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
         make_atomic_callback!(move |pac: &NetworkPacket| {
-            let queues = (&packet_queue, rpc_queue.deref());
+            let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
+                send_queue:     &send_queue,
+                queue_to_super: &queue_to_super,
+                rpc_queue:      &rpc_queue,
+            };
             match pac.packet_type {
                 NetworkPacketType::BroadcastedMessage => {
                     if broadcasting_checks.run_filters(pac) {
@@ -361,7 +366,6 @@ impl P2PNode {
                             &seen_messages,
                             &stats_export_service,
                             &own_networks,
-                            &send_queue,
                             &queues,
                             pac,
                             trusted_broadcast,
@@ -375,7 +379,6 @@ impl P2PNode {
                     &seen_messages,
                     &stats_export_service,
                     &own_networks,
-                    &send_queue,
                     &queues,
                     pac,
                     trusted_broadcast,
@@ -1185,7 +1188,10 @@ impl P2PNode {
 }
 
 impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
+    fn drop(&mut self) {
+        let _ = self.queue_to_super.send_stop();
+        let _ = self.close_and_join();
+    }
 }
 
 impl MessageManager for P2PNode {

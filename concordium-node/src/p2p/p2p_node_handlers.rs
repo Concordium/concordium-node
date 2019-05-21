@@ -7,7 +7,7 @@ use crate::{
     },
     stats_export_service::StatsExportService,
 };
-use concordium_common::functor::FuncResult;
+use concordium_common::{functor::FuncResult, RelayOrStopSender, RelayOrStopSenderHelper};
 use std::{
     collections::HashSet,
     ops::Deref,
@@ -17,11 +17,11 @@ use std::{
 /// It forwards network response message into `queue`.
 pub fn forward_network_response(
     res: &NetworkResponse,
-    queue: &Sender<Arc<NetworkMessage>>,
+    queue: &RelayOrStopSender<Arc<NetworkMessage>>,
 ) -> FuncResult<()> {
     let outer = Arc::new(NetworkMessage::NetworkResponse(res.to_owned(), None, None));
 
-    if let Err(queue_error) = queue.send(outer) {
+    if let Err(queue_error) = queue.send_msg(outer) {
         warn!("Message cannot be forwarded: {:?}", queue_error);
     };
 
@@ -31,11 +31,11 @@ pub fn forward_network_response(
 /// It forwards network request message into `packet_queue`
 pub fn forward_network_request(
     req: &NetworkRequest,
-    packet_queue: &Sender<Arc<NetworkMessage>>,
+    packet_queue: &RelayOrStopSender<Arc<NetworkMessage>>,
 ) -> FuncResult<()> {
     let outer = Arc::new(NetworkMessage::NetworkRequest(req.to_owned(), None, None));
 
-    if let Err(e) = packet_queue.send(outer) {
+    if let Err(e) = packet_queue.send_msg(outer) {
         warn!(
             "Network request cannot be forward by packet queue: {}",
             e.to_string()
@@ -45,10 +45,14 @@ pub fn forward_network_request(
     Ok(())
 }
 
-type OutgoingQueues<'a> = (
-    &'a Sender<Arc<NetworkMessage>>,
-    &'a Mutex<Option<Sender<Arc<NetworkMessage>>>>,
-);
+pub struct OutgoingQueues<'a> {
+    /// Send_queue to other nodes
+    pub send_queue: &'a Sender<Arc<NetworkMessage>>,
+    /// Queue to super process (to bakers or db)
+    pub queue_to_super: &'a RelayOrStopSender<Arc<NetworkMessage>>,
+    /// Queue to the RPC subscription
+    pub rpc_queue: &'a Mutex<Option<Sender<Arc<NetworkMessage>>>>,
+}
 
 /// It forwards network packet message into `packet_queue` if message id has not
 /// been already seen and its `network id` belong to `own_networks`.
@@ -57,7 +61,6 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &Sender<Arc<NetworkMessage>>,
     outgoing_queues: &OutgoingQueues,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
@@ -72,7 +75,6 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
             seen_messages,
             stats_export_service,
             own_networks,
-            send_queue,
             outgoing_queues,
             pac,
             blind_trust_broadcast,
@@ -108,7 +110,6 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
     own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    send_queue: &Sender<Arc<NetworkMessage>>,
     outgoing_queues: &OutgoingQueues,
     pac: &NetworkPacket,
     blind_trust_broadcast: bool,
@@ -131,14 +132,14 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
                     pac.message_id,
                     pac.peer.id()
                 );
-                send_or_die!(send_queue, Arc::clone(&outer));
+                send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
                 if let Some(ref service) = stats_export_service {
                     safe_write!(service)?.queue_size_inc();
                 };
             }
         }
 
-        if let Ok(locked) = outgoing_queues.1.lock() {
+        if let Ok(locked) = outgoing_queues.rpc_queue.lock() {
             if let Some(queue) = locked.deref() {
                 if let Err(e) = queue.send(outer.clone()) {
                     warn!(
@@ -149,7 +150,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
             }
         }
 
-        if let Err(e) = outgoing_queues.0.send(outer.clone()) {
+        if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
             warn!(
                 "Can't send message to the outer super queue: {}",
                 e.to_string()

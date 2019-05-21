@@ -17,7 +17,7 @@ static A: System = System;
 
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
-    lock_or_die, safe_lock, spawn_or_die,
+    lock_or_die, safe_lock, spawn_or_die, RelayOrStopEnvelope, RelayOrStopReceiver,
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -304,8 +304,8 @@ fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
-) -> (P2PNode, mpsc::Receiver<Arc<NetworkMessage>>) {
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+) -> (P2PNode, RelayOrStopReceiver<Arc<NetworkMessage>>) {
+    let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
 
     let node_id = if conf.common.id.is_some() {
         conf.common.id.clone()
@@ -349,7 +349,7 @@ fn instantiate_node(
 fn setup_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
-    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
     db: P2PDB,
 ) {
     let mut _node_self_clone = node.clone();
@@ -358,7 +358,7 @@ fn setup_process_output(
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let _desired_nodes_clone = conf.connection.desired_nodes;
     let _guard_pkt = spawn_or_die!("Node output processing", move || loop {
-        if let Ok(full_msg) = pkt_out.recv() {
+        while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
             match *full_msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => match pac.packet_type {
                     NetworkPacketType::DirectMessage(..) => {

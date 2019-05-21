@@ -9,7 +9,7 @@ extern crate grpciowin as grpcio;
 mod tests {
     use concordium_common::{
         functor::{FilterFunctor, Functorable},
-        spawn_or_die,
+        spawn_or_die, RelayOrStopEnvelope,
     };
     use concordium_consensus::{consensus::*, ffi::*};
     use grpcio::{ChannelBuilder, EnvBuilder};
@@ -53,7 +53,7 @@ mod tests {
     pub fn test_grpc_consensus() {
         let port_node = next_port_offset(2);
 
-        let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+        let (pkt_in, _pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
 
         let (genesis_data, private_data) = ConsensusContainer::generate_data(0, 1)
             .unwrap_or_else(|_| panic!("Couldn't read haskell data"));

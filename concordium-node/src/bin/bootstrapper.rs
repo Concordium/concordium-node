@@ -14,7 +14,10 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::functor::{FilterFunctor, Functorable};
+use concordium_common::{
+    functor::{FilterFunctor, Functorable},
+    RelayOrStopEnvelope, RelayOrStopReceiver,
+};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
@@ -101,7 +104,7 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (pkt_in, pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+    let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
 
     let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
 
@@ -173,41 +176,39 @@ fn setup_process_output(
     node: &P2PNode,
     db: &P2PDB,
     conf: &configuration::Config,
-    pkt_out: mpsc::Receiver<Arc<NetworkMessage>>,
+    pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
 ) {
     let mut _node_self_clone = node.clone();
     let mut _db = db.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
-        loop {
-            if let Ok(full_msg) = pkt_out.recv() {
-                match *full_msg {
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::BanNode(ref peer, peer_to_ban),
-                        ..
-                    ) => {
-                        utils::ban_node(
-                            &mut _node_self_clone,
-                            peer,
-                            peer_to_ban,
-                            &_db,
-                            _no_trust_bans,
-                        );
-                    }
-                    NetworkMessage::NetworkRequest(
-                        NetworkRequest::UnbanNode(ref peer, peer_to_ban),
-                        ..
-                    ) => {
-                        utils::unban_node(
-                            &mut _node_self_clone,
-                            peer,
-                            peer_to_ban,
-                            &_db,
-                            _no_trust_bans,
-                        );
-                    }
-                    _ => {}
+        while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
+            match *full_msg {
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::BanNode(ref peer, peer_to_ban),
+                    ..
+                ) => {
+                    utils::ban_node(
+                        &mut _node_self_clone,
+                        peer,
+                        peer_to_ban,
+                        &_db,
+                        _no_trust_bans,
+                    );
                 }
+                NetworkMessage::NetworkRequest(
+                    NetworkRequest::UnbanNode(ref peer, peer_to_ban),
+                    ..
+                ) => {
+                    utils::unban_node(
+                        &mut _node_self_clone,
+                        peer,
+                        peer_to_ban,
+                        &_db,
+                        _no_trust_bans,
+                    );
+                }
+                _ => {}
             }
         }
     });
