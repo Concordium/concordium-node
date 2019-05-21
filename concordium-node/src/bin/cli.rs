@@ -719,17 +719,17 @@ fn send_block_to_consensus(
                     peer_id,
                     network_id,
                     &pending_block.block.pointer,
-                )?;
-            } else if e == "InvalidLastFinalized" {
-                send_catchup_request_finalization_record_by_hash_to_consensus(
-                    baker,
-                    node,
-                    peer_id,
-                    network_id,
-                    &pending_block.block.last_finalized,
-                )?;
+                )?; // } else if e == "InvalidLastFinalized" {
+                    // send_catchup_request_finalization_record_by_hash_to_consensus(
+                    // baker,
+                    // node,
+                    // peer_id,
+                    // network_id,
+                    // &pending_block.block.last_finalized,
+                    // )?;
             } else {
-                unreachable!("Unexpected AddBlockError code!");
+
+                // unreachable!("Unexpected AddBlockError code!");
             }
         }
     }
@@ -781,12 +781,14 @@ macro_rules! send_catchup_request_to_consensus {
             CatchupFinalizationRecordByIndex => FinalizationRecord,
             catchall_val => panic!("Can't respond to catchup type {}", catchall_val),
         };
+
         if !res.is_empty() && NetworkEndian::read_u64(&res[..8]) > 0 {
             let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + res.len());
             out_bytes
                 .write_u16::<NetworkEndian>(return_type as u16)
                 .expect("Can't write to buffer");
             out_bytes.extend(res);
+
             match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
                 Ok(_) => info!(
                     "Responded to a catch-up request type \"{}\" from peer {}",
@@ -800,10 +802,11 @@ macro_rules! send_catchup_request_to_consensus {
         } else {
             error!(
                 "Consensus doesn't have the data to fulfill a catch-up request type \"{}\" that \
-                 peer {} requested",
-                $req_type, $peer_id
+                 peer {} requested (response: {:?})",
+                $req_type, $peer_id, res
             );
         }
+
         Ok(())
     }};
 }
