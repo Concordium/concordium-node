@@ -122,7 +122,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let catch_up_thread = spawn_or_die!("Process inbound consensus catch-up requests", {
+        let th1 = spawn_or_die!("Process consensus catch-up requests", {
             use concordium_consensus::{common::DELTA_LENGTH, consensus::CatchupRequest::*};
             loop {
                 match baker_clone.out_queue().recv_catchup() {
