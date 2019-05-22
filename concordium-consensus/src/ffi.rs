@@ -234,7 +234,11 @@ extern "C" {
         block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getBlock(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
-    pub fn getBlockDelta(baker: *mut baker_runner, block_hash: *const u8, delta: Delta) -> *const u8;
+    pub fn getBlockDelta(
+        baker: *mut baker_runner,
+        block_hash: *const u8,
+        delta: Delta,
+    ) -> *const u8;
     pub fn getBlockFinalization(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
     pub fn getIndexedFinalization(
         baker: *mut baker_runner,
