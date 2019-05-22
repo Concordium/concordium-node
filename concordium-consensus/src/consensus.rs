@@ -337,7 +337,7 @@ impl ConsensusContainer {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_block(block_hash))
     }
 
-    pub fn get_block_by_delta(&self, block_hash: &[u8], delta: u64) -> Fallible<Vec<u8>> {
+    pub fn get_block_by_delta(&self, block_hash: &[u8], delta: Delta) -> Fallible<Vec<u8>> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_block_by_delta(block_hash, delta))
     }
