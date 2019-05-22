@@ -286,7 +286,7 @@ impl TlsServer {
 
         // Avoid duplicate ip+port peers
         if self_peer.addr == addr {
-            bail!(fails::DuplicatePeerError);
+            bail!(fails::DuplicatePeerError { peer_id_opt, addr });
         }
 
         // Avoid duplicate Id entries
@@ -295,7 +295,7 @@ impl TlsServer {
                 .find_connection_by_id(peer_id)
                 .is_some()
             {
-                bail!(fails::DuplicatePeerError);
+                bail!(fails::DuplicatePeerError { peer_id_opt, addr });
             }
         }
 
@@ -304,7 +304,7 @@ impl TlsServer {
             .find_connection_by_ip_addr(addr)
             .is_some()
         {
-            bail!(fails::DuplicatePeerError);
+            bail!(fails::DuplicatePeerError { peer_id_opt, addr });
         }
 
         match TcpStream::connect(&addr) {

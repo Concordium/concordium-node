@@ -7,6 +7,7 @@ use crate::common::{
 use failure::Fallible;
 use std::{
     cmp::Ordering,
+    fmt::{self, Display},
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
 };
@@ -109,5 +110,11 @@ impl Deserializable for P2PPeer {
             P2PNodeId::deserialize(archive)?,
             SocketAddr::deserialize(archive)?,
         ))
+    }
+}
+
+impl Display for P2PPeer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}/{}:{}", self.id(), self.addr.ip(), self.addr.port())
     }
 }
