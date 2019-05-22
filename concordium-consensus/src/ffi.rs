@@ -166,7 +166,7 @@ pub struct baker_runner {
 type ConsensusDataOutCallback = extern "C" fn(i64, *const u8, i64);
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type CatchupFinalizationRequestByBlockHashDeltaCallback =
-    unsafe extern "C" fn(peer_id: PeerId, hash: *const u8, delta: u64);
+    unsafe extern "C" fn(peer_id: PeerId, hash: *const u8, delta: Delta);
 type CatchupFinalizationRequestByBlockHashCallback =
     unsafe extern "C" fn(peer_id: PeerId, hash: *const u8);
 type CatchupFinalizationRequestByFinalizationIndexCallback =
@@ -234,7 +234,7 @@ extern "C" {
         block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getBlock(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
-    pub fn getBlockDelta(baker: *mut baker_runner, block_hash: *const u8, delta: u64) -> *const u8;
+    pub fn getBlockDelta(baker: *mut baker_runner, block_hash: *const u8, delta: Delta) -> *const u8;
     pub fn getBlockFinalization(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
     pub fn getIndexedFinalization(
         baker: *mut baker_runner,
@@ -380,7 +380,7 @@ impl ConsensusBaker {
         wrap_c_call_bytes!(self, |baker| getBlock(baker, _block_hash.as_ptr()))
     }
 
-    pub fn get_block_by_delta(&self, _block_hash: &[u8], delta: u64) -> Vec<u8> {
+    pub fn get_block_by_delta(&self, _block_hash: &[u8], delta: Delta) -> Vec<u8> {
         wrap_c_call_bytes!(self, |baker| getBlockDelta(
             baker,
             _block_hash.as_ptr(),
@@ -486,7 +486,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
     }
 }
 
-pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: u64) {
+pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: Delta) {
     let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
     info!(
         "Got a catch-up request for block {:?} with delta {} from consensus",
