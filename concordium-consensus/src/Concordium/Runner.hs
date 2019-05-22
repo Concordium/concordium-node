@@ -36,7 +36,7 @@ data OutMessage src =
     MsgNewBlock BakedBlock
     | MsgFinalization BS.ByteString
     | MsgFinalizationRecord FinalizationRecord
-    | MsgMissingBlock src BlockHash
+    | MsgMissingBlock src BlockHash BlockHeight
     | MsgMissingFinalization src (Either BlockHash FinalizationIndex)
 
 makeRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (FSM m) -> IO (Chan (InMessage source), Chan (OutMessage source), IORef SkovFinalizationState)
@@ -87,7 +87,7 @@ makeRunner logm bkr gen initBS = do
             let
                 handleMessage (SkovFinalization (BroadcastFinalizationMessage fmsg)) = liftIO $ writeChan outChan (MsgFinalization fmsg)
                 handleMessage (SkovFinalization (BroadcastFinalizationRecord frec)) = liftIO $ writeChan outChan (MsgFinalizationRecord frec)
-                handleMessage (SkovMissingBlock bh) = liftIO $ writeChan outChan (MsgMissingBlock src bh)
+                handleMessage (SkovMissingBlock bh delta) = liftIO $ writeChan outChan (MsgMissingBlock src bh delta)
                 handleMessage (SkovMissingFinalization fr) = liftIO $ writeChan outChan (MsgMissingFinalization src fr)
             forM_ (evs []) handleMessage
             return r

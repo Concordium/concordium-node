@@ -115,8 +115,13 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                     writeChan monitor (Right fr)
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (IEMessage $ MsgFinalizationRecordReceived sfsRef fr)
-                MsgMissingBlock src bh -> do
+                MsgMissingBlock src bh 0 -> do
                     mb <- Get.getBlockData src bh
+                    case mb of
+                        Just (NormalBlock bb) -> writeChan loopback (IEMessage $ MsgBlockReceived src bb)
+                        _ -> return ()
+                MsgMissingBlock src bh delta -> do
+                    mb <- Get.getBlockDescendant src bh delta
                     case mb of
                         Just (NormalBlock bb) -> writeChan loopback (IEMessage $ MsgBlockReceived src bb)
                         _ -> return ()

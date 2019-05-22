@@ -8,6 +8,7 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
+import Concordium.Skov.Update (isAncestorOf)
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
@@ -162,6 +163,16 @@ getBlockData sfsRef bh = do
         sfs <- liftIO $ readIORef sfsRef
         flip evalSSM (sfs ^. sfsSkov) $
             fmap bpBlock <$> resolveBlock bh
+
+getBlockDescendant :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> BlockHeight -> m (Maybe Block)
+getBlockDescendant sfsRef ancestor distance = do
+        sfs <- liftIO $ readIORef sfsRef
+        flip evalSSM (sfs ^. sfsSkov) $
+            resolveBlock ancestor >>= \case
+                Nothing -> return Nothing
+                Just bp -> do
+                    candidates <- getBlocksAtHeight (bpHeight bp + distance)
+                    return $ bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
 
 getBlockFinalization :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = do

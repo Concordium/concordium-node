@@ -42,26 +42,29 @@ class FinalizationEvent w where
 -- either a missing block (by 'BlockHash') or a missing finalization
 -- record (by 'BlockHash' or by 'FinalizationIndex').
 class MissingEvent w where
-    missingBlockEvent :: BlockHash -> w
+    -- |Given a block hash and a height delta, request a missing block
+    -- that is descended from the given block by the delta.  When the
+    -- delta is 0, this is just a request for the block itself.
+    missingBlockEvent :: BlockHash -> BlockHeight -> w
     missingFinalizationEvent :: Either BlockHash FinalizationIndex -> w
 
 -- |The output events that may arise from consensus and finalization.
 -- These are finalization events and missing block/record events.
 data SkovFinalizationEvent
     = SkovFinalization FinalizationOutputEvent
-    | SkovMissingBlock BlockHash
+    | SkovMissingBlock BlockHash BlockHeight
     | SkovMissingFinalization (Either BlockHash FinalizationIndex)
 
 instance FinalizationEvent (Endo [SkovFinalizationEvent]) where
     embedFinalizationEvent = Endo . (:) . SkovFinalization
 
 instance MissingEvent (Endo [SkovFinalizationEvent]) where
-    missingBlockEvent = Endo . (:) . SkovMissingBlock
+    missingBlockEvent bh delta = Endo (SkovMissingBlock bh delta :)
     missingFinalizationEvent = Endo . (:) . SkovMissingFinalization
 
 -- |Notify of a missing block.
-notifyMissingBlock :: (MonadWriter w m, MissingEvent w) => BlockHash -> m ()
-notifyMissingBlock = tell . missingBlockEvent
+notifyMissingBlock :: (MonadWriter w m, MissingEvent w) => BlockHash -> BlockHeight -> m ()
+notifyMissingBlock bh delta = tell $ missingBlockEvent bh delta
 
 -- |Notify of a missing finalization record.
 notifyMissingFinalization :: (MonadWriter w m, MissingEvent w) => Either BlockHash FinalizationIndex -> m ()
@@ -234,7 +237,7 @@ addBlock sl@SkovListeners{..} block = do
             case parentStatus of
                 Nothing -> do
                     addPendingBlock block
-                    notifyMissingBlock parent
+                    notifyMissingBlock parent 0
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
                     -- Check also if the block's last finalized block has been finalized
                     getBlockStatus (blockLastFinalized bf) >>= \case
@@ -452,7 +455,8 @@ instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader Finalization
     broadcastFinalizationMessage = tell . embedFinalizationEvent . BroadcastFinalizationMessage
     broadcastFinalizationRecord = tell . embedFinalizationEvent . BroadcastFinalizationRecord
     requestMissingFinalization = notifyMissingFinalization . Right
-    requestMissingBlock = notifyMissingBlock
+    requestMissingBlock bh = notifyMissingBlock bh 0
+    requestMissingBlockDescendant = notifyMissingBlock
     getFinalizationInstance = ask
 
 -- |Listeners for triggering finalization on tree events (i.e. block

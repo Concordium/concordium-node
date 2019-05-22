@@ -66,6 +66,8 @@ makeGenesisData genTime nBakers cbkgen cbkbaker = do
 
 type BlockCallback = Int64 -> CString -> Int64 -> IO ()
 
+type MissingByBlockDeltaCallback = PeerID -> BlockReference -> Word64 -> IO ()
+
 type MissingByBlockCallback = PeerID -> BlockReference -> IO ()
 
 type MissingByFinalizationIndexCallback = PeerID -> Word64 -> IO ()
@@ -117,6 +119,7 @@ type LogCallback = Word8 -> Word8 -> CString -> IO()
 
 foreign import ccall "dynamic" callBlockCallback :: FunPtr BlockCallback -> BlockCallback
 foreign import ccall "dynamic" callLogCallback :: FunPtr LogCallback -> LogCallback
+foreign import ccall "dynamic" callMissingBlockDelta :: FunPtr MissingByBlockDeltaCallback -> MissingByBlockDeltaCallback
 foreign import ccall "dynamic" callMissingBlock :: FunPtr MissingByBlockCallback -> MissingByBlockCallback
 foreign import ccall "dynamic" callMissingFin :: FunPtr MissingByFinalizationIndexCallback -> MissingByFinalizationIndexCallback
 
@@ -127,7 +130,7 @@ toLogMethod logCallbackPtr = le
         le src lvl msg = BS.useAsCString (BS.pack msg) $
                             logCallback (logSourceId src) (logLevelId lvl)
 
-outLoop :: LogMethod IO -> Chan (OutMessage PeerID) -> BlockCallback -> MissingByBlockCallback -> MissingByBlockCallback -> MissingByFinalizationIndexCallback -> IO ()
+outLoop :: LogMethod IO -> Chan (OutMessage PeerID) -> BlockCallback -> MissingByBlockDeltaCallback -> MissingByBlockCallback -> MissingByFinalizationIndexCallback -> IO ()
 outLoop logm chan cbk missingBlock missingFinBlock missingFinIx = do
     readChan chan >>= \case
         MsgNewBlock block -> do
@@ -141,9 +144,9 @@ outLoop logm chan cbk missingBlock missingFinBlock missingFinIx = do
             let bs = runPut (put finRec)
             logm External LLDebug $ "Sending finalization record data size = " ++ show (BS.length bs)
             BS.useAsCStringLen bs $ \(cstr, l) -> cbk 2 cstr (fromIntegral l)
-        MsgMissingBlock src bh -> do
-            logm External LLDebug $ "Requesting missing block " ++ show bh ++ " from peer " ++ show src
-            withBlockReference bh $ missingBlock src
+        MsgMissingBlock src bh delta -> do
+            logm External LLDebug $ "Requesting missing block " ++ show bh ++ "+ delta " ++ show (theBlockHeight delta) ++ " from peer " ++ show src
+            withBlockReference bh $ \blockRef -> missingBlock src blockRef (theBlockHeight delta)
         MsgMissingFinalization src (Left bh) -> do
             logm External LLDebug $ "Requesting missing finalization record for block " ++ show bh ++ " from peer " ++ show src
             withBlockReference bh $ missingFinBlock src
@@ -158,7 +161,7 @@ startBaker ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BlockCallback -- ^Handler for new blocks
            -> FunPtr LogCallback -- ^Handler for log events
-           -> FunPtr MissingByBlockCallback -- ^Handler for missing blocks
+           -> FunPtr MissingByBlockDeltaCallback -- ^Handler for missing blocks
            -> FunPtr MissingByBlockCallback -- ^Handler for missing finalization records by block hash
            -> FunPtr MissingByFinalizationIndexCallback -- ^Handler for missing finalization records by finalization index
             -> IO (StablePtr BakerRunner)
@@ -168,7 +171,7 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk missingBlock missingFinBlock 
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
                 (cin, cout, out) <- makeRunner logM bid genData (initialState 2)
-                _ <- forkIO $ outLoop logM cout (callBlockCallback bcbk) (callMissingBlock missingBlock) (callMissingBlock missingFinBlock) (callMissingFin missingFinIx)
+                _ <- forkIO $ outLoop logM cout (callBlockCallback bcbk) (callMissingBlockDelta missingBlock) (callMissingBlock missingFinBlock) (callMissingFin missingFinIx)
                 newStablePtr (BakerRunner cin cout out logM)
             _ -> ioError (userError $ "Error decoding serialized data.")
     where
@@ -358,6 +361,27 @@ getBlock bptr blockRef = do
                 logm External LLInfo $ "Block found"
                 byteStringToCString $ P.runPut $ put block
 
+-- |Get a block that is descended from the given block hash by the given number of generations.
+-- The block hash is passed as a pointer to a fixed length (32 byte) string.
+-- The return value is a length encoded string: the first 4 bytes are
+-- the length (encoded big-endian), followed by the data itself.
+-- The string should be freed by calling 'freeCStr'.
+-- The string may be empty (length 0) if the finalization record is not found.
+getBlockDelta :: StablePtr BakerRunner -> BlockReference -> Word64 -> IO CString
+getBlockDelta bptr blockRef 0 = getBlock bptr blockRef
+getBlockDelta bptr blockRef delta = do
+        BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
+        bh <- blockReferenceToBlockHash blockRef
+        logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
+        b <- runLoggerT (Get.getBlockDescendant sfsRef bh (BlockHeight delta)) logm
+        case b of
+            Nothing -> do
+                logm External LLInfo $ "Block not available"
+                byteStringToCString BS.empty
+            Just block -> do
+                logm External LLInfo $ "Block found"
+                byteStringToCString $ P.runPut $ put block
+
 -- |Get a finalization record for the given block.
 -- The block hash is passed as a pointer to a fixed length (32 byte) string.
 -- The return value is a length encoded string: the first 4 bytes are
@@ -439,7 +463,7 @@ getFinalizationPoint bptr = do
         byteStringToCString $ P.runPut $ put finPt
 
 foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCallback -> FunPtr (Int64 -> CStringCallback) -> IO ()
-foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr BakerRunner)
+foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO ()
@@ -454,6 +478,7 @@ foreign export ccall getBranches :: StablePtr BakerRunner -> IO CString
 foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall getBlock :: StablePtr BakerRunner -> BlockReference -> IO CString
+foreign export ccall getBlockDelta :: StablePtr BakerRunner -> BlockReference -> Word64 -> IO CString
 foreign export ccall getBlockFinalization :: StablePtr BakerRunner -> BlockReference -> IO CString
 foreign export ccall getIndexedFinalization :: StablePtr BakerRunner -> Word64 -> IO CString
 foreign export ccall getFinalizationMessages :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> FunPtr FinalizationMessageCallback -> IO Int64

@@ -10,6 +10,7 @@ module Concordium.Afgjort.Freeze(
     runFreeze,
     propose,
     justifyCandidate,
+    isProposalJustified,
     receiveFreezeMessage
 ) where
 
@@ -229,6 +230,13 @@ justifyCandidate value = do
                 when (currJProps == 2) $ justifyVote Nothing
                 when (newTotalProposals >= totalWeight - corruptWeight) doVote
         Just (True, _, _) -> return ()
+
+-- |Check if a given value is a justified candidate.
+isProposalJustified :: (FreezeMonad m) => Val -> m Bool
+{-# SPECIALIZE isProposalJustified :: Val -> Freeze Bool #-}
+isProposalJustified value = use (proposals . at value) >>= \case
+        Just (True, _, _) -> return True
+        _ -> return False
 
 -- |Handle a Freeze message from the network
 receiveFreezeMessage :: (FreezeMonad m) => Party -> FreezeMessage -> m ()

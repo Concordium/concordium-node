@@ -11,6 +11,7 @@ module Concordium.Afgjort.WMVBA (
     WMVBA,
     runWMVBA,
     justifyWMVBAInput,
+    isJustifiedWMVBAInput,
     receiveWMVBAMessage,
     startWMVBA,
     -- * For testing
@@ -226,6 +227,10 @@ liftABBA a = do
 -- |Record that an input is justified.
 justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
 justifyWMVBAInput val = liftFreeze $ justifyCandidate val
+
+-- |Determine if an input is justified.
+isJustifiedWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m Bool
+isJustifiedWMVBAInput val = liftFreeze $ isProposalJustified val
 
 -- |Handle an incoming 'WMVBAMessage'.
 receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()

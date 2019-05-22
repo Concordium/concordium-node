@@ -225,6 +225,8 @@ class (SkovMonad m, MonadState s m, FinalizationStateLenses s, MonadIO m) => Fin
     broadcastFinalizationRecord :: FinalizationRecord -> m ()
     requestMissingFinalization :: FinalizationIndex -> m ()
     requestMissingBlock :: BlockHash -> m ()
+    -- |Request a block that is descended from the given block by the given height difference
+    requestMissingBlockDescendant :: BlockHash -> BlockHeight -> m ()
     getFinalizationInstance :: m FinalizationInstance
 
 tryNominateBlock :: (FinalizationMonad s m) => m ()
@@ -343,6 +345,13 @@ requestAbsentBlocks msg = forM_ (messageValues msg) $ \block -> do
         when (isNothing bs) $ do
             logEvent Afgjort LLDebug $ "Requesting missing block " ++ show block ++ " referenced by finalization message"
             requestMissingBlock block
+        FinalizationState{..} <- use finState
+        forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+            justified <- liftWMVBA $ isJustifiedWMVBAInput block
+            unless justified $ do
+                logEvent Afgjort LLDebug $ "Requesting missing descendant of " ++ show block ++ " at height delta " ++ show (theBlockHeight roundDelta)
+                requestMissingBlockDescendant block roundDelta
+
 
 -- |Called when a finalization message is received.
 receiveFinalizationMessage :: (FinalizationMonad s m) => BS.ByteString -> m ()
