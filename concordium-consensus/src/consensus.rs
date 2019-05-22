@@ -227,7 +227,7 @@ impl ConsensusContainer {
     pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
         // When running tests we need to validate sending packets back, as we have no
         // higher outer processing loop with `Skov` to handle this.
-        if !cfg!(test) {
+        if cfg!(test) {
             for (id, baker) in safe_read!(self.bakers).iter() {
                 if block.baker_id != *id {
                     // We have found a baker to send it to, which didn't also bake the block,
