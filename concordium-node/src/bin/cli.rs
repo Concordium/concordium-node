@@ -122,7 +122,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let th1 = spawn_or_die!("Process inbound consensus catch-up requests", {
+        let catch_up_thread = spawn_or_die!("Process inbound consensus catch-up requests", {
             use concordium_consensus::consensus::CatchupRequest::*;
             loop {
                 match baker_clone.out_queue().recv_catchup() {
@@ -190,6 +190,20 @@ fn setup_baker_guards(
 
                                 (P2PNodeId(receiver_id), inner_out_bytes)
                             }
+                            FinalizationMessagesByPoint(receiver_id, msg) => {
+                                let msg_bytes = msg.serialize();
+                                let mut inner_out_bytes =
+                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg_bytes.len());
+                                inner_out_bytes
+                                    .write_u16::<NetworkEndian>(
+                                        ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
+                                    )
+                                    .expect("Can't write to buffer");
+                                inner_out_bytes
+                                    .extend(&*msg_bytes);
+
+                                (P2PNodeId(receiver_id), inner_out_bytes)
+                            }
                         };
                         match &node_ref.send_message(
                             Some(receiver_id),
@@ -218,49 +232,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let th2 = spawn_or_die!(
-            "Process outbound consensus catch-up finalization messages",
-            {
-                loop {
-                    match baker_clone.out_queue().recv_finalization_catchup() {
-                        Ok(RelayOrStopEnvelope::Relay((receiver_id_raw, msg))) => {
-                            let receiver_id = P2PNodeId(receiver_id_raw);
-                            let bytes = &*msg.serialize();
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            out_bytes
-                                .write_u16::<NetworkEndian>(
-                                    ffi::PacketType::FinalizationMessage as u16,
-                                )
-                                .expect("Can't write to buffer");
-                            out_bytes.extend(bytes);
-                            match &node_ref.send_message(
-                                Some(receiver_id),
-                                network_id,
-                                None,
-                                out_bytes,
-                                false,
-                            ) {
-                                Ok(_) => info!(
-                                    "Sent a consensus catch-up request to peer {}",
-                                    receiver_id
-                                ),
-                                Err(_) => error!(
-                                    "Couldn't send a consensus catch-up request to peer {}",
-                                    receiver_id
-                                ),
-                            }
-                        }
-                        Ok(RelayOrStopEnvelope::Stop) => break,
-                        Err(_) => error!("Can't read from queue"),
-                    }
-                }
-            }
-        );
-
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let th3 = spawn_or_die!("Process consensus block output", {
+        let consensus_block_thread = spawn_or_die!("Process consensus block output", {
             loop {
                 match baker_clone.out_queue().recv_block() {
                     Ok(RelayOrStopEnvelope::Relay(block)) => {
@@ -309,7 +281,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let th4 = spawn_or_die!("Process consensus finalization message output", {
+        let consensus_fin_msg_thread = spawn_or_die!("Process consensus finalization message output", {
             loop {
                 match baker_clone.out_queue().recv_finalization() {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
@@ -339,7 +311,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let th5 = spawn_or_die!("Process consensus finalization records output", {
+        let consensus_fin_rec_thread = spawn_or_die!("Process consensus finalization records output", {
             loop {
                 match baker_clone.out_queue().recv_finalization_record() {
                     Ok(RelayOrStopEnvelope::Relay(rec)) => {
@@ -377,7 +349,7 @@ fn setup_baker_guards(
             }
         });
 
-        vec![th1, th2, th3, th4, th5]
+        vec![catch_up_thread, consensus_block_thread, consensus_fin_msg_thread, consensus_fin_rec_thread]
     } else {
         vec![]
     }
@@ -864,11 +836,11 @@ macro_rules! send_catchup_request_to_consensus {
 
                 match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
                     Ok(_) => info!(
-                        "Responded to a catch-up request type \"{}\" with a \"{}\" from peer {}",
+                        "Responded to a catch-up request type \"{}\" with a {} from peer {}",
                         $req_type, return_type, $peer_id
                     ),
                     Err(_) => error!(
-                        "Couldn't respond to a catch-up request type \"{}\" with a \"{}\" from \
+                        "Couldn't respond to a catch-up request type \"{}\" with a {} from \
                          peer {}!",
                         $req_type, return_type, $peer_id
                     ),

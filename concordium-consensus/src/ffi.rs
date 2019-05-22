@@ -133,7 +133,7 @@ impl TryFrom<u16> for PacketType {
         PACKET_TYPE_FROM_INT
             .get(value as usize)
             .cloned()
-            .ok_or_else(|| format_err!("Unsupported packet type"))
+            .ok_or_else(|| format_err!("Unsupported packet type ({})", value))
     }
 }
 
@@ -498,18 +498,14 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
-    debug!("Callback hit - queueing message");
+    info!(
+        "Got a catch-up request for finalization messages for point from consensus",
+    );
     unsafe {
         let s = slice::from_raw_parts(data as *const u8, len as usize);
         match FinalizationMessage::deserialize(s) {
-            Ok(msg) => match CALLBACK_QUEUE
-                .clone()
-                .send_finalization_catchup((peer_id, msg))
-            {
-                Ok(_) => debug!("Queueing {} bytes of finalization", s.len()),
-                _ => error!("Didn't queue finalization message properly"),
-            },
-            Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
+            Ok(msg) => catchup_enqueue(CatchupRequest::FinalizationMessagesByPoint(peer_id, msg)),
+            Err(e) => error!("Deserialization of a finalization message failed: {:?}", e),
         }
     }
 }
