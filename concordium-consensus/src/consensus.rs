@@ -17,13 +17,16 @@ use crate::{
 };
 
 pub type PeerId = u64;
+pub type Delta = u64;
+
+pub type FinalizationCatchupTuple = (Option<PeerId>, FinalizationMessage);
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
     receiver_block:               Arc<Mutex<RelayOrStopReceiver<BakedBlock>>>,
     sender_block:                 Arc<Mutex<RelayOrStopSender<BakedBlock>>>,
-    receiver_finalization: Arc<Mutex<RelayOrStopReceiver<(Option<PeerId>, FinalizationMessage)>>>,
-    sender_finalization: Arc<Mutex<RelayOrStopSender<(Option<PeerId>, FinalizationMessage)>>>,
+    receiver_finalization:        Arc<Mutex<RelayOrStopReceiver<FinalizationCatchupTuple>>>,
+    sender_finalization:          Arc<Mutex<RelayOrStopSender<FinalizationCatchupTuple>>>,
     receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<FinalizationRecord>>>,
     sender_finalization_record:   Arc<Mutex<RelayOrStopSender<FinalizationRecord>>>,
     receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
@@ -34,7 +37,7 @@ impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<BakedBlock>>();
         let (sender_finalization, receiver_finalization) =
-            mpsc::channel::<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>>();
+            mpsc::channel::<RelayOrStopEnvelope<FinalizationCatchupTuple>>();
         let (sender_finalization_record, receiver_finalization_record) =
             mpsc::channel::<RelayOrStopEnvelope<FinalizationRecord>>();
         let (sender_catchup, receiver_catchup) =
@@ -77,19 +80,15 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
-    pub fn send_finalization(self, msg: (Option<PeerId>, FinalizationMessage)) -> Fallible<()> {
+    pub fn send_finalization(self, msg: FinalizationCatchupTuple) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
     }
 
-    pub fn recv_finalization(
-        self,
-    ) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
+    pub fn recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
         into_err!(safe_lock!(self.receiver_finalization).recv())
     }
 
-    pub fn try_recv_finalization(
-        self,
-    ) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
+    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
         into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 
@@ -214,12 +213,10 @@ impl ConsensusContainer {
                     return baker.send_block(peer_id, block);
                 }
             }
-        } else {
-            if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
-                // We have a baker to send it to, so we 'll do an early return at this point
-                // with the response code from consensus.
-                return baker.send_block(peer_id, block);
-            }
+        } else if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+            // We have a baker to send it to, so we 'll do an early return at this point
+            // with the response code from consensus.
+            return baker.send_block(peer_id, block);
         }
         // If we didn't do an early return with the response code from consensus, we
         // emit a -1 to signal we didn't find any baker we could pass this
@@ -340,6 +337,11 @@ impl ConsensusContainer {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_block(block_hash))
     }
 
+    pub fn get_block_by_delta(&self, block_hash: &[u8], delta: Delta) -> Fallible<Vec<u8>> {
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_block_by_delta(block_hash, delta))
+    }
+
     pub fn get_block_finalization(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_block_finalization(block_hash))
@@ -363,7 +365,7 @@ impl ConsensusContainer {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum CatchupRequest {
-    BlockByHash(PeerId, HashBytes),
+    BlockByHash(PeerId, HashBytes, Delta),
     FinalizationMessagesByPoint(PeerId, FinalizationMessage),
     FinalizationRecordByHash(PeerId, HashBytes),
     FinalizationRecordByIndex(PeerId, FinalizationIndex),
@@ -375,7 +377,9 @@ impl fmt::Display for CatchupRequest {
             f,
             "{}",
             match self {
-                CatchupRequest::BlockByHash(_, hash) => format!("block {:?}", hash),
+                CatchupRequest::BlockByHash(_, hash, delta) => {
+                    format!("block {:?} delta {}", hash, delta)
+                }
                 CatchupRequest::FinalizationMessagesByPoint(..) => {
                     "finalization messages by point".to_string()
                 }

@@ -16,6 +16,7 @@ pub use eddsa_ed25519 as sig;
 pub const SHA256: u8 = 32;
 pub const INCARNATION: u8 = 8;
 pub const SESSION_ID: u8 = SHA256 + INCARNATION;
+pub const DELTA_LENGTH: u8 = 8;
 
 use crate::block::{BlockHash, BLOCK_HASH};
 
