@@ -745,6 +745,8 @@ fn send_block_to_consensus(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
+    use concordium_consensus::common::DELTA_LENGTH;
+
     let pending_block = PendingBlock::new(content)?;
 
     // don't pattern match directly in order to release the lock quickly
@@ -767,12 +769,18 @@ fn send_block_to_consensus(
         Err(e) => {
             let e = e.to_string();
             if e == "MissingParent" {
+                let mut inner_out_bytes =
+                    Vec::with_capacity(&pending_block.block.pointer.len() + DELTA_LENGTH as usize);
+                inner_out_bytes.extend_from_slice(&pending_block.block.pointer);
+                inner_out_bytes
+                    .write_u64::<NetworkEndian>(0u64)
+                    .expect("Can't write to buffer");
                 send_catchup_request_block_by_hash_to_consensus(
                     baker,
                     node,
                     peer_id,
                     network_id,
-                    &pending_block.block.pointer,
+                    &inner_out_bytes,
                     PacketDirection::Outbound,
                 )?; // } else if e == "InvalidLastFinalized" {
                     // send_catchup_request_finalization_record_by_hash_to_consensus(
