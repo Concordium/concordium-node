@@ -385,6 +385,7 @@ impl ConsensusContainer {
     }
 }
 
+#[derive(Debug)]
 pub enum CatchupRequest {
     BlockByHash(PeerId, HashBytes),
     FinalizationRecordByHash(PeerId, HashBytes),
@@ -392,8 +393,10 @@ pub enum CatchupRequest {
 }
 
 pub fn catchup_enqueue(req: CatchupRequest) {
+    let request_info = format!("{:?}", req);
+
     match CALLBACK_QUEUE.clone().send_catchup(req) {
-        Ok(_) => debug!("Queueing catch-up request"),
+        Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
         _ => error!("Didn't queue catch-up request properly"),
     }
 }

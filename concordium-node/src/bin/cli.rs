@@ -122,7 +122,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let th1 = spawn_or_die!("Process consensus catch-up requests", {
+        let th1 = spawn_or_die!("Process inbound consensus catch-up requests", {
             use concordium_consensus::consensus::CatchupRequest::*;
             loop {
                 match baker_clone.out_queue().recv_catchup() {
@@ -219,7 +219,7 @@ fn setup_baker_guards(
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
         let th2 = spawn_or_die!(
-            "Process consensus outbound catch-up finalization messages",
+            "Process outbound consensus catch-up finalization messages",
             {
                 loop {
                     match baker_clone.out_queue().recv_finalization_catchup() {
@@ -242,11 +242,11 @@ fn setup_baker_guards(
                                 false,
                             ) {
                                 Ok(_) => info!(
-                                    "Sent the consensus catch-up request to the peer {}",
+                                    "Sent a consensus catch-up request to peer {}",
                                     receiver_id
                                 ),
                                 Err(_) => error!(
-                                    "Couldn't send the consensus catch-up request to the peer {}",
+                                    "Couldn't send a consensus catch-up request to peer {}",
                                     receiver_id
                                 ),
                             }
