@@ -460,8 +460,12 @@ impl Connection {
             &self.socket,
             self.token,
             Ready::readable() | Ready::writable(),
-            PollOpt::edge()
+            PollOpt::edge(),
         ))
+    }
+
+    pub fn deregister(&self, poll: &mut Poll) -> Fallible<()> {
+        into_err!(poll.deregister(&self.socket))
     }
 
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
@@ -628,6 +632,13 @@ impl Connection {
             // Any packet is valid on Non-Bootstrapper
             MessageValidity::Valid
         }
+    }
+
+    #[cfg(test)]
+    pub fn validate_packet_type_test(&mut self, msg: &[u8]) -> MessageValidity {
+        self.pkt_buffer.clear();
+        self.pkt_buffer.extend_from_slice(msg);
+        self.validate_packet_type()
     }
 
     /// It closes and clear the packet buffer if that is an invalid message.
@@ -871,9 +882,15 @@ impl Connection {
 
 #[cfg(test)]
 mod tests {
-    use super::{PACKAGE_INITIAL_BUFFER_SZ, PACKAGE_MAX_BUFFER_SZ};
+    use super::{MessageValidity, PACKAGE_INITIAL_BUFFER_SZ, PACKAGE_MAX_BUFFER_SZ};
+    use crate::{
+        common::PeerType,
+        test_utils::{connect_and_wait_handshake, make_node_and_sync, next_port_offset_node},
+    };
     use bytes::BytesMut;
+    use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
+    use std::iter;
 
     pub struct BytesMutConn {
         pkt_buffer: BytesMut,
@@ -911,5 +928,95 @@ mod tests {
 
     #[test]
     fn check_bytes_mut_drop_8m() { check_bytes_mut_drop(8 * 1024 * 1024); }
+
+    // This test stops the event loop because it needs a connection to be tested.
+    // Connections are not simple objects and require complex objects i.e.
+    // TcpStream, so the implementation creates a pair of nodes and connects them.
+    //
+    // The pkt_buffer inside a connection can be filled with events that trigger
+    // processes in the event loop. Therefore, the safe way to work with this is
+    // deregistering it from the event loop. This way we keep the connection alive
+    // and the buffer is not filled by other threads.
+    #[test]
+    fn test_validate_packet_type() -> Fallible<()> {
+        // Create connections
+        let port = next_port_offset_node(2);
+        let (mut node, w1) = make_node_and_sync(port, vec![100], false, PeerType::Node)?;
+        let (bootstrapper, _) =
+            make_node_and_sync(port + 1, vec![100], false, PeerType::Bootstrapper)?;
+        connect_and_wait_handshake(&mut node, &bootstrapper, &w1)?;
+
+        // Deregister connection on the node side
+        let tls = node.get_tls_server();
+        let priv_tls = safe_read!(tls)?.get_private_tls();
+        let priv_tls = safe_read!(priv_tls)?;
+        let conn_node = priv_tls.find_connection_by_id(bootstrapper.id()).unwrap();
+        node.deregister_connection(conn_node)?;
+        let mut conn_node = conn_node.borrow_mut();
+
+        // Deregister connection on the bootstrapper side
+        let tls = bootstrapper.get_tls_server();
+        let priv_tls = safe_read!(tls)?.get_private_tls();
+        let priv_tls = safe_read!(priv_tls)?;
+        let conn_bootstrapper = priv_tls.find_connection_by_id(node.id()).unwrap();
+        bootstrapper.deregister_connection(conn_bootstrapper)?;
+        let mut conn_bootstrapper = conn_bootstrapper.borrow_mut();
+
+        // Assert that a Node accepts every packet
+        match conn_node.validate_packet_type_test(&[]) {
+            MessageValidity::Valid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        match conn_node
+            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
+        {
+            MessageValidity::Valid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        match conn_node
+            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
+        {
+            MessageValidity::Valid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        match conn_node.validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>()) {
+            MessageValidity::Valid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        // Assert that a Boostrapper reports as unknown packets that are too small
+        match conn_bootstrapper.validate_packet_type_test(&[]) {
+            MessageValidity::Unknown => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        // Assert that a Bootstrapper reports as Invalid messages that are packets
+        match conn_bootstrapper
+            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(2)).collect::<Vec<_>>())
+        {
+            MessageValidity::Invalid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        // Assert that a Bootstrapper accepts Request and Response messages
+        match conn_bootstrapper
+            .validate_packet_type_test(&iter::repeat(0).take(23).chain(Some(1)).collect::<Vec<_>>())
+        {
+            MessageValidity::Valid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        match conn_bootstrapper
+            .validate_packet_type_test(&iter::repeat(0).take(24).collect::<Vec<_>>())
+        {
+            MessageValidity::Valid => {}
+            _ => bail!("Unwanted packet type"),
+        }
+
+        Ok(())
+    }
 
 }

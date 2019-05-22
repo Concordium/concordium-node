@@ -86,14 +86,6 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
-    #[cfg(test)]
-    pub fn recv_timeout_block(
-        self,
-        timeout: Duration,
-    ) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
-        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
-    }
-
     pub fn send_finalization(self, msg: FinalizationMessage) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
     }
@@ -167,6 +159,16 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
         into_err!(safe_lock!(self.sender_finalization_catchup_queue).send_stop())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ConsensusOutQueue {
+    pub fn recv_timeout_block(
+        self,
+        timeout: Duration,
+    ) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
+        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
     }
 }
 
