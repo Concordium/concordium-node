@@ -767,7 +767,7 @@ fn send_block_to_consensus(
             let e = e.to_string();
             if e == "MissingParent" {
                 let mut inner_out_bytes =
-                    Vec::with_capacity(&pending_block.block.pointer.len() + DELTA_LENGTH as usize);
+                    Vec::with_capacity(pending_block.block.pointer.len() + DELTA_LENGTH as usize);
                 inner_out_bytes.extend_from_slice(&pending_block.block.pointer);
                 inner_out_bytes
                     .write_u64::<NetworkEndian>(0u64)
