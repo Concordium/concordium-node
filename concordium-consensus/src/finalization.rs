@@ -19,7 +19,7 @@ const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = BLOCK_HASH;
 const TICKET: u8 = 80;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FinalizationMessage {
     header:    FinalizationMessageHeader,
     message:   WmvbaMessage,
@@ -76,7 +76,7 @@ pub type FinalizationIndex = u64;
 
 type Party = u32;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct FinalizationMessageHeader {
     session_id: SessionId,
     index:      FinalizationIndex,
@@ -126,7 +126,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
 
 type Val = BlockHash;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 // Weak Multi-Valued Byzantine Agreement
 enum WmvbaMessage {
     Proposal(Val),
@@ -236,7 +236,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
 
 type Phase = u32;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct Abba {
     phase:     Phase,
     ticket:    Encoded,
@@ -273,7 +273,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct CssSeen {
     phase: Phase,
     party: Party,
@@ -306,7 +306,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for CssSeen {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct CssDoneReporting {
     phase:       Phase,
     chose_false: Vec<Party>,

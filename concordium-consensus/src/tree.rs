@@ -203,7 +203,7 @@ impl SkovData {
         queued.insert(pending_block);
 
         info!(
-            "pending blocks: {:?}",
+            "orphan blocks: {:?}",
             self.orphan_blocks
                 .iter()
                 .map(|(parent, pending)| (
