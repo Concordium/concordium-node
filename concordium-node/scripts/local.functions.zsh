@@ -196,3 +196,9 @@ c_make_test_pkts() {
     dd if=/dev/urandom of=/tmp/datatest/test-$n bs=1 count=$2 > /dev/null 2>&1
   done
 }
+
+#####
+# Clear the console screen and clear buffer
+#
+#####
+alias clear_screen='printf "\033c"'
