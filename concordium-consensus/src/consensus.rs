@@ -77,14 +77,6 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
-    #[cfg(test)]
-    pub fn recv_timeout_block(
-        self,
-        timeout: Duration,
-    ) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
-        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
-    }
-
     pub fn send_finalization(self, msg: (Option<PeerId>, FinalizationMessage)) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
     }
@@ -457,7 +449,7 @@ mod tests {
                     &_th_container.out_queue().try_recv_finalization()
                 {
                     debug!("Relaying {:?}", msg);
-                    &_th_container.send_finalization(1, msg);
+                    &_th_container.send_finalization(1, &msg.1);
                 }
                 while let Ok(RelayOrStopEnvelope::Relay(rec)) =
                     &_th_container.out_queue().try_recv_finalization_record()
