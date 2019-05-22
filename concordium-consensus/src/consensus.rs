@@ -80,19 +80,15 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
-    pub fn send_finalization(self, msg: (Option<PeerId>, FinalizationMessage)) -> Fallible<()> {
+    pub fn send_finalization(self, msg: FinalizationCatchupTuple) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
     }
 
-    pub fn recv_finalization(
-        self,
-    ) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
+    pub fn recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
         into_err!(safe_lock!(self.receiver_finalization).recv())
     }
 
-    pub fn try_recv_finalization(
-        self,
-    ) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
+    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
         into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 

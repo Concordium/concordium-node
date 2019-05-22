@@ -202,9 +202,7 @@ fn setup_baker_guards(
                                     PAYLOAD_TYPE_LENGTH as usize + msg_bytes.len(),
                                 );
                                 inner_out_bytes
-                                    .write_u16::<NetworkEndian>(
-                                        CatchupFinalizationMessagesByPoint as u16,
-                                    )
+                                    .write_u16::<NetworkEndian>(FinalizationMessage as u16)
                                     .expect("Can't write to buffer");
                                 inner_out_bytes.extend(&*msg_bytes);
 
