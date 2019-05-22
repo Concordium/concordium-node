@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub type PeerId = u64;
+pub type Delta = u64;
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
@@ -364,6 +365,11 @@ impl ConsensusContainer {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_block(block_hash))
     }
 
+    pub fn get_block_by_delta(&self, block_hash: &[u8], delta: u64) -> Fallible<Vec<u8>> {
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_block_by_delta(block_hash, delta))
+    }
+
     pub fn get_block_finalization(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_block_finalization(block_hash))
@@ -386,7 +392,7 @@ impl ConsensusContainer {
 }
 
 pub enum CatchupRequest {
-    BlockByHash(PeerId, HashBytes),
+    BlockByHash(PeerId, HashBytes, Delta),
     FinalizationRecordByHash(PeerId, HashBytes),
     FinalizationRecordByIndex(PeerId, FinalizationIndex),
 }
