@@ -231,7 +231,7 @@ impl ConsensusContainer {
             for (id, baker) in safe_read!(self.bakers).iter() {
                 if block.baker_id != *id {
                     // We have found a baker to send it to, which didn't also bake the block,
-                    // so we 'll do an early return at this point with the response code
+                    // so we'll do an early return at this point with the response code
                     // from consensus.
                     return baker.send_block(peer_id, block);
                 }
