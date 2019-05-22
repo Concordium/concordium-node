@@ -99,6 +99,11 @@ impl SkovData {
                 bail!(AddBlockError::MissingParent);
             };
 
+        // the block is not an orphan; check if it is in the pending list
+        if let Some(ref mut orphans) = self.orphan_blocks.get_mut(&pending_block.block.pointer) {
+            orphans.remove(&pending_block);
+        }
+
         // verify if the pending block's last finalized block is already in the tree
         let last_finalized = self.get_last_finalized().to_owned();
         if last_finalized.hash != pending_block.block.last_finalized {
