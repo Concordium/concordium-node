@@ -1,11 +1,11 @@
 [package]
-name = "concordium-consensus"
+name = "concordium-global-state"
 version = "0.0.1"
-description = "consensus prototype wrapper"
+description = "global state prototype"
 authors = ["Concordium AG <info@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*"]
 publish = false
-build = "build.rs"
+autobins = false
 edition = "2018"
 
 [features]
@@ -15,7 +15,6 @@ valgrind = []
 [dependencies]
 chrono = "0.4.0"
 concordium-common = { path = "../concordium-common" }
-concordium-global-state = { path = "../concordium-global-state" }
 ec_vrf_ed25519_sha256 = { path = "../deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "../deps/internal/crypto/rust-src/eddsa_ed25519" }
 libc = "0.2"
@@ -25,7 +24,3 @@ byteorder = "1"
 env_logger = "0.6"
 failure = "0.1.5"
 digest = "0.8.0"
-
-[build-dependencies]
-bindgen = "0.49"
-walkdir = "2"

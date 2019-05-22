@@ -23,6 +23,7 @@ network_dump = []
 
 [dependencies]
 # Internal dependencies
+concordium-global-state = { path = "concordium-global-state" }
 concordium-consensus = { path = "concordium-consensus" }
 concordium-dns = { path = "concordium-dns" }
 ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }

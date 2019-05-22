@@ -4,27 +4,15 @@ stages:
   - lint
   - test
 
-.compile-cache-def: &compile-cache-settings
-  cache:
-    paths:
-      - target
-      - deps/internal/consensus/.stack-work
-      - stack
-
 .generic:
   variables:
     LD_LIBRARY_PATH: "/usr/local/lib"
     GIT_SUBMODULE_STRATEGY: recursive
 
 "cargo:test":
-  #<<: *compile-cache-settings
   extends: .generic
   stage: test
   script:
-    #- mkdir -p stack
-    #- mkdir -p /root/.stack
-    #- touch stack/do-not-touch
-    #- cp -rf stack/* /root/.stack/
     - cp scripts/init.build.env.sh .
     - pacman -Sy && pacman -Syyu --noconfirm
     - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound capnproto --noconfirm
@@ -33,6 +21,7 @@ stages:
     - rustc --version && cargo --version
     - stack exec -- ghc --print-libdir
     - ( cd concordium-dns && cargo test --all --verbose --color=always)
+    - ( cd concordium-global-state && cargo test --all --verbose --color=always)
     - ( cd concordium-consensus && cargo test --all --verbose --color=always)
     - ( cd concordium-common && cargo test --all --verbose --color=always)
     - echo "Running tests without extra features"
@@ -43,7 +32,6 @@ stages:
     - cargo test --all --verbose --color=always --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor
     - echo "Compile but don't run benches"
     - cargo bench --no-run --features=s11n_nom,s11n_serde_json,s11n_serde_cbor,s11n_capnp,instrumentation --verbose --color=always
-    #- cp -rf /root/.stack/* stack/
 
 .generic-lint:
   extends: .generic
@@ -60,6 +48,7 @@ stages:
     - touch src/proto/concordium_p2p_rpc.rs
     - touch src/proto/concordium_p2p_rpc_grpc.rs
     - cargo fmt -- --color=always
+    - ( cd concordium-global-state && cargo fmt -- --color=always)
     - ( cd concordium-consensus && cargo fmt -- --color=always)
     - ( cd concordium-common && cargo fmt -- --color=always)
     - ( cd concordium-dns && cargo fmt -- --color=always)
@@ -68,13 +57,8 @@ stages:
 "lint:clippy":
   extends: .generic-lint
   stage: lint
-  #<<: *compile-cache-settings
   script:
     - rustc --version && cargo --version
-    #- mkdir -p stack
-    #- mkdir -p /root/.stack
-    #- touch stack/do-not-touch
-    #- cp -rf stack/* /root/.stack/
     - cp scripts/init.build.env.sh .
     - pacman -Sy && pacman -Syyu --noconfirm
     - pacman -S protobuf cmake go clang git libtool rustup make m4 pkgconf autoconf automake file which boost patch libunwind libdwarf elfutils unbound capnproto --noconfirm
@@ -88,4 +72,3 @@ stages:
     - cargo clippy --features=instrumentation --color=always --all
     - echo "Running clippy with s11n extra features enabled"
     - cargo clippy --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor --color=always --all
-    #- cp -rf /root/.stack/* stack/
