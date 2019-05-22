@@ -225,11 +225,27 @@ impl ConsensusContainer {
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
     pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
-        for (id, baker) in safe_read!(self.bakers).iter() {
-            if block.baker_id != *id {
+        // When running tests we need to validate sending packets back, as we have no
+        // higher outer processing loop with `Skov` to handle this.
+        if !cfg!(test) {
+            for (id, baker) in safe_read!(self.bakers).iter() {
+                if block.baker_id != *id {
+                    // We have found a baker to send it to, which didn't also bake the block,
+                    // so we'll do an early return at this point with the response code
+                    // from consensus.
+                    return baker.send_block(peer_id, block);
+                }
+            }
+        } else {
+            if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+                // We have a baker to send it to, so we 'll do an early return at this point
+                // with the response code from consensus.
                 return baker.send_block(peer_id, block);
             }
         }
+        // If we didn't do an early return with the response code from consensus, we
+        // emit a -1 to signal we didn't find any baker we could pass this
+        // request on to.
         -1
     }
 
@@ -237,6 +253,8 @@ impl ConsensusContainer {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             baker.send_finalization(peer_id, msg);
         }
+        // As consensus doesn't return a status for this call, we assume success, i.e.
+        // 0.
         0
     }
 
@@ -244,6 +262,9 @@ impl ConsensusContainer {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             return baker.send_finalization_record(peer_id, rec);
         }
+        // If we didn't do an early return with the response code from consensus, we
+        // emit a -1 to signal we didn't find any baker we could pass this
+        // request on to.
         -1
     }
 
@@ -251,6 +272,9 @@ impl ConsensusContainer {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             return baker.send_transaction(tx.to_vec());
         }
+        // If we didn't do an early return with the response code from consensus, we
+        // emit a -1 to signal we didn't find any baker we could pass this
+        // request on to.
         -1
     }
 
