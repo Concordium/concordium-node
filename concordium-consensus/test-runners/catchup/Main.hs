@@ -31,8 +31,15 @@ import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
+import Concordium.Afgjort.Finalize(FinalizationPoint)
 import qualified Concordium.Getters as Get
 
+
+type Peer = IORef SkovFinalizationState
+
+data InEvent
+    = IEMessage (InMessage Peer)
+    | IECatchupFinalization FinalizationPoint Bool (Chan InEvent)
 
 nAccounts :: Int
 nAccounts = 2
@@ -44,9 +51,9 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage a) -> [Transaction] -> IO ()
+sendTransactions :: Chan (InEvent) -> [Transaction] -> IO ()
 sendTransactions chan (t : ts) = do
-        writeChan chan (MsgTransactionReceived t)
+        writeChan chan (IEMessage $ MsgTransactionReceived t)
         -- r <- randomRIO (5000, 15000)
         threadDelay 50000
         sendTransactions chan ts
@@ -59,10 +66,25 @@ makeBaker bid lot = do
         let spk = Sig.verifyKey sk in 
             return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
 
-type Peer = IORef SkovFinalizationState
+relayIn :: Chan InEvent -> Chan (InMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> IO ()
+relayIn msgChan bakerChan sfsRef connectedRef = loop
+    where
+        loop = do
+            msg <- readChan msgChan
+            connected <- readIORef connectedRef
+            when connected $ case msg of
+                IEMessage imsg -> writeChan bakerChan imsg
+                IECatchupFinalization fp reciprocate chan -> do
+                    finMsgs <- map snd <$> Get.getFinalizationMessages sfsRef fp
+                    forM_ finMsgs $ writeChan chan . IEMessage . MsgFinalizationReceived sfsRef
+                    when reciprocate $ do
+                        myFp <- Get.getFinalizationPoint sfsRef
+                        writeChan chan $ IECatchupFinalization myFp False msgChan
+            loop
 
-relay :: HasCallStack => Chan (OutMessage Peer) -> IORef SkovFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan (InMessage Peer) -> [Chan (InMessage Peer)] -> IO ()
-relay inp sfsRef monitor loopback outps = loop
+
+relay :: HasCallStack => Chan (OutMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
+relay inp sfsRef connectedRef monitor loopback outps = loop
     where
         chooseDelay = do
             factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -76,7 +98,8 @@ relay inp sfsRef monitor loopback outps = loop
             unless (r == 0) a
         loop = do
             msg <- readChan inp
-            case msg of
+            connected <- readIORef connectedRef
+            when connected $ case msg of
                 MsgNewBlock block -> do
                     let bh = getHash block :: BlockHash
                     sfs <- readIORef sfsRef
@@ -84,25 +107,47 @@ relay inp sfsRef monitor loopback outps = loop
                     -- when (isNothing bp) $ error "Block is missing!"
                     writeChan monitor (Left (bh, block, bpState <$> bp))
                     forM_ outps $ \outp -> usually $ delayed $
-                        writeChan outp (MsgBlockReceived sfsRef block)
+                        writeChan outp (IEMessage $ MsgBlockReceived sfsRef block)
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> delayed $
-                        writeChan outp (MsgFinalizationReceived sfsRef bs)
+                        writeChan outp (IEMessage $ MsgFinalizationReceived sfsRef bs)
                 MsgFinalizationRecord fr -> do
                     writeChan monitor (Right fr)
                     forM_ outps $ \outp -> usually $ delayed $
-                        writeChan outp (MsgFinalizationRecordReceived sfsRef fr)
+                        writeChan outp (IEMessage $ MsgFinalizationRecordReceived sfsRef fr)
                 MsgMissingBlock src bh -> do
                     mb <- Get.getBlockData src bh
                     case mb of
-                        Just (NormalBlock bb) -> writeChan loopback (MsgBlockReceived src bb)
+                        Just (NormalBlock bb) -> writeChan loopback (IEMessage $ MsgBlockReceived src bb)
                         _ -> return ()
                 MsgMissingFinalization src fin -> do
                     mf <- case fin of
                         Left bh -> Get.getBlockFinalization src bh
                         Right fi -> Get.getIndexedFinalization src fi
-                    forM_ mf $ \fr -> writeChan loopback (MsgFinalizationRecordReceived src fr)
+                    forM_ mf $ \fr -> writeChan loopback (IEMessage $ MsgFinalizationRecordReceived src fr)
             loop
+
+toggleConnection :: LogMethod IO -> IORef SkovFinalizationState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
+toggleConnection logM sfsRef connectedRef loopback outps = readIORef connectedRef >>= loop
+    where
+        loop connected = do
+            delay <- (^(2::Int)) <$> randomRIO (if connected then (3200,7800) else (0,4500))
+            threadDelay delay
+            tid <- myThreadId
+            if connected then do
+                putStrLn $ "// " ++ show tid ++ ": toggle off"
+                logM External LLInfo $ "Disconnected"
+                writeIORef connectedRef False
+                loop False
+            else do
+                -- Reconnect
+                putStrLn $ "// " ++ show tid ++ ": toggle on"
+                logM External LLInfo $ "Reconnected"
+                writeIORef connectedRef True
+                fp <- Get.getFinalizationPoint sfsRef
+                forM_ outps $ \outp -> writeChan outp (IECatchupFinalization fp True loopback)
+                loop True
+
 
 removeEach :: [a] -> [(a,[a])]
 removeEach = re []
@@ -118,7 +163,7 @@ gsToString gs = intercalate "\\l" . map show $ keys
 
 main :: IO ()
 main = do
-    let n = 10
+    let n = 3
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
@@ -131,14 +176,26 @@ main = do
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bix, (_, bid)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
+        logChan <- newChan
+        let logLoop = do
+                logMsg <- readChan logChan
+                appendFile logFile logMsg
+                logLoop
+        _ <- forkIO logLoop
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
-                                    appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
+                                    writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
         (cin, cout, out) <- makeRunner logM bid gen iState
-        _ <- forkIO $ sendTransactions cin trans
-        return (cin, cout, out)) bis
+        cin' <- newChan
+        connectedRef <- newIORef True
+        _ <- forkIO $ relayIn cin' cin out connectedRef
+        _ <- forkIO $ sendTransactions cin' trans
+        return (cin', cout, out, connectedRef, logM)) bis
     monitorChan <- newChan
-    mapM_ (\((cin, cout, stateRef), cs) -> forkIO $ relay cout stateRef monitorChan cin ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
+    forM_ (removeEach chans) $ \((cin, cout, stateRef, connectedRef, logM), cs) -> do
+        let cs' = ((\(c, _, _, _, _) -> c) <$> cs)
+        _ <- forkIO $ toggleConnection logM stateRef connectedRef cin cs'
+        forkIO $ relay cout stateRef connectedRef monitorChan cin cs'
     let loop = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
