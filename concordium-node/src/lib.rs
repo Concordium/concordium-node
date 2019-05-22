@@ -37,7 +37,6 @@ extern crate tempfile;
 
 #[macro_use]
 extern crate concordium_common;
-extern crate concordium_global_state;
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
