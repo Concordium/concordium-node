@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
 
-git pull
+if [ -z "$JENKINS_HOME" ]; then
+  git pull
+fi
 
 VERSION=`git rev-parse --verify HEAD`
 
