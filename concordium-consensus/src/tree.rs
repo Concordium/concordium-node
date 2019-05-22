@@ -165,10 +165,11 @@ impl SkovData {
             *status = BlockStatus::Finalized;
             ptr.clone()
         } else {
-            panic!(
+            error!(
                 "Can't find finalized block {:?} in the block table!",
                 record.block_pointer
             );
+            return true; // a temporary placeholder; we don't want to suggest duplicates
         };
 
         // we should be ok with a linear search, as we are expecting only to keep the
