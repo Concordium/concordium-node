@@ -458,7 +458,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
                 Err(e) => error!("Deserialization of block failed: {:?}", e),
             },
             CallbackType::FinalizationMessage => match FinalizationMessage::deserialize(data) {
-                Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization(msg) {
+                Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization((None, msg)) {
                     Ok(_) => debug!("Queueing {} bytes of finalization", data.len()),
                     _ => error!("Didn't queue finalization message properly"),
                 },

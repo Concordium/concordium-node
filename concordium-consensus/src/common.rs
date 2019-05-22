@@ -65,7 +65,7 @@ pub struct Nonce(NonZeroU64);
 
 pub type Slot = u64;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct SessionId {
     genesis_block: BlockHash,
     incarnation:   u64,
