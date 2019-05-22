@@ -459,6 +459,11 @@ impl TlsServer {
     }
 }
 
+#[cfg(test)]
+impl TlsServer {
+    pub fn get_private_tls(&self) -> Arc<RwLock<TlsServerPrivate>> { Arc::clone(&self.dptr) }
+}
+
 impl MessageManager for TlsServer {
     fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { Arc::clone(&self.message_handler) }
 }

@@ -39,6 +39,9 @@ use get_if_addrs;
 use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
+#[cfg(test)]
+use std::cell::RefCell;
+
 use std::{
     collections::HashSet,
     net::{
@@ -1184,6 +1187,16 @@ impl P2PNode {
         self.dump_switch.send((path, false))?;
         write_or_die!(self.tls_server).dump_stop();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl P2PNode {
+    pub fn get_tls_server(&self) -> Arc<RwLock<TlsServer>> { Arc::clone(&self.tls_server) }
+
+    pub fn deregister_connection(&self, conn: &RefCell<Connection>) -> Fallible<()> {
+        let mut locked_poll = safe_write!(self.poll)?;
+        conn.borrow().deregister(&mut locked_poll)
     }
 }
 
