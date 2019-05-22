@@ -245,7 +245,7 @@ impl ConsensusContainer {
         }
         // If we didn't do an early return with the response code from consensus, we
         // emit a -1 to signal we didn't find any baker we could pass this
-        // request off to.
+        // request on to.
         -1
     }
 
@@ -264,7 +264,7 @@ impl ConsensusContainer {
         }
         // If we didn't do an early return with the response code from consensus, we
         // emit a -1 to signal we didn't find any baker we could pass this
-        // request off to.
+        // request on to.
         -1
     }
 
@@ -274,7 +274,7 @@ impl ConsensusContainer {
         }
         // If we didn't do an early return with the response code from consensus, we
         // emit a -1 to signal we didn't find any baker we could pass this
-        // request off to.
+        // request on to.
         -1
     }
 
