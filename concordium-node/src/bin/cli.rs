@@ -598,7 +598,7 @@ fn setup_process_output(
                         .filter(|x| x.peer_type == PeerType::Node)
                         .count();
                     for peer_node in peers {
-                        info!(
+                        debug!(
                             "Peer {}/{}/{} sent us peer info for {}/{}/{}",
                             peer.id(),
                             peer.ip(),
@@ -609,7 +609,7 @@ fn setup_process_output(
                         );
                         if _node_self_clone
                             .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
-                            .map_err(|e| error!("{}", e))
+                            .map_err(|e| debug!("{}", e))
                             .is_ok()
                         {
                             new_peers += 1;
@@ -1253,7 +1253,7 @@ fn create_connections_from_config(
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);
                     node.connect(PeerType::Node, addr, None)
-                        .unwrap_or_else(|e| error!("{}", e));
+                        .unwrap_or_else(|e| debug!("{}", e));
                 }
             }
             Err(err) => error!("Can't parse data for node to connect to {}", err),
