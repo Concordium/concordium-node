@@ -746,7 +746,6 @@ fn send_block_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     use concordium_consensus::common::DELTA_LENGTH;
-
     let pending_block = PendingBlock::new(content)?;
 
     // don't pattern match directly in order to release the lock quickly
