@@ -19,12 +19,14 @@ use crate::{
 pub type PeerId = u64;
 pub type Delta = u64;
 
+pub type FinalizationCatchupTuple = (Option<PeerId>, FinalizationMessage);
+
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
     receiver_block:               Arc<Mutex<RelayOrStopReceiver<BakedBlock>>>,
     sender_block:                 Arc<Mutex<RelayOrStopSender<BakedBlock>>>,
-    receiver_finalization: Arc<Mutex<RelayOrStopReceiver<(Option<PeerId>, FinalizationMessage)>>>,
-    sender_finalization: Arc<Mutex<RelayOrStopSender<(Option<PeerId>, FinalizationMessage)>>>,
+    receiver_finalization:        Arc<Mutex<RelayOrStopReceiver<FinalizationCatchupTuple>>>,
+    sender_finalization:          Arc<Mutex<RelayOrStopSender<FinalizationCatchupTuple>>>,
     receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<FinalizationRecord>>>,
     sender_finalization_record:   Arc<Mutex<RelayOrStopSender<FinalizationRecord>>>,
     receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
@@ -35,7 +37,7 @@ impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<BakedBlock>>();
         let (sender_finalization, receiver_finalization) =
-            mpsc::channel::<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>>();
+            mpsc::channel::<RelayOrStopEnvelope<FinalizationCatchupTuple>>();
         let (sender_finalization_record, receiver_finalization_record) =
             mpsc::channel::<RelayOrStopEnvelope<FinalizationRecord>>();
         let (sender_catchup, receiver_catchup) =
@@ -215,12 +217,10 @@ impl ConsensusContainer {
                     return baker.send_block(peer_id, block);
                 }
             }
-        } else {
-            if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
-                // We have a baker to send it to, so we 'll do an early return at this point
-                // with the response code from consensus.
-                return baker.send_block(peer_id, block);
-            }
+        } else if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+            // We have a baker to send it to, so we 'll do an early return at this point
+            // with the response code from consensus.
+            return baker.send_block(peer_id, block);
         }
         // If we didn't do an early return with the response code from consensus, we
         // emit a -1 to signal we didn't find any baker we could pass this
@@ -381,7 +381,9 @@ impl fmt::Display for CatchupRequest {
             f,
             "{}",
             match self {
-                CatchupRequest::BlockByHash(_, hash) => format!("block {:?}", hash),
+                CatchupRequest::BlockByHash(_, hash, delta) => {
+                    format!("block {:?} delta {}", hash, delta)
+                }
                 CatchupRequest::FinalizationMessagesByPoint(..) => {
                     "finalization messages by point".to_string()
                 }

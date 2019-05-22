@@ -122,7 +122,7 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
-        let th1 = spawn_or_die!("Process consensus catch-up requests", {
+        let catch_up_thread = spawn_or_die!("Process consensus catch-up requests", {
             use concordium_consensus::{common::DELTA_LENGTH, consensus::CatchupRequest::*};
             loop {
                 match baker_clone.out_queue().recv_catchup() {
@@ -975,17 +975,10 @@ fn send_catchup_request_block_by_hash_to_consensus(
 ) -> Fallible<()> {
     use concordium_consensus::common::{DELTA_LENGTH, SHA256};
     // extra debug
-    if let Ok(skov) = safe_read!(SKOV_DATA) {
-        let hash = HashBytes::new(&content[..SHA256 as usize]);
-        if skov.get_block_by_hash(&hash).is_some() {
-            info!("Peer {} here; I do have block {:?}", node.id(), hash);
-        }
-    } else {
-        error!("Can't obtain a read lock on Skov!");
-    }
-
     let hash = &content[..SHA256 as usize];
     let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..DELTA_LENGTH as usize]);
+
+    add_block_to_skov(node.id(), &hash);
 
     if delta == 0 {
         send_catchup_request_to_consensus!(
@@ -1013,6 +1006,17 @@ fn send_catchup_request_block_by_hash_to_consensus(
             },
             direction,
         )
+    }
+}
+
+fn add_block_to_skov(node_id: P2PNodeId, hash_bytes: &[u8]) {
+    if let Ok(skov) = safe_read!(SKOV_DATA) {
+        let hash = HashBytes::new(&hash_bytes);
+        if skov.get_block_by_hash(&hash).is_some() {
+            info!("Peer {} here; I do have block {:?}", node_id, hash);
+        }
+    } else {
+        error!("Can't obtain a read lock on Skov!");
     }
 }
 
