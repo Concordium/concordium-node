@@ -7,8 +7,7 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
-    str,
+    fmt, str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
 };
@@ -21,14 +20,14 @@ pub type PeerId = u64;
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block: Arc<Mutex<RelayOrStopReceiver<BakedBlock>>>,
-    sender_block: Arc<Mutex<RelayOrStopSender<BakedBlock>>>,
+    receiver_block:               Arc<Mutex<RelayOrStopReceiver<BakedBlock>>>,
+    sender_block:                 Arc<Mutex<RelayOrStopSender<BakedBlock>>>,
     receiver_finalization: Arc<Mutex<RelayOrStopReceiver<(Option<PeerId>, FinalizationMessage)>>>,
     sender_finalization: Arc<Mutex<RelayOrStopSender<(Option<PeerId>, FinalizationMessage)>>>,
     receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<FinalizationRecord>>>,
-    sender_finalization_record: Arc<Mutex<RelayOrStopSender<FinalizationRecord>>>,
-    receiver_catchup_queue: Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
-    sender_catchup_queue: Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
+    sender_finalization_record:   Arc<Mutex<RelayOrStopSender<FinalizationRecord>>>,
+    receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
+    sender_catchup_queue:         Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
 }
 
 impl Default for ConsensusOutQueue {
@@ -41,14 +40,14 @@ impl Default for ConsensusOutQueue {
         let (sender_catchup, receiver_catchup) =
             mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
         ConsensusOutQueue {
-            receiver_block: Arc::new(Mutex::new(receiver)),
-            sender_block: Arc::new(Mutex::new(sender)),
-            receiver_finalization: Arc::new(Mutex::new(receiver_finalization)),
-            sender_finalization: Arc::new(Mutex::new(sender_finalization)),
+            receiver_block:               Arc::new(Mutex::new(receiver)),
+            sender_block:                 Arc::new(Mutex::new(sender)),
+            receiver_finalization:        Arc::new(Mutex::new(receiver_finalization)),
+            sender_finalization:          Arc::new(Mutex::new(sender_finalization)),
             receiver_finalization_record: Arc::new(Mutex::new(receiver_finalization_record)),
-            sender_finalization_record: Arc::new(Mutex::new(sender_finalization_record)),
-            receiver_catchup_queue: Arc::new(Mutex::new(receiver_catchup)),
-            sender_catchup_queue: Arc::new(Mutex::new(sender_catchup)),
+            sender_finalization_record:   Arc::new(Mutex::new(sender_finalization_record)),
+            receiver_catchup_queue:       Arc::new(Mutex::new(receiver_catchup)),
+            sender_catchup_queue:         Arc::new(Mutex::new(sender_catchup)),
         }
     }
 }
@@ -90,11 +89,15 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
     }
 
-    pub fn recv_finalization(self) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
+    pub fn recv_finalization(
+        self,
+    ) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
         into_err!(safe_lock!(self.receiver_finalization).recv())
     }
 
-    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
+    pub fn try_recv_finalization(
+        self,
+    ) -> Fallible<RelayOrStopEnvelope<(Option<PeerId>, FinalizationMessage)>> {
         into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 
@@ -167,7 +170,8 @@ lazy_static! {
         { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
     pub static ref SKOV_DATA: RwLock<SkovData> = { RwLock::new(SkovData::default()) };
-    pub static ref REQUESTED_CATCH_UPS: RwLock<HashSet<CatchupRequest>> = { RwLock::new(HashSet::default()) };
+    pub static ref REQUESTED_CATCH_UPS: RwLock<HashSet<CatchupRequest>> =
+        { RwLock::new(HashSet::default()) };
 }
 
 type PrivateData = HashMap<i64, Vec<u8>>;
@@ -375,12 +379,22 @@ pub enum CatchupRequest {
 
 impl fmt::Display for CatchupRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            CatchupRequest::BlockByHash(_, hash) => format!("block {:?}", hash),
-            CatchupRequest::FinalizationMessagesByPoint(..) => format!("finalization messages by point"),
-            CatchupRequest::FinalizationRecordByHash(_, hash) => format!("finalization record of {:?}", hash),
-            CatchupRequest::FinalizationRecordByIndex(_, index) => format!("finalization record by index ({})", index),
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                CatchupRequest::BlockByHash(_, hash) => format!("block {:?}", hash),
+                CatchupRequest::FinalizationMessagesByPoint(..) => {
+                    "finalization messages by point".to_string()
+                }
+                CatchupRequest::FinalizationRecordByHash(_, hash) => {
+                    format!("finalization record of {:?}", hash)
+                }
+                CatchupRequest::FinalizationRecordByIndex(_, index) => {
+                    format!("finalization record by index ({})", index)
+                }
+            }
+        )
     }
 }
 

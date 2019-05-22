@@ -498,9 +498,7 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
-    info!(
-        "Got a catch-up request for finalization messages for point from consensus",
-    );
+    info!("Got a catch-up request for finalization messages for point from consensus",);
     unsafe {
         let s = slice::from_raw_parts(data as *const u8, len as usize);
         match FinalizationMessage::deserialize(s) {
