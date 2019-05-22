@@ -89,7 +89,7 @@ fn start_haskell_init() {
 /// Will panic if called more than once.
 pub fn stop_haskell() {
     if STOPPED.swap(true, Ordering::SeqCst) {
-        panic!("curryrs: The GHC runtime may only be stopped once. See \
+        panic!("The GHC runtime may only be stopped once. See \
                 https://downloads.haskell.org/%7Eghc/latest/docs/html/users_guide\
                 /ffi-chap.html#id1 ");
     }
