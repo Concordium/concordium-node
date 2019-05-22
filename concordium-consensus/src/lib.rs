@@ -3,6 +3,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate concordium_common;
+extern crate concordium_global_state;
 
 // (de)serialization macros
 
