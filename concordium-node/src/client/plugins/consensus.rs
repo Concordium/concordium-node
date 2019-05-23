@@ -25,7 +25,7 @@ use concordium_consensus::{
 
 use concordium_global_state::{
     block::{BakedBlock, BlockPtr, PendingBlock},
-    common::{DELTA_LENGTH, sha256, HashBytes, SerializeToBytes, SHA256},
+    common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
     tree::SKOV_DATA,
 };

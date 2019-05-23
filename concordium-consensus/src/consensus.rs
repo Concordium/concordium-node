@@ -17,28 +17,29 @@ use concordium_global_state::{block::*, common::HashBytes, finalization::*};
 
 pub type PeerId = u64;
 pub type Delta = u64;
+pub type Bytes = Box<[u8]>;
 
-pub type FinalizationCatchupTuple = (Option<PeerId>, FinalizationMessage);
+pub type FinalizationCatchupTuple = (Option<PeerId>, Bytes);
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block:               Arc<Mutex<RelayOrStopReceiver<BakedBlock>>>,
-    sender_block:                 Arc<Mutex<RelayOrStopSender<BakedBlock>>>,
+    receiver_block:               Arc<Mutex<RelayOrStopReceiver<Bytes>>>,
+    sender_block:                 Arc<Mutex<RelayOrStopSender<Bytes>>>,
     receiver_finalization:        Arc<Mutex<RelayOrStopReceiver<FinalizationCatchupTuple>>>,
     sender_finalization:          Arc<Mutex<RelayOrStopSender<FinalizationCatchupTuple>>>,
-    receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<FinalizationRecord>>>,
-    sender_finalization_record:   Arc<Mutex<RelayOrStopSender<FinalizationRecord>>>,
+    receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<Bytes>>>,
+    sender_finalization_record:   Arc<Mutex<RelayOrStopSender<Bytes>>>,
     receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
     sender_catchup_queue:         Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
 }
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<BakedBlock>>();
+        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<Bytes>>();
         let (sender_finalization, receiver_finalization) =
             mpsc::channel::<RelayOrStopEnvelope<FinalizationCatchupTuple>>();
         let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<RelayOrStopEnvelope<FinalizationRecord>>();
+            mpsc::channel::<RelayOrStopEnvelope<Bytes>>();
         let (sender_catchup, receiver_catchup) =
             mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
         ConsensusOutQueue {
@@ -67,21 +68,21 @@ macro_rules! empty_queue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, block: BakedBlock) -> Fallible<()> {
+    pub fn send_block(self, block: Bytes) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_block).send_msg(block))
     }
 
-    pub fn recv_block(self) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
+    pub fn recv_block(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
         let baked_block = into_err!(safe_lock!(self.receiver_block).recv());
 
         if let Ok(RelayOrStopEnvelope::Relay(ref block)) = baked_block {
-            handle_recv_block(block)
+            handle_recv_block(block)?
         }
 
         baked_block
     }
 
-    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
+    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
         into_err!(safe_lock!(self.receiver_block).try_recv())
     }
 
@@ -97,21 +98,21 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 
-    pub fn send_finalization_record(self, rec: FinalizationRecord) -> Fallible<()> {
+    pub fn send_finalization_record(self, rec: Bytes) -> Fallible<()> {
         into_err!(safe_lock!(self.sender_finalization_record).send_msg(rec))
     }
 
-    pub fn recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<FinalizationRecord>> {
+    pub fn recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
         let record = into_err!(safe_lock!(self.receiver_finalization_record).recv());
 
         if let Ok(RelayOrStopEnvelope::Relay(ref record)) = record {
-            handle_recv_finalization_record(record);
+            handle_recv_finalization_record(record)?;
         }
 
         record
     }
 
-    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<FinalizationRecord>> {
+    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
         into_err!(safe_lock!(self.receiver_finalization_record).try_recv())
     }
 
@@ -188,10 +189,10 @@ fn handle_recv_catchup(request: &CatchupRequest) {
     }
 }
 
-fn handle_recv_block(baked_block: &BakedBlock) {
+fn handle_recv_block(baked_block: &Bytes) -> Fallible<()> {
     use concordium_global_state::{block::PendingBlock, tree::SKOV_DATA};
 
-    let pending_block = PendingBlock::from(baked_block.to_owned());
+    let pending_block = PendingBlock::new(baked_block)?;
 
     if let Ok(mut skov) = SKOV_DATA.write() {
         if let Err(e) = skov.add_block(pending_block) {
@@ -200,16 +201,22 @@ fn handle_recv_block(baked_block: &BakedBlock) {
     } else {
         error!("Can't obtain a write lock on Skov!");
     }
+
+    Ok(())
 }
 
-fn handle_recv_finalization_record(record: &FinalizationRecord) {
-    use concordium_global_state::tree::SKOV_DATA;
+fn handle_recv_finalization_record(record: &Bytes) -> Fallible<()> {
+    use concordium_global_state::{common::SerializeToBytes, tree::SKOV_DATA};
+
+    let record = FinalizationRecord::deserialize(record)?;
 
     if let Ok(ref mut skov) = SKOV_DATA.write() {
-        skov.add_finalization(record.to_owned());
+        skov.add_finalization(record);
     } else {
         error!("Can't obtain a write lock on Skov!");
-    }
+    };
+
+    Ok(())
 }
 
 #[cfg(test)]

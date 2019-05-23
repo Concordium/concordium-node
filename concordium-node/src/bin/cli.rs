@@ -22,7 +22,10 @@ use concordium_consensus::{
     consensus,
     ffi::{self, PacketType::*},
 };
-use concordium_global_state::common::{sha256, SerializeToBytes};
+use concordium_global_state::{
+    common::{sha256, SerializeToBytes},
+    finalization::{FinalizationMessage, FinalizationRecord},
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -197,8 +200,7 @@ fn setup_baker_guards(
         let consensus_block_thread = spawn_or_die!("Process consensus block output", {
             loop {
                 match baker_clone.out_queue().recv_block() {
-                    Ok(RelayOrStopEnvelope::Relay(block)) => {
-                        let block_bytes = block.serialize();
+                    Ok(RelayOrStopEnvelope::Relay(block_bytes)) => {
                         let mut out_bytes =
                             Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + block_bytes.len());
                         match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
@@ -208,16 +210,14 @@ fn setup_baker_guards(
                                     .send_message(None, network_id, None, out_bytes, true)
                                 {
                                     Ok(_) => info!(
-                                        "Peer {} broadcasted a block ({:?}) by baker {}",
+                                        "Peer {} broadcasted block ({:?})",
                                         node_ref.id(),
                                         sha256(&block_bytes),
-                                        block.baker_id,
                                     ),
                                     Err(_) => error!(
-                                        "Peer {} couldn't broadcast a block ({:?}) by baker {}!",
+                                        "Peer {} couldn't broadcast block ({:?})!",
                                         node_ref.id(),
                                         sha256(&block_bytes),
-                                        block.baker_id,
                                     ),
                                 }
                             }
@@ -236,8 +236,7 @@ fn setup_baker_guards(
             spawn_or_die!("Process consensus finalization message output", {
                 loop {
                     match baker_clone.out_queue().recv_finalization() {
-                        Ok(RelayOrStopEnvelope::Relay((peer_id_opt, msg))) => {
-                            let bytes = msg.serialize();
+                        Ok(RelayOrStopEnvelope::Relay((peer_id_opt, bytes))) => {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             match out_bytes.write_u16::<NetworkEndian>(
@@ -259,9 +258,15 @@ fn setup_baker_guards(
                                     };
 
                                     match res {
-                                        Ok(_) => {
-                                            info!("Peer {} broadcasted a {}", node_ref.id(), msg,)
-                                        }
+                                        Ok(_) => info!(
+                                            "Peer {} broadcasted a {}",
+                                            node_ref.id(),
+                                            FinalizationMessage::deserialize(&bytes)
+                                                .map(|msg| msg.to_string())
+                                                .unwrap_or_else(|_| String::from(
+                                                    "corrupt finalization message"
+                                                ))
+                                        ),
                                         Err(_) => {
                                             error!("Couldn't broadcast a finalization packet!")
                                         }
@@ -282,10 +287,7 @@ fn setup_baker_guards(
             spawn_or_die!("Process consensus finalization records output", {
                 loop {
                     match baker_clone.out_queue().recv_finalization_record() {
-                        Ok(RelayOrStopEnvelope::Relay(rec)) => {
-                            let bytes = rec.serialize();
-                            let rec_info = rec.to_string();
-
+                        Ok(RelayOrStopEnvelope::Relay(bytes)) => {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             match out_bytes.write_u16::<NetworkEndian>(
@@ -299,7 +301,11 @@ fn setup_baker_guards(
                                         Ok(_) => info!(
                                             "Peer {} broadcasted a {}",
                                             node_ref.id(),
-                                            rec_info
+                                            FinalizationRecord::deserialize(&bytes)
+                                                .map(|msg| msg.to_string())
+                                                .unwrap_or_else(|_| String::from(
+                                                    "corrupt finalization record"
+                                                )),
                                         ),
                                         Err(_) => {
                                             error!("Couldn't broadcast a finalization record!")

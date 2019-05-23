@@ -455,7 +455,10 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
     debug!("Callback hit - queueing message");
 
     unsafe {
-        let data = slice::from_raw_parts(block_data as *const u8, data_length as usize);
+        let data = Box::from(slice::from_raw_parts(
+            block_data as *const u8,
+            data_length as usize,
+        ));
         let callback_type = match CallbackType::try_from(block_type as u8) {
             Ok(ct) => ct,
             Err(e) => {
@@ -465,27 +468,22 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
         };
 
         match callback_type {
-            CallbackType::Block => match BakedBlock::deserialize(data) {
-                Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
-                    Ok(_) => debug!("Queueing {} block bytes", data_length),
-                    _ => error!("Didn't queue block message properly"),
-                },
-                Err(e) => error!("Deserialization of block failed: {:?}", e),
+            CallbackType::Block => match CALLBACK_QUEUE.clone().send_block(data) {
+                Ok(_) => debug!("Queueing {} block bytes", data_length),
+                _ => error!("Didn't queue block message properly"),
             },
-            CallbackType::FinalizationMessage => match FinalizationMessage::deserialize(data) {
-                Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization((None, msg)) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization", data.len()),
+            CallbackType::FinalizationMessage => {
+                match CALLBACK_QUEUE.clone().send_finalization((None, data)) {
+                    Ok(_) => debug!("Queueing {} bytes of finalization", data_length),
                     _ => error!("Didn't queue finalization message properly"),
-                },
-                Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
-            },
-            CallbackType::FinalizationRecord => match FinalizationRecord::deserialize(data) {
-                Ok(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization record", data.len()),
+                }
+            }
+            CallbackType::FinalizationRecord => {
+                match CALLBACK_QUEUE.clone().send_finalization_record(data) {
+                    Ok(_) => debug!("Queueing {} bytes of finalization record", data_length),
                     _ => error!("Didn't queue finalization record message properly"),
-                },
-                Err(e) => error!("Deserialization of finalization record failed: {:?}", e),
-            },
+                }
+            }
         }
     }
 }
