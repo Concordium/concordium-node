@@ -19,6 +19,7 @@ EXPORTS
  getLastFinalAccountInfo
  getLastFinalInstanceInfo
  getBlock
+ getBlockDelta
  getBlockFinalization
  getIndexedFinalization
  getFinalizationMessages
