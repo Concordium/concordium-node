@@ -1,20 +1,5 @@
 #!/bin/sh
 
-# 20190123 - Moved from 2018-10-26 to latest nightly after allocator fixes in nightly
-# 20190328 - Locking to agreed upon 2019-03-22
-# 20190412 - Moving to Rust stable
-rustup default stable
-
-git clone https://github.com/mitls/hacl-c
-( cd hacl-c && make -j$(nproc) && cp libhacl.so /usr/lib );
-rm -rf hacl-c
-
-git clone https://github.com/libffi/libffi.git
-( cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install);
-rm -rf libffi
-
-(mkdir -p ~/.stack/global-project/ && echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml)
-
 ( cd deps/internal/crypto/rust-src &&
   LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
   cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
@@ -23,7 +8,6 @@ rm -rf libffi
   cp target/release/libpedersen_scheme.so /usr/local/lib &&
   cp target/release/libsha_2.so /usr/local/lib && cargo clean)
 
-curl -sSL https://get.haskellstack.org/ | sh
 ( cd deps/internal/consensus && 
   LD_LIBRARY_PATH=/usr/local/lib stack build --ghc-options '-dynamic -j4' --force-dirty &&
   cp .stack-work/install/x86_64-linux-tinfo6/$(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')/$(stack ghc -- --version --short | awk '{ print $NF }')/lib/x86_64-linux-ghc-$(stack ghc -- --version --short | awk '{ print $NF }')/libHS*.so /usr/local/lib &&
