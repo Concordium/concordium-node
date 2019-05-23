@@ -123,38 +123,39 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
         );
         let outer = Arc::new(NetworkMessage::NetworkPacket(pac.to_owned(), None, None));
 
-        seen_messages.append(&pac.message_id);
-        if blind_trust_broadcast {
-            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
-                debug!(
-                    "Peer {} rebroadcasting message {} from {}",
-                    own_id,
-                    pac.message_id,
-                    pac.peer.id()
-                );
-                send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
-                if let Some(ref service) = stats_export_service {
-                    safe_write!(service)?.queue_size_inc();
-                };
-            }
-        }
-
-        if let Ok(locked) = outgoing_queues.rpc_queue.lock() {
-            if let Some(queue) = locked.deref() {
-                if let Err(e) = queue.send(outer.clone()) {
-                    warn!(
-                        "Can't send message on to the RPC outbound queue: {}",
-                        e.to_string()
+        if seen_messages.append(&pac.message_id) {
+            if blind_trust_broadcast {
+                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                    debug!(
+                        "Peer {} rebroadcasting message {} from {}",
+                        own_id,
+                        pac.message_id,
+                        pac.peer.id()
                     );
+                    send_or_die!(outgoing_queues.send_queue, Arc::clone(&outer));
+                    if let Some(ref service) = stats_export_service {
+                        safe_write!(service)?.queue_size_inc();
+                    };
                 }
             }
-        }
 
-        if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
-            warn!(
-                "Can't send message to the outer super queue: {}",
-                e.to_string()
-            );
+            if let Ok(locked) = outgoing_queues.rpc_queue.lock() {
+                if let Some(queue) = locked.deref() {
+                    if let Err(e) = queue.send(outer.clone()) {
+                        warn!(
+                            "Can't send message on to the RPC outbound queue: {}",
+                            e.to_string()
+                        );
+                    }
+                }
+            }
+
+            if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
+                warn!(
+                    "Can't send message to the outer super queue: {}",
+                    e.to_string()
+                );
+            }
         }
     } else if let Some(ref service) = stats_export_service {
         safe_write!(service)?.invalid_network_pkts_received_inc();
