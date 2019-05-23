@@ -468,19 +468,10 @@ fn handle_pkt_out(
                             network_id,
                             &inner_out_bytes,
                             PacketDirection::Outbound,
-                        )?; // } else if e == "InvalidLastFinalized" {
-                            // send_catchup_request_finalization_record_by_hash_to_consensus(
-                            // baker,
-                            // node,
-                            // peer_id,
-                            // network_id,
-                            // &pending_block.block.last_finalized,
-                            // PacketDirection::Outbound,
-                            // )?;
+                        )?;
                         true
                     } else {
                         true
-                        // unreachable!("Unexpected AddBlockError code!");
                     }
                 }
             }
