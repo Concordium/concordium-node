@@ -8,6 +8,7 @@ use concordium_consensus::{
 };
 use env_logger::{Builder, Env};
 use failure::{bail, Fallible};
+use p2p_client::client::plugins::consensus::*;
 use std::{
     fs::{create_dir_all, OpenOptions},
     io::Write,
@@ -63,9 +64,7 @@ pub fn main() -> Fallible<()> {
     match consensus_baked_data {
         Ok((genesis_data, private_data_blobs)) => {
             let genesis_out_path: PathBuf =
-                [&conf.output_dir, p2p_client::client::FILE_NAME_GENESIS_DATA]
-                    .iter()
-                    .collect();
+                [&conf.output_dir, FILE_NAME_GENESIS_DATA].iter().collect();
             match OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -102,9 +101,9 @@ pub fn main() -> Fallible<()> {
                         &conf.output_dir,
                         &format!(
                             "{}{}{}",
-                            p2p_client::client::FILE_NAME_PREFIX_BAKER_PRIVATE,
+                            FILE_NAME_PREFIX_BAKER_PRIVATE,
                             baker_id,
-                            p2p_client::client::FILE_NAME_SUFFIX_BAKER_PRIVATE
+                            FILE_NAME_SUFFIX_BAKER_PRIVATE
                         ),
                     ]
                     .iter()
