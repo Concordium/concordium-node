@@ -14,10 +14,11 @@ use std::{
     },
 };
 
-use crate::{
+use crate::consensus::*;
+use concordium_global_state::{
     block::*,
     common::{self, HashBytes, SerializeToBytes},
-    consensus::*,
+
     finalization::*,
 };
 

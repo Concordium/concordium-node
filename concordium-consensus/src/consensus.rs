@@ -12,8 +12,9 @@ use std::{
     thread, time,
 };
 
-use crate::{
-    block::*, common::HashBytes, fails::BakerNotRunning, ffi::*, finalization::*, tree::*,
+use crate::{fails::BakerNotRunning, ffi::*};
+use concordium_global_state::{
+    block::*, common::HashBytes, finalization::*, tree::*,
 };
 
 pub type PeerId = u64;

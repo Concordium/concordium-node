@@ -21,13 +21,15 @@ use concordium_common::{
     RelayOrStopReceiver, UCursor,
 };
 use concordium_consensus::{
-    block::{BlockPtr, PendingBlock},
-    common::{sha256, HashBytes, SerializeToBytes, SHA256},
     consensus::{self, SKOV_DATA},
     ffi::{
         self,
         PacketType::{self, *},
     },
+};
+use concordium_global_state::{
+    block::{BlockPtr, PendingBlock},
+    common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
 };
 use env_logger::{Builder, Env};
