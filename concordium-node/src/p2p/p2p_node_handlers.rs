@@ -127,7 +127,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
             if blind_trust_broadcast {
                 if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                     debug!(
-                        "Peer {} rebroadcasting message {} from {}",
+                        "Peer {} is rebroadcasting message {} from {}",
                         own_id,
                         pac.message_id,
                         pac.peer.id()
