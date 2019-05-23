@@ -74,6 +74,12 @@ pub trait ReadArchive: Sized + std::io::Read {
     fn payload(&mut self, len: u64) -> Option<UCursor>;
 
     // Utilities for parsing.
+    // ===========================
+
+    /// It returns pending bytes to reach end-of-file.
+    /// This function should be used to ensure if you are able to load and
+    /// specific amount of bytes.
+    fn pending_bytes(&self) -> u64;
 
     /// It checks that streamed data is deserialized into `T` object and that is
     /// equal to `tag`.

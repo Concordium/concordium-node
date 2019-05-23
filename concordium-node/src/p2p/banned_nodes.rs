@@ -77,11 +77,11 @@ impl Serializable for BannedNode {
         A: WriteArchive, {
         match self {
             BannedNode::ById(id) => {
-                archive.write_u8(0)?;
+                0u8.serialize(archive)?;
                 id.serialize(archive)
             }
             BannedNode::ByAddr(addr) => {
-                archive.write_u8(1)?;
+                1u8.serialize(archive)?;
                 addr.serialize(archive)
             }
         }
@@ -93,7 +93,7 @@ impl Deserializable for BannedNode {
     fn deserialize<A>(archive: &mut A) -> Fallible<BannedNode>
     where
         A: ReadArchive, {
-        let bn = match archive.read_u8()? {
+        let bn = match u8::deserialize(archive)? {
             0 => BannedNode::ById(P2PNodeId::deserialize(archive)?),
             1 => BannedNode::ByAddr(IpAddr::deserialize(archive)?),
             _ => bail!("Unsupported type of `BanNode`"),
