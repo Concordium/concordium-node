@@ -501,16 +501,14 @@ fn setup_process_output(
                         }
                     };
 
-                    if let Some(ref mut baker) = _baker_pkt_clone {
-                        if let Err(e) = handle_pkt_out(
-                            &mut _node_self_clone,
-                            baker,
-                            pac.peer.id(),
-                            _network_id,
-                            pac.message.clone(),
-                        ) {
-                            error!("There's an issue with an outbound packet: {}", e);
-                        }
+                    if let Err(e) = handle_pkt_out(
+                        &mut _node_self_clone,
+                        &mut _baker_pkt_clone,
+                        pac.peer.id(),
+                        _network_id,
+                        pac.message.clone(),
+                    ) {
+                        error!("There's an issue with an outbound packet: {}", e);
                     }
                 }
                 NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {

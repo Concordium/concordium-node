@@ -165,91 +165,93 @@ fn get_baker_data(
 
 pub fn handle_pkt_out(
     node: &mut P2PNode,
-    baker: &mut consensus::ConsensusContainer,
+    baker: &mut Option<consensus::ConsensusContainer>,
     peer_id: P2PNodeId,
     network_id: NetworkId,
     mut msg: UCursor,
 ) -> Fallible<()> {
     use concordium_global_state::{common::DELTA_LENGTH, tree::SKOV_DATA};
 
-    ensure!(
-        msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
-        "Message needs at least {} bytes",
-        PAYLOAD_TYPE_LENGTH
-    );
+    if let Some(ref mut baker) = baker {
+        ensure!(
+            msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
+            "Message needs at least {} bytes",
+            PAYLOAD_TYPE_LENGTH
+        );
 
-    let consensus_type = msg.read_u16::<NetworkEndian>()?;
-    let view = msg.read_all_into_view()?;
-    let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
-    let packet_type = PacketType::try_from(consensus_type)?;
+        let consensus_type = msg.read_u16::<NetworkEndian>()?;
+        let view = msg.read_all_into_view()?;
+        let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
+        let packet_type = PacketType::try_from(consensus_type)?;
 
-    let is_unique = match packet_type {
-        Block => {
-            let pending_block = PendingBlock::new(content)?;
+        let is_unique = match packet_type {
+            Block => {
+                let pending_block = PendingBlock::new(content)?;
 
-            // don't pattern match directly in order to release the lock quickly
-            let result = if let Ok(ref mut skov) = safe_write!(SKOV_DATA) {
-                skov.add_block(pending_block.clone())
-            } else {
-                error!("Can't obtain a write lock on Skov!");
-                Ok(None) // temporary placeholder; we don't want to suggest a duplicate
-            };
+                // don't pattern match directly in order to release the lock quickly
+                let result = if let Ok(ref mut skov) = safe_write!(SKOV_DATA) {
+                    skov.add_block(pending_block.clone())
+                } else {
+                    error!("Can't obtain a write lock on Skov!");
+                    Ok(None) // temporary placeholder; we don't want to suggest a duplicate
+                };
 
-            match result {
-                Ok(Some(_)) => false,
-                Ok(None) => true,
-                Err(e) => {
-                    let e = e.to_string();
-                    if e == "MissingParent" {
-                        let mut inner_out_bytes = Vec::with_capacity(
-                            pending_block.block.pointer.len() + DELTA_LENGTH as usize,
-                        );
-                        inner_out_bytes.extend_from_slice(&pending_block.block.pointer);
-                        inner_out_bytes
-                            .write_u64::<NetworkEndian>(0u64)
-                            .expect("Can't write to buffer");
-                        send_catchup_request_block_by_hash_to_consensus(
-                            baker,
-                            node,
-                            peer_id,
-                            network_id,
-                            &inner_out_bytes,
-                            PacketDirection::Outbound,
-                        )?;
-                        true
-                    } else {
-                        true
+                match result {
+                    Ok(Some(_)) => false,
+                    Ok(None) => true,
+                    Err(e) => {
+                        let e = e.to_string();
+                        if e == "MissingParent" {
+                            let mut inner_out_bytes = Vec::with_capacity(
+                                pending_block.block.pointer.len() + DELTA_LENGTH as usize,
+                            );
+                            inner_out_bytes.extend_from_slice(&pending_block.block.pointer);
+                            inner_out_bytes
+                                .write_u64::<NetworkEndian>(0u64)
+                                .expect("Can't write to buffer");
+                            send_catchup_request_block_by_hash_to_consensus(
+                                baker,
+                                node,
+                                peer_id,
+                                network_id,
+                                &inner_out_bytes,
+                                PacketDirection::Outbound,
+                            )?;
+                            true
+                        } else {
+                            true
+                        }
                     }
                 }
             }
-        }
-        FinalizationRecord => {
-            let record = FinalizationRecord::deserialize(content)?;
+            FinalizationRecord => {
+                let record = FinalizationRecord::deserialize(content)?;
 
-            if let Ok(ref mut skov) = SKOV_DATA.write() {
-                skov.add_finalization(record)
-            } else {
-                error!("Can't obtain a write lock on Skov!");
-                true // temporary placeholder; we don't want to suggest a duplicate
+                if let Ok(ref mut skov) = SKOV_DATA.write() {
+                    skov.add_finalization(record)
+                } else {
+                    error!("Can't obtain a write lock on Skov!");
+                    true // temporary placeholder; we don't want to suggest a duplicate
+                }
             }
-        }
-        _ => true,
-    };
+            _ => true,
+        };
 
-    if !is_unique {
-        warn!("Peer {} sent us a duplicate {}", peer_id, packet_type,);
-    } else {
-        if let Err(e) =
-            send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
-        {
-            error!("Send network message to baker has failed: {:?}", e);
+        if !is_unique {
+            warn!("Peer {} sent us a duplicate {}", peer_id, packet_type,);
+        } else {
+            if let Err(e) =
+                send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
+            {
+                error!("Send network message to baker has failed: {:?}", e);
+            }
         }
     }
 
     Ok(())
 }
 
-pub fn send_msg_to_consensus(
+fn send_msg_to_consensus(
     node: &mut P2PNode,
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
