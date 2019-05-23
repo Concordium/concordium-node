@@ -127,7 +127,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
             if blind_trust_broadcast {
                 if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                     debug!(
-                        "Peer {} is rebroadcasting message {} from {}",
+                        "Peer {} is rebroadcasting a message {} from {}",
                         own_id,
                         pac.message_id,
                         pac.peer.id()
@@ -143,7 +143,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
                 if let Some(queue) = locked.deref() {
                     if let Err(e) = queue.send(outer.clone()) {
                         warn!(
-                            "Can't send message on to the RPC outbound queue: {}",
+                            "Can't relay a message to the RPC outbound queue: {}",
                             e.to_string()
                         );
                     }
@@ -152,7 +152,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
 
             if let Err(e) = outgoing_queues.queue_to_super.send_msg(outer.clone()) {
                 warn!(
-                    "Can't send message to the outer super queue: {}",
+                    "Can't relay a message on to the outer super queue: {}",
                     e.to_string()
                 );
             }
