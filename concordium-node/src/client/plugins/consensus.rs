@@ -120,11 +120,11 @@ fn get_baker_data(
             Ok(mut file) => {
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {
-                    Ok(_) => read_data.clone(),
+                    Ok(_) => read_data,
                     Err(_) => bail!("Couldn't read genesis file properly"),
                 }
             }
-            _ => bail!("Unexpected"),
+            Err(e) => bail!("Can't open the genesis file!"),
         }
     };
 
@@ -156,7 +156,7 @@ fn get_baker_data(
                     Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
-            _ => bail!("Unexpected"),
+            Err(e) => bail!("Can't open the private data file!"),
         }
     };
 
