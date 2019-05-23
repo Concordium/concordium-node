@@ -32,6 +32,8 @@ else
   export LD_LIBRARY_PATH=/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
 fi
 
+NIGHTLY_FMT_VERSION="nightly-2019-03-22"
+
 #####
 # Start up a testnet bootstrapper of instance id 1.
 #
@@ -202,3 +204,16 @@ c_make_test_pkts() {
 #
 #####
 alias clear_screen='printf "\033c"'
+
+#####
+# Run rustfmt on all modules in project
+#
+#####
+lint_fmt() {
+  echo "Formatting code with $NIGHTLY_FMT_VERSION"
+  ( cd $CONCORDIUM_P2P_DIR && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-common && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-consensus && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-global-state && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-dns && cargo +$NIGHTLY_FMT_VERSION fmt)
+}
