@@ -3,8 +3,6 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 
-pub use concordium_global_state::*;
-
 // ffi macros
 
 macro_rules! wrap_c_call_string {

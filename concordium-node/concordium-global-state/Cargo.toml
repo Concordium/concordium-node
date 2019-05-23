@@ -17,10 +17,8 @@ chrono = "0.4.0"
 concordium-common = { path = "../concordium-common" }
 ec_vrf_ed25519_sha256 = { path = "../deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "../deps/internal/crypto/rust-src/eddsa_ed25519" }
-libc = "0.2"
 log = "0.4"
 lazy_static = "1.1.0"
 byteorder = "1"
-env_logger = "0.6"
 failure = "0.1.5"
 digest = "0.8.0"

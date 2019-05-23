@@ -4,6 +4,7 @@ use failure::{bail, Fallible};
 use std::{
     collections::{BinaryHeap, HashMap, HashSet},
     fmt,
+    sync::RwLock,
 };
 
 use crate::{
@@ -12,6 +13,10 @@ use crate::{
     finalization::*,
     transaction::*,
 };
+
+lazy_static! {
+    pub static ref SKOV_DATA: RwLock<SkovData> = { RwLock::new(SkovData::default()) };
+}
 
 #[derive(Debug)]
 pub enum BlockStatus {

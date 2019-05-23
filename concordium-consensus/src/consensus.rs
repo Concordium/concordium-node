@@ -12,9 +12,8 @@ use std::{
     thread, time,
 };
 
-use crate::{
-    block::*, common::HashBytes, fails::BakerNotRunning, ffi::*, finalization::*, tree::*,
-};
+use crate::{consensus::CatchupRequest::*, fails::BakerNotRunning, ffi::*};
+use concordium_global_state::{block::*, common::HashBytes, finalization::*};
 
 pub type PeerId = u64;
 pub type Delta = u64;
@@ -73,7 +72,13 @@ impl ConsensusOutQueue {
     }
 
     pub fn recv_block(self) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
-        into_err!(safe_lock!(self.receiver_block).recv())
+        let baked_block = into_err!(safe_lock!(self.receiver_block).recv());
+
+        if let Ok(RelayOrStopEnvelope::Relay(ref block)) = baked_block {
+            handle_recv_block(block)
+        }
+
+        baked_block
     }
 
     pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<BakedBlock>> {
@@ -97,7 +102,13 @@ impl ConsensusOutQueue {
     }
 
     pub fn recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<FinalizationRecord>> {
-        into_err!(safe_lock!(self.receiver_finalization_record).recv())
+        let record = into_err!(safe_lock!(self.receiver_finalization_record).recv());
+
+        if let Ok(RelayOrStopEnvelope::Relay(ref record)) = record {
+            handle_recv_finalization_record(record);
+        }
+
+        record
     }
 
     pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<FinalizationRecord>> {
@@ -109,7 +120,13 @@ impl ConsensusOutQueue {
     }
 
     pub fn recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
-        into_err!(safe_lock!(self.receiver_catchup_queue).recv())
+        let request = into_err!(safe_lock!(self.receiver_catchup_queue).recv());
+
+        if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = request {
+            handle_recv_catchup(msg);
+        }
+
+        request
     }
 
     pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
@@ -132,6 +149,66 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_finalization_record).send_stop())?;
         into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
         Ok(())
+    }
+}
+
+// extra debug information
+fn handle_recv_catchup(request: &CatchupRequest) {
+    use concordium_global_state::tree::SKOV_DATA;
+
+    match request {
+        BlockByHash(_, ref hash, delta) => {
+            if let Ok(skov) = SKOV_DATA.read() {
+                if skov.get_block_by_hash(&hash).is_some() {
+                    info!(
+                        "Consensus is asking for block {:?} delta {}, but it already is in the \
+                         global state",
+                        hash, delta,
+                    );
+                }
+            } else {
+                error!("Can't obtain a read lock on Skov!");
+            }
+        }
+        // extra debug
+        FinalizationRecordByHash(_, ref hash) => {
+            if let Ok(skov) = SKOV_DATA.read() {
+                if skov.get_finalization_record_by_hash(&hash).is_some() {
+                    info!(
+                        "Consensus is asking for finalization record for {:?}, but it already is \
+                         in the global state",
+                        hash
+                    );
+                }
+            } else {
+                error!("Can't obtain a read lock on Skov!");
+            }
+        }
+        _ => (),
+    }
+}
+
+fn handle_recv_block(baked_block: &BakedBlock) {
+    use concordium_global_state::{block::PendingBlock, tree::SKOV_DATA};
+
+    let pending_block = PendingBlock::from(baked_block.to_owned());
+
+    if let Ok(mut skov) = SKOV_DATA.write() {
+        if let Err(e) = skov.add_block(pending_block) {
+            error!("We should not have a {} issue with adding a block here!", e);
+        }
+    } else {
+        error!("Can't obtain a write lock on Skov!");
+    }
+}
+
+fn handle_recv_finalization_record(record: &FinalizationRecord) {
+    use concordium_global_state::tree::SKOV_DATA;
+
+    if let Ok(ref mut skov) = SKOV_DATA.write() {
+        skov.add_finalization(record.to_owned());
+    } else {
+        error!("Can't obtain a write lock on Skov!");
     }
 }
 
@@ -160,7 +237,6 @@ lazy_static! {
     pub static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
         { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
-    pub static ref SKOV_DATA: RwLock<SkovData> = { RwLock::new(SkovData::default()) };
     pub static ref REQUESTED_CATCH_UPS: RwLock<HashSet<CatchupRequest>> =
         { RwLock::new(HashSet::default()) };
 }
