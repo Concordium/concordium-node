@@ -320,7 +320,7 @@ fn send_msg_to_consensus(
     }
 }
 
-pub fn send_transaction_to_consensus(
+fn send_transaction_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -330,7 +330,7 @@ pub fn send_transaction_to_consensus(
     Ok(())
 }
 
-pub fn send_finalization_record_to_consensus(
+fn send_finalization_record_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -352,7 +352,7 @@ pub fn send_finalization_record_to_consensus(
     Ok(())
 }
 
-pub fn send_finalization_message_to_consensus(
+fn send_finalization_message_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -365,7 +365,7 @@ pub fn send_finalization_message_to_consensus(
     Ok(())
 }
 
-pub fn send_block_to_consensus(
+fn send_block_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -395,7 +395,7 @@ pub fn send_block_to_consensus(
 // Upon handshake completion we ask the consensus layer for a finalization point
 // we want to catchup from. This information is relayed to the peer we just
 // connected to, which will then emit all finalizations past this point.
-pub fn send_catchup_finalization_messages_by_point_to_consensus(
+fn send_catchup_finalization_messages_by_point_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     content: &[u8],
@@ -489,7 +489,7 @@ macro_rules! send_catchup_request_to_consensus {
 // This function requests the finalization record for a certain finalization
 // index (this function is triggered by consensus on another peer actively asks
 // the p2p layer to request this for it)
-pub fn send_catchup_request_finalization_record_by_index_to_consensus(
+fn send_catchup_request_finalization_record_by_index_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     peer_id: P2PNodeId,
@@ -512,7 +512,7 @@ pub fn send_catchup_request_finalization_record_by_index_to_consensus(
     )
 }
 
-pub fn send_catchup_request_finalization_record_by_hash_to_consensus(
+fn send_catchup_request_finalization_record_by_hash_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     peer_id: P2PNodeId,
@@ -548,7 +548,7 @@ pub fn send_catchup_request_finalization_record_by_hash_to_consensus(
     )
 }
 
-pub fn send_catchup_request_block_by_hash_to_consensus(
+fn send_catchup_request_block_by_hash_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
     peer_id: P2PNodeId,
