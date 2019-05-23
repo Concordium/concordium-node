@@ -295,7 +295,7 @@ impl P2PNode {
             dnssec_disabled:         conf.connection.dnssec_disabled,
             bootstrap_node:          conf.connection.bootstrap_node.clone(),
             minimum_per_bucket:      conf.common.min_peers_bucket,
-            blind_trusted_broadcast: conf.connection.no_trust_broadcasts,
+            blind_trusted_broadcast: !conf.connection.no_trust_broadcasts,
         };
 
         let (send_queue_in, send_queue_out) = channel();

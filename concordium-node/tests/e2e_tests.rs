@@ -145,7 +145,7 @@ mod tests {
                 networks,
                 100,
             );
-            config.connection.no_trust_broadcasts = blind_trusted_broadcast;
+            config.connection.no_trust_broadcasts = !blind_trusted_broadcast;
 
             let export_service = Arc::new(RwLock::new(
                 StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
