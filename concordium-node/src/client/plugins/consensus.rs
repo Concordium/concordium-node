@@ -13,7 +13,7 @@ use std::{
     io::{Read, Write},
 };
 
-use concordium_common::{safe_read, safe_write, UCursor};
+use concordium_common::{safe_write, UCursor};
 
 use concordium_consensus::{
     consensus,
@@ -25,7 +25,7 @@ use concordium_consensus::{
 
 use concordium_global_state::{
     block::{BakedBlock, BlockPtr, PendingBlock},
-    common::{sha256, HashBytes, SerializeToBytes, SHA256},
+    common::{DELTA_LENGTH, sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
     tree::SKOV_DATA,
 };
@@ -170,8 +170,6 @@ pub fn handle_pkt_out(
     network_id: NetworkId,
     mut msg: UCursor,
 ) -> Fallible<()> {
-    use concordium_global_state::{common::DELTA_LENGTH, tree::SKOV_DATA};
-
     if let Some(ref mut baker) = baker {
         ensure!(
             msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
@@ -259,8 +257,6 @@ fn send_msg_to_consensus(
     packet_type: PacketType,
     content: &[u8],
 ) -> Fallible<()> {
-    use concordium_global_state::common::DELTA_LENGTH;
-
     match packet_type {
         Block => send_block_to_consensus(baker, peer_id, content),
         Transaction => send_transaction_to_consensus(baker, peer_id, content),
@@ -521,7 +517,7 @@ fn send_catchup_request_finalization_record_by_hash_to_consensus(
     direction: PacketDirection,
 ) -> Fallible<()> {
     // extra debug
-    if let Ok(skov) = safe_read!(SKOV_DATA) {
+    if let Ok(skov) = SKOV_DATA.read() {
         let hash = HashBytes::new(content);
         if skov.get_finalization_record_by_hash(&hash).is_some() {
             info!(
@@ -556,11 +552,10 @@ fn send_catchup_request_block_by_hash_to_consensus(
     content: &[u8],
     direction: PacketDirection,
 ) -> Fallible<()> {
-    use concordium_global_state::common::{DELTA_LENGTH, SHA256};
-    // extra debug
     let hash = &content[..SHA256 as usize];
     let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..DELTA_LENGTH as usize]);
 
+    // extra debug
     if let Ok(skov) = SKOV_DATA.read() {
         if skov.get_block_by_hash(&HashBytes::new(&hash)).is_some() {
             info!("Peer {} here; I do have block {:?}", node.id(), hash);
