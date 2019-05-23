@@ -4,7 +4,7 @@ use std::{
     io::{self, Read},
 };
 
-use concordium_consensus::{
+use concordium_global_state::{
     block::GenesisData,
     common::{sha256, SerializeToBytes},
 };

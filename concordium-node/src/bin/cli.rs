@@ -21,7 +21,7 @@ use concordium_common::{
     RelayOrStopReceiver, UCursor,
 };
 use concordium_consensus::{
-    consensus::{self, SKOV_DATA},
+    consensus,
     ffi::{
         self,
         PacketType::{self, *},
@@ -31,6 +31,7 @@ use concordium_global_state::{
     block::{BlockPtr, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
+    tree::SKOV_DATA,
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -125,7 +126,8 @@ fn setup_baker_guards(
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
         let catch_up_thread = spawn_or_die!("Process consensus catch-up requests", {
-            use concordium_consensus::{common::DELTA_LENGTH, consensus::CatchupRequest::*};
+            use concordium_consensus::consensus::CatchupRequest::*;
+            use concordium_global_state::common::DELTA_LENGTH;
             loop {
                 match baker_clone.out_queue().recv_catchup() {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
@@ -483,7 +485,7 @@ fn setup_process_output(
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
     let guard_pkt = spawn_or_die!("Higher queue processing", {
-        use concordium_consensus::common::DELTA_LENGTH;
+        use concordium_global_state::common::DELTA_LENGTH;
         fn send_msg_to_consensus(
             node: &mut P2PNode,
             baker_ins: &mut Option<consensus::ConsensusContainer>,
@@ -745,7 +747,7 @@ fn send_block_to_consensus(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    use concordium_consensus::common::DELTA_LENGTH;
+    use concordium_global_state::common::DELTA_LENGTH;
     let pending_block = PendingBlock::new(content)?;
 
     // don't pattern match directly in order to release the lock quickly
@@ -980,7 +982,7 @@ fn send_catchup_request_block_by_hash_to_consensus(
     content: &[u8],
     direction: PacketDirection,
 ) -> Fallible<()> {
-    use concordium_consensus::common::{DELTA_LENGTH, SHA256};
+    use concordium_global_state::common::{DELTA_LENGTH, SHA256};
     // extra debug
     let hash = &content[..SHA256 as usize];
     let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..DELTA_LENGTH as usize]);
