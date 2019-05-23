@@ -13,9 +13,7 @@ use std::{
 };
 
 use crate::{consensus::CatchupRequest::*, fails::BakerNotRunning, ffi::*};
-use concordium_global_state::{
-    block::*, common::HashBytes, finalization::*,
-};
+use concordium_global_state::{block::*, common::HashBytes, finalization::*};
 
 pub type PeerId = u64;
 pub type Delta = u64;
@@ -163,45 +161,41 @@ fn handle_recv_catchup(request: &CatchupRequest) {
             if let Ok(skov) = SKOV_DATA.read() {
                 if skov.get_block_by_hash(&hash).is_some() {
                     info!(
-                        "Consensus is asking for block {:?} delta {}, but it \
-                         already is in the global state",
+                        "Consensus is asking for block {:?} delta {}, but it already is in the \
+                         global state",
                         hash, delta,
                     );
                 }
             } else {
                 error!("Can't obtain a read lock on Skov!");
             }
-        },
+        }
         // extra debug
         FinalizationRecordByHash(_, ref hash) => {
             if let Ok(skov) = SKOV_DATA.read() {
                 if skov.get_finalization_record_by_hash(&hash).is_some() {
                     info!(
-                        "Consensus is asking for finalization record for \
-                         {:?}, but it already is in the global state",
+                        "Consensus is asking for finalization record for {:?}, but it already is \
+                         in the global state",
                         hash
                     );
                 }
             } else {
                 error!("Can't obtain a read lock on Skov!");
             }
-        },
-        _ => ()
+        }
+        _ => (),
     }
 }
 
 fn handle_recv_block(baked_block: &BakedBlock) {
-    use concordium_global_state::block::PendingBlock;
-    use concordium_global_state::tree::SKOV_DATA;
+    use concordium_global_state::{block::PendingBlock, tree::SKOV_DATA};
 
     let pending_block = PendingBlock::from(baked_block.to_owned());
 
     if let Ok(mut skov) = SKOV_DATA.write() {
         if let Err(e) = skov.add_block(pending_block) {
-            error!(
-                "We should not have a {} issue with adding a block here!",
-                e
-            );
+            error!("We should not have a {} issue with adding a block here!", e);
         }
     } else {
         error!("Can't obtain a write lock on Skov!");
