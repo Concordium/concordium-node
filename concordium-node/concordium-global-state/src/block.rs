@@ -9,6 +9,7 @@ use std::{
     hash::{Hash, Hasher},
     io::{Cursor, Read, Write},
     mem::size_of,
+    sync::Arc,
 };
 
 use crate::{common::*, parameters::*, transaction::*};
@@ -264,8 +265,8 @@ impl From<BakedBlock> for PendingBlock {
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
-    pub parent:         Option<Box<BlockPtr>>,
-    pub last_finalized: Option<Box<BlockPtr>>,
+    pub parent:         Option<Arc<BlockPtr>>,
+    pub last_finalized: Option<Arc<BlockPtr>>,
     pub height:         BlockHeight,
     // state:       BlockState,
     pub received:  DateTime<Utc>,
@@ -303,8 +304,8 @@ impl BlockPtr {
         Self {
             hash: pb.hash,
             block: Block::Regular(pb.block),
-            parent: Some(Box::new(parent)),
-            last_finalized: Some(Box::new(last_finalized)),
+            parent: Some(Arc::new(parent)),
+            last_finalized: Some(Arc::new(last_finalized)),
             height,
             received: pb.received,
             validated,
