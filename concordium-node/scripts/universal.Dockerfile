@@ -1,4 +1,4 @@
-FROM concordium/base
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:latest
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
