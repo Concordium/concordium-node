@@ -5,7 +5,7 @@ COPY deps/internal/consensus/stack.yaml /stack.yaml
 RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
     pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
-        file which boost patch libunwind libdwarf elfutils unbound llvm --noconfirm && \
+        file which boost patch libunwind libdwarf elfutils unbound llvm capnproto --noconfirm && \
     pacman -Scc --noconfirm && \
     rustup default stable && \
     git clone https://github.com/mitls/hacl-c && \

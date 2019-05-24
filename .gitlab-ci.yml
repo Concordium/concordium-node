@@ -55,9 +55,6 @@ stages:
   extends: .generic-lint
   stage: lint
   script:
-    - pacman -Sy
-    - pacman -S capnproto --noconfir
-    - pacman -Scc --noconfirm
     - rustc --version && cargo --version
     - cp scripts/init.build.env.sh .
     - ./init.build.env.sh
