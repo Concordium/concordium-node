@@ -51,7 +51,7 @@ fn start_haskell_init() {
     //
     // It's safe to unwrap the CString here as program arguments can't
     // contain nul bytes.
-    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    use std::os::unix::ffi::OsStrExt;
     let args = ::std::env::args_os();
     let mut argv = Vec::with_capacity(args.len() + 1);
     args.map(|arg| {
@@ -304,16 +304,16 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
-        wrap_send_data_to_c!(self, peer_id, block.serialize(), receiveBlock)
+    pub fn send_block(&self, peer_id: PeerId, block: Bytes) -> i64 {
+        wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: &FinalizationMessage) {
-        wrap_send_data_to_c!(self, peer_id, msg.serialize(), receiveFinalization);
+    pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) {
+        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization);
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &FinalizationRecord) -> i64 {
-        wrap_send_data_to_c!(self, peer_id, rec.serialize(), receiveFinalizationRecord)
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
+        wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
@@ -455,7 +455,10 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
     debug!("Callback hit - queueing message");
 
     unsafe {
-        let data = slice::from_raw_parts(block_data as *const u8, data_length as usize);
+        let data = Box::from(slice::from_raw_parts(
+            block_data as *const u8,
+            data_length as usize,
+        ));
         let callback_type = match CallbackType::try_from(block_type as u8) {
             Ok(ct) => ct,
             Err(e) => {
@@ -465,27 +468,22 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
         };
 
         match callback_type {
-            CallbackType::Block => match BakedBlock::deserialize(data) {
-                Ok(block) => match CALLBACK_QUEUE.clone().send_block(block) {
-                    Ok(_) => debug!("Queueing {} block bytes", data_length),
-                    _ => error!("Didn't queue block message properly"),
-                },
-                Err(e) => error!("Deserialization of block failed: {:?}", e),
+            CallbackType::Block => match CALLBACK_QUEUE.clone().send_block(data) {
+                Ok(_) => debug!("Queueing {} block bytes", data_length),
+                _ => error!("Didn't queue block message properly"),
             },
-            CallbackType::FinalizationMessage => match FinalizationMessage::deserialize(data) {
-                Ok(msg) => match CALLBACK_QUEUE.clone().send_finalization((None, msg)) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization", data.len()),
+            CallbackType::FinalizationMessage => {
+                match CALLBACK_QUEUE.clone().send_finalization((None, data)) {
+                    Ok(_) => debug!("Queueing {} bytes of finalization", data_length),
                     _ => error!("Didn't queue finalization message properly"),
-                },
-                Err(e) => error!("Deserialization of finalization message failed: {:?}", e),
-            },
-            CallbackType::FinalizationRecord => match FinalizationRecord::deserialize(data) {
-                Ok(rec) => match CALLBACK_QUEUE.clone().send_finalization_record(rec) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization record", data.len()),
+                }
+            }
+            CallbackType::FinalizationRecord => {
+                match CALLBACK_QUEUE.clone().send_finalization_record(data) {
+                    Ok(_) => debug!("Queueing {} bytes of finalization record", data_length),
                     _ => error!("Didn't queue finalization record message properly"),
-                },
-                Err(e) => error!("Deserialization of finalization record failed: {:?}", e),
-            },
+                }
+            }
         }
     }
 }

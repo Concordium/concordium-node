@@ -25,7 +25,7 @@ macro_rules! wrap_send_data_to_c {
             return $c_call(
                 baker,
                 $peer_id,
-                CString::from_vec_unchecked($data.into()).as_ptr() as *const u8,
+                CString::from_vec_unchecked($data.into_vec()).as_ptr() as *const u8,
                 len as i64,
             );
         };
