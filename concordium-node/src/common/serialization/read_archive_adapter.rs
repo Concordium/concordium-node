@@ -50,7 +50,7 @@ impl ReadArchive for ReadArchiveAdapter {
     #[inline]
     fn read_n_bytes(&mut self, len: u32) -> Fallible<ContainerView> {
         ensure!(
-            u64::from(len) <= self.pending_bytes(),
+            u64::from(len) <= self.remaining_bytes_count(),
             "Insufficent bytes in this archive"
         );
         into_err!(self.io_reader.read_into_view(len as usize))
@@ -64,7 +64,7 @@ impl ReadArchive for ReadArchiveAdapter {
     }
 
     #[inline]
-    fn pending_bytes(&self) -> u64 { self.io_reader.len() - self.io_reader.position() }
+    fn remaining_bytes_count(&self) -> u64 { self.io_reader.len() - self.io_reader.position() }
 }
 
 impl std::io::Read for ReadArchiveAdapter {

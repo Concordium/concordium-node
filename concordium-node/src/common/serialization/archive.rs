@@ -76,10 +76,10 @@ pub trait ReadArchive: Sized + std::io::Read {
     // Utilities for parsing.
     // ===========================
 
-    /// It returns pending bytes to reach end-of-file.
-    /// This function should be used to ensure if you are able to load and
-    /// specific amount of bytes.
-    fn pending_bytes(&self) -> u64;
+    /// It returns the number of bytes left to reach end-of-file.
+    /// This function should be used to ensure if you are able to load
+    /// a specific amount of bytes.
+    fn remaining_bytes_count(&self) -> u64;
 
     /// It checks that streamed data is deserialized into `T` object and that is
     /// equal to `tag`.
