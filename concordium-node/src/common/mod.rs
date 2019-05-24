@@ -258,6 +258,12 @@ pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
 
 pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().to_le_bytes()[..]) }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketDirection {
+    Inbound,
+    Outbound,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
