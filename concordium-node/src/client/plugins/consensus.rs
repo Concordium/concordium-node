@@ -124,7 +124,7 @@ fn get_baker_data(
                     Err(_) => bail!("Couldn't read genesis file properly"),
                 }
             }
-            Err(e) => bail!("Can't open the genesis file!"),
+            Err(_e) => bail!("Can't open the genesis file!"),
         }
     };
 
@@ -156,7 +156,7 @@ fn get_baker_data(
                     Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
-            Err(e) => bail!("Can't open the private data file!"),
+            Err(_e) => bail!("Can't open the private data file!"),
         }
     };
 

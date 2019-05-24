@@ -43,6 +43,24 @@ impl Deserializable for u16 {
     }
 }
 
+impl Deserializable for u32 {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<u32>
+    where
+        A: ReadArchive, {
+        archive.read_u32()
+    }
+}
+
+impl Deserializable for u64 {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<u64>
+    where
+        A: ReadArchive, {
+        archive.read_u64()
+    }
+}
+
 impl<T> Deserializable for Box<T>
 where
     T: Deserializable,
@@ -62,7 +80,7 @@ impl Deserializable for IpAddr {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let ip_type = archive.read_u8()?;
+        let ip_type = u8::deserialize(archive)?;
         let ip = match ip_type {
             4u8 => IpAddr::from(Ipv4Addr::deserialize(archive)?),
             6u8 => IpAddr::from(Ipv6Addr::deserialize(archive)?),
@@ -95,7 +113,7 @@ impl Deserializable for Ipv6Addr {
         // `read_exact` fails.
         let mut segments: [u16; 8] = unsafe { std::mem::uninitialized() };
         for segment in &mut segments {
-            *segment = archive.read_u16()?;
+            *segment = u16::deserialize(archive)?;
         }
 
         Ok(Ipv6Addr::from(segments))
@@ -109,7 +127,7 @@ impl Deserializable for SocketAddr {
         A: ReadArchive, {
         Ok(SocketAddr::new(
             IpAddr::deserialize(archive)?,
-            archive.read_u16()?,
+            u16::deserialize(archive)?,
         ))
     }
 }
@@ -119,7 +137,7 @@ impl Deserializable for String {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let len = archive.read_u32()?;
+        let len = u32::deserialize(archive)?;
         let vw = archive.read_n_bytes(len)?;
         Ok(std::str::from_utf8(vw.as_slice())?.to_owned())
     }
@@ -132,12 +150,21 @@ impl<T, S: ::std::hash::BuildHasher + Default> Deserializable for HashSet<T, S>
 where
     T: Deserializable + Eq + Hash,
 {
-    #[inline]
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let len = archive.read_u32()?;
-        let mut out = HashSet::with_capacity_and_hasher(len as usize, Default::default());
+        // This ensures safety if an corrupted package tries to reserve more memory than
+        // real-data contains.
+        // Message size is limited by P2P protocol.
+        const MAX_INITIAL_CAPACITY: usize = 4096;
+
+        let len = u32::deserialize(archive)?;
+
+        let mut out = HashSet::with_capacity_and_hasher(
+            std::cmp::min(len as usize, MAX_INITIAL_CAPACITY),
+            Default::default(),
+        );
+
         for _i in 0..len {
             out.insert(T::deserialize(archive)?);
         }
@@ -149,12 +176,16 @@ impl<T> Deserializable for Vec<T>
 where
     T: Deserializable,
 {
-    #[inline]
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let len = archive.read_u32()?;
-        let mut out = Vec::with_capacity(len as usize);
+        // This ensures safety if an corrupted package tries to reserve more memory than
+        // real-data contains.
+        // Message size is limited by P2P protocol.
+        const MAX_INITIAL_CAPACITY: usize = 4096;
+
+        let len = u32::deserialize(archive)?;
+        let mut out = Vec::with_capacity(std::cmp::min(len as usize, MAX_INITIAL_CAPACITY));
         for _i in 0..len {
             out.push(T::deserialize(archive)?);
         }
@@ -170,7 +201,7 @@ impl Deserializable for UCursor {
     fn deserialize<A>(archive: &mut A) -> Fallible<UCursor>
     where
         A: ReadArchive, {
-        let len = archive.read_u64()?;
+        let len = u64::deserialize(archive)?;
         archive
             .payload(len)
             .ok_or_else(|| err_msg("No payload on this archive"))

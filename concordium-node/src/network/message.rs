@@ -81,9 +81,9 @@ impl Serializable for NetworkMessage {
     where
         A: WriteArchive, {
         archive.write_all(PROTOCOL_NAME.as_bytes())?;
-        archive.write_u16(PROTOCOL_VERSION)?;
-        archive.write_u64(get_current_stamp() as u64)?;
-        archive.write_u8(self.protocol_message_type() as u8)?;
+        PROTOCOL_VERSION.serialize(archive)?;
+        (get_current_stamp() as u64).serialize(archive)?;
+        (self.protocol_message_type() as u8).serialize(archive)?;
 
         // ATENTION: This constant is used on some validations **before** packet is
         // deserialized, so we should be completely sure that any updates on
@@ -113,8 +113,9 @@ impl Deserializable for NetworkMessage {
         archive.tag_slice(PROTOCOL_NAME.as_bytes())?;
         archive.tag(PROTOCOL_VERSION)?;
 
-        let timestamp: u64 = archive.read_u64()?;
-        let protocol_type: ProtocolMessageType = ProtocolMessageType::try_from(archive.read_u8()?)?;
+        let timestamp = u64::deserialize(archive)?;
+        let protocol_type: ProtocolMessageType =
+            ProtocolMessageType::try_from(u8::deserialize(archive)?)?;
         let message = match protocol_type {
             ProtocolMessageType::Request => {
                 let request = NetworkRequest::deserialize(archive)?;

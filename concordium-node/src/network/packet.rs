@@ -38,7 +38,7 @@ impl Serializable for NetworkPacketType {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(self.protocol_packet_type() as u8)?;
+        (self.protocol_packet_type() as u8).serialize(archive)?;
 
         match self {
             NetworkPacketType::DirectMessage(ref receiver) => receiver.serialize(archive),
@@ -51,14 +51,14 @@ impl Deserializable for NetworkPacketType {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkPacketType>
     where
         A: ReadArchive, {
-        let protocol_type = ProtocolPacketType::try_from(archive.read_u8()?)?;
-        let ptype = match protocol_type {
-            ProtocolPacketType::Direct => {
-                NetworkPacketType::DirectMessage(P2PNodeId::deserialize(archive)?)
-            }
-            ProtocolPacketType::Broadcast => NetworkPacketType::BroadcastedMessage,
-        };
-        Ok(ptype)
+        let protocol_type = ProtocolPacketType::try_from(u8::deserialize(archive)?)?;
+
+        match protocol_type {
+            ProtocolPacketType::Direct => Ok(NetworkPacketType::DirectMessage(
+                P2PNodeId::deserialize(archive)?,
+            )),
+            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage),
+        }
     }
 }
 
