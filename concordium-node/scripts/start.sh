@@ -108,7 +108,7 @@ then
     ARGS="$ARGS $EXTRA_ARGS"
 fi
 
-if [ -n "$ARTIFICIAL_DELAY"];
+if [ -n "$ARTIFICIAL_DELAY" ];
 then
     sleep $ARTIFICIAL_DELAY
 fi

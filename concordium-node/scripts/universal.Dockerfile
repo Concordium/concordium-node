@@ -1,4 +1,4 @@
-FROM archlinux/base
+FROM concordium/base
 COPY . /build-project
 WORKDIR /build-project
 COPY ./scripts/init.build.env.sh ./init.build.env.sh
@@ -6,12 +6,7 @@ COPY ./scripts/gen_data.sh ./gen_data.sh
 COPY ./scripts/start.sh ./start.sh
 COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN pacman -Sy && \
-    pacman -Syyu --noconfirm && \
-    pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
-        file which boost patch libunwind libdwarf elfutils unbound llvm --noconfirm && \
-    pacman -Scc --noconfirm && \
-    ./init.build.env.sh && \
+RUN ./init.build.env.sh && \
     # Regular build
     cargo build --features=instrumentation && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/testrunner /build-project/ && \
@@ -30,13 +25,14 @@ RUN pacman -Sy && \
     cargo clean && \
     rustup default stable  && \
     # Clean
-    rm -rf ~/.cargo && \
-    rm -rf .git deps src benches tests src && \
+    rm -rf ~/.cargo ~/.rustup && \
+    rm -rf deps src benches tests src concordium-common && \
     rm -rf scripts rustfmt.toml README.md p2p.capnp && \ 
     rm -rf init.build.env.sh .gitmodules .gitlab-ci.yml && \ 
-    rm -rf .gitignore .gitattributes .dockerignore dns && \
+    rm -rf .gitignore .gitattributes .dockerignore && \
     rm -rf consensus-sys Cargo.toml Cargo.lock build.rs && \
-    rm -rf build-all-docker.sh && \
+    rm -rf concordium-dns concordium-global-state && \
+    rm -rf scripts/build-all-docker.sh && \
     chmod +x ./start.sh
 EXPOSE 8950
 EXPOSE 8888
