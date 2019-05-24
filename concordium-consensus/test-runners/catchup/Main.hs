@@ -168,7 +168,7 @@ gsToString gs = intercalate "\\l" . map show $ keys
 
 main :: IO ()
 main = do
-    let n = 3
+    let n = 20
     let bns = [1..n]
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
