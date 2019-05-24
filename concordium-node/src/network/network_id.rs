@@ -22,7 +22,7 @@ impl Serializable for NetworkId {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u16(self.id)
+        self.id.serialize(archive)
     }
 }
 
@@ -31,6 +31,6 @@ impl Deserializable for NetworkId {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkId>
     where
         A: ReadArchive, {
-        Ok(NetworkId::from(archive.read_u16()?))
+        Ok(NetworkId::from(u16::deserialize(archive)?))
     }
 }

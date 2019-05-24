@@ -42,6 +42,24 @@ impl Serializable for u16 {
     }
 }
 
+impl Serializable for u32 {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u32(*self)
+    }
+}
+
+impl Serializable for u64 {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        archive.write_u64(*self)
+    }
+}
+
 impl Serializable for String {
     #[inline]
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
@@ -83,7 +101,7 @@ impl Serializable for Ipv4Addr {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(4u8)?;
+        4u8.serialize(archive)?;
         archive.write_all(&self.octets())?;
         Ok(())
     }
@@ -94,9 +112,9 @@ impl Serializable for Ipv6Addr {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(6u8)?;
+        6u8.serialize(archive)?;
         for segment in &self.segments() {
-            archive.write_u16(*segment)?;
+            (*segment).serialize(archive)?;
         }
         Ok(())
     }
@@ -119,7 +137,7 @@ impl Serializable for SocketAddr {
     where
         A: WriteArchive, {
         self.ip().serialize(archive)?;
-        archive.write_u16(self.port())
+        self.port().serialize(archive)
     }
 }
 
@@ -134,7 +152,7 @@ where
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u32(self.len() as u32)?;
+        (self.len() as u32).serialize(archive)?;
         self.iter()
             .map(|ref item| item.serialize(archive))
             .collect::<Fallible<()>>()
@@ -149,7 +167,7 @@ where
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u32(self.len() as u32)?;
+        (self.len() as u32).serialize(archive)?;
         self.iter()
             .map(|ref item| item.serialize(archive))
             .collect::<Fallible<()>>()
@@ -167,7 +185,7 @@ impl Serializable for UCursor {
         let mut self_from = self.sub(self.position())?;
         let self_from_len = self_from.len();
 
-        archive.write_u64(self_from_len)?;
+        self_from_len.serialize(archive)?;
         std::io::copy(&mut self_from, archive)?;
 
         Ok(())

@@ -43,7 +43,7 @@ impl Serializable for NetworkRequest {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(self.protocol_request_type() as u8)?;
+        (self.protocol_request_type() as u8).serialize(archive)?;
         match self {
             NetworkRequest::Ping(..) => Ok(()),
             NetworkRequest::FindNode(.., id) => id.serialize(archive),
@@ -59,7 +59,7 @@ impl Serializable for NetworkRequest {
                 zk.serialize(archive)
             }
             NetworkRequest::Retransmit(_, since_stamp, network_id) => {
-                archive.write_u64(*since_stamp)?;
+                (*since_stamp).serialize(archive)?;
                 network_id.serialize(archive)
             }
         }
@@ -70,7 +70,7 @@ impl Deserializable for NetworkRequest {
     fn deserialize<A>(archive: &mut A) -> Fallible<NetworkRequest>
     where
         A: ReadArchive, {
-        let protocol_type = ProtocolRequestType::try_from(archive.read_u8()?)?;
+        let protocol_type = ProtocolRequestType::try_from(u8::deserialize(archive)?)?;
         let remote_peer = archive.post_handshake_peer();
         let request = match protocol_type {
             ProtocolRequestType::Ping => NetworkRequest::Ping(remote_peer?),
@@ -99,7 +99,7 @@ impl Deserializable for NetworkRequest {
             }
             ProtocolRequestType::Retransmit => NetworkRequest::Retransmit(
                 remote_peer?,
-                archive.read_u64()?,
+                u64::deserialize(archive)?,
                 NetworkId::deserialize(archive)?,
             ),
         };
