@@ -541,12 +541,12 @@ fn send_catchup_request_block_by_hash_to_consensus(
     content: &[u8],
     direction: PacketDirection,
 ) -> Fallible<()> {
-    let hash = &content[..SHA256 as usize];
+    let hash = HashBytes::new(&content[..SHA256 as usize]);
     let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..DELTA_LENGTH as usize]);
 
     // extra debug
     if let Ok(skov) = SKOV_DATA.read() {
-        if skov.get_block_by_hash(&HashBytes::new(&hash)).is_some() {
+        if skov.get_block_by_hash(&hash).is_some() {
             info!("Peer {} here; I do have block {:?}", node.id(), hash);
         } else {
             error!("Can't obtain a read lock on Skov!");
@@ -575,7 +575,7 @@ fn send_catchup_request_block_by_hash_to_consensus(
             peer_id,
             network_id,
             |baker: &consensus::ConsensusContainer, _: &[u8]| -> Fallible<Vec<u8>> {
-                baker.get_block_by_delta(hash, delta)
+                baker.get_block_by_delta(&hash, delta)
             },
             direction,
         )
