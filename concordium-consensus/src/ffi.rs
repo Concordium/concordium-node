@@ -51,7 +51,7 @@ fn start_haskell_init() {
     //
     // It's safe to unwrap the CString here as program arguments can't
     // contain nul bytes.
-    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    use std::os::unix::ffi::OsStrExt;
     let args = ::std::env::args_os();
     let mut argv = Vec::with_capacity(args.len() + 1);
     args.map(|arg| {
@@ -304,16 +304,16 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &BakedBlock) -> i64 {
-        wrap_send_data_to_c!(self, peer_id, block.serialize(), receiveBlock)
+    pub fn send_block(&self, peer_id: PeerId, block: Bytes) -> i64 {
+        wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: &FinalizationMessage) {
-        wrap_send_data_to_c!(self, peer_id, msg.serialize(), receiveFinalization);
+    pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) {
+        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization);
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &FinalizationRecord) -> i64 {
-        wrap_send_data_to_c!(self, peer_id, rec.serialize(), receiveFinalizationRecord)
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
+        wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
