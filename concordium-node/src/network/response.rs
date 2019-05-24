@@ -33,7 +33,7 @@ impl Serializable for NetworkResponse {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(self.protocol_response_type() as u8)?;
+        (self.protocol_response_type() as u8).serialize(archive)?;
         match self {
             NetworkResponse::Pong(..) => Ok(()),
             NetworkResponse::FindNode(.., ref peers) | NetworkResponse::PeerList(.., ref peers) => {
@@ -53,7 +53,7 @@ impl Deserializable for NetworkResponse {
     where
         A: ReadArchive, {
         let remote_peer = archive.post_handshake_peer();
-        let protocol_type = ProtocolResponseType::try_from(archive.read_u8()?)?;
+        let protocol_type = ProtocolResponseType::try_from(u8::deserialize(archive)?)?;
         let response = match protocol_type {
             ProtocolResponseType::Pong => NetworkResponse::Pong(remote_peer?),
             ProtocolResponseType::FindNode => {

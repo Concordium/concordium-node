@@ -57,10 +57,11 @@ impl Serializable for PeerType {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u8(match self {
+        match self {
             PeerType::Node => PEER_TYPE_NODE,
             PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
-        })
+        }
+        .serialize(archive)
     }
 }
 
@@ -69,12 +70,11 @@ impl Deserializable for PeerType {
     fn deserialize<A>(archive: &mut A) -> Fallible<PeerType>
     where
         A: ReadArchive, {
-        let pt = match archive.read_u8()? {
-            PEER_TYPE_NODE => PeerType::Node,
-            PEER_TYPE_BOOTSTRAPPER => PeerType::Bootstrapper,
+        match u8::deserialize(archive)? {
+            PEER_TYPE_NODE => Ok(PeerType::Node),
+            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
             _ => bail!("Unsupported PeerType"),
-        };
-        Ok(pt)
+        }
     }
 }
 

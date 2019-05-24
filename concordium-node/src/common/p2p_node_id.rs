@@ -36,7 +36,7 @@ impl Serializable for P2PNodeId {
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_u64(self.0)
+        self.0.serialize(archive)
     }
 }
 
@@ -45,7 +45,7 @@ impl Deserializable for P2PNodeId {
     fn deserialize<A>(archive: &mut A) -> Fallible<P2PNodeId>
     where
         A: ReadArchive, {
-        Ok(P2PNodeId(archive.read_u64()?))
+        Ok(P2PNodeId(u64::deserialize(archive)?))
     }
 }
 
