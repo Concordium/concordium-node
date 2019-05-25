@@ -35,60 +35,79 @@ fi
 NIGHTLY_FMT_VERSION="nightly-2019-03-22"
 
 #####
-# Start up a testnet bootstrapper of instance id 1.
+# testnet_bootstrap and testnet_node can be run with
+# valgrind profiling by passing the name of the desired
+# tool (callgrind / massif / memcheck etc.) or "none"
+# for no profiling
+#####
+
+#####
+# Start up a testnet bootstrapper of instance id 1 and no profiling.
 #
-# testnet_bootstrap 1
+# testnet_bootstrap 1 none
 #
-# or for a debug edition
-#
-# testnet_bootstrap 1 --debug
+# the build determines the run mode (debug/release)
 #
 #####
 function testnet_bootstrap() {
-  if (( $# < 1 ))
+  if (( $# < 2 ))
     then
-    echo "Usage: testnet_bootstrap instanceid"
+    echo "Usage: testnet_bootstrap instanceid profiling"
     return 1
+  fi
+  if [ "$2" != 'none' ];
+    then
+      profiling="valgrind --tool="$2" "
+    else
+      profiling=""
   fi
   bootstrap_id=$1; shift
   (
-    cd $CONCORDIUM_P2P_DIR && \
-    cargo run --bin p2p_bootstrapper-cli -- \
+    cmd="${profiling}\
+      ./target/debug/p2p_bootstrapper-cli \
       --listen-port $((10900+$bootstrap_id)) \
-      --id $((9900000000000000+$bootstrap_id)) \
-      $@
+      --id $((9900000000000000+$bootstrap_id))"
+    cd $CONCORDIUM_P2P_DIR && eval "$cmd"
   )
 }
 
 #####
 # Start up a testnet node of instance id 1 connection
-# to 1 bootstrappers in the network.
+# to 1 bootstrappers in the network and with heap profiling.
 #
-# testnet_node 1 1
+# testnet_node 1 1 massif
 #
-# or for a debug edition
-#
-# testnet_node 1 1 --debug
+# the build determines the run mode (debug/release)
 #
 #####
 function testnet_node() {
-  if (( $# < 2 ))
+  if (( $# < 3 ))
   then
-    echo "Usage: testnet_node instanceid bootstrapper_count"
+    echo "Usage: testnet_node instanceid bootstrapper_count profiling"
     return 1
   elif (( $2 <1 ))
   then
     echo "bootstrappercount can't be less than 1"
     return 2
   fi
+  if [ "$3" != 'none' ];
+    then
+      profiling="valgrind --tool="$3" "
+    else
+      profiling=""
+  fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
   (
-    cmd="cargo run --bin p2p_client-cli -- --listen-port $((10800+$instanceid)) --id $((9800000000000000+$instanceid)) --rpc-server-port $((10000+$instanceid))"
+    cmd="${profiling}\
+      ./target/debug/p2p_client-cli \
+      --listen-port $((10800+$instanceid)) \
+      --id $((9800000000000000+$instanceid))\
+      --rpc-server-port $((10000+$instanceid))"
     for n ({1..$bootstrappercount})
-    do
-      cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
-    done
+      do
+        cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
+      done
     cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
   )
 }
