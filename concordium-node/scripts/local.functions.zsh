@@ -99,10 +99,10 @@ function testnet_node() {
   if [ "$3" != 'none' ];
     then
       profiling="valgrind --tool="$3" "
-      binary="./target/debug/p2p_bootstrapper-cli"
+      binary="./target/debug/p2p_client-cli"
     else
       profiling=""
-      binary="cargo run --bin p2p_bootstrapper-cli --"
+      binary="cargo run --bin p2p_client-cli --"
   fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
