@@ -47,6 +47,8 @@ NIGHTLY_FMT_VERSION="nightly-2019-03-22"
 # testnet_bootstrap 1 none
 #
 # the build determines the run mode (debug/release)
+# (if running with profiling the built binary is used, but otherwise it's
+# rebuilt with cargo every run)
 #
 #####
 function testnet_bootstrap() {
@@ -58,13 +60,15 @@ function testnet_bootstrap() {
   if [ "$2" != 'none' ];
     then
       profiling="valgrind --tool="$2" "
+      binary="./target/debug/p2p_bootstrapper-cli"
     else
       profiling=""
+      binary="cargo run --bin p2p_bootstrapper-cli --"
   fi
   bootstrap_id=$1; shift
   (
     cmd="${profiling}\
-      ./target/debug/p2p_bootstrapper-cli \
+       $binary \
       --listen-port $((10900+$bootstrap_id)) \
       --id $((9900000000000000+$bootstrap_id))"
     cd $CONCORDIUM_P2P_DIR && eval "$cmd"
@@ -78,6 +82,8 @@ function testnet_bootstrap() {
 # testnet_node 1 1 massif
 #
 # the build determines the run mode (debug/release)
+# (if running with profiling the built binary is used, but otherwise it's
+# rebuilt with cargo every run)
 #
 #####
 function testnet_node() {
@@ -93,14 +99,16 @@ function testnet_node() {
   if [ "$3" != 'none' ];
     then
       profiling="valgrind --tool="$3" "
+      binary="./target/debug/p2p_client-cli"
     else
       profiling=""
+      binary="cargo run --bin p2p_bootstrapper-cli --"
   fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
   (
     cmd="${profiling}\
-      ./target/debug/p2p_client-cli \
+       $binary \
       --listen-port $((10800+$instanceid)) \
       --id $((9800000000000000+$instanceid))\
       --rpc-server-port $((10000+$instanceid))"
