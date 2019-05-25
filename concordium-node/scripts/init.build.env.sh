@@ -6,6 +6,7 @@
   cp target/release/libeddsa_ed25519.so /usr/local/lib &&
   cp target/release/libdodis_yampolskiy_prf.so /usr/local/lib &&
   cp target/release/libpedersen_scheme.so /usr/local/lib &&
+  cp target/release/libelgamal.so /usr/local/lib &&
   cp target/release/libsha_2.so /usr/local/lib && cargo clean)
 
 ( cd deps/internal/consensus && 
