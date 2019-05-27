@@ -40,7 +40,7 @@ use p2p_client::{
     db::P2PDB,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
-        NetworkResponse,
+        NetworkResponse, packet::MessageId,
     },
     p2p::*,
     rpc::RpcServerImpl,
@@ -808,7 +808,7 @@ fn _send_retransmit_packet(
     node: &mut P2PNode,
     receiver: P2PNodeId,
     network_id: NetworkId,
-    message_id: &str,
+    message_id: &MessageId,
     payload_type: u16,
     data: &[u8],
 ) {

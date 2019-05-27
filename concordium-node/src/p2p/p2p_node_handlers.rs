@@ -91,7 +91,7 @@ fn is_message_already_seen(
 ) -> bool {
     if seen_messages.contains(&pac.message_id) {
         trace!(
-            "{} {}/{}/{}",
+            "{} {}/{}/{:?}",
             drop_message,
             pac.peer.id().to_string(),
             pac.network_id,
@@ -127,7 +127,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
             if blind_trust_broadcast {
                 if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                     debug!(
-                        "Peer {} is rebroadcasting a message {} from {}",
+                        "Peer {} is rebroadcasting a message {:?} from {}",
                         own_id,
                         pac.message_id,
                         pac.peer.id()

@@ -1,6 +1,6 @@
 use crate::common::{fails::InvalidIpType, serialization::ReadArchive};
 
-use concordium_common::UCursor;
+use concordium_common::{HashBytes, UCursor};
 use failure::{bail, err_msg, Fallible};
 
 use std::{
@@ -132,14 +132,14 @@ impl Deserializable for SocketAddr {
     }
 }
 
-impl Deserializable for String {
+impl Deserializable for HashBytes {
     #[inline]
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
         let len = u32::deserialize(archive)?;
         let vw = archive.read_n_bytes(len)?;
-        Ok(std::str::from_utf8(vw.as_slice())?.to_owned())
+        Ok(HashBytes::new(vw.as_slice()))
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
     crypto,
     network::{
         Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
+        NetworkRequest, NetworkResponse, packet::MessageId,
     },
     p2p::{
         banned_nodes::BannedNode,
@@ -935,7 +935,7 @@ impl P2PNode {
         &mut self,
         id: Option<P2PNodeId>,
         network_id: NetworkId,
-        msg_id: Option<String>,
+        msg_id: Option<MessageId>,
         msg: Vec<u8>,
         broadcast: bool,
     ) -> Fallible<()> {
@@ -947,7 +947,7 @@ impl P2PNode {
         &mut self,
         id: Option<P2PNodeId>,
         network_id: NetworkId,
-        msg_id: Option<String>,
+        msg_id: Option<MessageId>,
         msg: UCursor,
         broadcast: bool,
     ) -> Fallible<()> {

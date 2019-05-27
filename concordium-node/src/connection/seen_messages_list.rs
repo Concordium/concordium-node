@@ -1,3 +1,5 @@
+use crate::network::packet::MessageId;
+
 use std::{
     collections::VecDeque,
     sync::{Arc, RwLock},
@@ -5,7 +7,7 @@ use std::{
 
 #[derive(Default, Debug, Clone)]
 pub struct SeenMessagesList {
-    seen_msgs:            Arc<RwLock<VecDeque<String>>>,
+    seen_msgs:            Arc<RwLock<VecDeque<MessageId>>>,
     message_ids_retained: usize,
 }
 
@@ -19,16 +21,16 @@ impl SeenMessagesList {
         }
     }
 
-    pub fn contains(&self, msgid: &str) -> bool {
+    pub fn contains(&self, msgid: &MessageId) -> bool {
         if let Ok(ref mut list) = safe_read!(self.seen_msgs) {
-            return list.contains(&msgid.to_owned());
+            return list.contains(msgid);
         }
         false
     }
 
-    pub fn append(&self, msgid: &str) -> bool {
+    pub fn append(&self, msgid: &MessageId) -> bool {
         if let Ok(ref mut list) = safe_write!(self.seen_msgs) {
-            if !list.contains(&msgid.to_owned()) {
+            if !list.contains(msgid) {
                 if list.len() >= self.message_ids_retained {
                     list.pop_front();
                 }
