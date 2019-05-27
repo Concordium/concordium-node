@@ -27,7 +27,7 @@ use concordium_global_state::{
     finalization::{FinalizationMessage, FinalizationRecord},
 };
 use env_logger::{Builder, Env};
-use failure::Fallible;
+use failure::{bail, Fallible};
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -538,6 +538,22 @@ fn main() -> Fallible<()> {
     if conf.common.print_config {
         // Print out the configuration
         info!("{:?}", conf);
+    }
+
+    if conf.connection.max_allowed_nodes_percentage < 100 {
+        bail!(
+            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+             nodes to less than the desired nodes is set to"
+        );
+    }
+
+    if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
+        if max_allowed_nodes < conf.connection.desired_nodes {
+            bail!(
+                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
+                 must be greater or equal to desired amounnt of nodes"
+            );
+        }
     }
 
     // Retrieving bootstrap nodes

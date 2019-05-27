@@ -103,6 +103,16 @@ then
     ARGS="$ARGS --listen-http-port $LISTEN_HTTP_PORT"
 fi
 
+if [ -n "$MAX_ALLOWED_NODES" ];
+then
+    ARGS="$ARGS --max-allowed-nodes $MAX_NODES"
+fi
+
+if [ -n "$MAX_ALLOWED_NODES_PERCENTAGE" ];
+then
+    ARGS="$ARGS --max-allowed-nodes-percentage $MAX_NODES_PERCENTAGE"
+fi
+
 if [ -n "$EXTRA_ARGS" ];
 then
     ARGS="$ARGS $EXTRA_ARGS"

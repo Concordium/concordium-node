@@ -45,6 +45,7 @@ pub struct TlsServerBuilder {
     stats_export_service:    Option<Arc<RwLock<StatsExportService>>>,
     blind_trusted_broadcast: Option<bool>,
     networks:                Option<HashSet<NetworkId>>,
+    max_allowed_peers:       Option<u16>,
 }
 
 impl Default for TlsServerBuilder {
@@ -63,6 +64,7 @@ impl TlsServerBuilder {
             stats_export_service:    None,
             blind_trusted_broadcast: None,
             networks:                None,
+            max_allowed_peers:       None,
         }
     }
 
@@ -75,6 +77,7 @@ impl TlsServerBuilder {
             Some(self_peer),
             Some(buckets),
             Some(blind_trusted_broadcast),
+            Some(max_allowed_peers),
         ) = (
             self.networks,
             self.server,
@@ -83,6 +86,7 @@ impl TlsServerBuilder {
             self.self_peer,
             self.buckets,
             self.blind_trusted_broadcast,
+            self.max_allowed_peers,
         ) {
             let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
                 networks,
@@ -103,6 +107,7 @@ impl TlsServerBuilder {
                 blind_trusted_broadcast,
                 prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
                 dump_tx: None,
+                max_allowed_peers,
             };
 
             mself.add_default_prehandshake_validations();
@@ -160,6 +165,11 @@ impl TlsServerBuilder {
         self.networks = Some(n);
         self
     }
+
+    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> TlsServerBuilder {
+        self.max_allowed_peers = Some(max_allowed_peers);
+        self
+    }
 }
 
 pub struct TlsServer {
@@ -176,6 +186,7 @@ pub struct TlsServer {
     blind_trusted_broadcast:  bool,
     prehandshake_validations: PreHandshake,
     dump_tx:                  Option<Sender<crate::dumper::DumpItem>>,
+    max_allowed_peers:        u16,
 }
 
 impl TlsServer {
@@ -237,6 +248,16 @@ impl TlsServer {
             bail!(e);
         }
 
+        if self_peer.peer_type() == PeerType::Node {
+            let current_peer_count = read_or_die!(self.dptr).connections_count();
+            if current_peer_count > self.max_allowed_peers {
+                bail!(fails::MaxmimumAmountOfPeers {
+                    max_allowed_peers: self.max_allowed_peers,
+                    number_of_peers:   current_peer_count,
+                });
+            }
+        }
+
         self.log_event(P2PEvent::ConnectEvent(addr));
 
         let tls_session = ServerSession::new(&self.server_tls_config);
@@ -279,6 +300,16 @@ impl TlsServer {
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
     ) -> Fallible<()> {
+        if peer_type == PeerType::Node {
+            let current_peer_count = read_or_die!(self.dptr).connections_count();
+            if current_peer_count > self.max_allowed_peers {
+                bail!(fails::MaxmimumAmountOfPeers {
+                    max_allowed_peers: self.max_allowed_peers,
+                    number_of_peers:   current_peer_count,
+                });
+            }
+        }
+
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
             error!("Node marked as unreachable, so not allowing the connection");
             bail!(fails::UnreachablePeerError);

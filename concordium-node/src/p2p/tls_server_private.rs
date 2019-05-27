@@ -61,6 +61,12 @@ impl TlsServerPrivate {
         }
     }
 
+    pub fn connections_count(&self) -> u16 {
+        // We will never have more than 2^16 connections per node, so this conversion is
+        // safe.
+        self.connections.len() as u16
+    }
+
     /// Adds a new node to the banned list and marks its connection for closure
     pub fn ban_node(&mut self, peer: BannedNode) -> bool {
         if self.banned_peers.borrow_mut().insert(peer) {
