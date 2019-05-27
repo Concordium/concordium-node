@@ -542,8 +542,8 @@ fn main() -> Fallible<()> {
 
     if conf.connection.max_allowed_nodes_percentage < 100 {
         bail!(
-            "Can't provide a lower percentage than 100, as that would limit max amount of nodes \
-             to less than desired nodes is set to"
+            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+             nodes to less than the desired nodes is set to"
         );
     }
 

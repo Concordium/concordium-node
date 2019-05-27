@@ -253,7 +253,7 @@ impl TlsServer {
             if current_peer_count > self.max_allowed_peers {
                 bail!(fails::MaxmimumAmountOfPeers {
                     max_allowed_peers: self.max_allowed_peers,
-                    amount_of_peers:   current_peer_count,
+                    number_of_peers:   current_peer_count,
                 });
             }
         }
@@ -305,7 +305,7 @@ impl TlsServer {
             if current_peer_count > self.max_allowed_peers {
                 bail!(fails::MaxmimumAmountOfPeers {
                     max_allowed_peers: self.max_allowed_peers,
-                    amount_of_peers:   current_peer_count,
+                    number_of_peers:   current_peer_count,
                 });
             }
         }

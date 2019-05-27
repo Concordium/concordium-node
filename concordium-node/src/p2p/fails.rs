@@ -51,10 +51,10 @@ pub struct MissingFieldsOnTlsServerBuilder;
 #[derive(Debug, Fail)]
 #[fail(
     display = "Maximum amount of peers reached {}/{}",
-    amount_of_peers, max_allowed_peers
+    number_of_peers, max_allowed_peers
 )]
 pub struct MaxmimumAmountOfPeers {
-    pub amount_of_peers:   u16,
+    pub number_of_peers:   u16,
     pub max_allowed_peers: u16,
 }
 
