@@ -72,7 +72,7 @@ pub struct P2PNodeConfig {
     bootstrap_node:          Vec<String>,
     minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
-    max_nodes:               u16,
+    max_allowed_nodes:       u16,
 }
 
 #[derive(Default)]
@@ -264,26 +264,6 @@ impl P2PNode {
         #[cfg(feature = "network_dump")]
         create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
 
-        let networks: HashSet<NetworkId> = conf
-            .common
-            .network_ids
-            .iter()
-            .cloned()
-            .map(NetworkId::from)
-            .collect();
-        let tlsserv = TlsServerBuilder::new()
-            .set_server(server)
-            .set_server_tls_config(Arc::new(server_conf))
-            .set_client_tls_config(Arc::new(client_conf))
-            .set_event_log(event_log)
-            .set_stats_export_service(stats_export_service.clone())
-            .set_blind_trusted_broadcast(conf.connection.no_trust_broadcasts)
-            .set_self_peer(self_peer)
-            .set_networks(networks)
-            .set_buckets(Arc::new(RwLock::new(Buckets::new())))
-            .build()
-            .expect("P2P Node creation couldn't create a Tls Server");
-
         let config = P2PNodeConfig {
             no_net:                  conf.cli.no_network,
             desired_nodes_count:     conf.connection.desired_nodes,
@@ -297,15 +277,36 @@ impl P2PNode {
             bootstrap_node:          conf.connection.bootstrap_node.clone(),
             minimum_per_bucket:      conf.common.min_peers_bucket,
             blind_trusted_broadcast: !conf.connection.no_trust_broadcasts,
-            max_nodes:               if let Some(max) = conf.connection.max_nodes {
+            max_allowed_nodes:       if let Some(max) = conf.connection.max_allowed_nodes {
                 u16::from(max)
             } else {
                 f64::floor(
                     f64::from(conf.connection.desired_nodes)
-                        * (f64::from(conf.connection.max_nodes_percentage) / 100f64),
+                        * (f64::from(conf.connection.max_allowed_nodes_percentage) / 100f64),
                 ) as u16
             },
         };
+
+        let networks: HashSet<NetworkId> = conf
+            .common
+            .network_ids
+            .iter()
+            .cloned()
+            .map(NetworkId::from)
+            .collect();
+        let tlsserv = TlsServerBuilder::new()
+            .set_server(server)
+            .set_server_tls_config(Arc::new(server_conf))
+            .set_client_tls_config(Arc::new(client_conf))
+            .set_max_allowed_peers(config.max_allowed_nodes)
+            .set_event_log(event_log)
+            .set_stats_export_service(stats_export_service.clone())
+            .set_blind_trusted_broadcast(conf.connection.no_trust_broadcasts)
+            .set_self_peer(self_peer)
+            .set_networks(networks)
+            .set_buckets(Arc::new(RwLock::new(Buckets::new())))
+            .build()
+            .expect("P2P Node creation couldn't create a Tls Server");
 
         let (send_queue_in, send_queue_out) = channel();
 

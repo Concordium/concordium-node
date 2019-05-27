@@ -540,11 +540,20 @@ fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    if conf.connection.max_nodes_percentage < 100 {
+    if conf.connection.max_allowed_nodes_percentage < 100 {
         bail!(
             "Can't provide a lower percentage than 100, as that would limit max amount of nodes \
              to less than desired nodes is set to"
         );
+    }
+
+    if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
+        if max_allowed_nodes < conf.connection.desired_nodes {
+            bail!(
+                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
+                 must be greater or equal to desired amounnt of nodes"
+            );
+        }
     }
 
     // Retrieving bootstrap nodes

@@ -45,7 +45,7 @@ pub struct TlsServerBuilder {
     stats_export_service:    Option<Arc<RwLock<StatsExportService>>>,
     blind_trusted_broadcast: Option<bool>,
     networks:                Option<HashSet<NetworkId>>,
-    max_peers:               Option<u16>,
+    max_allowed_peers:       Option<u16>,
 }
 
 impl Default for TlsServerBuilder {
@@ -64,7 +64,7 @@ impl TlsServerBuilder {
             stats_export_service:    None,
             blind_trusted_broadcast: None,
             networks:                None,
-            max_peers:               None,
+            max_allowed_peers:       None,
         }
     }
 
@@ -77,7 +77,7 @@ impl TlsServerBuilder {
             Some(self_peer),
             Some(buckets),
             Some(blind_trusted_broadcast),
-            Some(max_peers),
+            Some(max_allowed_peers),
         ) = (
             self.networks,
             self.server,
@@ -86,7 +86,7 @@ impl TlsServerBuilder {
             self.self_peer,
             self.buckets,
             self.blind_trusted_broadcast,
-            self.max_peers,
+            self.max_allowed_peers,
         ) {
             let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
                 networks,
@@ -107,7 +107,7 @@ impl TlsServerBuilder {
                 blind_trusted_broadcast,
                 prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
                 dump_tx: None,
-                max_peers,
+                max_allowed_peers,
             };
 
             mself.add_default_prehandshake_validations();
@@ -166,8 +166,8 @@ impl TlsServerBuilder {
         self
     }
 
-    pub fn set_max_peers(mut self, max_peers: u16) -> TlsServerBuilder {
-        self.max_peers = Some(max_peers);
+    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> TlsServerBuilder {
+        self.max_allowed_peers = Some(max_allowed_peers);
         self
     }
 }
@@ -186,7 +186,7 @@ pub struct TlsServer {
     blind_trusted_broadcast:  bool,
     prehandshake_validations: PreHandshake,
     dump_tx:                  Option<Sender<crate::dumper::DumpItem>>,
-    max_peers:                u16,
+    max_allowed_peers:        u16,
 }
 
 impl TlsServer {
@@ -250,10 +250,10 @@ impl TlsServer {
 
         if self_peer.peer_type() == PeerType::Node {
             let current_peer_count = read_or_die!(self.dptr).connections_count();
-            if current_peer_count <= self.max_peers {
+            if current_peer_count > self.max_allowed_peers {
                 bail!(fails::MaxmimumAmountOfPeers {
-                    max_peers:       self.max_peers,
-                    amount_of_peers: current_peer_count,
+                    max_allowed_peers: self.max_allowed_peers,
+                    amount_of_peers:   current_peer_count,
                 });
             }
         }
@@ -302,10 +302,10 @@ impl TlsServer {
     ) -> Fallible<()> {
         if peer_type == PeerType::Node {
             let current_peer_count = read_or_die!(self.dptr).connections_count();
-            if current_peer_count <= self.max_peers {
+            if current_peer_count > self.max_allowed_peers {
                 bail!(fails::MaxmimumAmountOfPeers {
-                    max_peers:       self.max_peers,
-                    amount_of_peers: current_peer_count,
+                    max_allowed_peers: self.max_allowed_peers,
+                    amount_of_peers:   current_peer_count,
                 });
             }
         }
