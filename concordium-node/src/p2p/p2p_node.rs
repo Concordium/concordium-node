@@ -827,7 +827,7 @@ impl P2PNode {
                         &data,
                         &filter,
                         &check_sent_status_fn,
-                    ) <= 1
+                    ) >= 1
                 }
                 NetworkPacketType::BroadcastedMessage => {
                     let filter = |conn: &Connection| {
