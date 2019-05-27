@@ -72,6 +72,7 @@ pub struct P2PNodeConfig {
     bootstrap_node:          Vec<String>,
     minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
+    max_nodes:               u16,
 }
 
 #[derive(Default)]
@@ -296,6 +297,14 @@ impl P2PNode {
             bootstrap_node:          conf.connection.bootstrap_node.clone(),
             minimum_per_bucket:      conf.common.min_peers_bucket,
             blind_trusted_broadcast: !conf.connection.no_trust_broadcasts,
+            max_nodes:               if let Some(max) = conf.connection.max_nodes {
+                u16::from(max)
+            } else {
+                f64::floor(
+                    f64::from(conf.connection.desired_nodes)
+                        * (f64::from(conf.connection.max_nodes_percentage) / 100f64),
+                ) as u16
+            },
         };
 
         let (send_queue_in, send_queue_out) = channel();

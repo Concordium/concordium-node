@@ -149,6 +149,15 @@ pub struct ConnectionConfig {
         default_value = "50"
     )]
     pub desired_nodes: u8,
+    #[structopt(long = "max-nodes", help = "Maximum nodes to allow a connection to")]
+    pub max_nodes: Option<u8>,
+    #[structopt(
+        long = "max-nodes-percentage",
+        help = "Maximum nodes to allow a connection to is set as a percentage of desired-nodes \
+                (minimum 100, to set it to desired-nodes",
+        default_value = "150"
+    )]
+    pub max_nodes_percentage: u16,
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_bootstrap_dns: bool,
     #[structopt(

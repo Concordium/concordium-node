@@ -49,6 +49,16 @@ pub struct BannedNodeRequestedConnectionError;
 pub struct MissingFieldsOnTlsServerBuilder;
 
 #[derive(Debug, Fail)]
+#[fail(
+    display = "Maximum amount of peers reached {}/{}",
+    amount_of_peers, max_peers
+)]
+pub struct MaxmimumAmountOfPeers {
+    pub amount_of_peers: u16,
+    pub max_peers:       u16,
+}
+
+#[derive(Debug, Fail)]
 #[fail(display = "Thread join error")]
 pub struct JoinError {
     #[fail(cause)]
