@@ -1146,7 +1146,7 @@ impl P2PNode {
         {
             let tls_ref = read_or_die!(self.tls_server);
             let mut poll_ref = write_or_die!(self.poll);
-            tls_ref.cleanup_connections(&mut poll_ref)?;
+            tls_ref.cleanup_connections(self.config.max_allowed_nodes, &mut poll_ref)?;
         }
 
         trace!("Processing new outbound messages");
