@@ -2,6 +2,7 @@
 module Concordium.Runner where
 
 import Control.Concurrent.Chan
+import Control.Concurrent.MVar
 import Control.Concurrent
 import Control.Monad.State.Class
 import Control.Monad.Writer.Class
@@ -21,6 +22,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
+import Concordium.Skov.Update (execFSM', FSM')
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 
@@ -48,12 +50,12 @@ makeRunner logm bkr gen initBS = do
             finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
             sfs = initialSkovFinalizationState finInst gen initBS
         out <- newIORef sfs
-        _ <- forkIO $ runLoggerT (execFSM (msgLoop inChan outChan out 0 MsgTimer) finInst gen initBS) logm
+        _ <- forkIO $ runLoggerT (execFSM' (msgLoop inChan outChan out 0 MsgTimer) finInst gen initBS) logm
         return (inChan, outChan, out)
     where
-        updateFinState :: IORef SkovFinalizationState -> FSM LogIO ()
+        updateFinState :: IORef SkovFinalizationState -> FSM' LogIO ()
         updateFinState out = get >>= liftIO . writeIORef out
-        msgLoop :: Chan (InMessage source) -> Chan (OutMessage source) -> IORef SkovFinalizationState -> Slot -> (InMessage source) -> FSM LogIO ()
+        msgLoop :: Chan (InMessage source) -> Chan (OutMessage source) -> IORef SkovFinalizationState -> Slot -> (InMessage source) -> FSM' LogIO ()
         msgLoop _ _ _ _ MsgShutdown = return ()
         msgLoop inChan outChan out lastBake MsgTimer = do
             cs <- getCurrentSlot
@@ -80,7 +82,7 @@ makeRunner logm bkr gen initBS = do
         msgLoop inChan outChan out lastBake (MsgFinalizationRecordReceived src fr) = do
             handleMessages outChan out src $ finalizeBlock fr
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake    
-        handleMessages :: Chan (OutMessage source) -> IORef SkovFinalizationState -> source -> FSM LogIO r -> FSM LogIO r
+        handleMessages :: Chan (OutMessage source) -> IORef SkovFinalizationState -> source -> FSM' LogIO r -> FSM' LogIO r
         handleMessages outChan out src a = censor (const (Endo id)) $ do
             (r, Endo evs) <- listen a
             updateFinState out
@@ -91,7 +93,7 @@ makeRunner logm bkr gen initBS = do
                 handleMessage (SkovMissingFinalization fr) = liftIO $ writeChan outChan (MsgMissingFinalization src fr)
             forM_ (evs []) handleMessage
             return r
-        handleMessagesNoSource :: Chan (OutMessage source) -> IORef SkovFinalizationState -> FSM LogIO r -> FSM LogIO r
+        handleMessagesNoSource :: Chan (OutMessage source) -> IORef SkovFinalizationState -> FSM' LogIO r -> FSM' LogIO r
         handleMessagesNoSource outChan out a = censor (const (Endo id)) $ do
             (r, Endo evs) <- listen a
             updateFinState out
@@ -101,3 +103,38 @@ makeRunner logm bkr gen initBS = do
                 handleMessage _ = return ()
             forM_ (evs []) handleMessage
             return r
+
+{-
+data SyncRunner = SyncRunner {
+    syncState :: MVar SkovFinalizationState,
+    syncBakerThread :: MVar ThreadId,
+    syncLogMethod :: LogMethod IO
+}
+
+data SimpleOutMessage
+    = SOMsgNewBlock BakedBlock
+    | SOMsgFinalization FinalizationMessage
+    | SOMsgFinalizationRecord FinalizationRecord
+
+runWithStateLog :: MVar SkovFinalizationState -> LogMethod IO -> FSM LogIO a -> IO a
+runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar mvState) $ \state ->
+        runLoggerT 
+
+makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (FSM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
+makeSyncRunner syncLogMethod bkr gen initBS bakerCallback = do
+        let
+            finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
+            sfs = initialSkovFinalizationState finInst gen initBS
+        syncState <- newMVar sfs
+        let
+            runBaker = bakeLoop `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
+            bakeLoop = do
+                curSfs <- takeMVar syncState
+                runLoggerT syncLogMethod 
+        syncBakerThread <- newEmptyMVar
+    where
+        runBaker mvState = bakeLoop `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
+            where
+                bakeLoop
+
+ -}
