@@ -108,6 +108,11 @@ then
     ARGS="$ARGS $EXTRA_ARGS"
 fi
 
+if [ -n "$MAX_NODES_PERCENTAGE" ];
+then
+    ARGS="$ARGS --max-nodes-percentage $MAX_NODES_PERCENTAGE"
+fi
+
 if [ -n "$ARTIFICIAL_DELAY" ];
 then
     sleep $ARTIFICIAL_DELAY
