@@ -425,7 +425,7 @@ fn setup_process_output(
     let mut node_ref = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         loop {
-            match SKOV_QUEUE.clone().recv_request() {
+            match SKOV_QUEUE.recv_request() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
                     let source = request.source.unwrap_or_else(|| node_ref.id().0);
 

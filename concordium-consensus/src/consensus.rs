@@ -156,18 +156,14 @@ fn handle_recv_block(baked_block: &Bytes) -> Fallible<()> {
     let pending_block = PendingBlock::new(baked_block)?;
     let request_body = SkovReqBody::AddBlock(pending_block);
 
-    SKOV_QUEUE
-        .clone()
-        .send_request(SkovReq::new(None, request_body, None))
+    SKOV_QUEUE.send_request(SkovReq::new(None, request_body, None))
 }
 
 fn handle_recv_finalization_record(record: &Bytes) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(record)?;
     let request_body = SkovReqBody::AddFinalizationRecord(record);
 
-    SKOV_QUEUE
-        .clone()
-        .send_request(SkovReq::new(None, request_body, None))
+    SKOV_QUEUE.send_request(SkovReq::new(None, request_body, None))
 }
 
 #[cfg(test)]

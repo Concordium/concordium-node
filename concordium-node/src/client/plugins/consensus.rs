@@ -193,7 +193,7 @@ pub fn handle_pkt_out(
         if let Some(body) = request_body {
             let request = SkovReq::new(Some(peer_id.0), body, Some(content.clone()));
 
-            SKOV_QUEUE.clone().send_request(request)?;
+            SKOV_QUEUE.send_request(request)?;
         }
 
         send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
