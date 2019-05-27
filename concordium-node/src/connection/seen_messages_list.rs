@@ -5,17 +5,17 @@ use std::{
 
 #[derive(Default, Debug, Clone)]
 pub struct SeenMessagesList {
-    seen_msgs: Arc<RwLock<VecDeque<String>>>,
+    seen_msgs:            Arc<RwLock<VecDeque<String>>>,
+    message_ids_retained: usize,
 }
 
-const MAX_MESSAGE_SEEN_LIST: u16 = 20000;
-
 impl SeenMessagesList {
-    pub fn new() -> Self {
+    pub fn new(message_ids_retained: usize) -> Self {
         SeenMessagesList {
             seen_msgs: Arc::new(RwLock::new(VecDeque::with_capacity(
-                MAX_MESSAGE_SEEN_LIST as usize / 10,
+                message_ids_retained / 10,
             ))),
+            message_ids_retained,
         }
     }
 
@@ -29,7 +29,7 @@ impl SeenMessagesList {
     pub fn append(&self, msgid: &str) -> bool {
         if let Ok(ref mut list) = safe_write!(self.seen_msgs) {
             if !list.contains(&msgid.to_owned()) {
-                if list.len() >= MAX_MESSAGE_SEEN_LIST as usize {
+                if list.len() >= self.message_ids_retained {
                     list.pop_front();
                 }
                 list.push_back(msgid.to_owned());

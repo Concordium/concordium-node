@@ -196,6 +196,12 @@ pub struct ConnectionConfig {
         default_value = "/etc/resolv.conf"
     )]
     pub resolv_conf: String,
+    #[structopt(
+        long = "gossip-seen-message-ids-size",
+        help = "Size of kept history of seen message ids when gossiping",
+        default_value = "1000"
+    )]
+    pub gossip_seen_message_ids_size: usize,
 }
 
 #[derive(StructOpt, Debug)]

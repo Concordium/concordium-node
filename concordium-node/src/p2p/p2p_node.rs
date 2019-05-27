@@ -255,7 +255,7 @@ impl P2PNode {
 
         let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(own_peer_ip, own_peer_port));
 
-        let seen_messages = SeenMessagesList::new();
+        let seen_messages = SeenMessagesList::new(conf.connection.gossip_seen_message_ids_size);
 
         let (dump_tx, _dump_rx) = std::sync::mpsc::channel();
 
