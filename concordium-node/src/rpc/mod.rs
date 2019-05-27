@@ -993,37 +993,40 @@ impl P2P for RpcServerImpl {
                 req.directory.clone(),
             );
             let _node_list = locked_node.get_peer_stats(&[network_id]);
-            while _node_list.is_empty() {
-                std::thread::yield_now();
-                let _node_list = locked_node.get_peer_stats(&[network_id]);
+            if _node_list.into_iter().filter(|s| s.id == id).count() <= 0 {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::FailedPrecondition,
+                    Some("I don't have the required peers!".to_string()),
+                ))
+            } else {
+                let test_messages = utils::get_tps_test_messages(Some(dir));
+                let mut r: SuccessResponse = SuccessResponse::new();
+                let result = test_messages
+                    .iter()
+                    .map(|message| {
+                        let out_bytes_len = message.len();
+                        let to_send = P2PNodeId::from_str(&id).ok();
+                        match locked_node.send_message(
+                            to_send,
+                            network_id,
+                            None,
+                            message.to_vec(),
+                            false,
+                        ) {
+                            Ok(_) => {
+                                info!("Sent TPS test bytes of len {}", out_bytes_len);
+                                Ok(())
+                            }
+                            Err(_) => {
+                                error!("Couldn't send TPS test message!");
+                                Err(())
+                            }
+                        }
+                    })
+                    .collect::<Result<Vec<()>, ()>>();
+                r.set_value(result.is_ok());
+                sink.success(r)
             }
-            let test_messages = utils::get_tps_test_messages(Some(dir));
-            let mut r: SuccessResponse = SuccessResponse::new();
-            let result = test_messages
-                .iter()
-                .map(|message| {
-                    let out_bytes_len = message.len();
-                    let to_send = P2PNodeId::from_str(&id).ok();
-                    match locked_node.send_message(
-                        to_send,
-                        network_id,
-                        None,
-                        message.to_vec(),
-                        false,
-                    ) {
-                        Ok(_) => {
-                            info!("Sent TPS test bytes of len {}", out_bytes_len);
-                            Ok(())
-                        }
-                        Err(_) => {
-                            error!("Couldn't send TPS test message!");
-                            Err(())
-                        }
-                    }
-                })
-                .collect::<Result<Vec<()>, ()>>();
-            r.set_value(result.is_ok());
-            sink.success(r)
         } else {
             sink.fail(grpcio::RpcStatus::new(
                 grpcio::RpcStatusCode::ResourceExhausted,
