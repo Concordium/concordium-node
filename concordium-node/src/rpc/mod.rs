@@ -993,15 +993,15 @@ impl P2P for RpcServerImpl {
                 req.directory.clone(),
             );
             let _node_list = locked_node.get_peer_stats(&[network_id]);
-            while _node_list.is_empty() {
-                std::thread::yield_now();
-                let _node_list = locked_node.get_peer_stats(&[network_id]);
-            }
-            let test_messages = utils::get_tps_test_messages(Some(dir));
-            let mut r: SuccessResponse = SuccessResponse::new();
-            let result = test_messages
-                .iter()
-                .map(|message| {
+            if !_node_list.into_iter().any(|s| s.id == id) {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::FailedPrecondition,
+                    Some("I don't have the required peers!".to_string()),
+                ))
+            } else {
+                let test_messages = utils::get_tps_test_messages(Some(dir));
+                let mut r: SuccessResponse = SuccessResponse::new();
+                let result = !(test_messages.iter().map(|message| {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
                     match locked_node.send_message(
@@ -1020,10 +1020,11 @@ impl P2P for RpcServerImpl {
                             Err(())
                         }
                     }
-                })
-                .collect::<Result<Vec<()>, ()>>();
-            r.set_value(result.is_ok());
-            sink.success(r)
+                }))
+                .any(|res| res.is_err());
+                r.set_value(result);
+                sink.success(r)
+            }
         } else {
             sink.fail(grpcio::RpcStatus::new(
                 grpcio::RpcStatusCode::ResourceExhausted,
