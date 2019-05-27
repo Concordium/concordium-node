@@ -20,6 +20,7 @@ sudo rm -f /usr/local/lib/libeddsa_ed25519.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libsha_2.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libdodis_yampolskiy_prf.$LIBEXTENSION
 sudo rm -f /usr/local/lib/libpedersen_scheme.$LIBEXTENSION
+sudo rm -f /usr/local/lib/libelgamal.$LIBEXTENSION
 
 if [ -d ~/.stack/global-project/ ]; then
     if [ -f ~/.stack/global-project/stack.yaml ]; then
@@ -38,6 +39,7 @@ echo -e "packages: []\nresolver: $(cat deps/internal/consensus/stack.yaml | grep
   sudo cp target/debug/libsha_2.$LIBEXTENSION /usr/local/lib &&
   sudo cp target/debug/libdodis_yampolskiy_prf.$LIBEXTENSION /usr/local/lib &&
   sudo cp target/debug/libpedersen_scheme.$LIBEXTENSION /usr/local/lib &&
+  sudo cp target/debug/libelgamal.$LIBEXTENSION /usr/local/lib &&
   rm -rf target/ )
 
 sudo ldconfig
