@@ -1,6 +1,8 @@
 #![recursion_limit = "1024"]
 
-extern crate tempfile;
+use byteorder::{ReadBytesExt, NetworkEndian};
+
+use std::{fmt, ops::Deref};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -49,5 +51,35 @@ impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSender<T> {
     #[inline]
     fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
         self.send(RelayOrStopEnvelope::Relay(msg))
+    }
+}
+
+pub const SHA256: u8 = 32;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct HashBytes([u8; SHA256 as usize]);
+
+impl HashBytes {
+    pub fn new(bytes: &[u8]) -> Self {
+        let mut buf = [0u8; SHA256 as usize];
+        buf.copy_from_slice(bytes);
+
+        HashBytes(buf)
+    }
+}
+
+impl Deref for HashBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl fmt::Debug for HashBytes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:08x}",
+            (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
+        )
     }
 }
