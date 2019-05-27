@@ -12,8 +12,13 @@ use std::{
     thread, time,
 };
 
-use crate::{consensus::CatchupRequest::*, fails::BakerNotRunning, ffi::*};
-use concordium_global_state::{block::*, common::*, finalization::*, tree::{SKOV_DATA, SKOV_QUEUE, SkovReq, SkovReqBody}};
+use crate::{fails::BakerNotRunning, ffi::*};
+use concordium_global_state::{
+    block::*,
+    common::*,
+    finalization::*,
+    tree::{SkovReq, SkovReqBody, SKOV_QUEUE},
+};
 
 pub type PeerId = u64;
 pub type Delta = u64;
@@ -151,14 +156,18 @@ fn handle_recv_block(baked_block: &Bytes) -> Fallible<()> {
     let pending_block = PendingBlock::new(baked_block)?;
     let request_body = SkovReqBody::AddBlock(pending_block);
 
-    SKOV_QUEUE.clone().send_request(SkovReq::new(None, request_body, None))
+    SKOV_QUEUE
+        .clone()
+        .send_request(SkovReq::new(None, request_body, None))
 }
 
 fn handle_recv_finalization_record(record: &Bytes) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(record)?;
     let request_body = SkovReqBody::AddFinalizationRecord(record);
 
-    SKOV_QUEUE.clone().send_request(SkovReq::new(None, request_body, None))
+    SKOV_QUEUE
+        .clone()
+        .send_request(SkovReq::new(None, request_body, None))
 }
 
 #[cfg(test)]

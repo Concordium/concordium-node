@@ -2,7 +2,8 @@ use chrono::prelude::{DateTime, Utc};
 use failure::{bail, Fallible};
 
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, safe_lock, RelayOrStopSenderHelper
+    into_err, safe_lock, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    RelayOrStopSenderHelper,
 };
 
 use std::{
@@ -53,8 +54,8 @@ impl SkovQueue {
 #[derive(Debug)]
 pub struct SkovReq {
     pub source: Option<u64>, // PeerId
-    pub body: SkovReqBody,
-    pub raw: Option<Box<[u8]>>,
+    pub body:   SkovReqBody,
+    pub raw:    Option<Box<[u8]>>,
 }
 
 impl SkovReq {

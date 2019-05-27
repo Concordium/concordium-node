@@ -454,25 +454,13 @@ fn setup_process_output(
                     NetworkRequest::BanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::ban_node(
-                        &mut node_ref,
-                        peer,
-                        peer_to_ban,
-                        &_db,
-                        _no_trust_bans,
-                    );
+                    utils::ban_node(&mut node_ref, peer, peer_to_ban, &_db, _no_trust_bans);
                 }
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::UnbanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::unban_node(
-                        &mut node_ref,
-                        peer,
-                        peer_to_ban,
-                        &_db,
-                        _no_trust_bans,
-                    );
+                    utils::unban_node(&mut node_ref, peer, peer_to_ban, &_db, _no_trust_bans);
                 }
                 NetworkMessage::NetworkResponse(
                     NetworkResponse::PeerList(ref peer, ref peers),
@@ -732,7 +720,7 @@ fn main() -> Fallible<()> {
     // Wait for the threads to stop
     for th in higer_process_threads {
         th.join().expect("Higher process thread panicked")
-    };
+    }
 
     for th in ths {
         th.join().expect("Baker sub-thread panicked");
