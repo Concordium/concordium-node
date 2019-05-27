@@ -27,7 +27,7 @@ use concordium_global_state::{
     block::{BakedBlock, BlockPtr, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{SkovReq, SkovReqBody, SKOV_DATA, SKOV_QUEUE},
+    tree::{SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_DATA, SKOV_QUEUE},
 };
 
 use crate::{
@@ -216,55 +216,59 @@ pub fn handle_global_state_request(
             _ => unreachable!(), // will be expanded in due course
         };
 
-        let is_unique = match request.body {
+        match request.body {
             SkovReqBody::AddBlock(pending_block) => {
                 let parent_hash = pending_block.block.pointer.clone();
                 let result = safe_lock!(SKOV_DATA)?.add_block(pending_block);
 
                 match result {
-                    Ok(Some(_)) => false,
-                    Ok(None) => true,
-                    Err(e) => {
-                        let e = e.to_string();
-                        if e == "MissingParent" {
-                            let mut inner_out_bytes =
-                                Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
-                            inner_out_bytes.extend_from_slice(&parent_hash);
-                            inner_out_bytes
-                                .write_u64::<NetworkEndian>(0u64)
-                                .expect("Can't write to buffer");
-                            send_catchup_request_block_by_hash_to_consensus(
-                                baker,
-                                node,
-                                peer_id,
-                                network_id,
-                                &inner_out_bytes,
-                                PacketDirection::Outbound,
-                            )?;
-                            true
-                        } else {
-                            true
+                    SkovResult::Success => {
+                        trace!("Skov: successfully processed a {}", packet_type);
+                    },
+                    SkovResult::DuplicateEntry => {
+                        warn!(
+                            "Peer {} sent us a duplicate global state request for a {}",
+                            peer_id, packet_type
+                        );
+                    },
+                    SkovResult::Error(e) => {
+                        warn!("{:?}", e);
+
+                        match e {
+                            SkovError::MissingParentBlock(..) => {
+                                let mut inner_out_bytes =
+                                    Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
+                                inner_out_bytes.extend_from_slice(&parent_hash);
+                                inner_out_bytes
+                                    .write_u64::<NetworkEndian>(0u64)
+                                    .expect("Can't write to buffer");
+
+                                send_catchup_request_block_by_hash_to_consensus(
+                                    baker,
+                                    node,
+                                    peer_id,
+                                    network_id,
+                                    &inner_out_bytes,
+                                    PacketDirection::Outbound,
+                                )?;
+                            },
+                            SkovError::InvalidLastFinalized(..) => {
+
+                            }
                         }
                     }
                 }
             }
             SkovReqBody::AddFinalizationRecord(record) => {
-                safe_lock!(SKOV_DATA)?.add_finalization(record)
+                let result = safe_lock!(SKOV_DATA)?.add_finalization(record);
+
+                if result {}
             }
             _ => unreachable!(), // will be expanded shortly
-        };
-
-        if !is_unique {
-            warn!(
-                "Peer {} sent us a duplicate global state request for a {}",
-                peer_id, packet_type
-            );
         }
-
-        Ok(())
-    } else {
-        Ok(())
     }
+
+    Ok(())
 }
 
 pub fn send_msg_to_consensus(
