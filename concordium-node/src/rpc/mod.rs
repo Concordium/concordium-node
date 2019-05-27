@@ -1001,30 +1001,28 @@ impl P2P for RpcServerImpl {
             } else {
                 let test_messages = utils::get_tps_test_messages(Some(dir));
                 let mut r: SuccessResponse = SuccessResponse::new();
-                let result = test_messages
-                    .iter()
-                    .map(|message| {
-                        let out_bytes_len = message.len();
-                        let to_send = P2PNodeId::from_str(&id).ok();
-                        match locked_node.send_message(
-                            to_send,
-                            network_id,
-                            None,
-                            message.to_vec(),
-                            false,
-                        ) {
-                            Ok(_) => {
-                                info!("Sent TPS test bytes of len {}", out_bytes_len);
-                                Ok(())
-                            }
-                            Err(_) => {
-                                error!("Couldn't send TPS test message!");
-                                Err(())
-                            }
+                let result = !(test_messages.iter().map(|message| {
+                    let out_bytes_len = message.len();
+                    let to_send = P2PNodeId::from_str(&id).ok();
+                    match locked_node.send_message(
+                        to_send,
+                        network_id,
+                        None,
+                        message.to_vec(),
+                        false,
+                    ) {
+                        Ok(_) => {
+                            info!("Sent TPS test bytes of len {}", out_bytes_len);
+                            Ok(())
                         }
-                    })
-                    .collect::<Result<Vec<()>, ()>>();
-                r.set_value(result.is_ok());
+                        Err(_) => {
+                            error!("Couldn't send TPS test message!");
+                            Err(())
+                        }
+                    }
+                }))
+                .any(|res| res.is_err());
+                r.set_value(result);
                 sink.success(r)
             }
         } else {
