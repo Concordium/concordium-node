@@ -1,10 +1,14 @@
 use chrono::prelude::{DateTime, Utc};
 use failure::{bail, Fallible};
 
+use concordium_common::{
+    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, safe_lock, RelayOrStopSenderHelper
+};
+
 use std::{
     collections::{BinaryHeap, HashMap, HashSet},
     fmt,
-    sync::RwLock,
+    sync::{mpsc, Arc, Mutex},
 };
 
 use crate::{
@@ -15,7 +19,56 @@ use crate::{
 };
 
 lazy_static! {
-    pub static ref SKOV_DATA: RwLock<SkovData> = { RwLock::new(SkovData::default()) };
+    pub static ref SKOV_DATA: Mutex<SkovData> = { Mutex::new(SkovData::default()) };
+    pub static ref SKOV_QUEUE: SkovQueue = { SkovQueue::default() };
+}
+
+#[derive(Clone)]
+pub struct SkovQueue {
+    receiver: Arc<Mutex<RelayOrStopReceiver<SkovReq>>>,
+    sender:   Arc<Mutex<RelayOrStopSender<SkovReq>>>,
+}
+
+impl Default for SkovQueue {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
+
+        SkovQueue {
+            receiver: Arc::new(Mutex::new(receiver)),
+            sender:   Arc::new(Mutex::new(sender)),
+        }
+    }
+}
+
+impl SkovQueue {
+    pub fn send_request(self, request: SkovReq) -> Fallible<()> {
+        into_err!(safe_lock!(self.sender)?.send_msg(request))
+    }
+
+    pub fn recv_request(self) -> Fallible<RelayOrStopEnvelope<SkovReq>> {
+        into_err!(safe_lock!(self.receiver)?.recv())
+    }
+}
+
+#[derive(Debug)]
+pub struct SkovReq {
+    pub source: Option<u64>, // PeerId
+    pub body: SkovReqBody,
+    pub raw: Option<Box<[u8]>>,
+}
+
+impl SkovReq {
+    pub fn new(source: Option<u64>, body: SkovReqBody, raw: Option<Box<[u8]>>) -> Self {
+        Self { source, body, raw }
+    }
+}
+
+#[derive(Debug)]
+pub enum SkovReqBody {
+    AddBlock(PendingBlock),
+    GetBlock(HashBytes),
+    AddFinalizationRecord(FinalizationRecord),
+    GetFinalizationRecord(HashBytes),
 }
 
 #[derive(Debug)]

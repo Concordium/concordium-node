@@ -13,7 +13,7 @@ use std::{
 };
 
 use crate::{consensus::CatchupRequest::*, fails::BakerNotRunning, ffi::*};
-use concordium_global_state::{block::*, common::*, finalization::*, tree::SKOV_DATA};
+use concordium_global_state::{block::*, common::*, finalization::*, tree::{SKOV_DATA, SKOV_QUEUE, SkovReq, SkovReqBody}};
 
 pub type PeerId = u64;
 pub type Delta = u64;
@@ -121,13 +121,7 @@ impl ConsensusOutQueue {
     }
 
     pub fn recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
-        let request = into_err!(safe_lock!(self.receiver_catchup_queue).recv());
-
-        if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = request {
-            handle_recv_catchup(msg);
-        }
-
-        request
+        into_err!(safe_lock!(self.receiver_catchup_queue).recv())
     }
 
     pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
@@ -153,64 +147,18 @@ impl ConsensusOutQueue {
     }
 }
 
-// extra debug information
-fn handle_recv_catchup(request: &CatchupRequest) {
-    match request {
-        BlockByHash(_, ref hash, delta) => {
-            if let Ok(skov) = SKOV_DATA.read() {
-                if skov.get_block_by_hash(&hash).is_some() {
-                    info!(
-                        "Consensus is asking for block {:?} delta {}, but it already is in the \
-                         global state",
-                        hash, delta,
-                    );
-                }
-            } else {
-                error!("Can't obtain a read lock on Skov!");
-            }
-        }
-        // extra debug
-        FinalizationRecordByHash(_, ref hash) => {
-            if let Ok(skov) = SKOV_DATA.read() {
-                if skov.get_finalization_record_by_hash(&hash).is_some() {
-                    info!(
-                        "Consensus is asking for finalization record for {:?}, but it already is \
-                         in the global state",
-                        hash
-                    );
-                }
-            } else {
-                error!("Can't obtain a read lock on Skov!");
-            }
-        }
-        _ => (),
-    }
-}
-
 fn handle_recv_block(baked_block: &Bytes) -> Fallible<()> {
     let pending_block = PendingBlock::new(baked_block)?;
+    let request_body = SkovReqBody::AddBlock(pending_block);
 
-    if let Ok(mut skov) = SKOV_DATA.write() {
-        if let Err(e) = skov.add_block(pending_block) {
-            error!("We should not have a {} issue with adding a block here!", e);
-        }
-    } else {
-        error!("Can't obtain a write lock on Skov!");
-    }
-
-    Ok(())
+    SKOV_QUEUE.clone().send_request(SkovReq::new(None, request_body, None))
 }
 
 fn handle_recv_finalization_record(record: &Bytes) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(record)?;
+    let request_body = SkovReqBody::AddFinalizationRecord(record);
 
-    if let Ok(ref mut skov) = SKOV_DATA.write() {
-        skov.add_finalization(record);
-    } else {
-        error!("Can't obtain a write lock on Skov!");
-    };
-
-    Ok(())
+    SKOV_QUEUE.clone().send_request(SkovReq::new(None, request_body, None))
 }
 
 #[cfg(test)]

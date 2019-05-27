@@ -25,6 +25,7 @@ use concordium_consensus::{
 use concordium_global_state::{
     common::{sha256, SerializeToBytes},
     finalization::{FinalizationMessage, FinalizationRecord},
+    tree::SKOV_QUEUE,
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -407,21 +408,45 @@ fn setup_process_output(
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-) -> std::thread::JoinHandle<()> {
-    let mut _node_self_clone = node.clone();
+) -> Vec<std::thread::JoinHandle<()>> {
     let mut _db = db.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
     let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.connection.desired_nodes;
     let _test_runner_url = conf.cli.test_runner_url.clone();
-    let mut _baker_pkt_clone = baker.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
 
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
+    let mut baker_clone = baker.clone();
+    let mut node_ref = node.clone();
+    let global_state_thread = spawn_or_die!("Process global state requests", {
+        loop {
+            match SKOV_QUEUE.clone().recv_request() {
+                Ok(RelayOrStopEnvelope::Relay(request)) => {
+                    let source = request.source.unwrap_or_else(|| node_ref.id().0);
+
+                    if let Err(e) = handle_global_state_request(
+                        &mut node_ref,
+                        &mut baker_clone,
+                        P2PNodeId(source),
+                        _network_id,
+                        request,
+                    ) {
+                        error!("There's an issue with a global state request: {}", e);
+                    }
+                }
+                Ok(RelayOrStopEnvelope::Stop) => break,
+                _ => error!("Can't receive a global state request!"),
+            }
+        }
+    });
+
+    let mut baker_clone = baker.clone();
+    let mut node_ref = node.clone();
     let guard_pkt = spawn_or_die!("Higher queue processing", {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
             match *full_msg {
@@ -430,7 +455,7 @@ fn setup_process_output(
                     ..
                 ) => {
                     utils::ban_node(
-                        &mut _node_self_clone,
+                        &mut node_ref,
                         peer,
                         peer_to_ban,
                         &_db,
@@ -442,7 +467,7 @@ fn setup_process_output(
                     ..
                 ) => {
                     utils::unban_node(
-                        &mut _node_self_clone,
+                        &mut node_ref,
                         peer,
                         peer_to_ban,
                         &_db,
@@ -455,7 +480,7 @@ fn setup_process_output(
                 ) => {
                     debug!("Received PeerList response, attempting to satisfy desired peers");
                     let mut new_peers = 0;
-                    let peer_count = _node_self_clone
+                    let peer_count = node_ref
                         .get_peer_stats(&[])
                         .iter()
                         .filter(|x| x.peer_type == PeerType::Node)
@@ -470,7 +495,7 @@ fn setup_process_output(
                             peer_node.ip(),
                             peer_node.port()
                         );
-                        if _node_self_clone
+                        if node_ref
                             .connect(PeerType::Node, peer_node.addr, Some(peer_node.id()))
                             .map_err(|e| debug!("{}", e))
                             .is_ok()
@@ -502,14 +527,14 @@ fn setup_process_output(
                         }
                         NetworkPacketType::BroadcastedMessage => {
                             if let Some(ref testrunner_url) = _test_runner_url {
-                                send_packet_to_testrunner(&_node_self_clone, testrunner_url, pac);
+                                send_packet_to_testrunner(&node_ref, testrunner_url, &pac);
                             };
                         }
                     };
 
                     if let Err(e) = handle_pkt_out(
-                        &mut _node_self_clone,
-                        &mut _baker_pkt_clone,
+                        &mut node_ref,
+                        &mut baker_clone,
                         pac.peer.id(),
                         _network_id,
                         pac.message.clone(),
@@ -530,7 +555,7 @@ fn setup_process_output(
         conf.cli.no_network
     );
 
-    guard_pkt
+    vec![global_state_thread, guard_pkt]
 }
 
 fn main() -> Fallible<()> {
@@ -685,7 +710,7 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    let higer_process_thread =
+    let higer_process_threads =
         setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out);
 
     // Create listeners on baker output to forward to P2PNode
@@ -705,9 +730,10 @@ fn main() -> Fallible<()> {
     }
 
     // Wait for the threads to stop
-    higer_process_thread
-        .join()
-        .expect("Higher process thread panicked");
+    for th in higer_process_threads {
+        th.join().expect("Higher process thread panicked")
+    };
+
     for th in ths {
         th.join().expect("Baker sub-thread panicked");
     }

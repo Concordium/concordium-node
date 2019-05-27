@@ -13,7 +13,7 @@ use std::{
     io::{Read, Write},
 };
 
-use concordium_common::{safe_write, UCursor};
+use concordium_common::{safe_lock, UCursor};
 
 use concordium_consensus::{
     consensus::{self, Bytes},
@@ -27,7 +27,7 @@ use concordium_global_state::{
     block::{BakedBlock, BlockPtr, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::SKOV_DATA,
+    tree::{SKOV_DATA, SKOV_QUEUE, SkovReq, SkovReqBody},
 };
 
 use crate::{
@@ -62,7 +62,7 @@ pub fn start_baker(
                     sha256(&genesis_data),
                     genesis_ptr.hash,
                 );
-                safe_write!(SKOV_DATA)
+                safe_lock!(SKOV_DATA)
                     .expect("Couldn't write the genesis data to Skov!")
                     .add_genesis(genesis_ptr);
 
@@ -182,17 +182,46 @@ pub fn handle_pkt_out(
         let content = Box::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
         let packet_type = PacketType::try_from(consensus_type)?;
 
-        let is_unique = match packet_type {
+        let request_body = match packet_type {
             Block => {
-                let pending_block = PendingBlock::new(&content)?;
+                Some(SkovReqBody::AddBlock(PendingBlock::new(&content)?))
+            }
+            FinalizationRecord => {
+                Some(SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&content)?))
+            }
+            _ => None // will be expanded later on
+        };
 
-                // don't pattern match directly in order to release the lock quickly
-                let result = if let Ok(ref mut skov) = safe_write!(SKOV_DATA) {
-                    skov.add_block(pending_block.clone())
-                } else {
-                    error!("Can't obtain a write lock on Skov!");
-                    Ok(None) // temporary placeholder; we don't want to suggest a duplicate
-                };
+        if let Some(body) = request_body {
+            let request = SkovReq::new(Some(peer_id.0), body, Some(content.clone()));
+
+            SKOV_QUEUE.clone().send_request(request)?;
+        }
+
+        send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
+    } else {
+        Ok(())
+    }
+}
+
+pub fn handle_global_state_request(
+    node: &mut P2PNode,
+    baker: &mut Option<consensus::ConsensusContainer>,
+    peer_id: P2PNodeId,
+    network_id: NetworkId,
+    request: SkovReq,
+) -> Fallible<()> {
+    if let Some(ref mut baker) = baker {
+        let packet_type = match request.body {
+            SkovReqBody::AddBlock(..) => PacketType::Block,
+            SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
+            _ => unreachable!() // will be expanded in due course
+        };
+
+        let is_unique = match request.body {
+            SkovReqBody::AddBlock(pending_block) => {
+                let parent_hash = pending_block.block.pointer.clone();
+                let result = safe_lock!(SKOV_DATA)?.add_block(pending_block);
 
                 match result {
                     Ok(Some(_)) => false,
@@ -201,9 +230,9 @@ pub fn handle_pkt_out(
                         let e = e.to_string();
                         if e == "MissingParent" {
                             let mut inner_out_bytes = Vec::with_capacity(
-                                pending_block.block.pointer.len() + DELTA_LENGTH as usize,
+                                SHA256 as usize + DELTA_LENGTH as usize,
                             );
-                            inner_out_bytes.extend_from_slice(&pending_block.block.pointer);
+                            inner_out_bytes.extend_from_slice(&parent_hash);
                             inner_out_bytes
                                 .write_u64::<NetworkEndian>(0u64)
                                 .expect("Can't write to buffer");
@@ -221,33 +250,24 @@ pub fn handle_pkt_out(
                         }
                     }
                 }
-            }
-            FinalizationRecord => {
-                let record = FinalizationRecord::deserialize(&content)?;
-
-                if let Ok(ref mut skov) = SKOV_DATA.write() {
-                    skov.add_finalization(record)
-                } else {
-                    error!("Can't obtain a write lock on Skov!");
-                    true // temporary placeholder; we don't want to suggest a duplicate
-                }
-            }
-            _ => true,
+            },
+            SkovReqBody::AddFinalizationRecord(record) => {
+                safe_lock!(SKOV_DATA)?.add_finalization(record)
+            },
+            _ => unreachable!() // will be expanded shortly
         };
 
         if !is_unique {
-            warn!("Peer {} sent us a duplicate {}", peer_id, packet_type,);
-        } else if let Err(e) =
-            send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
-        {
-            error!("Send network message to baker has failed: {:?}", e);
+            warn!("Peer {} sent us a duplicate global state request for a {}", peer_id, packet_type);
         }
-    }
 
-    Ok(())
+        Ok(())
+    } else {
+        Ok(())
+    }
 }
 
-fn send_msg_to_consensus(
+pub fn send_msg_to_consensus(
     node: &mut P2PNode,
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
@@ -505,20 +525,6 @@ fn send_catchup_request_finalization_record_by_hash_to_consensus(
     content: &[u8],
     direction: PacketDirection,
 ) -> Fallible<()> {
-    // extra debug
-    if let Ok(skov) = SKOV_DATA.read() {
-        let hash = HashBytes::new(content);
-        if skov.get_finalization_record_by_hash(&hash).is_some() {
-            info!(
-                "Peer {} here; I do have the finalization record for block {:?}",
-                node.id(),
-                hash
-            );
-        }
-    } else {
-        error!("Can't obtain a read lock on Skov!");
-    }
-
     send_catchup_request_to_consensus!(
         ffi::PacketType::CatchupFinalizationRecordByHash,
         node,
@@ -543,15 +549,6 @@ fn send_catchup_request_block_by_hash_to_consensus(
 ) -> Fallible<()> {
     let hash = HashBytes::new(&content[..SHA256 as usize]);
     let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..DELTA_LENGTH as usize]);
-
-    // extra debug
-    if let Ok(skov) = SKOV_DATA.read() {
-        if skov.get_block_by_hash(&hash).is_some() {
-            info!("Peer {} here; I do have block {:?}", node.id(), hash);
-        } else {
-            error!("Can't obtain a read lock on Skov!");
-        }
-    };
 
     if delta == 0 {
         send_catchup_request_to_consensus!(
