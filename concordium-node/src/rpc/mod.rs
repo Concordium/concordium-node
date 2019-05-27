@@ -993,7 +993,7 @@ impl P2P for RpcServerImpl {
                 req.directory.clone(),
             );
             let _node_list = locked_node.get_peer_stats(&[network_id]);
-            if _node_list.into_iter().filter(|s| s.id == id).count() <= 0 {
+            if !_node_list.into_iter().any(|s| s.id == id) {
                 sink.fail(grpcio::RpcStatus::new(
                     grpcio::RpcStatusCode::FailedPrecondition,
                     Some("I don't have the required peers!".to_string()),
