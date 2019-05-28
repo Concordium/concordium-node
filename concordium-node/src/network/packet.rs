@@ -5,18 +5,14 @@ use crate::{
     },
     network::{AsProtocolPacketType, NetworkId, ProtocolPacketType},
 };
-use concordium_common::UCursor;
+use concordium_common::{HashBytes, UCursor};
 
 use crate::{
     failure::{err_msg, Fallible},
     utils,
 };
-use rand::{rngs::OsRng, RngCore};
-use std::{convert::TryFrom, sync::RwLock};
-
-lazy_static! {
-    static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
-}
+use rand::RngCore;
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -62,6 +58,8 @@ impl Deserializable for NetworkPacketType {
     }
 }
 
+pub type MessageId = HashBytes;
+
 /// # BUG
 /// It is not *thread-safe* but I've forced it temporary
 #[derive(Clone, Builder, Debug, PartialEq)]
@@ -71,7 +69,7 @@ pub struct NetworkPacket {
     #[builder(setter(skip))]
     pub packet_type: NetworkPacketType,
     pub peer: P2PPeer,
-    pub message_id: String,
+    pub message_id: MessageId,
     pub network_id: NetworkId,
 
     pub message: UCursor,
@@ -111,13 +109,13 @@ impl NetworkPacketBuilder {
 }
 
 impl NetworkPacket {
-    pub fn generate_message_id() -> String {
+    pub fn generate_message_id() -> MessageId {
         let mut secure_bytes = vec![0u8; 256];
-        match safe_write!(RNG) {
-            Ok(mut l) => l.fill_bytes(&mut secure_bytes),
-            Err(_) => return String::new(),
-        }
-        utils::to_hex_string(&utils::sha256_bytes(&secure_bytes))
+        let mut rng = rand::thread_rng();
+
+        rng.fill_bytes(&mut secure_bytes);
+
+        MessageId::new(&utils::sha256_bytes(&secure_bytes))
     }
 }
 
@@ -139,7 +137,7 @@ impl Deserializable for NetworkPacket {
         let packet = NetworkPacket {
             packet_type: NetworkPacketType::deserialize(archive)?,
             peer:        archive.post_handshake_peer()?,
-            message_id:  String::deserialize(archive)?,
+            message_id:  MessageId::deserialize(archive)?,
             network_id:  NetworkId::deserialize(archive)?,
             message:     UCursor::deserialize(archive)?,
         };

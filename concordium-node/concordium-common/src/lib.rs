@@ -1,11 +1,14 @@
 #![recursion_limit = "1024"]
 
-extern crate tempfile;
+use byteorder::{NetworkEndian, ReadBytesExt};
+
+use std::{fmt, ops::Deref};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
 #[cfg(feature = "s11n_serde")]
-extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 #[macro_use]
 pub mod fails;
@@ -49,5 +52,49 @@ impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSender<T> {
     #[inline]
     fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
         self.send(RelayOrStopEnvelope::Relay(msg))
+    }
+}
+
+pub const SHA256: u8 = 32;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+pub struct HashBytes([u8; SHA256 as usize]);
+
+impl HashBytes {
+    pub fn new(bytes: &[u8]) -> Self {
+        let mut buf = [0u8; SHA256 as usize];
+        buf.copy_from_slice(bytes);
+
+        HashBytes(buf)
+    }
+}
+
+impl Deref for HashBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+// a short, 8-character beginning of the SHA
+impl fmt::Debug for HashBytes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:08x}",
+            (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
+        )
+    }
+}
+
+// the full SHA256 in hex
+impl fmt::Display for HashBytes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:0len$x}",
+            (&self.0[..]).read_u128::<NetworkEndian>().unwrap(),
+            len = SHA256 as usize,
+        )
     }
 }

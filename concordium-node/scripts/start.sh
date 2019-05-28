@@ -123,6 +123,10 @@ then
     sleep $ARTIFICIAL_DELAY
 fi
 
+if [ -n "$SEEN_MESSAGE_IDS_SIZE" ];
+then
+    ARGS="$ARGS --gossip-seen-message-ids-size $SEEN_MESSAGE_IDS_SIZE"
+fi
 
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"

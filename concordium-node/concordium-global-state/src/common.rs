@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
 use failure::Fallible;
 
@@ -9,44 +9,16 @@ use std::{
     ops::Deref,
 };
 
+pub use concordium_common::{HashBytes, SHA256};
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-pub const SHA256: u8 = 32;
 pub const INCARNATION: u8 = 8;
 pub const SESSION_ID: u8 = SHA256 + INCARNATION;
 pub const DELTA_LENGTH: u8 = 8;
 
 use crate::block::{BlockHash, BLOCK_HASH};
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct HashBytes([u8; BLOCK_HASH as usize]);
-
-impl HashBytes {
-    pub fn new(bytes: &[u8]) -> Self {
-        let mut buf = [0u8; BLOCK_HASH as usize];
-        buf.copy_from_slice(bytes);
-
-        HashBytes(buf)
-    }
-}
-
-impl Deref for HashBytes {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-impl fmt::Debug for HashBytes {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:08x}",
-            (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
-        )
-    }
-}
 
 #[allow(dead_code)]
 pub struct ContractAddress {

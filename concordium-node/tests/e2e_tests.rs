@@ -475,7 +475,7 @@ mod tests {
                     if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                         inner_counter.tick(1);
                         info!(
-                            "BroadcastedMessage/{}/{} at {} with size {} received, ticks {}",
+                            "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
                             pac.network_id,
                             pac.message_id,
                             instance_port,
@@ -551,7 +551,7 @@ mod tests {
                         if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                             inner_counter.tick(1);
                             info!(
-                                "BroadcastedMessage/{}/{} at {} with size {} received, ticks {}",
+                                "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
                                 pac.network_id,
                                 pac.message_id,
                                 port,

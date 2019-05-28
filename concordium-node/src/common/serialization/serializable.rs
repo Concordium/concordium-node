@@ -1,6 +1,6 @@
 use crate::common::serialization::WriteArchive;
 
-use concordium_common::UCursor;
+use concordium_common::{HashBytes, UCursor};
 use failure::Fallible;
 
 use std::{
@@ -60,12 +60,12 @@ impl Serializable for u64 {
     }
 }
 
-impl Serializable for String {
+impl Serializable for HashBytes {
     #[inline]
     fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
     where
         A: WriteArchive, {
-        archive.write_str(self.as_str())
+        into_err!(archive.write(&self).map(|_| ()))
     }
 }
 

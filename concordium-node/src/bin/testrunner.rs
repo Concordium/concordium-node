@@ -363,7 +363,7 @@ fn setup_process_output(
                 NetworkMessage::NetworkPacket(ref pac, ..) => match pac.packet_type {
                     NetworkPacketType::DirectMessage(..) => {
                         info!(
-                            "DirectMessage/{}/{} with size {} received",
+                            "DirectMessage/{}/{:?} with size {} received",
                             pac.network_id,
                             pac.message_id,
                             pac.message.len()
@@ -372,7 +372,7 @@ fn setup_process_output(
                     NetworkPacketType::BroadcastedMessage => {
                         if !_no_trust_broadcasts {
                             info!(
-                                "BroadcastedMessage/{}/{} with size {} received",
+                                "BroadcastedMessage/{}/{:?} with size {} received",
                                 pac.network_id,
                                 pac.message_id,
                                 pac.message.len()

@@ -677,7 +677,7 @@ impl P2P for RpcServerImpl {
                             };
 
                             r.set_network_id(u32::from(packet.network_id.id));
-                            r.set_message_id(packet.message_id.to_owned());
+                            r.set_message_id(packet.message_id.to_vec());
                             r.set_sender(packet.peer.id().to_string());
                         } else {
                             r.set_message_none(MessageNone::new());

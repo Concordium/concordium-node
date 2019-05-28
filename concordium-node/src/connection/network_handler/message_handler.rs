@@ -166,8 +166,8 @@ mod integration_test {
         common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::{MessageHandler, PacketHandler},
         network::{
-            NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
-            NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum,
+            NetworkPacketBuilder, NetworkRequest, NetworkResponse,
         },
     };
     use concordium_common::{functor::FuncResult, UCursor};
@@ -210,7 +210,7 @@ mod integration_test {
             NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(p2p_peer.clone())
-                    .message_id("MSG-ID-1".to_string())
+                    .message_id(MessageId::new(&[1u8; 32]))
                     .network_id(NetworkId::from(100))
                     .message(inner_msg.clone())
                     .build_broadcast()
@@ -221,7 +221,7 @@ mod integration_test {
             NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(p2p_peer)
-                    .message_id("MSG-ID-2".to_string())
+                    .message_id(MessageId::new(&[2u8; 32]))
                     .network_id(NetworkId::from(100))
                     .message(inner_msg)
                     .build_direct(node_id)

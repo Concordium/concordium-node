@@ -10,14 +10,14 @@ use nom::{verbose_errors::Context, IResult};
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
     network::{
-        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkRequest,
-        NetworkResponse, ProtocolMessageType, ProtocolPacketType, ProtocolRequestType,
-        ProtocolResponseType, PROTOCOL_NAME,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
+        NetworkRequest, NetworkResponse, ProtocolMessageType, ProtocolPacketType,
+        ProtocolRequestType, ProtocolResponseType, PROTOCOL_NAME,
     },
 };
 
 pub const PROTOCOL_VERSION_STR: &str = "001";
-pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 64;
+pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 32;
 pub const PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH: usize = 10;
 pub const PROTOCOL_NETWORK_ID_LENGTH: usize = 5;
 pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
@@ -44,11 +44,10 @@ fn s11n_to_timestamp(input: &[u8]) -> Result<u64, std::num::ParseIntError> {
     Ok(u64::from_le_bytes(bytes))
 }
 
-fn s11n_msg_id(input: &[u8]) -> IResult<&[u8], &str> {
+fn s11n_msg_id(input: &[u8]) -> IResult<&[u8], &[u8]> {
     let (ref input, ref msg_id_slice) = take!(input, PROTOCOL_MESSAGE_ID_LENGTH)?;
-    let msg_id_str: &str = str::from_utf8(&msg_id_slice).unwrap_or("");
 
-    Ok((input, msg_id_str))
+    Ok((input, msg_id_slice))
 }
 
 fn s11n_network_id(input: &[u8]) -> IResult<&[u8], u16> {
@@ -92,7 +91,7 @@ named!(
         (
             NetworkPacketBuilder::default()
                 .peer( localhost_peer())
-                .message_id( msg_id.to_string())
+                .message_id(MessageId::new(msg_id))
                 .network_id( NetworkId::from(network_id))
                 .message(UCursor::from( content.to_vec()))
                 .build_direct( receiver_id )
@@ -213,15 +212,15 @@ mod unit_test {
 
     use super::{localhost_peer, s11n_network_message, PROTOCOL_VERSION_STR};
     use crate::network::{
-        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkRequest,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
         NetworkResponse, ProtocolMessageType, ProtocolPacketType, ProtocolRequestType,
         ProtocolResponseType, PROTOCOL_NAME,
     };
-    use concordium_common::{ContainerView, UCursor};
+    use concordium_common::{ContainerView, UCursor, SHA256};
 
     fn ut_s11n_nom_001_data() -> Vec<(String, IResult<&'static [u8], NetworkMessage>)> {
         let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
-        let direct_message_message_id = NetworkPacket::generate_message_id();
+        let direct_message_message_id = MessageId::new(&[0u8; SHA256 as usize]);
 
         vec![
             (
@@ -309,7 +308,7 @@ mod unit_test {
                     ProtocolMessageType::Packet,
                     ProtocolPacketType::Direct,
                     localhost_peer().id(),
-                    direct_message_message_id,
+                    std::str::from_utf8(&direct_message_message_id).unwrap(),
                     NetworkId::from(111u16),
                     direct_message_content.len(),
                     std::str::from_utf8(direct_message_content.as_slice()).unwrap()
