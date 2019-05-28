@@ -58,6 +58,7 @@ stages:
     - rustc --version && cargo --version
     - cp scripts/init.build.env.sh .
     - ./init.build.env.sh
+    - ( cd deps/internal/crypto/rust-src && cargo clean )
     - stack exec -- ghc --print-libdir
     - rustup component add clippy
     - echo "Running clippy with without extra features"
