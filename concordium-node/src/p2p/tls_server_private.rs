@@ -1,6 +1,6 @@
 use failure::{bail, err_msg, Fallible};
 use mio::{Event, Poll, Token};
-use rand::{rngs::OsRng, seq::IteratorRandom};
+use rand::seq::IteratorRandom;
 use std::{
     cell::RefCell,
     collections::{HashSet, VecDeque},
@@ -30,10 +30,6 @@ const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
 const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
-
-lazy_static! {
-    static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
-}
 
 /// This class allows to share some information between `TlsServer` and its
 /// handler. This concept is similar to `d-Pointer` of C++ but it is used just
@@ -365,16 +361,15 @@ impl TlsServerPrivate {
         if peer_type == PeerType::Node {
             let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if peer_count > max_peers_number {
-                if let Ok(ref mut rng) = safe_write!(RNG) {
-                    self.connections
-                        .iter()
-                        .choose_multiple(&mut **rng, (peer_count - max_peers_number) as usize)
-                        .iter()
-                        .for_each(|rc_conn| {
-                            let mut conn = rc_conn.borrow_mut();
-                            conn.close();
-                        });
-                }
+                let mut rng = rand::thread_rng();
+                self.connections
+                    .iter()
+                    .choose_multiple(&mut rng, (peer_count - max_peers_number) as usize)
+                    .iter()
+                    .for_each(|rc_conn| {
+                        let mut conn = rc_conn.borrow_mut();
+                        conn.close();
+                    });
             }
         }
 
