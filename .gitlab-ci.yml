@@ -61,8 +61,8 @@ stages:
     - stack exec -- ghc --print-libdir
     - rustup component add clippy
     - echo "Running clippy with without extra features"
-    - cargo clippy --color=always --all -- -Dclippy:all
+    - cargo clippy --color=always --all -- -Dclippy::all
     - echo "Running clippy with instrumentation feature enabled"
-    - cargo clippy --features=instrumentation --color=always --all -- -Dclippy:all
+    - cargo clippy --features=instrumentation --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n extra features enabled"
-    - cargo clippy --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor --color=always --all -- -Dclippy:all
+    - cargo clippy --features=s11n_capnp,s11n_nom,s11n_serde_json,s11n_serde_cbor --color=always --all -- -Dclippy::all
