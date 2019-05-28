@@ -95,21 +95,16 @@ pub enum SkovResult {
     Error(SkovError)
 }
 
-#[derive(Debug)]
-pub enum BlockStatus {
-    Alive,
-    Dead,
-    Finalized,
-}
-
 #[derive(Debug, Default)]
 pub struct SkovData {
     // the blocks whose parent and last finalized blocks are already in the tree
-    pub block_tree: HashMap<BlockHash, (BlockPtr, BlockStatus)>,
+    pub block_tree: HashMap<BlockHash, BlockPtr>,
     // blocks waiting for their parent to be added to the tree; the key is the parent's hash
     orphan_blocks: HashMap<BlockHash, HashSet<PendingBlock>>,
-    // finalization records along with their finalized blocks; those must already be in the tree
-    finalization_list: BinaryHeap<(FinalizationRecord, BlockPtr)>,
+    // finalization records; the blocks they point to must already be in the tree
+    finalization_list: BinaryHeap<FinalizationRecord>,
+    // the last finalized block
+    last_finalized: Option<BlockPtr>,
     // blocks waiting for their last finalized block to be added to the tree
     awaiting_last_finalized: HashMap<BlockHash, HashSet<PendingBlock>>,
     // the pointer to the genesis block; optional only due to SkovData being a lazy_static
@@ -121,15 +116,9 @@ pub struct SkovData {
 
 impl SkovData {
     pub fn add_genesis(&mut self, genesis_block_ptr: BlockPtr) {
+        self.genesis_block_ptr = Some(genesis_block_ptr.clone());
+
         let genesis_finalization_record = FinalizationRecord::genesis(&genesis_block_ptr);
-
-        self.block_tree.insert(
-            genesis_block_ptr.hash.clone(),
-            (genesis_block_ptr.clone(), BlockStatus::Finalized),
-        );
-
-        self.finalization_list
-            .push((genesis_finalization_record, genesis_block_ptr.clone()));
 
         info!(
             "block tree: [{:?}({:?})]",
@@ -137,7 +126,9 @@ impl SkovData {
             BlockStatus::Finalized,
         );
 
-        self.genesis_block_ptr = Some(genesis_block_ptr);
+        self.block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
+
+        self.finalization_list.push(genesis_finalization_record);
     }
 
     pub fn add_block(
@@ -166,6 +157,7 @@ impl SkovData {
 
         // verify if the pending block's last finalized block is already in the tree
         let last_finalized = self.get_last_finalized().to_owned();
+
         if last_finalized.hash != pending_block.block.last_finalized {
             let error = SkovError::InvalidLastFinalized(
                 pending_block.block.last_finalized.clone(),
@@ -181,7 +173,7 @@ impl SkovData {
 
         let insertion_result = self
             .block_tree
-            .insert(block_ptr.hash.clone(), (block_ptr, BlockStatus::Alive));
+            .insert(block_ptr.hash.clone(), block_ptr);
 
         info!("block tree: {:?}", {
             let vals = self.block_tree.values().collect::<BinaryHeap<_>>();
@@ -199,18 +191,17 @@ impl SkovData {
     }
 
     pub fn get_block_by_hash(&self, hash: &HashBytes) -> Option<&BlockPtr> {
-        self.block_tree.get(hash).map(|(ptr, _)| ptr)
+        self.block_tree.get(hash)
     }
 
     pub fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
-            .find(|&(rec, _)| rec.block_pointer == *hash)
-            .map(|(rec, _)| rec)
+            .find(|&rec| rec.block_pointer == *hash)
     }
 
     pub fn get_last_finalized(&self) -> &BlockPtr {
-        &self.finalization_list.peek().unwrap().1 // safe; the genesis is always available
+        self.last_finalized.as_ref().unwrap() // safe; always available
     }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.get_last_finalized().block.slot() }
@@ -218,39 +209,36 @@ impl SkovData {
     pub fn get_last_finalized_height(&self) -> BlockHeight { self.get_last_finalized().height }
 
     pub fn get_next_finalization_index(&self) -> FinalizationIndex {
-        &self.finalization_list.peek().unwrap().0.index + 1 // safe; the genesis is always available
+        &self.finalization_list.peek().unwrap().index + 1 // safe; always available
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> bool {
-        let block_ptr = if let Some((ref ptr, ref mut status)) =
-            self.block_tree.get_mut(&record.block_pointer)
-        {
-            *status = BlockStatus::Finalized;
-            ptr.clone()
+        if let Some(ref mut ptr) = self.block_tree.get_mut(&record.block_pointer) {
+            ptr.status = BlockStatus::Finalized;
         } else {
             error!(
                 "Can't find finalized block {:?} in the block table!",
                 record.block_pointer
             );
             return true; // a temporary placeholder; we don't want to suggest duplicates
-        };
+        }
 
         // we should be ok with a linear search, as we are expecting only to keep the
         // most recent finalization records
         if self
             .finalization_list
             .iter()
-            .find(|&(rec, _)| *rec == record)
+            .find(|&rec| *rec == record)
             .is_none()
         {
-            self.finalization_list.push((record, block_ptr));
+            self.finalization_list.push(record);
             debug!(
                 "finalization list: {:?}",
                 self.finalization_list
                     .clone()
                     .into_sorted_vec()
                     .iter()
-                    .map(|(rec, _)| &rec.block_pointer)
+                    .map(|rec| &rec.block_pointer)
                     .collect::<Vec<_>>()
             );
             true

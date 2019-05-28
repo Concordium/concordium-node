@@ -223,7 +223,7 @@ pub fn handle_global_state_request(
 
                 match result {
                     SkovResult::Success => {
-                        trace!("Skov: successfully processed a {}", packet_type);
+                        trace!("Skov: successfully processed a {} from peer {}", packet_type, peer_id);
                     },
                     SkovResult::DuplicateEntry => {
                         warn!(

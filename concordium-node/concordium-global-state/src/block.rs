@@ -261,6 +261,13 @@ impl From<BakedBlock> for PendingBlock {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum BlockStatus {
+    Alive,
+    Dead,
+    Finalized,
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockPtr {
     pub hash:           BlockHash,
@@ -271,6 +278,7 @@ pub struct BlockPtr {
     // state:       BlockState,
     pub received:  DateTime<Utc>,
     pub validated: DateTime<Utc>,
+    pub status: BlockStatus,
 }
 
 impl BlockPtr {
@@ -290,6 +298,7 @@ impl BlockPtr {
             height:         0,
             received:       timestamp,
             validated:      timestamp,
+            status:         BlockStatus::Finalized,
         }
     }
 
@@ -309,6 +318,7 @@ impl BlockPtr {
             height,
             received: pb.received,
             validated,
+            status: BlockStatus::Alive,
         }
     }
 }
