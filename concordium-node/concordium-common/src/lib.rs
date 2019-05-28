@@ -7,7 +7,8 @@ use std::{fmt, ops::Deref};
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
 #[cfg(feature = "s11n_serde")]
-extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 #[macro_use]
 pub mod fails;
@@ -57,6 +58,7 @@ impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSender<T> {
 pub const SHA256: u8 = 32;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct HashBytes([u8; SHA256 as usize]);
 
 impl HashBytes {
@@ -74,12 +76,25 @@ impl Deref for HashBytes {
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
+// a short, 8-character beginning of the SHA
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{:08x}",
             (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
+        )
+    }
+}
+
+// the full SHA256 in hex
+impl fmt::Display for HashBytes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:0len$x}",
+            (&self.0[..]).read_u128::<NetworkEndian>().unwrap(),
+            len = SHA256 as usize,
         )
     }
 }

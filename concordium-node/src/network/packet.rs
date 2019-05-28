@@ -11,12 +11,8 @@ use crate::{
     failure::{err_msg, Fallible},
     utils,
 };
-use rand::{rngs::OsRng, RngCore};
-use std::{convert::TryFrom, sync::RwLock};
-
-lazy_static! {
-    static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
-}
+use rand::RngCore;
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -115,10 +111,10 @@ impl NetworkPacketBuilder {
 impl NetworkPacket {
     pub fn generate_message_id() -> MessageId {
         let mut secure_bytes = vec![0u8; 256];
-        match safe_write!(RNG) {
-            Ok(mut l) => l.fill_bytes(&mut secure_bytes),
-            Err(_) => return MessageId::new(&[0u8; 32]),
-        }
+        let mut rng = rand::thread_rng();
+
+        rng.fill_bytes(&mut secure_bytes);
+
         MessageId::new(&utils::sha256_bytes(&secure_bytes))
     }
 }

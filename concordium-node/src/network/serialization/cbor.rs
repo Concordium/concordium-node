@@ -21,12 +21,13 @@ mod unit_test {
     };
 
     use super::s11n_network_message;
-    use concordium_common::UCursor;
+    use concordium_common::{UCursor, SHA256};
 
     use crate::{
         common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
-            NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
+            NetworkResponse,
         },
     };
 
@@ -62,7 +63,7 @@ mod unit_test {
             NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; SHA256 as usize]))
                     .network_id(NetworkId::from(100u16))
                     .message(UCursor::from(direct_message_content.to_vec()))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
