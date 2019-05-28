@@ -1,6 +1,6 @@
 use crate::common::{fails::InvalidIpType, serialization::ReadArchive};
 
-use concordium_common::{HashBytes, UCursor};
+use concordium_common::{HashBytes, SHA256, UCursor};
 use failure::{bail, err_msg, Fallible};
 
 use std::{
@@ -137,8 +137,7 @@ impl Deserializable for HashBytes {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let len = u32::deserialize(archive)?;
-        let vw = archive.read_n_bytes(len)?;
+        let vw = archive.read_n_bytes(SHA256 as u32)?;
         Ok(HashBytes::new(vw.as_slice()))
     }
 }

@@ -1,25 +1,25 @@
+use chrono::{Utc, DateTime};
+
 use crate::network::packet::MessageId;
 
 use std::{
     cmp::Ordering,
-    collections::{BinaryHeap, HashSet},
+    collections::HashSet,
     hash::{Hash, Hasher},
-    mem,
     sync::{Arc, RwLock},
-    time::Instant,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SeenMessage {
     id: MessageId,
-    timestamp: Instant,
+    timestamp: DateTime<Utc>,
 }
 
 impl SeenMessage {
     pub fn new(id: MessageId) -> Self {
         Self {
             id,
-            timestamp: Instant::now(),
+            timestamp: Utc::now(),
         }
     }
 }
@@ -60,7 +60,7 @@ impl SeenMessagesList {
     pub fn new(message_ids_retained: usize) -> Self {
         SeenMessagesList {
             seen_msgs: Arc::new(RwLock::new(HashSet::with_capacity(
-                message_ids_retained / 10,
+                message_ids_retained / 2,
             ))),
             message_ids_retained,
         }
@@ -77,13 +77,10 @@ impl SeenMessagesList {
         if let Ok(mut list) = safe_write!(self.seen_msgs) {
             let msg = SeenMessage::new(msgid.to_owned());
 
-            if list.insert(msg) {
+            if list.replace(msg).is_none() {
                 if list.len() == self.message_ids_retained {
-                    // remove the oldest 50% of the messages
-                    let old_list = mem::replace(&mut *list, HashSet::new());
-                    let mut new_list = old_list.into_iter().collect::<BinaryHeap<_>>().into_sorted_vec();
-                    new_list.truncate(self.message_ids_retained / 2);
-                    *list = new_list.into_iter().collect::<HashSet<_>>();
+                    let oldest = list.iter().min().cloned().unwrap(); // safe (non-empty)
+                    list.remove(&oldest);
                 }
             }
             true
