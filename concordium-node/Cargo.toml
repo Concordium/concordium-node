@@ -26,8 +26,12 @@ network_dump = []
 concordium-global-state = { path = "concordium-global-state" }
 concordium-consensus = { path = "concordium-consensus" }
 concordium-dns = { path = "concordium-dns" }
-ec_vrf_ed25519_sha256 = { path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
-eddsa_ed25519 = { path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
+concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/crypto/rust-src/eddsa_ed25519" }
+concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/crypto/rust-src/sha_2" }
+concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/crypto/rust-src/elgamal" }
+concordium_crypto_pedersen_scheme = { package = "pedersen-scheme", path = "deps/internal/crypto/rust-src/pedersen_scheme" }
+concordium_dodis_yampolskiy_prf = { package = "dodis-yampolskiy-prf", path = "deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
 libc = "0.2"

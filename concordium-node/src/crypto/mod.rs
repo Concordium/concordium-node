@@ -1,5 +1,5 @@
 use base58::ToBase58;
-use eddsa_ed25519;
+use concordium_crypto_eddsa_ed25519;
 use failure::Fallible;
 use openssl::{
     asn1::Asn1Time,
@@ -22,8 +22,8 @@ impl KeyPair {
     pub fn new() -> Self {
         let mut sk: [u8; 32] = [0; 32];
         let mut pk: [u8; 32] = [0; 32];
-        eddsa_ed25519::eddsa_priv_key(&mut sk);
-        eddsa_ed25519::eddsa_pub_key(&sk, &mut pk);
+        concordium_crypto_eddsa_ed25519::eddsa_priv_key(&mut sk);
+        concordium_crypto_eddsa_ed25519::eddsa_pub_key(&sk, &mut pk);
         KeyPair {
             public_key:  pk,
             private_key: sk,
