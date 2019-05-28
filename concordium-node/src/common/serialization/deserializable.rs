@@ -137,7 +137,7 @@ impl Deserializable for HashBytes {
     fn deserialize<A>(archive: &mut A) -> Fallible<Self>
     where
         A: ReadArchive, {
-        let vw = archive.read_n_bytes(SHA256 as u32)?;
+        let vw = archive.read_n_bytes(u32::from(SHA256))?;
         Ok(HashBytes::new(vw.as_slice()))
     }
 }

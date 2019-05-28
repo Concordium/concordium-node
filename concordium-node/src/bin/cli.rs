@@ -789,7 +789,7 @@ fn create_connections_from_config(
 fn send_packet_to_testrunner(node: &P2PNode, test_runner_url: &str, pac: &NetworkPacket) {
     debug!("Sending information to test runner");
     match reqwest::get(&format!(
-        "{}/register/{}/{}",
+        "{}/register/{}/{:?}",
         test_runner_url,
         node.id(),
         pac.message_id

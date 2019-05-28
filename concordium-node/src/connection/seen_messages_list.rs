@@ -73,11 +73,9 @@ impl SeenMessagesList {
         if let Ok(mut list) = safe_write!(self.seen_msgs) {
             let msg = SeenMessage::new(msgid.to_owned());
 
-            if list.replace(msg).is_none() {
-                if list.len() == self.message_ids_retained {
-                    let oldest = list.iter().min().cloned().unwrap(); // safe (non-empty)
-                    list.remove(&oldest);
-                }
+            if list.replace(msg).is_none() && list.len() == self.message_ids_retained {
+                let oldest = list.iter().min().cloned().unwrap(); // safe (non-empty)
+                list.remove(&oldest);
             }
             true
         } else {
