@@ -1,5 +1,6 @@
 use failure::{bail, err_msg, Fallible};
 use mio::{Event, Poll, Token};
+use rand::seq::IteratorRandom;
 use std::{
     cell::RefCell,
     collections::{HashSet, VecDeque},
@@ -61,10 +62,22 @@ impl TlsServerPrivate {
         }
     }
 
-    pub fn connections_count(&self) -> u16 {
+    pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
         // We will never have more than 2^16 connections per node, so this conversion is
         // safe.
-        self.connections.len() as u16
+        self.connections
+            .iter()
+            .filter(|&rc_conn| {
+                let rc_conn_borrowed = rc_conn.borrow();
+                if !rc_conn_borrowed.is_post_handshake() {
+                    return false;
+                }
+                if let Some(exclude_type) = exclude_type {
+                    return rc_conn_borrowed.remote_peer().peer_type() != exclude_type;
+                }
+                true
+            })
+            .count() as u16
     }
 
     /// Adds a new node to the banned list and marks its connection for closure
@@ -213,7 +226,12 @@ impl TlsServerPrivate {
         Ok(())
     }
 
-    pub fn cleanup_connections(&mut self, peer_type: PeerType, poll: &mut Poll) -> Fallible<()> {
+    pub fn cleanup_connections(
+        &mut self,
+        peer_type: PeerType,
+        max_peers_number: u16,
+        poll: &mut Poll,
+    ) -> Fallible<()> {
         trace!("Cleaning up connections");
         let curr_stamp = get_current_stamp();
 
@@ -336,9 +354,26 @@ impl TlsServerPrivate {
                 "Some connections couldn't be cleaned: {:?}",
                 err_conns
             )));
-        } else {
-            Ok(())
         }
+
+        // Toss out a random selection, for now, of connections that's post-handshake,
+        // to lower the node count to an appropriate level.
+        if peer_type == PeerType::Node {
+            let peer_count = self.connections_posthandshake_count(Some(PeerType::Bootstrapper));
+            if peer_count > max_peers_number {
+                let mut rng = rand::thread_rng();
+                self.connections
+                    .iter()
+                    .choose_multiple(&mut rng, (peer_count - max_peers_number) as usize)
+                    .iter()
+                    .for_each(|rc_conn| {
+                        let mut conn = rc_conn.borrow_mut();
+                        conn.close();
+                    });
+            }
+        }
+
+        Ok(())
     }
 
     pub fn liveness_check(&mut self) -> Fallible<()> {

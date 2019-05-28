@@ -237,6 +237,7 @@ impl TlsServer {
 
     pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
+
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
             addr,
@@ -246,16 +247,6 @@ impl TlsServer {
 
         if let Err(e) = self.prehandshake_validations.run_callbacks(&addr) {
             bail!(e);
-        }
-
-        if self_peer.peer_type() == PeerType::Node {
-            let current_peer_count = read_or_die!(self.dptr).connections_count();
-            if current_peer_count > self.max_allowed_peers {
-                bail!(fails::MaxmimumAmountOfPeers {
-                    max_allowed_peers: self.max_allowed_peers,
-                    number_of_peers:   current_peer_count,
-                });
-            }
         }
 
         self.log_event(P2PEvent::ConnectEvent(addr));
@@ -301,7 +292,8 @@ impl TlsServer {
         self_peer: &P2PPeer,
     ) -> Fallible<()> {
         if peer_type == PeerType::Node {
-            let current_peer_count = read_or_die!(self.dptr).connections_count();
+            let current_peer_count = read_or_die!(self.dptr)
+                .connections_posthandshake_count(Some(PeerType::Bootstrapper));
             if current_peer_count > self.max_allowed_peers {
                 bail!(fails::MaxmimumAmountOfPeers {
                     max_allowed_peers: self.max_allowed_peers,
@@ -407,8 +399,8 @@ impl TlsServer {
         write_or_die!(self.dptr).conn_event(event)
     }
 
-    pub fn cleanup_connections(&self, poll: &mut Poll) -> Fallible<()> {
-        write_or_die!(self.dptr).cleanup_connections(self.peer_type(), poll)
+    pub fn cleanup_connections(&self, max_peers_number: u16, poll: &mut Poll) -> Fallible<()> {
+        write_or_die!(self.dptr).cleanup_connections(self.peer_type(), max_peers_number, poll)
     }
 
     pub fn liveness_check(&self) -> Fallible<()> { write_or_die!(self.dptr).liveness_check() }
