@@ -868,6 +868,8 @@ impl P2PNode {
 
     pub fn process_messages(&mut self) {
         let messages = self.send_queue_out.try_iter();
+        let mut failures = Vec::new();
+
         for outer_pkt in messages {
             trace!("Processing messages!");
             if let Some(ref service) = &self.stats_export_service {
@@ -878,12 +880,7 @@ impl P2PNode {
             match *outer_pkt {
                 NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
                     if !self.process_network_packet(inner_pkt) {
-                        if self.send_queue_in.send(outer_pkt).is_ok() {
-                            trace!("Successfully requeued a network packet for sending");
-                            self.queue_size_inc();
-                        } else {
-                            error!("Can't put message back in queue for later sending");
-                        }
+                        failures.push(outer_pkt)
                     }
                 }
                 NetworkMessage::NetworkRequest(
@@ -910,6 +907,16 @@ impl P2PNode {
                     ..
                 ) => self.process_leave_network(inner_pkt),
                 _ => {}
+            }
+        }
+
+        // attempt to process failed messages again
+        for pkt in failures.into_iter() {
+            if self.send_queue_in.send(pkt).is_ok() {
+                trace!("Successfully requeued a network packet for sending");
+                self.queue_size_inc();
+            } else {
+                error!("Can't put message back in queue for later sending");
             }
         }
     }
