@@ -548,8 +548,7 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
     match log_level as u8 {
         1 => error!("{}: {}", id, msg),
         2 => warn!("{}: {}", id, msg),
-        3 => info!("{}: {}", id, msg),
-        4 => debug!("{}: {}", id, msg),
+        3 | 4 => debug!("{}: {}", id, msg),
         _ => trace!("{}: {}", id, msg),
     };
 }
