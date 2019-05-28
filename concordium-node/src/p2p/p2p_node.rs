@@ -867,58 +867,79 @@ impl P2PNode {
     }
 
     pub fn process_messages(&mut self) {
-        let messages = self.send_queue_out.try_iter();
-        let mut failures = Vec::new();
+        self.send_queue_out
+            .try_iter()
+            .map(|outer_pkt| {
+                trace!("Processing messages!");
 
-        for outer_pkt in messages {
-            trace!("Processing messages!");
-            if let Some(ref service) = &self.stats_export_service {
-                let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
-            };
-            trace!("Got message to process!");
+                if let Some(ref service) = &self.stats_export_service {
+                    let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
+                };
+                trace!("Got message to process!");
 
-            match *outer_pkt {
-                NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
-                    if !self.process_network_packet(inner_pkt) {
-                        failures.push(outer_pkt)
+                match *outer_pkt {
+                    NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
+                        if !self.process_network_packet(inner_pkt) {
+                            Some(outer_pkt)
+                        } else {
+                            None
+                        }
                     }
+                    NetworkMessage::NetworkRequest(
+                        ref inner_pkt @ NetworkRequest::Retransmit(..),
+                        ..
+                    ) => {
+                        self.process_retransmit(inner_pkt);
+                        None
+                    }
+                    NetworkMessage::NetworkRequest(
+                        ref inner_pkt @ NetworkRequest::GetPeers(..),
+                        ..
+                    ) => {
+                        self.process_get_peers(inner_pkt);
+                        None
+                    }
+                    NetworkMessage::NetworkRequest(
+                        ref inner_pkt @ NetworkRequest::UnbanNode(..),
+                        ..
+                    ) => {
+                        self.process_unban(inner_pkt);
+                        None
+                    }
+                    NetworkMessage::NetworkRequest(
+                        ref inner_pkt @ NetworkRequest::BanNode(..),
+                        ..
+                    ) => {
+                        self.process_ban(inner_pkt);
+                        None
+                    }
+                    NetworkMessage::NetworkRequest(
+                        ref inner_pkt @ NetworkRequest::JoinNetwork(..),
+                        ..
+                    ) => {
+                        self.process_join_network(inner_pkt);
+                        None
+                    }
+                    NetworkMessage::NetworkRequest(
+                        ref inner_pkt @ NetworkRequest::LeaveNetwork(..),
+                        ..
+                    ) => {
+                        self.process_leave_network(inner_pkt);
+                        None
+                    }
+                    _ => None,
                 }
-                NetworkMessage::NetworkRequest(
-                    ref inner_pkt @ NetworkRequest::Retransmit(..),
-                    ..
-                ) => self.process_retransmit(inner_pkt),
-                NetworkMessage::NetworkRequest(
-                    ref inner_pkt @ NetworkRequest::GetPeers(..),
-                    ..
-                ) => self.process_get_peers(inner_pkt),
-                NetworkMessage::NetworkRequest(
-                    ref inner_pkt @ NetworkRequest::UnbanNode(..),
-                    ..
-                ) => self.process_unban(inner_pkt),
-                NetworkMessage::NetworkRequest(ref inner_pkt @ NetworkRequest::BanNode(..), ..) => {
-                    self.process_ban(inner_pkt)
+            })
+            .filter_map(|possible_failure| possible_failure)
+            .for_each(|failed_pkt| {
+                // attempt to process failed messages again
+                if self.send_queue_in.send(failed_pkt).is_ok() {
+                    trace!("Successfully requeued a network packet for sending");
+                    self.queue_size_inc();
+                } else {
+                    error!("Can't put message back in queue for later sending");
                 }
-                NetworkMessage::NetworkRequest(
-                    ref inner_pkt @ NetworkRequest::JoinNetwork(..),
-                    ..
-                ) => self.process_join_network(inner_pkt),
-                NetworkMessage::NetworkRequest(
-                    ref inner_pkt @ NetworkRequest::LeaveNetwork(..),
-                    ..
-                ) => self.process_leave_network(inner_pkt),
-                _ => {}
-            }
-        }
-
-        // attempt to process failed messages again
-        for pkt in failures.into_iter() {
-            if self.send_queue_in.send(pkt).is_ok() {
-                trace!("Successfully requeued a network packet for sending");
-                self.queue_size_inc();
-            } else {
-                error!("Can't put message back in queue for later sending");
-            }
-        }
+            });
     }
 
     fn queue_size_inc(&self) {
