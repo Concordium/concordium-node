@@ -12,8 +12,8 @@ use crate::{
     },
     crypto,
     network::{
-        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-        NetworkRequest, NetworkResponse, packet::MessageId,
+        packet::MessageId, Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
+        NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::{
         banned_nodes::BannedNode,

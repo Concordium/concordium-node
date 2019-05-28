@@ -39,8 +39,8 @@ use p2p_client::{
     connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
     network::{
-        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
-        NetworkResponse, packet::MessageId,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
     p2p::*,
     rpc::RpcServerImpl,

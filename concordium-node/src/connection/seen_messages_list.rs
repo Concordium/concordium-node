@@ -1,4 +1,4 @@
-use chrono::{Utc, DateTime};
+use chrono::{DateTime, Utc};
 
 use crate::network::packet::MessageId;
 
@@ -11,7 +11,7 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct SeenMessage {
-    id: MessageId,
+    id:        MessageId,
     timestamp: DateTime<Utc>,
 }
 
@@ -25,17 +25,13 @@ impl SeenMessage {
 }
 
 impl PartialEq for SeenMessage {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
+    fn eq(&self, other: &Self) -> bool { self.id == other.id }
 }
 
 impl Eq for SeenMessage {}
 
 impl Hash for SeenMessage {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
-    }
+    fn hash<H: Hasher>(&self, state: &mut H) { self.id.hash(state); }
 }
 
 impl PartialOrd for SeenMessage {

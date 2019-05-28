@@ -1,6 +1,6 @@
 use crate::common::{fails::InvalidIpType, serialization::ReadArchive};
 
-use concordium_common::{HashBytes, SHA256, UCursor};
+use concordium_common::{HashBytes, UCursor, SHA256};
 use failure::{bail, err_msg, Fallible};
 
 use std::{

@@ -9,10 +9,10 @@ use std::{
     ops::Deref,
 };
 
+pub use concordium_common::{HashBytes, SHA256};
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
-pub use concordium_common::{HashBytes, SHA256};
 
 pub const INCARNATION: u8 = 8;
 pub const SESSION_ID: u8 = SHA256 + INCARNATION;

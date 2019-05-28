@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
 
-use byteorder::{ReadBytesExt, NetworkEndian};
+use byteorder::{NetworkEndian, ReadBytesExt};
 
 use std::{fmt, ops::Deref};
 
