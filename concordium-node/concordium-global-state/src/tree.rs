@@ -184,10 +184,10 @@ impl SkovData {
             .insert(block_ptr.hash.clone(), (block_ptr, BlockStatus::Alive));
 
         info!("block tree: {:?}", {
-            let mut vals = self.block_tree.values().collect::<Vec<_>>();
-            vals.sort_by_key(|(ptr, _)| ptr.block.slot());
-            vals.into_iter()
-                .map(|(ptr, status)| (ptr.hash.to_owned(), status))
+            let vals = self.block_tree.values().collect::<BinaryHeap<_>>();
+            vals.into_sorted_vec()
+                .iter()
+                .map(|ptr| (ptr.hash.to_owned(), ptr.status))
                 .collect::<Vec<_>>()
         });
 
