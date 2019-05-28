@@ -271,8 +271,8 @@ mod serialization {
         use p2p_client::{
             common::P2PNodeId,
             network::{
-                serialization::cbor::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder,
+                packet::MessageId, serialization::cbor::s11n_network_message, NetworkId,
+                NetworkMessage, NetworkPacketBuilder,
             },
         };
 
@@ -291,7 +291,7 @@ mod serialization {
             let dm = NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; 32]))
                     .network_id(NetworkId::from(100u16))
                     .message(UCursor::from(content.into_bytes()))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
@@ -346,8 +346,8 @@ mod serialization {
         use p2p_client::{
             common::P2PNodeId,
             network::{
-                serialization::json::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder,
+                packet::MessageId, serialization::json::s11n_network_message, NetworkId,
+                NetworkMessage, NetworkPacketBuilder,
             },
         };
 
@@ -366,7 +366,7 @@ mod serialization {
             let dm = NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; 32]))
                     .network_id(NetworkId::from(100u16))
                     .message(content_cursor)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
@@ -491,6 +491,7 @@ mod serialization {
         use p2p_client::{
             common::{P2PNodeId, P2PPeerBuilder, PeerType},
             network::{
+                packet::MessageId,
                 serialization::cap::{deserialize, save_network_message},
                 NetworkId, NetworkMessage, NetworkPacketBuilder,
             },
@@ -519,7 +520,7 @@ mod serialization {
             let mut dm = NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; 32]))
                     .network_id(NetworkId::from(111u16))
                     .message(content_cursor)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
