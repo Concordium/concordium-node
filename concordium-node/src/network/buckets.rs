@@ -2,7 +2,6 @@ use rand::seq::IteratorRandom;
 use std::{
     collections::HashSet,
     hash::{Hash, Hasher},
-    sync::RwLock,
 };
 
 use crate::{
