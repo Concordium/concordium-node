@@ -198,7 +198,7 @@ mod tests {
             loop {
                 let msg = waiter.recv()?;
                 if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
-                    if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                    if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                         payload = pac.message.clone();
                         break;
                     }
@@ -309,7 +309,7 @@ mod tests {
                     NetworkResponse::Handshake(..) => "Response::Handshake".to_owned(),
                 },
                 NetworkMessage::NetworkPacket(ref packet, ..) => match packet.packet_type {
-                    NetworkPacketType::BroadcastedMessage => {
+                    NetworkPacketType::BroadcastedMessage(..) => {
                         format!("Packet::Broadcast(size={})", packet.message.len())
                     }
                     NetworkPacketType::DirectMessage(src_node_id, ..) => format!(
@@ -439,7 +439,7 @@ mod tests {
         if let Ok(msg) = msg_waiter_3.recv_timeout(time::Duration::from_secs(5)) {
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
-                    if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                    if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                         panic!("Got a message; this should not happen!");
                     }
                 }
@@ -472,7 +472,7 @@ mod tests {
 
             safe_write!(node.message_handler())?.add_packet_callback(make_atomic_callback!(
                 move |pac: &NetworkPacket| {
-                    if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                    if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                         inner_counter.tick(1);
                         info!(
                             "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
@@ -548,7 +548,7 @@ mod tests {
 
                 safe_write!(node.message_handler())?
                     .add_packet_callback(make_atomic_callback!(move |pac: &NetworkPacket| {
-                        if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                        if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                             inner_counter.tick(1);
                             info!(
                                 "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
@@ -701,7 +701,7 @@ mod tests {
             // 4. Wait broadcast in root.
             if let Ok(ref mut pac) = bcast_rx.recv_timeout(time::Duration::from_secs(2)) {
                 match pac.packet_type {
-                    NetworkPacketType::BroadcastedMessage => {
+                    NetworkPacketType::BroadcastedMessage(..) => {
                         let msg = pac.message.read_all_into_view()?;
                         assert_eq!(msg.as_slice(), broadcast_msg.as_slice());
                         ack_count += 1;
@@ -936,7 +936,7 @@ mod tests {
             debug!("Waiting broadcast message");
             if let Ok(ref mut pac) = bcast_rx.recv_timeout(time::Duration::from_secs(2)) {
                 debug!("Waiting broadcast message - finished");
-                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                     let msg = pac.message.read_all_into_view()?;
                     assert_eq!(msg.as_slice(), bcast_content.as_slice());
                     wait_loop = false;

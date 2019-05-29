@@ -513,7 +513,7 @@ fn setup_process_output(
                                 }
                             };
                         }
-                        NetworkPacketType::BroadcastedMessage => {
+                        NetworkPacketType::BroadcastedMessage(..) => {
                             if let Some(ref testrunner_url) = _test_runner_url {
                                 send_packet_to_testrunner(&node_ref, testrunner_url, &pac);
                             };

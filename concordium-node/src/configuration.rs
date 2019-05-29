@@ -170,6 +170,12 @@ pub struct ConnectionConfig {
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_bootstrap_dns: bool,
     #[structopt(
+        long = "ignore-carbon-copy-rebroadcast-existing",
+        help = "Probability to not rebroadcast to previous carbon copies",
+        default_value = "0.5"
+    )]
+    pub ignore_carbon_copy_rebroadcast_existing: f64,
+    #[structopt(
         long = "bootstrap-server",
         help = "DNS name to resolve bootstrap nodes from",
         default_value = "bootstrap.p2p.concordium.com"

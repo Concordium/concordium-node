@@ -369,7 +369,7 @@ fn setup_process_output(
                             pac.message.len()
                         );
                     }
-                    NetworkPacketType::BroadcastedMessage => {
+                    NetworkPacketType::BroadcastedMessage(..) => {
                         if !_no_trust_broadcasts {
                             info!(
                                 "BroadcastedMessage/{}/{:?} with size {} received",

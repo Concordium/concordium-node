@@ -394,6 +394,10 @@ impl TlsServer {
         }
     }
 
+    pub fn get_all_current_peers(&self) -> Vec<P2PNodeId> {
+        read_or_die!(self.dptr).get_all_current_peers()
+    }
+
     #[inline]
     pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
         write_or_die!(self.dptr).conn_event(event)

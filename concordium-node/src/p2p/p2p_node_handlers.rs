@@ -67,7 +67,7 @@ pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
 ) -> FuncResult<()> {
     let drop_msg = match pac.packet_type {
         NetworkPacketType::DirectMessage(..) => "Dropping duplicate direct packet",
-        NetworkPacketType::BroadcastedMessage => "Dropping duplicate broadcast packet",
+        NetworkPacketType::BroadcastedMessage(..) => "Dropping duplicate broadcast packet",
     };
     if !is_message_already_seen(seen_messages, pac, drop_msg) {
         forward_network_packet_message_common(
@@ -125,7 +125,7 @@ fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
 
         if seen_messages.append(&pac.message_id) {
             if blind_trust_broadcast {
-                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
+                if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
                     debug!(
                         "Peer {} is rebroadcasting a message {:?} from {}",
                         own_id,

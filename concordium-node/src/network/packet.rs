@@ -18,14 +18,14 @@ use std::convert::TryFrom;
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
-    BroadcastedMessage,
+    BroadcastedMessage(Vec<P2PNodeId>),
 }
 
 impl AsProtocolPacketType for NetworkPacketType {
     fn protocol_packet_type(&self) -> ProtocolPacketType {
         match self {
             NetworkPacketType::DirectMessage(..) => ProtocolPacketType::Direct,
-            NetworkPacketType::BroadcastedMessage => ProtocolPacketType::Broadcast,
+            NetworkPacketType::BroadcastedMessage(..) => ProtocolPacketType::Broadcast,
         }
     }
 }
@@ -38,7 +38,9 @@ impl Serializable for NetworkPacketType {
 
         match self {
             NetworkPacketType::DirectMessage(ref receiver) => receiver.serialize(archive),
-            NetworkPacketType::BroadcastedMessage => Ok(()),
+            NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
+                carbon_copies.serialize(archive)
+            }
         }
     }
 }
@@ -53,7 +55,9 @@ impl Deserializable for NetworkPacketType {
             ProtocolPacketType::Direct => Ok(NetworkPacketType::DirectMessage(
                 P2PNodeId::deserialize(archive)?,
             )),
-            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage),
+            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(
+                Vec::<P2PNodeId>::deserialize(archive)?,
+            )),
         }
     }
 }
@@ -77,8 +81,8 @@ pub struct NetworkPacket {
 
 impl NetworkPacketBuilder {
     #[inline]
-    pub fn build_broadcast(&mut self) -> Fallible<NetworkPacket> {
-        self.build(NetworkPacketType::BroadcastedMessage)
+    pub fn build_broadcast(&mut self, carbon_copies: Vec<P2PNodeId>) -> Fallible<NetworkPacket> {
+        self.build(NetworkPacketType::BroadcastedMessage(carbon_copies))
     }
 
     #[inline]

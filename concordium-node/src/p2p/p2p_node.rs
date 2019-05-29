@@ -59,21 +59,24 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use rand::Rng;
+
 const SERVER: Token = Token(0);
 
 #[derive(Clone)]
 pub struct P2PNodeConfig {
-    no_net:                  bool,
-    desired_nodes_count:     u8,
-    no_bootstrap_dns:        bool,
-    bootstrappers_conf:      String,
-    dns_resolvers:           Vec<String>,
-    dnssec_disabled:         bool,
-    bootstrap_node:          Vec<String>,
-    minimum_per_bucket:      usize,
+    no_net: bool,
+    desired_nodes_count: u8,
+    no_bootstrap_dns: bool,
+    bootstrappers_conf: String,
+    dns_resolvers: Vec<String>,
+    dnssec_disabled: bool,
+    bootstrap_node: Vec<String>,
+    minimum_per_bucket: usize,
     blind_trusted_broadcast: bool,
-    max_allowed_nodes:       u16,
-    max_resend_attempts:     u8,
+    max_allowed_nodes: u16,
+    max_resend_attempts: u8,
+    ignore_carbon_copy_rebroadcast_existing: f64,
 }
 
 #[derive(Default)]
@@ -284,19 +287,19 @@ impl P2PNode {
         create_dump_thread(own_peer_ip, id, _dump_rx, _act_rx, &conf.common.data_dir);
 
         let config = P2PNodeConfig {
-            no_net:                  conf.cli.no_network,
-            desired_nodes_count:     conf.connection.desired_nodes,
-            no_bootstrap_dns:        conf.connection.no_bootstrap_dns,
-            bootstrappers_conf:      conf.connection.bootstrap_server.clone(),
-            dns_resolvers:           utils::get_resolvers(
+            no_net: conf.cli.no_network,
+            desired_nodes_count: conf.connection.desired_nodes,
+            no_bootstrap_dns: conf.connection.no_bootstrap_dns,
+            bootstrappers_conf: conf.connection.bootstrap_server.clone(),
+            dns_resolvers: utils::get_resolvers(
                 &conf.connection.resolv_conf,
                 &conf.connection.dns_resolver,
             ),
-            dnssec_disabled:         conf.connection.dnssec_disabled,
-            bootstrap_node:          conf.connection.bootstrap_node.clone(),
-            minimum_per_bucket:      conf.common.min_peers_bucket,
+            dnssec_disabled: conf.connection.dnssec_disabled,
+            bootstrap_node: conf.connection.bootstrap_node.clone(),
+            minimum_per_bucket: conf.common.min_peers_bucket,
             blind_trusted_broadcast: !conf.connection.no_trust_broadcasts,
-            max_allowed_nodes:       if let Some(max) = conf.connection.max_allowed_nodes {
+            max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 u16::from(max)
             } else {
                 f64::floor(
@@ -304,7 +307,10 @@ impl P2PNode {
                         * (f64::from(conf.connection.max_allowed_nodes_percentage) / 100f64),
                 ) as u16
             },
-            max_resend_attempts:     conf.connection.max_resend_attempts,
+            max_resend_attempts: conf.connection.max_resend_attempts,
+            ignore_carbon_copy_rebroadcast_existing: conf
+                .connection
+                .ignore_carbon_copy_rebroadcast_existing,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -395,7 +401,7 @@ impl P2PNode {
                 rpc_queue:      &rpc_queue,
             };
             match pac.packet_type {
-                NetworkPacketType::BroadcastedMessage => {
+                NetworkPacketType::BroadcastedMessage(..) => {
                     if broadcasting_checks.run_filters(pac) {
                         forward_network_packet_message(
                             own_id,
@@ -846,10 +852,21 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
 
-        let s11n_data = serialize_into_memory(
-            &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
-            256,
-        );
+        let s11n_data = match inner_pkt.packet_type {
+            NetworkPacketType::DirectMessage(..) => serialize_into_memory(
+                &NetworkMessage::NetworkPacket(inner_pkt.clone(), Some(get_current_stamp()), None),
+                256,
+            ),
+            NetworkPacketType::BroadcastedMessage(..) => {
+                let local_peers = read_or_die!(self.tls_server).get_all_current_peers();
+                let mut updated_packet = inner_pkt.clone();
+                updated_packet.packet_type = NetworkPacketType::BroadcastedMessage(local_peers);
+                serialize_into_memory(
+                    &NetworkMessage::NetworkPacket(updated_packet, Some(get_current_stamp()), None),
+                    256,
+                )
+            }
+        };
 
         match s11n_data {
             Ok(data) => match inner_pkt.packet_type {
@@ -862,10 +879,14 @@ impl P2PNode {
                         &check_sent_status_fn,
                     ) >= 1
                 }
-                NetworkPacketType::BroadcastedMessage => {
+                NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
+                    let ignore_carbon_copies = rand::thread_rng()
+                        .gen_bool(self.config.ignore_carbon_copy_rebroadcast_existing);
                     let filter = |conn: &Connection| {
                         is_valid_connection_in_broadcast(
                             conn,
+                            carbon_copies,
+                            ignore_carbon_copies,
                             &inner_pkt.peer,
                             inner_pkt.network_id,
                         )
@@ -1093,7 +1114,7 @@ impl P2PNode {
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
-                .build_broadcast()?
+                .build_broadcast(vec![])?
         } else {
             let receiver =
                 id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
@@ -1372,11 +1393,16 @@ fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
 /// a bootstrap node.
 pub fn is_valid_connection_in_broadcast(
     conn: &Connection,
+    carbon_copies: &[P2PNodeId],
+    ignore_carbons: bool,
     sender: &P2PPeer,
     network_id: NetworkId,
 ) -> bool {
     if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-        if remote_peer.id() != sender.id() && remote_peer.peer_type() != PeerType::Bootstrapper {
+        if remote_peer.id() != sender.id()
+            && (ignore_carbons || !carbon_copies.contains(&remote_peer.id()))
+            && remote_peer.peer_type() != PeerType::Bootstrapper
+        {
             let remote_end_networks = conn.remote_end_networks();
             return remote_end_networks.contains(&network_id);
         }
