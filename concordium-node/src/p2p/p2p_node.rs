@@ -955,6 +955,7 @@ impl P2PNode {
             })
             .filter_map(|possible_failure| possible_failure)
             .for_each(|failed_pkt| {
+                self.pks_resend_inc();
                 // attempt to process failed messages again
                 if self.config.max_resend_attempts > 0
                     && self
@@ -964,7 +965,6 @@ impl P2PNode {
                 {
                     trace!("Successfully queued a failed network packet to be attempted again");
                     self.resend_queue_size_inc();
-                    self.pks_resend_inc();
                 } else {
                     self.pks_dropped_inc();
                     error!("Can't put message back in queue for later sending");
