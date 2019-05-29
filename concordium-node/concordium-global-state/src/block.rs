@@ -278,7 +278,7 @@ pub struct BlockPtr {
     // state:       BlockState,
     pub received:  DateTime<Utc>,
     pub validated: DateTime<Utc>,
-    pub status: BlockStatus,
+    pub status:    BlockStatus,
 }
 
 impl BlockPtr {

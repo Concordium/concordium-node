@@ -81,9 +81,16 @@ pub enum SkovError {
 impl fmt::Debug for SkovError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            SkovError::MissingParentBlock(ref parent, ref pending) => format!("block {:?} is missing parent ({:?})", pending, parent),
-            SkovError::InvalidLastFinalized(ref last_finalized, ref pending) => format!("block {:?} wrongly states that {:?} is the last finalized block", pending, last_finalized),
-            SkovError::MissingBlockToFinalize(ref target) => format!("can't finalize block {:?} as it's not in the tree", target),
+            SkovError::MissingParentBlock(ref parent, ref pending) => {
+                format!("block {:?} is missing parent ({:?})", pending, parent)
+            }
+            SkovError::InvalidLastFinalized(ref last_finalized, ref pending) => format!(
+                "block {:?} wrongly states that {:?} is the last finalized block",
+                pending, last_finalized
+            ),
+            SkovError::MissingBlockToFinalize(ref target) => {
+                format!("can't finalize block {:?} as it's not in the tree", target)
+            }
         };
 
         write!(f, "{}", msg)
@@ -94,7 +101,7 @@ impl fmt::Debug for SkovError {
 pub enum SkovResult {
     Success,
     DuplicateEntry,
-    Error(SkovError)
+    Error(SkovError),
 }
 
 #[derive(Debug)]
@@ -119,29 +126,28 @@ pub struct SkovData {
 impl Default for SkovData {
     fn default() -> Self {
         Self {
-            block_tree: HashMap::with_capacity(100),
-            orphan_blocks: HashMap::with_capacity(10),
-            finalization_list: BinaryHeap::with_capacity(100),
-            last_finalized: None,
+            block_tree:              HashMap::with_capacity(100),
+            orphan_blocks:           HashMap::with_capacity(10),
+            finalization_list:       BinaryHeap::with_capacity(100),
+            last_finalized:          None,
             awaiting_last_finalized: HashMap::with_capacity(10),
-            genesis_block_ptr: None,
-            transaction_table: TransactionTable::default(),
+            genesis_block_ptr:       None,
+            transaction_table:       TransactionTable::default(),
         }
     }
 }
 
 impl SkovData {
     pub fn add_genesis(&mut self, genesis_block_ptr: BlockPtr) {
-        self.block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr.clone());
+        self.block_tree
+            .insert(genesis_block_ptr.hash.clone(), genesis_block_ptr.clone());
         self.genesis_block_ptr = Some(genesis_block_ptr.clone());
-        self.finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
+        self.finalization_list
+            .push(FinalizationRecord::genesis(&genesis_block_ptr));
         self.last_finalized = Some(genesis_block_ptr);
     }
 
-    pub fn add_block(
-        &mut self,
-        pending_block: PendingBlock,
-    ) -> SkovResult {
+    pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify if the pending block's parent block is already in the tree
         let parent_block =
             if let Some(block_ptr) = self.get_block_by_hash(&pending_block.block.pointer) {
@@ -149,7 +155,7 @@ impl SkovData {
             } else {
                 let error = SkovError::MissingParentBlock(
                     pending_block.block.pointer.clone(),
-                    pending_block.hash.clone()
+                    pending_block.hash.clone(),
                 );
 
                 self.queue_orphan_block(pending_block);
@@ -178,9 +184,7 @@ impl SkovData {
         // if the above checks pass, a BlockPtr can be created
         let block_ptr = BlockPtr::new(pending_block, parent_block, last_finalized, Utc::now());
 
-        let insertion_result = self
-            .block_tree
-            .insert(block_ptr.hash.clone(), block_ptr);
+        let insertion_result = self.block_tree.insert(block_ptr.hash.clone(), block_ptr);
 
         if insertion_result.is_none() {
             SkovResult::Success
@@ -271,7 +275,7 @@ impl SkovData {
             {
                 if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
                     for orphan in orphans {
-                        if let err@SkovResult::Error(_) = self.add_block(orphan) {
+                        if let err @ SkovResult::Error(_) = self.add_block(orphan) {
                             return err;
                         }
                     }
@@ -279,7 +283,7 @@ impl SkovData {
             }
         }
 
-       SkovResult::Success
+        SkovResult::Success
     }
 
     pub fn recheck_missing_parent(&mut self, missing_parent: &HashBytes) -> SkovResult {
@@ -290,7 +294,7 @@ impl SkovData {
         {
             if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
                 for orphan in orphans {
-                    if let err@SkovResult::Error(_) = self.add_block(orphan) {
+                    if let err @ SkovResult::Error(_) = self.add_block(orphan) {
                         return err;
                     }
                 }
@@ -301,11 +305,9 @@ impl SkovData {
     }
 
     pub fn display_state(&self) {
-        info!("block tree: {:?}\n\
-               last finalized: {:?}\n\
-               finalization list: {:?}\n\
-               orphan blocks: {:?}\n\
-               awaiting last finalized: {:?}",
+        info!(
+            "block tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\norphan blocks: \
+             {:?}\nawaiting last finalized: {:?}",
             self.block_tree
                 .values()
                 .collect::<BinaryHeap<_>>()
@@ -324,20 +326,14 @@ impl SkovData {
                 .iter()
                 .map(|(parent, pending)| (
                     parent,
-                    pending
-                        .iter()
-                        .map(|pb| &pb.hash)
-                        .collect::<Vec<_>>()
-                    )
-                ).collect::<Vec<_>>(),
+                    pending.iter().map(|pb| &pb.hash).collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>(),
             self.awaiting_last_finalized
                 .iter()
                 .map(|(last_finalized, pending)| (
                     last_finalized,
-                    pending
-                        .iter()
-                        .map(|pb| &pb.hash)
-                        .collect::<Vec<_>>()
+                    pending.iter().map(|pb| &pb.hash).collect::<Vec<_>>()
                 ))
                 .collect::<Vec<_>>()
         );

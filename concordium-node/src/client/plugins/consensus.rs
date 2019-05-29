@@ -217,9 +217,7 @@ pub fn handle_global_state_request(
         };
 
         let result = match request.body {
-            SkovReqBody::AddBlock(pending_block) => {
-                safe_lock!(SKOV_DATA)?.add_block(pending_block)
-            }
+            SkovReqBody::AddBlock(pending_block) => safe_lock!(SKOV_DATA)?.add_block(pending_block),
             SkovReqBody::AddFinalizationRecord(record) => {
                 safe_lock!(SKOV_DATA)?.add_finalization(record)
             }
@@ -228,19 +226,24 @@ pub fn handle_global_state_request(
 
         match result {
             SkovResult::Success => {
-                trace!("Skov: successfully processed a {} from peer {}", packet_type, peer_id);
-            },
+                trace!(
+                    "Skov: successfully processed a {} from peer {}",
+                    packet_type,
+                    peer_id
+                );
+            }
             SkovResult::DuplicateEntry => {
                 warn!(
                     "Skov: got a duplicate {} from peer {}",
                     packet_type, peer_id
                 );
-            },
+            }
             SkovResult::Error(e) => {
                 warn!("{:?}", e);
 
                 match e {
-                    SkovError::MissingParentBlock(ref missing, _) | SkovError::MissingBlockToFinalize(ref missing) => {
+                    SkovError::MissingParentBlock(ref missing, _)
+                    | SkovError::MissingBlockToFinalize(ref missing) => {
                         let mut inner_out_bytes =
                             Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
                         inner_out_bytes.extend_from_slice(missing);
@@ -256,7 +259,7 @@ pub fn handle_global_state_request(
                             &inner_out_bytes,
                             PacketDirection::Outbound,
                         )?;
-                    },
+                    }
                     SkovError::InvalidLastFinalized(..) => {
                         // TODO
                     }
