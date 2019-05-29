@@ -133,6 +133,11 @@ then
     ARGS="$ARGS --max-resend-attempts $MAX_RESEND_ATTEMPTS"
 fi
 
+if [ -n "$IGNORE_CARBON_COPY_REBROADCAST_EXISTING" ];
+then
+    ARGS="$ARGS --ignore-carbon-copy-rebroadcast-existing $IGNORE_CARBON_COPY_REBROADCAST_EXISTING"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     
