@@ -25,7 +25,7 @@ use concordium_consensus::{
 use concordium_global_state::{
     common::{sha256, SerializeToBytes},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::SKOV_QUEUE,
+    tree::{SkovData, SKOV_QUEUE},
 };
 use env_logger::{Builder, Env};
 use failure::{bail, Fallible};
@@ -424,6 +424,16 @@ fn setup_process_output(
     let mut baker_clone = baker.clone();
     let mut node_ref = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
+        let mut skov_data = SkovData::default();
+        // add the genesis block to the Skov
+        skov_data.add_genesis(
+            &baker_clone
+                .clone()
+                .map(|baker| baker.get_genesis_data())
+                .unwrap()
+                .unwrap(),
+        );
+
         loop {
             match SKOV_QUEUE.recv_request() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
@@ -435,6 +445,7 @@ fn setup_process_output(
                         P2PNodeId(source),
                         _network_id,
                         request,
+                        &mut skov_data,
                     ) {
                         error!("There's an issue with a global state request: {}", e);
                     }
@@ -638,7 +649,7 @@ fn main() -> Fallible<()> {
 
     let mut baker = if conf.cli.baker.baker_id.is_some() {
         // Starting baker
-        plugins::consensus::start_baker(&node, &conf.cli.baker, &app_prefs)
+        plugins::consensus::start_baker(&conf.cli.baker, &app_prefs)
     } else {
         None
     };

@@ -20,7 +20,6 @@ use crate::{
 };
 
 lazy_static! {
-    pub static ref SKOV_DATA: Mutex<SkovData> = { Mutex::new(SkovData::default()) };
     pub static ref SKOV_QUEUE: SkovQueue = { SkovQueue::default() };
 }
 
@@ -138,12 +137,15 @@ impl Default for SkovData {
 }
 
 impl SkovData {
-    pub fn add_genesis(&mut self, genesis_block_ptr: BlockPtr) {
-        self.block_tree
-            .insert(genesis_block_ptr.hash.clone(), genesis_block_ptr.clone());
-        self.genesis_block_ptr = Some(genesis_block_ptr.clone());
+    pub fn add_genesis(&mut self, genesis_data: &[u8]) {
+        let genesis_block_ptr = BlockPtr::genesis(genesis_data);
+
         self.finalization_list
             .push(FinalizationRecord::genesis(&genesis_block_ptr));
+        self.block_tree
+            .insert(genesis_block_ptr.hash.clone(), genesis_block_ptr.clone());
+
+        self.genesis_block_ptr = Some(genesis_block_ptr.clone());
         self.last_finalized = Some(genesis_block_ptr);
     }
 
@@ -216,14 +218,22 @@ impl SkovData {
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        let block_ptr = if let Some(ref mut ptr) = self.block_tree.get_mut(&record.block_pointer) {
-            ptr.status = BlockStatus::Finalized;
+        let mut target_block = self.block_tree.get_mut(&record.block_pointer);
 
-            ptr.to_owned()
+        if let Some(ref mut block) = target_block {
+            block.status = BlockStatus::Finalized;
         } else {
             let error = SkovError::MissingBlockToFinalize(record.block_pointer);
 
             return SkovResult::Error(error);
+        }
+
+        // rebind the reference (so we don't have to search for it again) so it's no
+        // longer mutable
+        let target_block = if let Some(target) = target_block {
+            Some(&*target)
+        } else {
+            None
         };
 
         // we should be ok with a linear search, as we are expecting only to keep the
@@ -235,7 +245,7 @@ impl SkovData {
             .is_none()
         {
             self.finalization_list.push(record);
-            self.last_finalized = Some(block_ptr);
+            self.last_finalized = target_block.cloned();
 
             SkovResult::Success
         } else {
