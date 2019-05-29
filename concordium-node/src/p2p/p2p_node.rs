@@ -73,6 +73,7 @@ pub struct P2PNodeConfig {
     minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
     max_allowed_nodes:       u16,
+    max_resend_attempts:     u8,
 }
 
 #[derive(Default)]
@@ -80,8 +81,6 @@ pub struct P2PNodeThread {
     pub join_handle: Option<JoinHandle<()>>,
     pub id:          Option<ThreadId>,
 }
-
-const RESEND_QUEUE_MAX_ATTEMPTS: u8 = 10;
 
 pub struct ResendQueueEntry {
     pub message:      Arc<NetworkMessage>,
@@ -305,6 +304,7 @@ impl P2PNode {
                         * (f64::from(conf.connection.max_allowed_nodes_percentage) / 100f64),
                 ) as u16
             },
+            max_resend_attempts:     conf.connection.max_resend_attempts,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -956,10 +956,11 @@ impl P2PNode {
             .filter_map(|possible_failure| possible_failure)
             .for_each(|failed_pkt| {
                 // attempt to process failed messages again
-                if self
-                    .resend_queue_in
-                    .send(ResendQueueEntry::new(failed_pkt, get_current_stamp(), 0u8))
-                    .is_ok()
+                if self.config.max_resend_attempts > 0
+                    && self
+                        .resend_queue_in
+                        .send(ResendQueueEntry::new(failed_pkt, get_current_stamp(), 0u8))
+                        .is_ok()
                 {
                     trace!("Successfully queued a network packet to be attempted again");
                     self.queue_size_inc();
@@ -997,7 +998,7 @@ impl P2PNode {
             .filter_map(|possible_failure| possible_failure)
             .collect::<Vec<_>>();
         resend_failures.iter().for_each(|failed_resend_pkt| {
-            if failed_resend_pkt.attempts < RESEND_QUEUE_MAX_ATTEMPTS {
+            if failed_resend_pkt.attempts < self.config.max_resend_attempts {
                 if self
                     .resend_queue_in
                     .send(ResendQueueEntry::new(

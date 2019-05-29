@@ -128,6 +128,11 @@ then
     ARGS="$ARGS --gossip-seen-message-ids-size $SEEN_MESSAGE_IDS_SIZE"
 fi
 
+if [ -n "$MAX_RESEND_ATTEMPTS" ];
+then
+    ARGS="$ARGS --max-resend-attempts $MAX_RESEND_ATTEMPTS"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     

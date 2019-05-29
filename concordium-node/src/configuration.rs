@@ -150,6 +150,12 @@ pub struct ConnectionConfig {
     )]
     pub desired_nodes: u8,
     #[structopt(
+        long = "max-resend-attempts",
+        help = "Maximum number of times a packet is attempted to be resent",
+        default_value = "5"
+    )]
+    pub max_resend_attempts: u8,
+    #[structopt(
         long = "max-allowed-nodes",
         help = "Maximum nodes to allow a connection to"
     )]
