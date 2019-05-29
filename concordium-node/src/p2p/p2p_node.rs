@@ -73,12 +73,29 @@ pub struct P2PNodeConfig {
     minimum_per_bucket:      usize,
     blind_trusted_broadcast: bool,
     max_allowed_nodes:       u16,
+    max_resend_attempts:     u8,
 }
 
 #[derive(Default)]
 pub struct P2PNodeThread {
     pub join_handle: Option<JoinHandle<()>>,
     pub id:          Option<ThreadId>,
+}
+
+pub struct ResendQueueEntry {
+    pub message:      Arc<NetworkMessage>,
+    pub last_attempt: u64,
+    pub attempts:     u8,
+}
+
+impl ResendQueueEntry {
+    pub fn new(message: Arc<NetworkMessage>, last_attempt: u64, attempts: u8) -> Self {
+        Self {
+            message,
+            last_attempt,
+            attempts,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -88,6 +105,8 @@ pub struct P2PNode {
     id:                   P2PNodeId,
     send_queue_in:        Sender<Arc<NetworkMessage>>,
     send_queue_out:       Rc<Receiver<Arc<NetworkMessage>>>,
+    resend_queue_in:      Sender<ResendQueueEntry>,
+    resend_queue_out:     Rc<Receiver<ResendQueueEntry>>,
     pub internal_addr:    SocketAddr,
     queue_to_super:       RelayOrStopSender<Arc<NetworkMessage>>,
     rpc_queue:            Arc<Mutex<Option<Sender<Arc<NetworkMessage>>>>>,
@@ -285,6 +304,7 @@ impl P2PNode {
                         * (f64::from(conf.connection.max_allowed_nodes_percentage) / 100f64),
                 ) as u16
             },
+            max_resend_attempts:     conf.connection.max_resend_attempts,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -309,6 +329,7 @@ impl P2PNode {
             .expect("P2P Node creation couldn't create a Tls Server");
 
         let (send_queue_in, send_queue_out) = channel();
+        let (resend_queue_in, resend_queue_out) = channel();
 
         let mut mself = P2PNode {
             tls_server: Arc::new(RwLock::new(tlsserv)),
@@ -316,6 +337,8 @@ impl P2PNode {
             id,
             send_queue_in: send_queue_in.clone(),
             send_queue_out: Rc::new(send_queue_out),
+            resend_queue_in: resend_queue_in.clone(),
+            resend_queue_out: Rc::new(resend_queue_out),
             internal_addr: SocketAddr::new(ip, conf.common.listen_port),
             queue_to_super: pkt_queue,
             rpc_queue: Arc::new(Mutex::new(None)),
@@ -933,13 +956,62 @@ impl P2PNode {
             .filter_map(|possible_failure| possible_failure)
             .for_each(|failed_pkt| {
                 // attempt to process failed messages again
-                if self.send_queue_in.send(failed_pkt).is_ok() {
-                    trace!("Successfully requeued a network packet for sending");
+                if self.config.max_resend_attempts > 0
+                    && self
+                        .resend_queue_in
+                        .send(ResendQueueEntry::new(failed_pkt, get_current_stamp(), 0u8))
+                        .is_ok()
+                {
+                    trace!("Successfully queued a failed network packet to be attempted again");
                     self.queue_size_inc();
                 } else {
                     error!("Can't put message back in queue for later sending");
                 }
             });
+    }
+
+    fn process_resend_queue(&mut self) {
+        let resend_failures = self
+            .resend_queue_out
+            .try_iter()
+            .map(|wrapper| {
+                trace!("Processing messages!");
+                if let Some(ref service) = &self.stats_export_service {
+                    let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
+                };
+                trace!("Got a message to reprocess!");
+
+                match *wrapper.message {
+                    NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
+                        if !self.process_network_packet(inner_pkt) {
+                            Some(wrapper)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => unreachable!("Attempted to reprocess a non-packet network message!"),
+                }
+            })
+            .filter_map(|possible_failure| possible_failure)
+            .collect::<Vec<_>>();
+        resend_failures.iter().for_each(|failed_resend_pkt| {
+            if failed_resend_pkt.attempts < self.config.max_resend_attempts {
+                if self
+                    .resend_queue_in
+                    .send(ResendQueueEntry::new(
+                        Arc::clone(&failed_resend_pkt.message),
+                        failed_resend_pkt.last_attempt,
+                        failed_resend_pkt.attempts + 1,
+                    ))
+                    .is_ok()
+                {
+                    trace!("Successfully requeued a failed network packet");
+                    self.queue_size_inc();
+                } else {
+                    error!("Can't put a packet in the resend queue!");
+                }
+            }
+        })
     }
 
     fn queue_size_inc(&self) {
@@ -1179,6 +1251,9 @@ impl P2PNode {
 
         trace!("Processing new outbound messages");
         self.process_messages();
+
+        trace!("Processing the resend queue");
+        self.process_resend_queue();
         Ok(())
     }
 
