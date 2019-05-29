@@ -962,7 +962,7 @@ impl P2PNode {
                         .send(ResendQueueEntry::new(failed_pkt, get_current_stamp(), 0u8))
                         .is_ok()
                 {
-                    trace!("Successfully queued a network packet to be attempted again");
+                    trace!("Successfully queued a failed network packet to be attempted again");
                     self.queue_size_inc();
                 } else {
                     error!("Can't put message back in queue for later sending");
@@ -979,7 +979,7 @@ impl P2PNode {
                 if let Some(ref service) = &self.stats_export_service {
                     let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
                 };
-                trace!("Got message to process!");
+                trace!("Got a message to reprocess!");
 
                 match *wrapper.message {
                     NetworkMessage::NetworkPacket(ref inner_pkt, ..) => {
@@ -989,10 +989,7 @@ impl P2PNode {
                             None
                         }
                     }
-                    _ => {
-                        // we only resend `NetworkPacket`
-                        None
-                    }
+                    _ => unreachable!("Attempted to reprocess a non-packet network message!"),
                 }
             })
             .filter_map(|possible_failure| possible_failure)
@@ -1008,10 +1005,10 @@ impl P2PNode {
                     ))
                     .is_ok()
                 {
-                    trace!("Successfully requeued a network packet to be attempted again");
+                    trace!("Successfully requeued a failed network packet");
                     self.queue_size_inc();
                 } else {
-                    error!("Can't put message back in queue for later sending");
+                    error!("Can't put a packet in the resend queue!");
                 }
             }
         })
@@ -1254,7 +1251,8 @@ impl P2PNode {
 
         trace!("Processing new outbound messages");
         self.process_messages();
-        trace!("Processing resend queue");
+
+        trace!("Processing the resend queue");
         self.process_resend_queue();
         Ok(())
     }
