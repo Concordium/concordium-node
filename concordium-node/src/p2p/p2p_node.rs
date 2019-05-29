@@ -955,6 +955,7 @@ impl P2PNode {
             })
             .filter_map(|possible_failure| possible_failure)
             .for_each(|failed_pkt| {
+                self.pks_resend_inc();
                 // attempt to process failed messages again
                 if self.config.max_resend_attempts > 0
                     && self
@@ -963,8 +964,9 @@ impl P2PNode {
                         .is_ok()
                 {
                     trace!("Successfully queued a failed network packet to be attempted again");
-                    self.queue_size_inc();
+                    self.resend_queue_size_inc();
                 } else {
+                    self.pks_dropped_inc();
                     error!("Can't put message back in queue for later sending");
                 }
             });
@@ -976,9 +978,7 @@ impl P2PNode {
             .try_iter()
             .map(|wrapper| {
                 trace!("Processing messages!");
-                if let Some(ref service) = &self.stats_export_service {
-                    let _ = safe_write!(service).map(|mut lock| lock.queue_size_dec());
-                };
+                self.resend_queue_size_dec();
                 trace!("Got a message to reprocess!");
 
                 match *wrapper.message {
@@ -1006,9 +1006,10 @@ impl P2PNode {
                     .is_ok()
                 {
                     trace!("Successfully requeued a failed network packet");
-                    self.queue_size_inc();
+                    self.resend_queue_size_inc();
                 } else {
                     error!("Can't put a packet in the resend queue!");
+                    self.pks_dropped_inc();
                 }
             }
         })
@@ -1022,10 +1023,42 @@ impl P2PNode {
         };
     }
 
+    fn resend_queue_size_inc(&self) {
+        if let Some(ref service) = &self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.resend_queue_size_inc();
+            });
+        };
+    }
+
+    fn resend_queue_size_dec(&self) {
+        if let Some(ref service) = &self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.resend_queue_size_dec();
+            });
+        };
+    }
+
     fn pks_sent_inc(&self) {
         if let Some(ref service) = &self.stats_export_service {
             let _ = safe_write!(service).map(|ref mut lock| {
                 lock.pkt_sent_inc();
+            });
+        };
+    }
+
+    fn pks_dropped_inc(&self) {
+        if let Some(ref service) = &self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.pkt_dropped_inc();
+            });
+        };
+    }
+
+    fn pks_resend_inc(&self) {
+        if let Some(ref service) = &self.stats_export_service {
+            let _ = safe_write!(service).map(|ref mut lock| {
+                lock.pkt_resend_inc();
             });
         };
     }
