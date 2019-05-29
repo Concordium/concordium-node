@@ -141,12 +141,14 @@ impl SkovData {
     pub fn add_genesis(&mut self, genesis_data: &[u8]) {
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        self.finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
+        self.finalization_list
+            .push(FinalizationRecord::genesis(&genesis_block_ptr));
 
         self.genesis_block_ptr = Some(Rc::clone(&genesis_block_ptr));
         self.last_finalized = Some(Rc::clone(&genesis_block_ptr));
 
-        self.block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
+        self.block_tree
+            .insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
     }
 
     pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
@@ -179,12 +181,19 @@ impl SkovData {
         }
 
         // if the above checks pass, a BlockPtr can be created
-        let block_ptr = BlockPtr::new(pending_block, Rc::clone(parent_block), Rc::clone(last_finalized), Utc::now());
+        let block_ptr = BlockPtr::new(
+            pending_block,
+            Rc::clone(parent_block),
+            Rc::clone(last_finalized),
+            Utc::now(),
+        );
 
         // TODO: update orphans
         // if self.process_orphan_block_queue();
 
-        let insertion_result = self.block_tree.insert(block_ptr.hash.clone(), Rc::new(block_ptr));
+        let insertion_result = self
+            .block_tree
+            .insert(block_ptr.hash.clone(), Rc::new(block_ptr));
 
         if insertion_result.is_none() {
             SkovResult::Success
