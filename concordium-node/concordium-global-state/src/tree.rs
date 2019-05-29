@@ -97,7 +97,7 @@ pub enum SkovResult {
     Error(SkovError)
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SkovData {
     // the blocks whose parent and last finalized blocks are already in the tree
     pub block_tree: HashMap<BlockHash, BlockPtr>,
@@ -114,6 +114,20 @@ pub struct SkovData {
     // contains transactions
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
+}
+
+impl Default for SkovData {
+    fn default() -> Self {
+        Self {
+            block_tree: HashMap::with_capacity(100),
+            orphan_blocks: HashMap::with_capacity(10),
+            finalization_list: BinaryHeap::with_capacity(100),
+            last_finalized: None,
+            awaiting_last_finalized: HashMap::with_capacity(10),
+            genesis_block_ptr: None,
+            transaction_table: TransactionTable::default(),
+        }
+    }
 }
 
 impl SkovData {
