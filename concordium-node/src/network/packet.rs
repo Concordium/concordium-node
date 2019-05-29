@@ -18,7 +18,44 @@ use std::convert::TryFrom;
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
-    BroadcastedMessage(Vec<P2PNodeId>),
+    BroadcastedMessage(Box<CarbonCopyList>),
+}
+
+#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct CarbonCopyList {
+    pub carbon_copies: Vec<P2PNodeId>,
+}
+
+impl Deserializable for CarbonCopyList {
+    fn deserialize<A>(archive: &mut A) -> Fallible<Self>
+    where
+        A: ReadArchive, {
+        // This ensures safety if an corrupted package tries to reserve more memory than
+        // real-data contains.
+        // Message size is limited by P2P protocol.
+        const MAX_INITIAL_CAPACITY: usize = 4096;
+
+        let len = u32::deserialize(archive)?;
+        let mut out = Vec::with_capacity(std::cmp::min(len as usize, MAX_INITIAL_CAPACITY));
+        for _i in 0..len {
+            out.push(P2PNodeId::deserialize(archive)?);
+        }
+        Ok(CarbonCopyList { carbon_copies: out })
+    }
+}
+
+impl Serializable for CarbonCopyList {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        (self.carbon_copies.len() as u32).serialize(archive)?;
+        self.carbon_copies
+            .iter()
+            .map(|ref item| item.serialize(archive))
+            .collect::<Fallible<()>>()
+    }
 }
 
 impl AsProtocolPacketType for NetworkPacketType {
@@ -55,9 +92,9 @@ impl Deserializable for NetworkPacketType {
             ProtocolPacketType::Direct => Ok(NetworkPacketType::DirectMessage(
                 P2PNodeId::deserialize(archive)?,
             )),
-            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(
-                Vec::<P2PNodeId>::deserialize(archive)?,
-            )),
+            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(Box::new(
+                CarbonCopyList::deserialize(archive)?,
+            ))),
         }
     }
 }
@@ -82,7 +119,9 @@ pub struct NetworkPacket {
 impl NetworkPacketBuilder {
     #[inline]
     pub fn build_broadcast(&mut self, carbon_copies: Vec<P2PNodeId>) -> Fallible<NetworkPacket> {
-        self.build(NetworkPacketType::BroadcastedMessage(carbon_copies))
+        self.build(NetworkPacketType::BroadcastedMessage(Box::new(
+            CarbonCopyList { carbon_copies },
+        )))
     }
 
     #[inline]

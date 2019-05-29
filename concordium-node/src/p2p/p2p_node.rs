@@ -12,8 +12,9 @@ use crate::{
     },
     crypto,
     network::{
-        packet::MessageId, Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        packet::{CarbonCopyList, MessageId},
+        Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
+        NetworkRequest, NetworkResponse,
     },
     p2p::{
         banned_nodes::BannedNode,
@@ -860,7 +861,10 @@ impl P2PNode {
             NetworkPacketType::BroadcastedMessage(..) => {
                 let local_peers = read_or_die!(self.tls_server).get_all_current_peers();
                 let mut updated_packet = inner_pkt.clone();
-                updated_packet.packet_type = NetworkPacketType::BroadcastedMessage(local_peers);
+                updated_packet.packet_type =
+                    NetworkPacketType::BroadcastedMessage(Box::new(CarbonCopyList {
+                        carbon_copies: local_peers,
+                    }));
                 serialize_into_memory(
                     &NetworkMessage::NetworkPacket(updated_packet, Some(get_current_stamp()), None),
                     256,
@@ -885,7 +889,7 @@ impl P2PNode {
                     let filter = |conn: &Connection| {
                         is_valid_connection_in_broadcast(
                             conn,
-                            carbon_copies,
+                            &carbon_copies.carbon_copies,
                             ignore_carbon_copies,
                             &inner_pkt.peer,
                             inner_pkt.network_id,

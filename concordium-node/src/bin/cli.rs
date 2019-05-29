@@ -569,6 +569,15 @@ fn main() -> Fallible<()> {
         }
     }
 
+    if conf.connection.ignore_carbon_copy_rebroadcast_existing < 0.0
+        || conf.connection.ignore_carbon_copy_rebroadcast_existing > 1.0
+    {
+        bail!(
+            "Probability to ignore carbon copy list when attempting rebroadcasting of packets has \
+             to be between 0.0 and 1.0"
+        );
+    }
+
     // Retrieving bootstrap nodes
     let dns_resolvers =
         utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
