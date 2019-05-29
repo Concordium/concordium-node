@@ -75,6 +75,7 @@ pub enum SkovReqBody {
 pub enum SkovError {
     MissingParentBlock(HashBytes, HashBytes), // (target parent, pending block)
     InvalidLastFinalized(HashBytes, HashBytes), // (target last_finalized, pending block)
+    MissingBlockToFinalize(HashBytes),
 }
 
 impl fmt::Debug for SkovError {
@@ -82,6 +83,7 @@ impl fmt::Debug for SkovError {
         let msg = match self {
             SkovError::MissingParentBlock(ref parent, ref pending) => format!("block {:?} is missing parent ({:?})", pending, parent),
             SkovError::InvalidLastFinalized(ref last_finalized, ref pending) => format!("block {:?} wrongly states that {:?} is the last finalized block", pending, last_finalized),
+            SkovError::MissingBlockToFinalize(ref target) => format!("can't finalize block {:?} as it's not in the tree", target),
         };
 
         write!(f, "{}", msg)
@@ -116,19 +118,10 @@ pub struct SkovData {
 
 impl SkovData {
     pub fn add_genesis(&mut self, genesis_block_ptr: BlockPtr) {
+        self.block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr.clone());
         self.genesis_block_ptr = Some(genesis_block_ptr.clone());
-
-        let genesis_finalization_record = FinalizationRecord::genesis(&genesis_block_ptr);
-
-        info!(
-            "block tree: [{:?}({:?})]",
-            genesis_block_ptr.hash,
-            BlockStatus::Finalized,
-        );
-
-        self.block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
-
-        self.finalization_list.push(genesis_finalization_record);
+        self.finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
+        self.last_finalized = Some(genesis_block_ptr);
     }
 
     pub fn add_block(
@@ -175,14 +168,6 @@ impl SkovData {
             .block_tree
             .insert(block_ptr.hash.clone(), block_ptr);
 
-        info!("block tree: {:?}", {
-            let vals = self.block_tree.values().collect::<BinaryHeap<_>>();
-            vals.into_sorted_vec()
-                .iter()
-                .map(|ptr| (ptr.hash.to_owned(), ptr.status))
-                .collect::<Vec<_>>()
-        });
-
         if insertion_result.is_none() {
             SkovResult::Success
         } else {
@@ -212,19 +197,19 @@ impl SkovData {
         &self.finalization_list.peek().unwrap().index + 1 // safe; always available
     }
 
-    pub fn add_finalization(&mut self, record: FinalizationRecord) -> bool {
-        if let Some(ref mut ptr) = self.block_tree.get_mut(&record.block_pointer) {
+    pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+        let block_ptr = if let Some(ref mut ptr) = self.block_tree.get_mut(&record.block_pointer) {
             ptr.status = BlockStatus::Finalized;
+
+            ptr.to_owned()
         } else {
-            error!(
-                "Can't find finalized block {:?} in the block table!",
-                record.block_pointer
-            );
-            return true; // a temporary placeholder; we don't want to suggest duplicates
-        }
+            let error = SkovError::MissingBlockToFinalize(record.block_pointer);
+
+            return SkovResult::Error(error);
+        };
 
         // we should be ok with a linear search, as we are expecting only to keep the
-        // most recent finalization records
+        // most recent finalization records and the most recent one is always first
         if self
             .finalization_list
             .iter()
@@ -232,18 +217,11 @@ impl SkovData {
             .is_none()
         {
             self.finalization_list.push(record);
-            debug!(
-                "finalization list: {:?}",
-                self.finalization_list
-                    .clone()
-                    .into_sorted_vec()
-                    .iter()
-                    .map(|rec| &rec.block_pointer)
-                    .collect::<Vec<_>>()
-            );
-            true
+            self.last_finalized = Some(block_ptr);
+
+            SkovResult::Success
         } else {
-            false
+            SkovResult::DuplicateEntry
         }
     }
 
@@ -252,20 +230,6 @@ impl SkovData {
         let queued = self.orphan_blocks.entry(parent).or_default();
 
         queued.insert(pending_block);
-
-        info!(
-            "orphan blocks: {:?}",
-            self.orphan_blocks
-                .iter()
-                .map(|(parent, pending)| (
-                    parent,
-                    pending
-                        .iter()
-                        .map(|pb| pb.hash.to_owned())
-                        .collect::<Vec<_>>()
-                ))
-                .collect::<Vec<_>>()
-        );
     }
 
     fn queue_block_wo_last_finalized(&mut self, pending_block: PendingBlock) {
@@ -276,20 +240,6 @@ impl SkovData {
             .or_default();
 
         queued.insert(pending_block);
-
-        info!(
-            "blocks awaiting last finalized: {:?}",
-            self.awaiting_last_finalized
-                .iter()
-                .map(|(last_finalized, pending)| (
-                    last_finalized,
-                    pending
-                        .iter()
-                        .map(|pb| pb.hash.to_owned())
-                        .collect::<Vec<_>>()
-                ))
-                .collect::<Vec<_>>()
-        );
     }
 
     pub fn process_orphan_block_queue(&mut self) -> SkovResult {
@@ -334,5 +284,48 @@ impl SkovData {
         }
 
         SkovResult::Success
+    }
+
+    pub fn display_state(&self) {
+        info!("block tree: {:?}\n\
+               last finalized: {:?}\n\
+               finalization list: {:?}\n\
+               orphan blocks: {:?}\n\
+               awaiting last finalized: {:?}",
+            self.block_tree
+                .values()
+                .collect::<BinaryHeap<_>>()
+                .into_sorted_vec()
+                .iter()
+                .map(|ptr| (&ptr.hash, ptr.status))
+                .collect::<Vec<_>>(),
+            self.get_last_finalized().hash,
+            self.finalization_list
+                .clone()
+                .into_sorted_vec()
+                .iter()
+                .map(|rec| &rec.block_pointer)
+                .collect::<Vec<_>>(),
+            self.orphan_blocks
+                .iter()
+                .map(|(parent, pending)| (
+                    parent,
+                    pending
+                        .iter()
+                        .map(|pb| &pb.hash)
+                        .collect::<Vec<_>>()
+                    )
+                ).collect::<Vec<_>>(),
+            self.awaiting_last_finalized
+                .iter()
+                .map(|(last_finalized, pending)| (
+                    last_finalized,
+                    pending
+                        .iter()
+                        .map(|pb| &pb.hash)
+                        .collect::<Vec<_>>()
+                ))
+                .collect::<Vec<_>>()
+        );
     }
 }
