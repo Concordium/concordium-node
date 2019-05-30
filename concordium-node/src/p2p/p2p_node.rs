@@ -884,8 +884,13 @@ impl P2PNode {
                     ) >= 1
                 }
                 NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
-                    let ignore_carbon_copies = rand::thread_rng()
-                        .gen_bool(self.config.ignore_carbon_copy_rebroadcast_existing);
+                    let ignore_carbon_copies =
+                        if carbon_copies.carbon_copies.len() < self.config.desired_nodes_count as usize {
+                            false
+                        } else {
+                            rand::thread_rng()
+                                .gen_bool(self.config.ignore_carbon_copy_rebroadcast_existing)
+                        };
                     let filter = |conn: &Connection| {
                         is_valid_connection_in_broadcast(
                             conn,
