@@ -113,42 +113,42 @@ pub struct SkovData {
     // finalization records; the blocks they point to must already be in the tree
     finalization_list: BinaryHeap<FinalizationRecord>,
     // the last finalized block
-    last_finalized: Option<Rc<BlockPtr>>,
+    last_finalized: Rc<BlockPtr>,
     // blocks waiting for their last finalized block to be added to the tree
     awaiting_last_finalized: HashMap<BlockHash, HashSet<PendingBlock>>,
     // the pointer to the genesis block; optional only due to SkovData being a lazy_static
-    genesis_block_ptr: Option<Rc<BlockPtr>>,
+    genesis_block_ptr: Rc<BlockPtr>,
     // contains transactions
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
 }
 
-impl Default for SkovData {
-    fn default() -> Self {
-        Self {
-            block_tree:              HashMap::with_capacity(100),
-            orphan_blocks:           HashMap::with_capacity(10),
-            finalization_list:       BinaryHeap::with_capacity(100),
-            last_finalized:          None,
-            awaiting_last_finalized: HashMap::with_capacity(10),
-            genesis_block_ptr:       None,
-            transaction_table:       TransactionTable::default(),
-        }
-    }
-}
+const SKOV_OK_PREALLOCATION_SIZE: usize = 128;
+const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
 
 impl SkovData {
-    pub fn add_genesis(&mut self, genesis_data: &[u8]) {
+    pub fn new(genesis_data: &[u8]) -> Self {
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        self.finalization_list
-            .push(FinalizationRecord::genesis(&genesis_block_ptr));
+        let mut finalization_list = BinaryHeap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
+        finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
-        self.genesis_block_ptr = Some(Rc::clone(&genesis_block_ptr));
-        self.last_finalized = Some(Rc::clone(&genesis_block_ptr));
+        let mut block_tree = HashMap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
+        block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
-        self.block_tree
-            .insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
+        let genesis_block_ref = block_tree.values().next().unwrap(); // safe; we just put it there
+        let last_finalized = Rc::clone(genesis_block_ref);
+        let genesis_block_ptr = Rc::clone(genesis_block_ref);
+
+        Self {
+            block_tree,
+            orphan_blocks: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            finalization_list,
+            last_finalized,
+            awaiting_last_finalized: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            genesis_block_ptr,
+            transaction_table: TransactionTable::default(),
+        }
     }
 
     pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
@@ -162,12 +162,13 @@ impl SkovData {
                     pending_block.hash.clone(),
                 );
 
-                self.queue_orphan_block(pending_block);
+                self.add_orphan_block(pending_block);
 
                 return SkovResult::Error(error);
             };
 
-        // verify if the pending block's last finalized block is already in the tree
+        // verify if the pending block's last finalized block is actually the last
+        // finalized one
         let last_finalized = self.get_last_finalized();
 
         if last_finalized.hash != pending_block.block.last_finalized {
@@ -188,8 +189,9 @@ impl SkovData {
             Utc::now(),
         );
 
-        // TODO: update orphans
-        // if self.process_orphan_block_queue();
+        // the block's parent is in the block tree; therefore, check if there are no
+        // orphans that can apply to be inserted to the tree again now
+        self.update_orphans(&block_ptr.hash);
 
         let insertion_result = self
             .block_tree
@@ -212,9 +214,7 @@ impl SkovData {
             .find(|&rec| rec.block_pointer == *hash)
     }
 
-    pub fn get_last_finalized(&self) -> &Rc<BlockPtr> {
-        self.last_finalized.as_ref().unwrap() // safe; always available
-    }
+    pub fn get_last_finalized(&self) -> &Rc<BlockPtr> { &self.last_finalized }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.get_last_finalized().block.slot() }
 
@@ -225,46 +225,58 @@ impl SkovData {
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        let mut target_block = self.block_tree.get_mut(&record.block_pointer);
+        let target_hash = record.block_pointer.clone();
 
-        if let Some(ref mut block) = target_block {
-            block.status.set(BlockStatus::Finalized);
-        } else {
-            let error = SkovError::MissingBlockToFinalize(record.block_pointer);
+        // we need a separate block here in order to be able to keep clones to a
+        // minimum, query the block tree only once and still be able to do
+        // awaiting_last_finalized housekeeping in this function
+        let result = {
+            let mut target_block = self.block_tree.get_mut(&record.block_pointer);
 
-            return SkovResult::Error(error);
-        }
+            if let Some(ref mut block) = target_block {
+                block.status.set(BlockStatus::Finalized);
+            } else {
+                let error = SkovError::MissingBlockToFinalize(record.block_pointer);
 
-        // rebind the reference (so we don't have to search for it again) so it's no
-        // longer mutable
-        let target_block = if let Some(target) = target_block {
-            Some(&*target)
-        } else {
-            None
+                // TODO: queue the erroneous candidates
+
+                return SkovResult::Error(error);
+            }
+
+            // rebind the reference (so we don't have to search for it again) so it's no
+            // longer mutable
+            let target_block = &*target_block.unwrap(); // safe - we already checked for None
+
+            // we should be ok with a linear search, as we are expecting only to keep the
+            // most recent finalization records and the most recent one is always first
+            if self
+                .finalization_list
+                .iter()
+                .find(|&rec| *rec == record)
+                .is_none()
+            {
+                self.finalization_list.push(record);
+                self.last_finalized = Rc::clone(target_block);
+
+                SkovResult::Success
+            } else {
+                SkovResult::DuplicateEntry
+            }
         };
 
-        // we should be ok with a linear search, as we are expecting only to keep the
-        // most recent finalization records and the most recent one is always first
-        if self
-            .finalization_list
-            .iter()
-            .find(|&rec| *rec == record)
-            .is_none()
-        {
-            self.finalization_list.push(record);
-            self.last_finalized = target_block.cloned();
+        // the target last finalized is in the block tree; therefore, check if there are
+        // no blocks missing the last finalized that can apply to be inserted to
+        // the tree again now
+        self.update_last_finalized(&target_hash);
 
-            SkovResult::Success
-        } else {
-            SkovResult::DuplicateEntry
-        }
+        result
     }
 
-    fn queue_orphan_block(&mut self, pending_block: PendingBlock) {
-        let parent = pending_block.block.pointer.to_owned();
-        let queued = self.orphan_blocks.entry(parent).or_default();
+    fn add_orphan_block(&mut self, pending_block: PendingBlock) {
+        let missing_parent = pending_block.block.pointer.to_owned();
+        let parents_orphans = self.orphan_blocks.entry(missing_parent).or_default();
 
-        queued.insert(pending_block);
+        parents_orphans.insert(pending_block);
     }
 
     fn queue_block_wo_last_finalized(&mut self, pending_block: PendingBlock) {
@@ -277,48 +289,22 @@ impl SkovData {
         queued.insert(pending_block);
     }
 
-    pub fn process_orphan_block_queue(&mut self) -> SkovResult {
-        let missing_parent_hashes = self
-            .orphan_blocks
-            .keys()
-            .map(std::borrow::ToOwned::to_owned)
-            .collect::<Vec<_>>();
-
-        for missing_parent in missing_parent_hashes.into_iter() {
-            if self
-                .block_tree
-                .iter()
-                .any(|(hash, _)| *hash == missing_parent)
-            {
-                if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
-                    for orphan in orphans {
-                        if let err @ SkovResult::Error(_) = self.add_block(orphan) {
-                            return err;
-                        }
-                    }
-                }
+    fn update_orphans(&mut self, parent: &HashBytes) {
+        if let Some(orphans) = self.orphan_blocks.remove(parent) {
+            for orphan in orphans {
+                // we want to silence errors here, as it is a housekeeping operation
+                let _ = self.add_block(orphan);
             }
         }
-
-        SkovResult::Success
     }
 
-    pub fn recheck_missing_parent(&mut self, missing_parent: &HashBytes) -> SkovResult {
-        if self
-            .block_tree
-            .iter()
-            .any(|(hash, _)| hash == missing_parent)
-        {
-            if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
-                for orphan in orphans {
-                    if let err @ SkovResult::Error(_) = self.add_block(orphan) {
-                        return err;
-                    }
-                }
+    fn update_last_finalized(&mut self, last_finalized: &HashBytes) {
+        if let Some(awaiting_blocks) = self.awaiting_last_finalized.remove(last_finalized) {
+            for awaiting in awaiting_blocks {
+                // we want to silence errors here, as it is a housekeeping operation
+                let _ = self.add_block(awaiting);
             }
         }
-
-        SkovResult::Success
     }
 
     pub fn display_state(&self) {
@@ -334,8 +320,6 @@ impl SkovData {
                 .collect::<Vec<_>>(),
             self.get_last_finalized().hash,
             self.finalization_list
-                .clone()
-                .into_sorted_vec()
                 .iter()
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),

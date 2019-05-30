@@ -21,7 +21,7 @@ const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
 const LAST_FINALIZED: u8 = BLOCK_HASH;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Block {
     Genesis(GenesisData),
     Regular(BakedBlock),
@@ -95,7 +95,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:           Slot,
     pub pointer:        BlockHash,
@@ -165,7 +165,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GenesisData {
     timestamp:               Timestamp,
     slot_duration:           Duration,
@@ -225,7 +225,7 @@ pub type BlockHeight = u64;
 
 pub type BlockHash = HashBytes;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PendingBlock {
     pub hash:     BlockHash,
     pub block:    BakedBlock,
@@ -269,7 +269,7 @@ pub enum BlockStatus {
     Finalized,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
