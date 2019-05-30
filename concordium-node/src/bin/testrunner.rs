@@ -163,7 +163,7 @@ impl TestRunner {
                 .take(path.test_packet_size.unwrap())
                 .collect();
             lock_or_die!(state_data.node)
-                .send_message(None, state_data.nid, None, random_pkt, true)
+                .send_broadcast_message(None, state_data.nid, None, random_pkt)
                 .map_err(|e| error!("{}", e))
                 .ok();
             (

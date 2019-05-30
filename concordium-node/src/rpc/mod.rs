@@ -123,7 +123,7 @@ impl RpcServerImpl {
                 trace!("Sending direct message to: {}", id);
                 r.set_value(
                     safe_lock!(self.node)?
-                        .send_message(Some(id), network_id, None, msg, false)
+                        .send_direct_message(Some(id), network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -131,7 +131,7 @@ impl RpcServerImpl {
                 trace!("Sending broadcast message");
                 r.set_value(
                     safe_lock!(self.node)?
-                        .send_message(None, network_id, None, msg, true)
+                        .send_broadcast_message(None, network_id, None, msg)
                         .map_err(|e| error!("{}", e))
                         .is_ok(),
                 );
@@ -1004,12 +1004,11 @@ impl P2P for RpcServerImpl {
                 let result = !(test_messages.iter().map(|message| {
                     let out_bytes_len = message.len();
                     let to_send = P2PNodeId::from_str(&id).ok();
-                    match locked_node.send_message(
+                    match locked_node.send_direct_message(
                         to_send,
                         network_id,
                         None,
                         message.to_vec(),
-                        false,
                     ) {
                         Ok(_) => {
                             info!("Sent TPS test bytes of len {}", out_bytes_len);
@@ -1520,12 +1519,11 @@ mod tests {
             connect_and_wait_handshake(&mut node2, &n, &wt2)?;
         }
         client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
-        node2.send_message(
+        node2.send_broadcast_message(
             None,
             crate::network::NetworkId::from(100),
             None,
             b"Hey".to_vec(),
-            true,
         )?;
         wait_broadcast_message(&wt1).unwrap();
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;

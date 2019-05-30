@@ -170,12 +170,11 @@ fn setup_baker_guards(
                                 (P2PNodeId(receiver_id), inner_out_bytes)
                             }
                         };
-                        match &node_ref.send_message(
+                        match &node_ref.send_direct_message(
                             Some(receiver_id),
                             network_id,
                             None,
                             serialized_bytes,
-                            false,
                         ) {
                             Ok(_) => info!(
                                 "Peer {} sent a {} to peer {}",
@@ -209,7 +208,7 @@ fn setup_baker_guards(
                             Ok(_) => {
                                 out_bytes.extend(&*block_bytes);
                                 match &node_ref
-                                    .send_message(None, network_id, None, out_bytes, true)
+                                    .send_broadcast_message(None, network_id, None, out_bytes)
                                 {
                                     Ok(_) => info!(
                                         "Peer {} broadcasted block ({:?})",
@@ -247,16 +246,16 @@ fn setup_baker_guards(
                                 Ok(_) => {
                                     out_bytes.extend(&*bytes);
                                     let res = if let Some(peer_id) = peer_id_opt {
-                                        node_ref.send_message(
+                                        node_ref.send_direct_message(
                                             Some(P2PNodeId(peer_id)),
                                             network_id,
                                             None,
                                             out_bytes,
-                                            false,
                                         )
                                     } else {
-                                        node_ref
-                                            .send_message(None, network_id, None, out_bytes, true)
+                                        node_ref.send_broadcast_message(
+                                            None, network_id, None, out_bytes,
+                                        )
                                     };
 
                                     match res {
@@ -298,7 +297,7 @@ fn setup_baker_guards(
                                 Ok(_) => {
                                     out_bytes.extend(&*bytes);
                                     match &node_ref
-                                        .send_message(None, network_id, None, out_bytes, true)
+                                        .send_broadcast_message(None, network_id, None, out_bytes)
                                     {
                                         Ok(_) => info!(
                                             "Peer {} broadcasted a {}",
@@ -660,12 +659,11 @@ fn main() -> Fallible<()> {
                                 ) {
                                     Ok(_) => {
                                         out_bytes.extend(&bytes);
-                                        match locked_cloned_node.send_message(
+                                        match locked_cloned_node.send_direct_message(
                                             Some(remote_peer.id()),
                                             *net,
                                             None,
                                             out_bytes,
-                                            false,
                                         ) {
                                             Ok(_) => info!(
                                                 "Peer {} requested finalization messages by point \
@@ -812,12 +810,11 @@ fn _send_retransmit_packet(
     match out_bytes.write_u16::<NetworkEndian>(payload_type as u16) {
         Ok(_) => {
             out_bytes.extend(data);
-            match node.send_message(
+            match node.send_direct_message(
                 Some(receiver),
                 network_id,
                 Some(message_id.to_owned()),
                 out_bytes,
-                false,
             ) {
                 Ok(_) => debug!("Retransmitted packet of type {}", payload_type),
                 Err(_) => error!("Couldn't retransmit packet of type {}!", payload_type),
