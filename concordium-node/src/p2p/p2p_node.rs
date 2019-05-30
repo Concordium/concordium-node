@@ -869,15 +869,16 @@ impl P2PNode {
             NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
                 let local_peers = read_or_die!(self.tls_server).get_all_current_peers();
                 let mut updated_packet = inner_pkt.clone();
-                let ignore_carbon_copies =
-                    if carbon_copies.is_empty() || local_peers.len() < self.config.desired_nodes_count as usize {
-                        true
-                    } else {
-                        rand::thread_rng().gen_bool(
-                            self.config
-                                .ignore_carbon_copies_when_rebroadcasting_probability,
-                        )
-                    };
+                let ignore_carbon_copies = if carbon_copies.is_empty()
+                    || local_peers.len() < self.config.desired_nodes_count as usize
+                {
+                    true
+                } else {
+                    rand::thread_rng().gen_bool(
+                        self.config
+                            .ignore_carbon_copies_when_rebroadcasting_probability,
+                    )
+                };
                 updated_packet.packet_type = NetworkPacketType::BroadcastedMessage(local_peers);
                 (
                     ignore_carbon_copies,
