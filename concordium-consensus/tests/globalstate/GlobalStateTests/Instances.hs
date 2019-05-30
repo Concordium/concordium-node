@@ -55,11 +55,11 @@ makeArbitraryInstance = do
             messageType = Core.TBase Core.TInt32
         model <- VLiteral . Core.Int32 <$> arbitrary
         amount <- Amount <$> arbitrary
-        return $ makeInstance modRef tyname contract messageType emptyInterface emptyValueInterface model amount
+        return $ makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount
 
 makeDummyInstance :: InstanceData -> ContractAddress -> Instance
 makeDummyInstance (InstanceData model amount) =
-        makeInstance modRef tyname contract messageType emptyInterface emptyValueInterface model amount
+        makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount
     where
         modRef = Core.ModuleRef (H.hash "module")
         tyname = 0
