@@ -33,7 +33,7 @@ use p2p_client::{
 use std::sync::{mpsc, Arc};
 
 fn main() -> Result<(), Error> {
-    let conf = configuration::parse_config();
+    let conf = configuration::parse_config()?;
 
     let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),

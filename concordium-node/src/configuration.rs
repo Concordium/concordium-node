@@ -8,6 +8,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
+use failure::{bail, Fallible};
 
 pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
@@ -358,7 +359,41 @@ impl Config {
     }
 }
 
-pub fn parse_config() -> Config { Config::from_args() }
+pub fn parse_config() -> Fallible<Config> { 
+    let conf = Config::from_args();
+     if conf.connection.max_allowed_nodes_percentage < 100 {
+        bail!(
+            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+             nodes to less than the desired nodes is set to"
+        );
+    }
+
+    if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
+        if max_allowed_nodes < conf.connection.desired_nodes {
+            bail!(
+                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
+                 must be greater or equal to desired amounnt of nodes"
+            );
+        }
+    }
+
+    if conf
+        .connection
+        .ignore_carbon_copies_when_rebroadcasting_probability
+        < 0.0
+        || conf
+            .connection
+            .ignore_carbon_copies_when_rebroadcasting_probability
+            > 1.0
+    {
+        bail!(
+            "Probability to ignore carbon copies when attempting rebroadcasting of packets has to \
+             be between 0.0 and 1.0"
+        );
+    }
+
+    Ok(conf)
+}
 
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
