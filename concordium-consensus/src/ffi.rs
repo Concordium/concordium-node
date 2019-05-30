@@ -257,8 +257,9 @@ extern "C" {
 
 #[derive(Clone)]
 pub struct ConsensusBaker {
-    pub id:     BakerId,
-    pub runner: Arc<AtomicPtr<baker_runner>>,
+    pub id:           BakerId,
+    pub genesis_data: Arc<Bytes>,
+    pub runner:       Arc<AtomicPtr<baker_runner>>,
 }
 
 impl ConsensusBaker {
@@ -268,7 +269,7 @@ impl ConsensusBaker {
         let genesis_data_len = genesis_data.len();
         let private_data_len = private_data.len();
 
-        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
+        let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data.clone()) };
         let c_string_private_data = unsafe { CString::from_vec_unchecked(private_data) };
 
         let baker = unsafe {
@@ -292,8 +293,9 @@ impl ConsensusBaker {
         // 2x identical 32B-long byte sequences
 
         ConsensusBaker {
-            id:     baker_id,
-            runner: Arc::new(AtomicPtr::new(baker)),
+            id:           baker_id,
+            genesis_data: Arc::new(genesis_data.into_boxed_slice()),
+            runner:       Arc::new(AtomicPtr::new(baker)),
         }
     }
 

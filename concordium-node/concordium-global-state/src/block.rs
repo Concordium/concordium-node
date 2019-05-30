@@ -5,11 +5,12 @@ use chrono::prelude::{DateTime, Utc};
 use failure::Fallible;
 
 use std::{
+    cell::Cell,
     cmp::Ordering,
     hash::{Hash, Hasher},
     io::{Cursor, Read, Write},
     mem::size_of,
-    sync::Arc,
+    rc::Rc,
 };
 
 use crate::{common::*, parameters::*, transaction::*};
@@ -272,13 +273,13 @@ pub enum BlockStatus {
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
-    pub parent:         Option<Arc<BlockPtr>>,
-    pub last_finalized: Option<Arc<BlockPtr>>,
+    pub parent:         Option<Rc<BlockPtr>>,
+    pub last_finalized: Option<Rc<BlockPtr>>,
     pub height:         BlockHeight,
     // state:       BlockState,
     pub received:  DateTime<Utc>,
     pub validated: DateTime<Utc>,
-    pub status:    BlockStatus,
+    pub status:    Cell<BlockStatus>,
 }
 
 impl BlockPtr {
@@ -298,14 +299,14 @@ impl BlockPtr {
             height:         0,
             received:       timestamp,
             validated:      timestamp,
-            status:         BlockStatus::Finalized,
+            status:         Cell::new(BlockStatus::Finalized),
         }
     }
 
     pub fn new(
         pb: PendingBlock,
-        parent: Self,
-        last_finalized: Self,
+        parent: Rc<Self>,
+        last_finalized: Rc<Self>,
         validated: DateTime<Utc>,
     ) -> Self {
         let height = parent.height + 1;
@@ -313,12 +314,12 @@ impl BlockPtr {
         Self {
             hash: pb.hash,
             block: Block::Regular(pb.block),
-            parent: Some(Arc::new(parent)),
-            last_finalized: Some(Arc::new(last_finalized)),
+            parent: Some(parent),
+            last_finalized: Some(last_finalized),
             height,
             received: pb.received,
             validated,
-            status: BlockStatus::Alive,
+            status: Cell::new(BlockStatus::Alive),
         }
     }
 }

@@ -394,6 +394,13 @@ impl ConsensusContainer {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_finalization_messages(request, peer_id))
     }
+
+    pub fn get_genesis_data(&self) -> Option<Arc<Bytes>> {
+        safe_read!(self.bakers)
+            .iter()
+            .next()
+            .map(|(_, baker)| Arc::clone(&baker.genesis_data))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]

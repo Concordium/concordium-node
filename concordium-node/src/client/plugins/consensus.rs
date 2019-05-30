@@ -13,7 +13,7 @@ use std::{
     io::{Read, Write},
 };
 
-use concordium_common::{safe_lock, UCursor};
+use concordium_common::UCursor;
 
 use concordium_consensus::{
     consensus::{self, Bytes},
@@ -24,10 +24,10 @@ use concordium_consensus::{
 };
 
 use concordium_global_state::{
-    block::{BakedBlock, BlockPtr, PendingBlock},
+    block::{BakedBlock, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_DATA, SKOV_QUEUE},
+    tree::{SkovData, SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_QUEUE},
 };
 
 use crate::{
@@ -38,7 +38,6 @@ use crate::{
 };
 
 pub fn start_baker(
-    node: &P2PNode,
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
@@ -55,17 +54,6 @@ pub fn start_baker(
 
         match get_baker_data(app_prefs, conf) {
             Ok((genesis_data, private_data)) => {
-                let genesis_ptr = BlockPtr::genesis(&genesis_data);
-                info!(
-                    "Peer {} has genesis data with hash {:?} and block hash {:?}",
-                    node.id(),
-                    sha256(&genesis_data),
-                    genesis_ptr.hash,
-                );
-                safe_lock!(SKOV_DATA)
-                    .expect("Couldn't write the genesis data to Skov!")
-                    .add_genesis(genesis_ptr);
-
                 let mut consensus_runner = consensus::ConsensusContainer::default();
                 consensus_runner.start_baker(baker_id, genesis_data, private_data);
 
@@ -208,6 +196,7 @@ pub fn handle_global_state_request(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     request: SkovReq,
+    skov: &mut SkovData,
 ) -> Fallible<()> {
     if let Some(ref mut baker) = baker {
         let packet_type = match request.body {
@@ -217,10 +206,8 @@ pub fn handle_global_state_request(
         };
 
         let result = match request.body {
-            SkovReqBody::AddBlock(pending_block) => safe_lock!(SKOV_DATA)?.add_block(pending_block),
-            SkovReqBody::AddFinalizationRecord(record) => {
-                safe_lock!(SKOV_DATA)?.add_finalization(record)
-            }
+            SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
+            SkovReqBody::AddFinalizationRecord(record) => skov.add_finalization(record),
             _ => unreachable!(), // will be expanded alongside Skov
         };
 
@@ -268,7 +255,7 @@ pub fn handle_global_state_request(
         }
 
         // debug info
-        // safe_lock!(SKOV_DATA)?.display_state();
+        // skov.display_state();
     }
 
     Ok(())
