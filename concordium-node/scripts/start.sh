@@ -140,7 +140,7 @@ fi
 
 if [ -n "$GLOBAL_STATE_CATCH_UP_REQUESTS" ];
 then
-    ARGS="$ARGS --global-state-catch_up-requests $GLOBAL_STATE_CATCH_UP_REQUESTS"
+    ARGS="$ARGS --global-state-catch_up-requests"
 fi
 
 if [ "$MODE" == "tps_receiver" ]; then
