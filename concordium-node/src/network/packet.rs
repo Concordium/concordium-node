@@ -18,13 +18,13 @@ use std::convert::TryFrom;
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkPacketType {
     DirectMessage(P2PNodeId),
-    BroadcastedMessage(Box<CarbonCopyList>),
+    BroadcastedMessage(CarbonCopyList),
 }
 
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CarbonCopyList {
-    pub carbon_copies: Vec<P2PNodeId>,
+    pub carbon_copies: Box<[P2PNodeId]>,
 }
 
 impl Deserializable for CarbonCopyList {
@@ -41,7 +41,9 @@ impl Deserializable for CarbonCopyList {
         for _i in 0..len {
             out.push(P2PNodeId::deserialize(archive)?);
         }
-        Ok(CarbonCopyList { carbon_copies: out })
+        Ok(CarbonCopyList {
+            carbon_copies: out.into_boxed_slice(),
+        })
     }
 }
 
@@ -92,9 +94,9 @@ impl Deserializable for NetworkPacketType {
             ProtocolPacketType::Direct => Ok(NetworkPacketType::DirectMessage(
                 P2PNodeId::deserialize(archive)?,
             )),
-            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(Box::new(
+            ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(
                 CarbonCopyList::deserialize(archive)?,
-            ))),
+            )),
         }
     }
 }
@@ -118,10 +120,10 @@ pub struct NetworkPacket {
 
 impl NetworkPacketBuilder {
     #[inline]
-    pub fn build_broadcast(&mut self, carbon_copies: Vec<P2PNodeId>) -> Fallible<NetworkPacket> {
-        self.build(NetworkPacketType::BroadcastedMessage(Box::new(
-            CarbonCopyList { carbon_copies },
-        )))
+    pub fn build_broadcast(&mut self, carbon_copies: Box<[P2PNodeId]>) -> Fallible<NetworkPacket> {
+        self.build(NetworkPacketType::BroadcastedMessage(CarbonCopyList {
+            carbon_copies,
+        }))
     }
 
     #[inline]

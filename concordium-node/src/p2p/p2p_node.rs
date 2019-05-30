@@ -862,9 +862,9 @@ impl P2PNode {
                 let local_peers = read_or_die!(self.tls_server).get_all_current_peers();
                 let mut updated_packet = inner_pkt.clone();
                 updated_packet.packet_type =
-                    NetworkPacketType::BroadcastedMessage(Box::new(CarbonCopyList {
+                    NetworkPacketType::BroadcastedMessage(CarbonCopyList {
                         carbon_copies: local_peers,
-                    }));
+                    });
                 serialize_into_memory(
                     &NetworkMessage::NetworkPacket(updated_packet, Some(get_current_stamp()), None),
                     256,
@@ -1126,7 +1126,7 @@ impl P2PNode {
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
-                .build_broadcast(vec![])?
+                .build_broadcast(Box::new([]))?
         } else {
             let receiver =
                 id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;

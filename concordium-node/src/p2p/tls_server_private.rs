@@ -449,13 +449,14 @@ impl TlsServerPrivate {
         });
     }
 
-    pub fn get_all_current_peers(&self) -> Vec<P2PNodeId> {
+    pub fn get_all_current_peers(&self) -> Box<[P2PNodeId]> {
         self.connections
         .iter()
         .filter(|rc_conn| rc_conn.borrow().is_post_handshake() )
-        // we can safely unwrap here, because we've filetered away any 
+        // we can safely unwrap here, because we've filetered away any
         // non-post-handshake peers already
         .map(|conn| conn.borrow().remote_peer().peer().unwrap().id() )
         .collect::<Vec<_>>()
+        .into_boxed_slice()
     }
 }
