@@ -261,8 +261,9 @@ impl TestRunner {
     }
 }
 
-fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
-    let conf = configuration::parse_config();
+fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
+{
+    let conf = configuration::parse_config()?;
     let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
@@ -297,7 +298,7 @@ fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppP
     log_builder.init();
 
     p2p_client::setup_panics();
-    (conf, app_prefs)
+    Ok((conf, app_prefs))
 }
 
 fn instantiate_node(
@@ -369,7 +370,7 @@ fn setup_process_output(
                             pac.message.len()
                         );
                     }
-                    NetworkPacketType::BroadcastedMessage => {
+                    NetworkPacketType::BroadcastedMessage(..) => {
                         if !_no_trust_broadcasts {
                             info!(
                                 "BroadcastedMessage/{}/{:?} with size {} received",
@@ -424,7 +425,7 @@ fn setup_process_output(
 }
 
 fn main() -> Fallible<()> {
-    let (conf, mut app_prefs) = get_config_and_logging_setup();
+    let (conf, mut app_prefs) = get_config_and_logging_setup()?;
 
     if conf.common.print_config {
         // Print out the configuration

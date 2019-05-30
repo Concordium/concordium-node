@@ -1,4 +1,5 @@
 use app_dirs2::*;
+use failure::{bail, Fallible};
 use preferences::{Preferences, PreferencesMap};
 use semver::Version;
 use std::{
@@ -169,6 +170,14 @@ pub struct ConnectionConfig {
     pub max_allowed_nodes_percentage: u16,
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_bootstrap_dns: bool,
+    #[structopt(
+        long = "ignore-carbon-copies-when-rebroadcasting",
+        help = "Probability of chance, must be in the range 0.0 to 1.0, to ignore received list \
+                of carbon copies when rebroadcasting a message to peers (only takes effect if the \
+                number of peers is greater than or equal to the desired number of peers)",
+        default_value = "0.5"
+    )]
+    pub ignore_carbon_copies_when_rebroadcasting_probability: f64,
     #[structopt(
         long = "bootstrap-server",
         help = "DNS name to resolve bootstrap nodes from",
@@ -350,7 +359,41 @@ impl Config {
     }
 }
 
-pub fn parse_config() -> Config { Config::from_args() }
+pub fn parse_config() -> Fallible<Config> {
+    let conf = Config::from_args();
+    if conf.connection.max_allowed_nodes_percentage < 100 {
+        bail!(
+            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+             nodes to less than the desired nodes is set to"
+        );
+    }
+
+    if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
+        if max_allowed_nodes < conf.connection.desired_nodes {
+            bail!(
+                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
+                 must be greater or equal to desired amounnt of nodes"
+            );
+        }
+    }
+
+    if conf
+        .connection
+        .ignore_carbon_copies_when_rebroadcasting_probability
+        < 0.0
+        || conf
+            .connection
+            .ignore_carbon_copies_when_rebroadcasting_probability
+            > 1.0
+    {
+        bail!(
+            "Probability to ignore carbon copies when attempting rebroadcasting of packets has to \
+             be between 0.0 and 1.0"
+        );
+    }
+
+    Ok(conf)
+}
 
 #[derive(Clone, Debug)]
 pub struct AppPreferences {

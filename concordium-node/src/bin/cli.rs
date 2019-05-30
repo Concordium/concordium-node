@@ -28,7 +28,7 @@ use concordium_global_state::{
     tree::{SkovData, SKOV_QUEUE},
 };
 use env_logger::{Builder, Env};
-use failure::{bail, Fallible};
+use failure::Fallible;
 use p2p_client::{
     client::{
         plugins::{self, consensus::*},
@@ -55,9 +55,10 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppPreferences) {
+fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
+{
     // Get config and app preferences
-    let conf = configuration::parse_config();
+    let conf = configuration::parse_config()?;
     let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
@@ -94,7 +95,7 @@ fn get_config_and_logging_setup() -> (configuration::Config, configuration::AppP
         app_prefs.get_user_config_dir()
     );
 
-    (conf, app_prefs)
+    Ok((conf, app_prefs))
 }
 
 fn setup_baker_guards(
@@ -524,7 +525,7 @@ fn setup_process_output(
                                 }
                             };
                         }
-                        NetworkPacketType::BroadcastedMessage => {
+                        NetworkPacketType::BroadcastedMessage(..) => {
                             if let Some(ref testrunner_url) = _test_runner_url {
                                 send_packet_to_testrunner(&node_ref, testrunner_url, &pac);
                             };
@@ -558,26 +559,10 @@ fn setup_process_output(
 }
 
 fn main() -> Fallible<()> {
-    let (conf, mut app_prefs) = get_config_and_logging_setup();
+    let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
         // Print out the configuration
         info!("{:?}", conf);
-    }
-
-    if conf.connection.max_allowed_nodes_percentage < 100 {
-        bail!(
-            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
-             nodes to less than the desired nodes is set to"
-        );
-    }
-
-    if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
-        if max_allowed_nodes < conf.connection.desired_nodes {
-            bail!(
-                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
-                 must be greater or equal to desired amounnt of nodes"
-            );
-        }
     }
 
     // Retrieving bootstrap nodes

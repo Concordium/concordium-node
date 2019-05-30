@@ -528,13 +528,13 @@ mod tests {
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
-            .build_broadcast()?;
+            .build_broadcast(Box::new([]))?;
 
         let serialized = serialize_into_memory(&msg, 256)?;
         let mut packet =
             deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone(), ipaddr)?;
 
-        if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
+        if let NetworkPacketType::BroadcastedMessage(..) = packet.packet_type {
             assert_eq!(packet.network_id, NetworkId::from(100));
             assert_eq!(packet.message.read_all_into_view()?, text_msg);
         } else {

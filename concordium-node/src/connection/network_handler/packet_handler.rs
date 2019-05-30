@@ -35,7 +35,7 @@ impl PacketHandler {
     pub fn process_message(&self, msg: &NetworkPacket) -> FunctorResult<()> {
         match msg.packet_type {
             NetworkPacketType::DirectMessage(_) => self.direct_parser.run_callbacks(&msg),
-            NetworkPacketType::BroadcastedMessage => self.broadcast_parser.run_callbacks(&msg),
+            NetworkPacketType::BroadcastedMessage(_) => self.broadcast_parser.run_callbacks(&msg),
         }
     }
 }
