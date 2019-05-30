@@ -1111,16 +1111,27 @@ impl P2PNode {
     }
 
     #[inline]
-    pub fn send_message(
+    pub fn send_direct_message(
         &mut self,
         id: Option<P2PNodeId>,
         network_id: NetworkId,
         msg_id: Option<MessageId>,
         msg: Vec<u8>,
-        broadcast: bool,
     ) -> Fallible<()> {
         let cursor = UCursor::from(msg);
-        self.send_message_from_cursor(id, network_id, msg_id, cursor, broadcast)
+        self.send_message_from_cursor(id, network_id, msg_id, cursor, false)
+    }
+
+    #[inline]
+    pub fn send_broadcast_message(
+        &mut self,
+        id: Option<P2PNodeId>,
+        network_id: NetworkId,
+        msg_id: Option<MessageId>,
+        msg: Vec<u8>,
+    ) -> Fallible<()> {
+        let cursor = UCursor::from(msg);
+        self.send_message_from_cursor(id, network_id, msg_id, cursor, true)
     }
 
     pub fn send_message_from_cursor(

@@ -445,7 +445,7 @@ macro_rules! send_catchup_request_to_consensus {
                     .expect("Can't write to buffer");
                 out_bytes.extend(res);
 
-                match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
+                match &$node.send_direct_message(Some($peer_id), $network_id, None, out_bytes) {
                     Ok(_) => info!(
                         "Responded to a catch-up request type \"{}\" from peer {}",
                         $req_type, $peer_id
@@ -469,7 +469,7 @@ macro_rules! send_catchup_request_to_consensus {
                 .expect("Can't write to buffer");
             out_bytes.extend($content);
 
-            match &$node.send_message(Some($peer_id), $network_id, None, out_bytes, false) {
+            match &$node.send_direct_message(Some($peer_id), $network_id, None, out_bytes) {
                 Ok(_) => info!(
                     "Sent a catch-up request type \"{}\" to peer {}",
                     $req_type, $peer_id

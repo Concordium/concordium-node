@@ -353,13 +353,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1)?;
         utils::consume_pending_messages(&msg_waiter_1);
 
-        node_2.send_message(
-            Some(node_1.id()),
-            NetworkId::from(100),
-            None,
-            msg.clone(),
-            false,
-        )?;
+        node_2.send_direct_message(Some(node_1.id()), NetworkId::from(100), None, msg.clone())?;
         let mut msg_recv = utils::wait_direct_message(&msg_waiter_1)?;
         assert_eq!(msg.as_slice(), msg_recv.read_all_into_view()?.as_slice());
 
@@ -381,13 +375,7 @@ mod tests {
         utils::consume_pending_messages(&msg_waiter_1);
 
         // Send msg
-        node_2.send_message(
-            Some(node_1.id()),
-            NetworkId::from(100),
-            None,
-            msg.clone(),
-            false,
-        )?;
+        node_2.send_direct_message(Some(node_1.id()), NetworkId::from(100), None, msg.clone())?;
         let received_msg =
             utils::wait_direct_message_timeout(&msg_waiter_1, utils::max_recv_timeout());
         assert_eq!(received_msg, Some(UCursor::from(msg)));
@@ -411,7 +399,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_2, &node_1, &msg_waiter_2)?;
         utils::connect_and_wait_handshake(&mut node_3, &node_2, &msg_waiter_3)?;
 
-        node_1.send_message(None, NetworkId::from(100), None, msg.clone(), true)?;
+        node_1.send_broadcast_message(None, NetworkId::from(100), None, msg.clone())?;
         let msg_broadcast = utils::wait_broadcast_message(&msg_waiter_3)?.read_all_into_view()?;
         assert_eq!(msg_broadcast.as_slice(), msg.as_slice());
         Ok(())
@@ -435,7 +423,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_3, &node_2, &msg_waiter_3)?;
         utils::consume_pending_messages(&msg_waiter_3);
 
-        node_1.send_message(None, NetworkId::from(100), None, msg, true)?;
+        node_1.send_broadcast_message(None, NetworkId::from(100), None, msg)?;
         if let Ok(msg) = msg_waiter_3.recv_timeout(time::Duration::from_secs(5)) {
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
@@ -499,7 +487,7 @@ mod tests {
         // Send broadcast message from 0 node
         let msg = b"Hello other mother's brother";
         if let Some((ref mut node, _)) = peers.get_mut(0) {
-            node.send_message(None, NetworkId::from(100), None, msg.to_vec(), true)?;
+            node.send_broadcast_message(None, NetworkId::from(100), None, msg.to_vec())?;
         }
 
         // Wait for broadcast message from 1..MESH_NODE_COUNT
@@ -581,12 +569,11 @@ mod tests {
         let msg = b"Hello other mother's brother";
         for island in &mut islands {
             if let Some((ref mut node_sender_ref, _)) = island.get_mut(0) {
-                node_sender_ref.send_message(
+                node_sender_ref.send_broadcast_message(
                     None,
                     NetworkId::from(100),
                     None,
                     msg.to_vec(),
-                    true,
                 )?;
             };
         }
@@ -687,12 +674,11 @@ mod tests {
 
                 src_node
                     .borrow_mut()
-                    .send_message(
+                    .send_broadcast_message(
                         src_node_id,
                         NetworkId::from(network_id),
                         None,
                         broadcast_msg.clone(),
-                        true,
                     )
                     .map_err(|e| panic!(e))
                     .ok();
@@ -921,12 +907,11 @@ mod tests {
 
                 src_node
                     .borrow_mut()
-                    .send_message(
+                    .send_broadcast_message(
                         src_node_id,
                         NetworkId::from(network_id),
                         None,
                         bcast_content.clone(),
-                        true,
                     )
                     .map_err(|e| panic!(e))
                     .ok();
@@ -1012,13 +997,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
 
         let msg = b"Hello";
-        node_1.send_message(
-            Some(node_2.id()),
-            NetworkId::from(100),
-            None,
-            msg.to_vec(),
-            false,
-        )?;
+        node_1.send_direct_message(Some(node_2.id()), NetworkId::from(100), None, msg.to_vec())?;
         node_1.close_and_join()?;
 
         let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
@@ -1045,13 +1024,7 @@ mod tests {
         utils::connect_and_wait_handshake(&mut node_1, &node_2, &waiter_1)?;
 
         let msg = b"Hello";
-        node_1.send_message(
-            Some(node_2.id()),
-            NetworkId::from(100),
-            None,
-            msg.to_vec(),
-            false,
-        )?;
+        node_1.send_direct_message(Some(node_2.id()), NetworkId::from(100), None, msg.to_vec())?;
 
         let node_2_msg = utils::wait_direct_message(&waiter_2)?.read_all_into_view()?;
         assert_eq!(node_2_msg.as_slice(), msg);
