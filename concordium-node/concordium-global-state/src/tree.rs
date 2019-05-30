@@ -237,11 +237,7 @@ impl SkovData {
 
         // rebind the reference (so we don't have to search for it again) so it's no
         // longer mutable
-        let target_block = if let Some(target) = target_block {
-            Some(&*target)
-        } else {
-            None
-        };
+        let target_block = &*target_block.unwrap(); // safe - we already checked for None
 
         // we should be ok with a linear search, as we are expecting only to keep the
         // most recent finalization records and the most recent one is always first
@@ -252,7 +248,7 @@ impl SkovData {
             .is_none()
         {
             self.finalization_list.push(record);
-            self.last_finalized = target_block.cloned();
+            self.last_finalized = Some(Rc::clone(target_block));
 
             SkovResult::Success
         } else {
