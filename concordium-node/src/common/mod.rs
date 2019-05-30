@@ -528,7 +528,7 @@ mod tests {
             .message_id(NetworkPacket::generate_message_id())
             .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
-            .build_broadcast(vec![])?;
+            .build_broadcast(Box::new([]))?;
 
         let serialized = serialize_into_memory(&msg, 256)?;
         let mut packet =

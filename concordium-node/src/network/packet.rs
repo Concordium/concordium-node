@@ -21,45 +21,6 @@ pub enum NetworkPacketType {
     BroadcastedMessage(CarbonCopyList),
 }
 
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct CarbonCopyList {
-    pub carbon_copies: Box<[P2PNodeId]>,
-}
-
-impl Deserializable for CarbonCopyList {
-    fn deserialize<A>(archive: &mut A) -> Fallible<Self>
-    where
-        A: ReadArchive, {
-        // This ensures safety if an corrupted package tries to reserve more memory than
-        // real-data contains.
-        // Message size is limited by P2P protocol.
-        const MAX_INITIAL_CAPACITY: usize = 4096;
-
-        let len = u32::deserialize(archive)?;
-        let mut out = Vec::with_capacity(std::cmp::min(len as usize, MAX_INITIAL_CAPACITY));
-        for _i in 0..len {
-            out.push(P2PNodeId::deserialize(archive)?);
-        }
-        Ok(CarbonCopyList {
-            carbon_copies: out.into_boxed_slice(),
-        })
-    }
-}
-
-impl Serializable for CarbonCopyList {
-    #[inline]
-    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
-    where
-        A: WriteArchive, {
-        (self.carbon_copies.len() as u32).serialize(archive)?;
-        self.carbon_copies
-            .iter()
-            .map(|ref item| item.serialize(archive))
-            .collect::<Fallible<()>>()
-    }
-}
-
 impl AsProtocolPacketType for NetworkPacketType {
     fn protocol_packet_type(&self) -> ProtocolPacketType {
         match self {
@@ -78,7 +39,7 @@ impl Serializable for NetworkPacketType {
         match self {
             NetworkPacketType::DirectMessage(ref receiver) => receiver.serialize(archive),
             NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
-                carbon_copies.serialize(archive)
+                carbon_copies.to_vec().serialize(archive)
             }
         }
     }
@@ -95,13 +56,15 @@ impl Deserializable for NetworkPacketType {
                 P2PNodeId::deserialize(archive)?,
             )),
             ProtocolPacketType::Broadcast => Ok(NetworkPacketType::BroadcastedMessage(
-                CarbonCopyList::deserialize(archive)?,
+                Vec::<_>::deserialize(archive)?.into_boxed_slice(),
             )),
         }
     }
 }
 
 pub type MessageId = HashBytes;
+
+pub type CarbonCopyList = Box<[P2PNodeId]>;
 
 /// # BUG
 /// It is not *thread-safe* but I've forced it temporary
@@ -120,10 +83,8 @@ pub struct NetworkPacket {
 
 impl NetworkPacketBuilder {
     #[inline]
-    pub fn build_broadcast(&mut self, carbon_copies: Box<[P2PNodeId]>) -> Fallible<NetworkPacket> {
-        self.build(NetworkPacketType::BroadcastedMessage(CarbonCopyList {
-            carbon_copies,
-        }))
+    pub fn build_broadcast(&mut self, carbon_copies: CarbonCopyList) -> Fallible<NetworkPacket> {
+        self.build(NetworkPacketType::BroadcastedMessage(carbon_copies))
     }
 
     #[inline]
