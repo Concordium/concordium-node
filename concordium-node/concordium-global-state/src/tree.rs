@@ -162,7 +162,7 @@ impl SkovData {
                     pending_block.hash.clone(),
                 );
 
-                self.queue_orphan_block(pending_block);
+                self.add_orphan_block(pending_block);
 
                 return SkovResult::Error(error);
             };
@@ -188,8 +188,9 @@ impl SkovData {
             Utc::now(),
         );
 
-        // TODO: update orphans
-        // if self.process_orphan_block_queue();
+        // the block's parent is in the block tree; therefore, check if there are no orphans
+        // that can apply to be inserted to the tree again now
+        self.update_orphans(&block_ptr.hash);
 
         let insertion_result = self
             .block_tree
@@ -256,11 +257,11 @@ impl SkovData {
         }
     }
 
-    fn queue_orphan_block(&mut self, pending_block: PendingBlock) {
-        let parent = pending_block.block.pointer.to_owned();
-        let queued = self.orphan_blocks.entry(parent).or_default();
+    fn add_orphan_block(&mut self, pending_block: PendingBlock) {
+        let missing_parent = pending_block.block.pointer.to_owned();
+        let parents_orphans = self.orphan_blocks.entry(missing_parent).or_default();
 
-        queued.insert(pending_block);
+        parents_orphans.insert(pending_block);
     }
 
     fn queue_block_wo_last_finalized(&mut self, pending_block: PendingBlock) {
@@ -273,48 +274,13 @@ impl SkovData {
         queued.insert(pending_block);
     }
 
-    pub fn process_orphan_block_queue(&mut self) -> SkovResult {
-        let missing_parent_hashes = self
-            .orphan_blocks
-            .keys()
-            .map(std::borrow::ToOwned::to_owned)
-            .collect::<Vec<_>>();
-
-        for missing_parent in missing_parent_hashes.into_iter() {
-            if self
-                .block_tree
-                .iter()
-                .any(|(hash, _)| *hash == missing_parent)
-            {
-                if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
-                    for orphan in orphans {
-                        if let err @ SkovResult::Error(_) = self.add_block(orphan) {
-                            return err;
-                        }
-                    }
-                }
+    fn update_orphans(&mut self, parent: &HashBytes) {
+        if let Some(orphans) = self.orphan_blocks.remove(parent) {
+            for orphan in orphans {
+                // we want to silence errors here, as it is a housekeeping operation
+                let _ = self.add_block(orphan);
             }
         }
-
-        SkovResult::Success
-    }
-
-    pub fn recheck_missing_parent(&mut self, missing_parent: &HashBytes) -> SkovResult {
-        if self
-            .block_tree
-            .iter()
-            .any(|(hash, _)| hash == missing_parent)
-        {
-            if let Some(orphans) = self.orphan_blocks.remove(&missing_parent) {
-                for orphan in orphans {
-                    if let err @ SkovResult::Error(_) = self.add_block(orphan) {
-                        return err;
-                    }
-                }
-            }
-        }
-
-        SkovResult::Success
     }
 
     pub fn display_state(&self) {
