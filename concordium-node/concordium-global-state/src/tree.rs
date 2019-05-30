@@ -7,7 +7,7 @@ use concordium_common::{
 };
 
 use std::{
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::{BinaryHeap, HashMap},
     fmt,
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
@@ -115,9 +115,11 @@ pub struct SkovData {
     // the last finalized block
     last_finalized: Rc<BlockPtr>,
     // blocks waiting for their parent to be added to the tree; the key is the parent's hash
-    orphan_blocks: HashMap<BlockHash, HashSet<PendingBlock>>,
+    orphan_blocks: HashMap<BlockHash, Vec<PendingBlock>>,
     // blocks waiting for their last finalized block to be added to the tree
-    awaiting_last_finalized: HashMap<BlockHash, HashSet<PendingBlock>>,
+    awaiting_finalization_record: HashMap<BlockHash, Vec<PendingBlock>>,
+    // finalization records that point to a block not present in the tree
+    inapplicable_finalization_records: Vec<FinalizationRecord>,
     // contains transactions
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
@@ -146,7 +148,8 @@ impl SkovData {
             genesis_block_ptr,
             last_finalized,
             orphan_blocks: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            awaiting_finalization_record: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            inapplicable_finalization_records: Vec::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
         }
     }
@@ -167,30 +170,43 @@ impl SkovData {
                 return SkovResult::Error(error);
             };
 
-        // verify if the pending block's last finalized block is actually the last
-        // finalized one
-        let last_finalized = self.get_last_finalized();
-
-        if last_finalized.hash != pending_block.block.last_finalized {
+        // verify if the pending block's last finalized block had already been finalized
+        if !self.finalization_list
+            .iter()
+            .find(|&record| record.block_pointer == pending_block.block.last_finalized)
+            .is_some()
+        {
             let error = SkovError::InvalidLastFinalized(
                 pending_block.block.last_finalized.clone(),
                 pending_block.hash.clone(),
             );
+
             self.queue_block_wo_last_finalized(pending_block);
 
             return SkovResult::Error(error);
+        }
+
+        // verify if the pending block's last finalized block is actually the last finalized one
+        if pending_block.block.last_finalized != self.last_finalized.hash {
+            let error = SkovError::InvalidLastFinalized(
+                pending_block.block.last_finalized.clone(),
+                pending_block.hash.clone(),
+            );
+
+            // for now, don't break on unaligned last finalized block
+            warn!("{:?}", error);
         }
 
         // if the above checks pass, a BlockPtr can be created
         let block_ptr = BlockPtr::new(
             pending_block,
             Rc::clone(parent_block),
-            Rc::clone(last_finalized),
+            Rc::clone(&self.last_finalized),
             Utc::now(),
         );
 
         // the block's parent is in the block tree; therefore, check if there are no
-        // orphans that can apply to be inserted to the tree again now
+        // orphans that can apply to be inserted in the tree again now
         self.update_orphans(&block_ptr.hash);
 
         let insertion_result = self
@@ -214,11 +230,9 @@ impl SkovData {
             .find(|&rec| rec.block_pointer == *hash)
     }
 
-    pub fn get_last_finalized(&self) -> &Rc<BlockPtr> { &self.last_finalized }
+    pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }
 
-    pub fn get_last_finalized_slot(&self) -> Slot { self.get_last_finalized().block.slot() }
-
-    pub fn get_last_finalized_height(&self) -> BlockHeight { self.get_last_finalized().height }
+    pub fn get_last_finalized_height(&self) -> BlockHeight { self.last_finalized.height }
 
     pub fn get_next_finalization_index(&self) -> FinalizationIndex {
         &self.finalization_list.peek().unwrap().index + 1 // safe; always available
@@ -236,9 +250,9 @@ impl SkovData {
             if let Some(ref mut block) = target_block {
                 block.status.set(BlockStatus::Finalized);
             } else {
-                let error = SkovError::MissingBlockToFinalize(record.block_pointer);
+                let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
 
-                // TODO: queue the erroneous candidates
+                self.inapplicable_finalization_records.push(record);
 
                 return SkovResult::Error(error);
             }
@@ -265,9 +279,9 @@ impl SkovData {
         };
 
         // the target last finalized is in the block tree; therefore, check if there are
-        // no blocks missing the last finalized that can apply to be inserted to
+        // no blocks targetting a missing last finalized block that can apply to be inserted in
         // the tree again now
-        self.update_last_finalized(&target_hash);
+        self.update_awaiting_finalization_record(&target_hash);
 
         result
     }
@@ -276,17 +290,17 @@ impl SkovData {
         let missing_parent = pending_block.block.pointer.to_owned();
         let parents_orphans = self.orphan_blocks.entry(missing_parent).or_default();
 
-        parents_orphans.insert(pending_block);
+        parents_orphans.push(pending_block);
     }
 
     fn queue_block_wo_last_finalized(&mut self, pending_block: PendingBlock) {
-        let last_finalized = pending_block.block.last_finalized.to_owned();
+        let last_finalized = pending_block.block.last_finalized.clone();
         let queued = self
-            .awaiting_last_finalized
+            .awaiting_finalization_record
             .entry(last_finalized)
             .or_default();
 
-        queued.insert(pending_block);
+        queued.push(pending_block);
     }
 
     fn update_orphans(&mut self, parent: &HashBytes) {
@@ -298,8 +312,8 @@ impl SkovData {
         }
     }
 
-    fn update_last_finalized(&mut self, last_finalized: &HashBytes) {
-        if let Some(awaiting_blocks) = self.awaiting_last_finalized.remove(last_finalized) {
+    fn update_awaiting_finalization_record(&mut self, last_finalized: &HashBytes) {
+        if let Some(awaiting_blocks) = self.awaiting_finalization_record.remove(last_finalized) {
             for awaiting in awaiting_blocks {
                 // we want to silence errors here, as it is a housekeeping operation
                 let _ = self.add_block(awaiting);
@@ -318,7 +332,7 @@ impl SkovData {
                 .iter()
                 .map(|ptr| (&ptr.hash, &ptr.status))
                 .collect::<Vec<_>>(),
-            self.get_last_finalized().hash,
+            self.last_finalized.hash,
             self.finalization_list
                 .iter()
                 .map(|rec| &rec.block_pointer)
@@ -330,7 +344,7 @@ impl SkovData {
                     pending.iter().map(|pb| &pb.hash).collect::<Vec<_>>()
                 ))
                 .collect::<Vec<_>>(),
-            self.awaiting_last_finalized
+            self.awaiting_finalization_record
                 .iter()
                 .map(|(last_finalized, pending)| (
                     last_finalized,
