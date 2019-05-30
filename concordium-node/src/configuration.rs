@@ -173,8 +173,8 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "ignore-carbon-copies-when-rebroadcasting",
         help = "Probability of chance, must be in the range 0.0 to 1.0, to ignore received list \
-                of carbon copies when rebroadcasting a message to peers (only takes effect if \
-                number of peers is above the desired)",
+                of carbon copies when rebroadcasting a message to peers (only takes effect if the \
+                number of peers is greater than or equal to the desired number of peers)",
         default_value = "0.5"
     )]
     pub ignore_carbon_copies_when_rebroadcasting_probability: f64,
