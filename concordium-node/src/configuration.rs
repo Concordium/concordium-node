@@ -187,6 +187,11 @@ pub struct ConnectionConfig {
     #[structopt(long = "no-trust-broadcasts", help = "Don't blindly relay broadcasts")]
     pub no_trust_broadcasts: bool,
     #[structopt(
+        long = "global-state-catch_up-requests",
+        help = "Should global state produce catch-up requests"
+    )]
+    pub global_state_catch_up_requests: bool,
+    #[structopt(
         long = "connect-to",
         short = "c",
         help = "Peer to connect to upon startup (host/ip:port)"

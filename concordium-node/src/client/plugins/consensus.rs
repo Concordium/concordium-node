@@ -228,27 +228,29 @@ pub fn handle_global_state_request(
             SkovResult::Error(e) => {
                 warn!("{:?}", e);
 
-                match e {
-                    SkovError::MissingParentBlock(ref missing, _)
-                    | SkovError::MissingBlockToFinalize(ref missing) => {
-                        let mut inner_out_bytes =
-                            Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
-                        inner_out_bytes.extend_from_slice(missing);
-                        inner_out_bytes
-                            .write_u64::<NetworkEndian>(0u64)
-                            .expect("Can't write to buffer");
+                if node.config.global_state_catch_up_requests {
+                    match e {
+                        SkovError::MissingParentBlock(ref missing, _)
+                        | SkovError::MissingBlockToFinalize(ref missing) => {
+                            let mut inner_out_bytes =
+                                Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
+                            inner_out_bytes.extend_from_slice(missing);
+                            inner_out_bytes
+                                .write_u64::<NetworkEndian>(0u64)
+                                .expect("Can't write to buffer");
 
-                        send_catchup_request_block_by_hash_to_consensus(
-                            baker,
-                            node,
-                            peer_id,
-                            network_id,
-                            &inner_out_bytes,
-                            PacketDirection::Outbound,
-                        )?;
-                    }
-                    SkovError::InvalidLastFinalized(..) => {
-                        // TODO
+                            send_catchup_request_block_by_hash_to_consensus(
+                                baker,
+                                node,
+                                peer_id,
+                                network_id,
+                                &inner_out_bytes,
+                                PacketDirection::Outbound,
+                            )?;
+                        }
+                        SkovError::InvalidLastFinalized(..) => {
+                            // TODO
+                        }
                     }
                 }
             }
