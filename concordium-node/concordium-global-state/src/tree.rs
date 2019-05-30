@@ -113,42 +113,39 @@ pub struct SkovData {
     // finalization records; the blocks they point to must already be in the tree
     finalization_list: BinaryHeap<FinalizationRecord>,
     // the last finalized block
-    last_finalized: Option<Rc<BlockPtr>>,
+    last_finalized: Rc<BlockPtr>,
     // blocks waiting for their last finalized block to be added to the tree
     awaiting_last_finalized: HashMap<BlockHash, HashSet<PendingBlock>>,
     // the pointer to the genesis block; optional only due to SkovData being a lazy_static
-    genesis_block_ptr: Option<Rc<BlockPtr>>,
+    genesis_block_ptr: Rc<BlockPtr>,
     // contains transactions
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
 }
 
-impl Default for SkovData {
-    fn default() -> Self {
-        Self {
-            block_tree:              HashMap::with_capacity(100),
-            orphan_blocks:           HashMap::with_capacity(10),
-            finalization_list:       BinaryHeap::with_capacity(100),
-            last_finalized:          None,
-            awaiting_last_finalized: HashMap::with_capacity(10),
-            genesis_block_ptr:       None,
-            transaction_table:       TransactionTable::default(),
-        }
-    }
-}
-
 impl SkovData {
-    pub fn add_genesis(&mut self, genesis_data: &[u8]) {
+    pub fn new(genesis_data: &[u8]) -> Self {
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        self.finalization_list
-            .push(FinalizationRecord::genesis(&genesis_block_ptr));
+        let mut finalization_list = BinaryHeap::with_capacity(100);
+        finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
-        self.genesis_block_ptr = Some(Rc::clone(&genesis_block_ptr));
-        self.last_finalized = Some(Rc::clone(&genesis_block_ptr));
+        let mut block_tree = HashMap::with_capacity(100);
+        block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
-        self.block_tree
-            .insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
+        let genesis_block_ref = block_tree.values().next().unwrap(); // safe; we just put it there
+        let last_finalized = Rc::clone(genesis_block_ref);
+        let genesis_block_ptr = Rc::clone(genesis_block_ref);
+
+        Self {
+            block_tree,
+            orphan_blocks:           HashMap::with_capacity(10),
+            finalization_list,
+            last_finalized,
+            awaiting_last_finalized: HashMap::with_capacity(10),
+            genesis_block_ptr,
+            transaction_table:       TransactionTable::default(),
+        }
     }
 
     pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
@@ -214,7 +211,7 @@ impl SkovData {
     }
 
     pub fn get_last_finalized(&self) -> &Rc<BlockPtr> {
-        self.last_finalized.as_ref().unwrap() // safe; always available
+        &self.last_finalized
     }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.get_last_finalized().block.slot() }
@@ -255,7 +252,7 @@ impl SkovData {
             .is_none()
         {
             self.finalization_list.push(record);
-            self.last_finalized = Some(Rc::clone(target_block));
+            self.last_finalized = Rc::clone(target_block);
 
             SkovResult::Success
         } else {

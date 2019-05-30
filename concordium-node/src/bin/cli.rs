@@ -425,15 +425,13 @@ fn setup_process_output(
     let mut baker_clone = baker.clone();
     let mut node_ref = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
-        let mut skov_data = SkovData::default();
-        // add the genesis block to the Skov
-        skov_data.add_genesis(
-            &baker_clone
-                .clone()
-                .map(|baker| baker.get_genesis_data())
-                .unwrap()
-                .unwrap(),
-        );
+        let genesis_data = baker_clone
+            .clone()
+            .map(|baker| baker.get_genesis_data())
+            .unwrap()
+            .unwrap();
+
+        let mut skov_data = SkovData::new(&genesis_data);
 
         loop {
             match SKOV_QUEUE.recv_request() {
