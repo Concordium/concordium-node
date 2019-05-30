@@ -5,6 +5,8 @@ if [ -z "$JENKINS_HOME" ]; then
   git pull
 fi
 
+git lfs pull
+
 VERSION=`git rev-parse --verify HEAD`
 
 ./scripts/build-all-docker.sh $VERSION
