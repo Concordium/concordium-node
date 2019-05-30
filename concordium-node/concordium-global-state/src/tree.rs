@@ -123,14 +123,17 @@ pub struct SkovData {
     // focus_block: BlockPtr,
 }
 
+const SKOV_OK_PREALLOCATION_SIZE: usize = 128;
+const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
+
 impl SkovData {
     pub fn new(genesis_data: &[u8]) -> Self {
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = BinaryHeap::with_capacity(100);
+        let mut finalization_list = BinaryHeap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
         finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
-        let mut block_tree = HashMap::with_capacity(100);
+        let mut block_tree = HashMap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
         block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
         let genesis_block_ref = block_tree.values().next().unwrap(); // safe; we just put it there
@@ -139,12 +142,12 @@ impl SkovData {
 
         Self {
             block_tree,
-            orphan_blocks:           HashMap::with_capacity(10),
+            orphan_blocks: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             finalization_list,
             last_finalized,
-            awaiting_last_finalized: HashMap::with_capacity(10),
+            awaiting_last_finalized: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             genesis_block_ptr,
-            transaction_table:       TransactionTable::default(),
+            transaction_table: TransactionTable::default(),
         }
     }
 
@@ -164,7 +167,8 @@ impl SkovData {
                 return SkovResult::Error(error);
             };
 
-        // verify if the pending block's last finalized block is actually the last finalized one
+        // verify if the pending block's last finalized block is actually the last
+        // finalized one
         let last_finalized = self.get_last_finalized();
 
         if last_finalized.hash != pending_block.block.last_finalized {
@@ -185,8 +189,8 @@ impl SkovData {
             Utc::now(),
         );
 
-        // the block's parent is in the block tree; therefore, check if there are no orphans
-        // that can apply to be inserted to the tree again now
+        // the block's parent is in the block tree; therefore, check if there are no
+        // orphans that can apply to be inserted to the tree again now
         self.update_orphans(&block_ptr.hash);
 
         let insertion_result = self
@@ -210,9 +214,7 @@ impl SkovData {
             .find(|&rec| rec.block_pointer == *hash)
     }
 
-    pub fn get_last_finalized(&self) -> &Rc<BlockPtr> {
-        &self.last_finalized
-    }
+    pub fn get_last_finalized(&self) -> &Rc<BlockPtr> { &self.last_finalized }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.get_last_finalized().block.slot() }
 
@@ -225,9 +227,9 @@ impl SkovData {
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
         let target_hash = record.block_pointer.clone();
 
-        // we need a separate block here in order to be able to keep clones to a minimum, query the
-        // block tree only once and still be able to do awaiting_last_finalized housekeeping in this
-        // function
+        // we need a separate block here in order to be able to keep clones to a
+        // minimum, query the block tree only once and still be able to do
+        // awaiting_last_finalized housekeeping in this function
         let result = {
             let mut target_block = self.block_tree.get_mut(&record.block_pointer);
 
@@ -262,8 +264,9 @@ impl SkovData {
             }
         };
 
-        // the target last finalized is in the block tree; therefore, check if there are no
-        // blocks missing the last finalized that can apply to be inserted to the tree again now
+        // the target last finalized is in the block tree; therefore, check if there are
+        // no blocks missing the last finalized that can apply to be inserted to
+        // the tree again now
         self.update_last_finalized(&target_hash);
 
         result
