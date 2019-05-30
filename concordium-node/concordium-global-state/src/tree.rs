@@ -107,17 +107,17 @@ pub enum SkovResult {
 #[derive(Debug)]
 pub struct SkovData {
     // the blocks whose parent and last finalized blocks are already in the tree
-    pub block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
-    // blocks waiting for their parent to be added to the tree; the key is the parent's hash
-    orphan_blocks: HashMap<BlockHash, HashSet<PendingBlock>>,
+    block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
     // finalization records; the blocks they point to must already be in the tree
     finalization_list: BinaryHeap<FinalizationRecord>,
+    // the pointer to the genesis block
+    genesis_block_ptr: Rc<BlockPtr>,
     // the last finalized block
     last_finalized: Rc<BlockPtr>,
+    // blocks waiting for their parent to be added to the tree; the key is the parent's hash
+    orphan_blocks: HashMap<BlockHash, HashSet<PendingBlock>>,
     // blocks waiting for their last finalized block to be added to the tree
     awaiting_last_finalized: HashMap<BlockHash, HashSet<PendingBlock>>,
-    // the pointer to the genesis block; optional only due to SkovData being a lazy_static
-    genesis_block_ptr: Rc<BlockPtr>,
     // contains transactions
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
@@ -142,11 +142,11 @@ impl SkovData {
 
         Self {
             block_tree,
-            orphan_blocks: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             finalization_list,
-            last_finalized,
-            awaiting_last_finalized: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             genesis_block_ptr,
+            last_finalized,
+            orphan_blocks: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            awaiting_last_finalized: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
         }
     }
