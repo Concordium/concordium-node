@@ -223,41 +223,50 @@ impl SkovData {
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        let mut target_block = self.block_tree.get_mut(&record.block_pointer);
+        let target_hash = record.block_pointer.clone();
 
-        if let Some(ref mut block) = target_block {
-            block.status.set(BlockStatus::Finalized);
-        } else {
-            let error = SkovError::MissingBlockToFinalize(record.block_pointer);
+        // we need a separate block here in order to be able to keep clones to a minimum, query the
+        // block tree only once and still be able to do awaiting_last_finalized housekeeping in this
+        // function
+        let result = {
+            let mut target_block = self.block_tree.get_mut(&record.block_pointer);
 
-            // TODO: queue the erroneous candidates
+            if let Some(ref mut block) = target_block {
+                block.status.set(BlockStatus::Finalized);
+            } else {
+                let error = SkovError::MissingBlockToFinalize(record.block_pointer);
 
-            return SkovResult::Error(error);
-        }
+                // TODO: queue the erroneous candidates
+
+                return SkovResult::Error(error);
+            }
+
+            // rebind the reference (so we don't have to search for it again) so it's no
+            // longer mutable
+            let target_block = &*target_block.unwrap(); // safe - we already checked for None
+
+            // we should be ok with a linear search, as we are expecting only to keep the
+            // most recent finalization records and the most recent one is always first
+            if self
+                .finalization_list
+                .iter()
+                .find(|&rec| *rec == record)
+                .is_none()
+            {
+                self.finalization_list.push(record);
+                self.last_finalized = Rc::clone(target_block);
+
+                SkovResult::Success
+            } else {
+                SkovResult::DuplicateEntry
+            }
+        };
 
         // the target last finalized is in the block tree; therefore, check if there are no
         // blocks missing the last finalized that can apply to be inserted to the tree again now
-        // self.update_last_finalized(&record.block_pointer);
+        self.update_last_finalized(&target_hash);
 
-        // rebind the reference (so we don't have to search for it again) so it's no
-        // longer mutable
-        let target_block = &*target_block.unwrap(); // safe - we already checked for None
-
-        // we should be ok with a linear search, as we are expecting only to keep the
-        // most recent finalization records and the most recent one is always first
-        if self
-            .finalization_list
-            .iter()
-            .find(|&rec| *rec == record)
-            .is_none()
-        {
-            self.finalization_list.push(record);
-            self.last_finalized = Rc::clone(target_block);
-
-            SkovResult::Success
-        } else {
-            SkovResult::DuplicateEntry
-        }
+        result
     }
 
     fn add_orphan_block(&mut self, pending_block: PendingBlock) {
