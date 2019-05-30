@@ -171,9 +171,9 @@ pub struct ConnectionConfig {
     pub no_bootstrap_dns: bool,
     #[structopt(
         long = "ignore-carbon-copy-rebroadcast-existing",
-        help = "Probability of chance to ignore received list of carbon copies when \
-                rebroadcasting a message to peers (only takes effect if number of peers is above \
-                the desired",
+        help = "Probability of chance, must be in the range 0.0 to 1.0, to ignore received list \
+                of carbon copies when rebroadcasting a message to peers (only takes effect if \
+                number of peers is above the desired)",
         default_value = "0.5"
     )]
     pub ignore_carbon_copy_rebroadcast_existing: f64,
