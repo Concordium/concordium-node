@@ -167,7 +167,7 @@ impl SkovData {
                 return SkovResult::Error(error);
             };
 
-        // verify if the pending block's last finalized block is already in the tree
+        // verify if the pending block's last finalized block is actually the last finalized one
         let last_finalized = self.get_last_finalized();
 
         if last_finalized.hash != pending_block.block.last_finalized {
@@ -233,8 +233,14 @@ impl SkovData {
         } else {
             let error = SkovError::MissingBlockToFinalize(record.block_pointer);
 
+            // TODO: queue the erroneous candidates
+
             return SkovResult::Error(error);
         }
+
+        // the target last finalized is in the block tree; therefore, check if there are no
+        // blocks missing the last finalized that can apply to be inserted to the tree again now
+        // self.update_last_finalized(&record.block_pointer);
 
         // rebind the reference (so we don't have to search for it again) so it's no
         // longer mutable
@@ -279,6 +285,15 @@ impl SkovData {
             for orphan in orphans {
                 // we want to silence errors here, as it is a housekeeping operation
                 let _ = self.add_block(orphan);
+            }
+        }
+    }
+
+    fn update_last_finalized(&mut self, last_finalized: &HashBytes) {
+        if let Some(awaiting_blocks) = self.awaiting_last_finalized.remove(last_finalized) {
+            for awaiting in awaiting_blocks {
+                // we want to silence errors here, as it is a housekeeping operation
+                let _ = self.add_block(awaiting);
             }
         }
     }
