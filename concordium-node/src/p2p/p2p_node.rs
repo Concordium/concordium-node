@@ -871,19 +871,14 @@ impl P2PNode {
                 let mut updated_packet = inner_pkt.clone();
                 let ignore_carbon_copies =
                     if local_peers.len() < self.config.desired_nodes_count as usize {
-                        false
+                        true
                     } else {
                         rand::thread_rng().gen_bool(
                             self.config
                                 .ignore_carbon_copies_when_rebroadcasting_probability,
                         )
                     };
-                let carbons = if !ignore_carbon_copies {
-                    local_peers
-                } else {
-                    Box::new([])
-                };
-                updated_packet.packet_type = NetworkPacketType::BroadcastedMessage(carbons);
+                updated_packet.packet_type = NetworkPacketType::BroadcastedMessage(local_peers);
                 (
                     ignore_carbon_copies,
                     serialize_into_memory(
