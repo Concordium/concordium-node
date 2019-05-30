@@ -77,7 +77,7 @@ pub struct P2PNodeConfig {
     blind_trusted_broadcast: bool,
     max_allowed_nodes: u16,
     max_resend_attempts: u8,
-    ignore_carbon_copy_rebroadcast_existing: f64,
+    ignore_carbon_copies_when_rebroadcasting_probability: f64,
 }
 
 #[derive(Default)]
@@ -309,9 +309,9 @@ impl P2PNode {
                 ) as u16
             },
             max_resend_attempts: conf.connection.max_resend_attempts,
-            ignore_carbon_copy_rebroadcast_existing: conf
+            ignore_carbon_copies_when_rebroadcasting_probability: conf
                 .connection
-                .ignore_carbon_copy_rebroadcast_existing,
+                .ignore_carbon_copies_when_rebroadcasting_probability,
         };
 
         let networks: HashSet<NetworkId> = conf
@@ -889,8 +889,10 @@ impl P2PNode {
                     {
                         false
                     } else {
-                        rand::thread_rng()
-                            .gen_bool(self.config.ignore_carbon_copy_rebroadcast_existing)
+                        rand::thread_rng().gen_bool(
+                            self.config
+                                .ignore_carbon_copies_when_rebroadcasting_probability,
+                        )
                     };
                     let filter = |conn: &Connection| {
                         is_valid_connection_in_broadcast(

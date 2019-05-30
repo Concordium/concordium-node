@@ -569,11 +569,11 @@ fn main() -> Fallible<()> {
         }
     }
 
-    if conf.connection.ignore_carbon_copy_rebroadcast_existing < 0.0
-        || conf.connection.ignore_carbon_copy_rebroadcast_existing > 1.0
+    if conf.connection.ignore_carbon_copies_when_rebroadcasting_probability < 0.0
+        || conf.connection.ignore_carbon_copies_when_rebroadcasting_probability > 1.0
     {
         bail!(
-            "Probability to ignore carbon copy list when attempting rebroadcasting of packets has \
+            "Probability to ignore carbon copies when attempting rebroadcasting of packets has \
              to be between 0.0 and 1.0"
         );
     }
