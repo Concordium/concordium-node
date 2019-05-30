@@ -261,7 +261,8 @@ impl TestRunner {
     }
 }
 
-fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)> {
+fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
+{
     let conf = configuration::parse_config()?;
     let app_prefs = configuration::AppPreferences::new(
         conf.common.config_dir.to_owned(),

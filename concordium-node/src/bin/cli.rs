@@ -55,7 +55,8 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)> {
+fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
+{
     // Get config and app preferences
     let conf = configuration::parse_config()?;
     let app_prefs = configuration::AppPreferences::new(

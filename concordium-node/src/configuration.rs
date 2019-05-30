@@ -1,4 +1,5 @@
 use app_dirs2::*;
+use failure::{bail, Fallible};
 use preferences::{Preferences, PreferencesMap};
 use semver::Version;
 use std::{
@@ -8,7 +9,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
-use failure::{bail, Fallible};
 
 pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
@@ -359,9 +359,9 @@ impl Config {
     }
 }
 
-pub fn parse_config() -> Fallible<Config> { 
+pub fn parse_config() -> Fallible<Config> {
     let conf = Config::from_args();
-     if conf.connection.max_allowed_nodes_percentage < 100 {
+    if conf.connection.max_allowed_nodes_percentage < 100 {
         bail!(
             "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
              nodes to less than the desired nodes is set to"

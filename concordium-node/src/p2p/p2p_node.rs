@@ -1411,9 +1411,9 @@ pub fn is_valid_connection_in_broadcast(
     network_id: NetworkId,
 ) -> bool {
     if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
-        if remote_peer.id() != sender.id()
+        if remote_peer.peer_type() != PeerType::Bootstrapper
+            && remote_peer.id() != sender.id()
             && (ignore_carbons || !carbon_copies.contains(&remote_peer.id()))
-            && remote_peer.peer_type() != PeerType::Bootstrapper
         {
             let remote_end_networks = conn.remote_end_networks();
             return remote_end_networks.contains(&network_id);
