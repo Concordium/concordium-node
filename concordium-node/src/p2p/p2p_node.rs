@@ -77,6 +77,7 @@ pub struct P2PNodeConfig {
     max_allowed_nodes: u16,
     max_resend_attempts: u8,
     ignore_carbon_copies_when_rebroadcasting_probability: f64,
+    pub global_state_catch_up_requests: bool,
 }
 
 #[derive(Default)]
@@ -122,7 +123,7 @@ pub struct P2PNode {
     quit_tx:              Option<Sender<bool>>,
     pub max_nodes:        Option<u16>,
     pub print_peers:      bool,
-    config:               P2PNodeConfig,
+    pub config:           P2PNodeConfig,
     broadcasting_checks:  Arc<FilterFunctor<NetworkPacket>>,
     dump_switch:          Sender<(std::path::PathBuf, bool)>,
     dump_tx:              Sender<crate::dumper::DumpItem>,
@@ -311,6 +312,7 @@ impl P2PNode {
             ignore_carbon_copies_when_rebroadcasting_probability: conf
                 .connection
                 .ignore_carbon_copies_when_rebroadcasting_probability,
+            global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
         };
 
         let networks: HashSet<NetworkId> = conf
