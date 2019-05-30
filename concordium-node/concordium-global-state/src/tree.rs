@@ -317,8 +317,6 @@ impl SkovData {
                 .collect::<Vec<_>>(),
             self.get_last_finalized().hash,
             self.finalization_list
-                .clone()
-                .into_sorted_vec()
                 .iter()
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),

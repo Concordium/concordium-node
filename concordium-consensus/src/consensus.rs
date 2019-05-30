@@ -6,7 +6,7 @@ use failure::{bail, Fallible};
 #[cfg(test)]
 use std::time::Duration;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt, str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
@@ -188,8 +188,6 @@ lazy_static! {
     pub static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
         { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
-    pub static ref REQUESTED_CATCH_UPS: RwLock<HashSet<CatchupRequest>> =
-        { RwLock::new(HashSet::default()) };
 }
 
 type PrivateData = HashMap<i64, Vec<u8>>;
@@ -403,7 +401,7 @@ impl ConsensusContainer {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum CatchupRequest {
     BlockByHash(PeerId, HashBytes, Delta),
     FinalizationMessagesByPoint(PeerId, FinalizationMessage),
@@ -438,15 +436,9 @@ pub fn catchup_enqueue(request: CatchupRequest) {
     let request_info = format!("{:?}", request);
     debug!("Produced a catch-up request: {}", request_info);
 
-    if let Ok(ref mut old_requests) = REQUESTED_CATCH_UPS.write() {
-        if old_requests.insert(request.clone()) {
-            match CALLBACK_QUEUE.clone().send_catchup(request) {
-                Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
-                _ => error!("Didn't queue catch-up request properly"),
-            }
-        } else {
-            error!("Duplicate catch-up request: {}", request_info);
-        }
+    match CALLBACK_QUEUE.clone().send_catchup(request) {
+        Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
+        _ => error!("Didn't queue catch-up request properly"),
     }
 }
 

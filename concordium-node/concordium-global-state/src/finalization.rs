@@ -19,7 +19,7 @@ const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = BLOCK_HASH;
 const TICKET: u8 = 80;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct FinalizationMessage {
     header:    FinalizationMessageHeader,
     message:   WmvbaMessage,
@@ -76,7 +76,7 @@ pub type FinalizationIndex = u64;
 
 type Party = u32;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct FinalizationMessageHeader {
     session_id: SessionId,
     index:      FinalizationIndex,
@@ -126,7 +126,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
 
 type Val = BlockHash;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 // Weak Multi-Valued Byzantine Agreement
 enum WmvbaMessage {
     Proposal(Val),
@@ -236,7 +236,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
 
 type Phase = u32;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct Abba {
     phase:     Phase,
     ticket:    Encoded,
@@ -273,7 +273,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct CssSeen {
     phase: Phase,
     party: Party,
@@ -306,7 +306,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for CssSeen {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct CssDoneReporting {
     phase:       Phase,
     chose_false: Vec<Party>,
@@ -371,7 +371,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for CssDoneReporting {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FinalizationRecord {
     pub index:         FinalizationIndex,
     pub block_pointer: BlockHash,
@@ -455,7 +455,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
 pub struct FinalizationProof(Vec<(Party, Encoded)>);
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {

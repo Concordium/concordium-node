@@ -32,7 +32,7 @@ const VOTER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
 const VOTER_VRF_KEY: u8 = 32;
 const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BirkParameters {
     election_nonce:      ByteString,
     election_difficulty: ElectionDifficulty,
@@ -95,7 +95,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BakerInfo {
     election_verify_key:  BakerElectionVerifyKey,
     signature_verify_key: BakerSignVerifyKey,
@@ -134,7 +134,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FinalizationParameters(Box<[VoterInfo]>);
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
@@ -172,7 +172,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VoterInfo {
     signature_verify_key: VoterVerificationKey,
     election_verify_key:  VoterVRFPublicKey,
