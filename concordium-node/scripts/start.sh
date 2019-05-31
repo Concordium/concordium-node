@@ -140,7 +140,7 @@ fi
 
 if [ -n "$GLOBAL_STATE_CATCH_UP_REQUESTS" ];
 then
-    ARGS="$ARGS --global-state-catch_up-requests"
+    ARGS="$ARGS --global-state-catch-up-requests"
 fi
 
 if [ "$MODE" == "tps_receiver" ]; then
@@ -161,8 +161,8 @@ elif [ "$MODE" == "tps_sender" ]; then
 
     for i in `seq 0 $(($TPS_MESSAGE_COUNT - 1))`;
     do
-	    echo $i
-	    dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
+        echo $i
+        dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
     done
 
     # Echo to cron file
