@@ -233,10 +233,10 @@ pub fn handle_global_state_request(
                         SkovError::MissingParentBlock(ref missing, _)
                         | SkovError::MissingBlockToFinalize(ref missing)
                         | SkovError::MissingLastFinalizedBlock(ref missing, _) => {
-                            let mut inner_out_bytes =
+                            let mut request_bytes =
                                 Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
-                            inner_out_bytes.extend_from_slice(missing);
-                            inner_out_bytes
+                            request_bytes.extend_from_slice(missing);
+                            request_bytes
                                 .write_u64::<NetworkEndian>(0u64)
                                 .expect("Can't write to buffer");
 
@@ -245,12 +245,21 @@ pub fn handle_global_state_request(
                                 node,
                                 peer_id,
                                 network_id,
-                                &inner_out_bytes,
+                                &request_bytes,
                                 PacketDirection::Outbound,
                             )?;
                         }
-                        SkovError::InvalidLastFinalized(..)
-                        | SkovError::LastFinalizedNotFinalized(..) => {
+                        SkovError::LastFinalizedNotFinalized(ref target_hash, _) => {
+                            send_catchup_request_finalization_record_by_hash_to_consensus(
+                                baker,
+                                node,
+                                peer_id,
+                                network_id,
+                                &target_hash,
+                                PacketDirection::Outbound,
+                            )?;
+                        }
+                        SkovError::InvalidLastFinalized(..) => {
                             // TODO: decide how to handle
                         }
                     }
