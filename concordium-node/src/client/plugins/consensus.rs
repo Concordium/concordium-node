@@ -231,7 +231,8 @@ pub fn handle_global_state_request(
                 if node.config.global_state_catch_up_requests {
                     match e {
                         SkovError::MissingParentBlock(ref missing, _)
-                        | SkovError::MissingBlockToFinalize(ref missing) => {
+                        | SkovError::MissingBlockToFinalize(ref missing)
+                        | SkovError::MissingLastFinalizedBlock(ref missing, _) => {
                             let mut inner_out_bytes =
                                 Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
                             inner_out_bytes.extend_from_slice(missing);
@@ -247,9 +248,10 @@ pub fn handle_global_state_request(
                                 &inner_out_bytes,
                                 PacketDirection::Outbound,
                             )?;
-                        }
-                        SkovError::InvalidLastFinalized(..) => {
-                            // TODO
+                        },
+                        SkovError::InvalidLastFinalized(..)
+                        | SkovError::LastFinalizedNotFinalized(..) => {
+                            // TODO: decide how to handle
                         }
                     }
                 }
@@ -257,7 +259,7 @@ pub fn handle_global_state_request(
         }
 
         // debug info
-        // skov.display_state();
+        skov.display_state();
     }
 
     Ok(())
