@@ -248,7 +248,7 @@ pub fn handle_global_state_request(
                                 &inner_out_bytes,
                                 PacketDirection::Outbound,
                             )?;
-                        },
+                        }
                         SkovError::InvalidLastFinalized(..)
                         | SkovError::LastFinalizedNotFinalized(..) => {
                             // TODO: decide how to handle

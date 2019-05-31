@@ -81,7 +81,8 @@ pub enum SkovResult {
 }
 
 #[derive(PartialEq, Eq)]
-// if there are two components, the first one is the target and the second is the source
+// if there are two components, the first one is the target and the second is
+// the source
 pub enum SkovError {
     // the parent block is not in the tree
     MissingParentBlock(HashBytes, HashBytes),
@@ -100,13 +101,16 @@ impl fmt::Debug for SkovError {
         let msg = match self {
             SkovError::MissingParentBlock(ref parent, ref pending) => {
                 format!("block {:?} is missing parent ({:?})", pending, parent)
-            },
-            SkovError::MissingLastFinalizedBlock(ref last_finalized, ref pending) => {
-                format!("block {:?} is pointing to a last finalized block ({:?}) that is not in the tree", pending, last_finalized)
-            },
-            SkovError::LastFinalizedNotFinalized(ref last_finalized, ref pending) => {
-                format!("block {:?} is pointing to a last finalized block ({:?}) that has not been finalized yet", pending, last_finalized)
-            },
+            }
+            SkovError::MissingLastFinalizedBlock(ref last_finalized, ref pending) => format!(
+                "block {:?} is pointing to a last finalized block ({:?}) that is not in the tree",
+                pending, last_finalized
+            ),
+            SkovError::LastFinalizedNotFinalized(ref last_finalized, ref pending) => format!(
+                "block {:?} is pointing to a last finalized block ({:?}) that has not been \
+                 finalized yet",
+                pending, last_finalized
+            ),
             SkovError::InvalidLastFinalized(ref last_finalized, ref pending) => format!(
                 "block {:?} wrongly states that {:?} is the last finalized block",
                 pending, last_finalized
@@ -166,7 +170,9 @@ impl SkovData {
             genesis_block_ptr,
             last_finalized,
             awaiting_parent_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized_finalization: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            awaiting_last_finalized_finalization: HashMap::with_capacity(
+                SKOV_ERR_PREALLOCATION_SIZE,
+            ),
             awaiting_last_finalized_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             inapplicable_finalization_records: Vec::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
@@ -184,7 +190,11 @@ impl SkovData {
                     pending_block.hash.clone(),
                 );
 
-                self.queue_pending_block(AwaitingParentBlock, pending_block.block.pointer.to_owned(), pending_block);
+                self.queue_pending_block(
+                    AwaitingParentBlock,
+                    pending_block.block.pointer.to_owned(),
+                    pending_block,
+                );
 
                 return SkovResult::Error(error);
             };
@@ -198,7 +208,11 @@ impl SkovData {
                     pending_block.hash.clone(),
                 );
 
-                self.queue_pending_block(AwaitingLastFinalizedFinalization, pending_block.block.last_finalized.clone(), pending_block);
+                self.queue_pending_block(
+                    AwaitingLastFinalizedFinalization,
+                    pending_block.block.last_finalized.clone(),
+                    pending_block,
+                );
 
                 return SkovResult::Error(error);
             }
@@ -208,7 +222,11 @@ impl SkovData {
                 pending_block.hash.clone(),
             );
 
-            self.queue_pending_block(AwaitingLastFinalizedBlock, pending_block.block.last_finalized.clone(), pending_block);
+            self.queue_pending_block(
+                AwaitingLastFinalizedBlock,
+                pending_block.block.last_finalized.clone(),
+                pending_block,
+            );
 
             return SkovResult::Error(error);
         }
@@ -325,7 +343,10 @@ impl SkovData {
         }
     }
 
-    fn pending_queue_mut(&mut self, queue: PendingQueue) -> &mut HashMap<HashBytes, Vec<PendingBlock>> {
+    fn pending_queue_mut(
+        &mut self,
+        queue: PendingQueue,
+    ) -> &mut HashMap<HashBytes, Vec<PendingBlock>> {
         match queue {
             AwaitingParentBlock => &mut self.awaiting_parent_block,
             AwaitingLastFinalizedBlock => &mut self.awaiting_last_finalized_block,
@@ -333,7 +354,12 @@ impl SkovData {
         }
     }
 
-    fn queue_pending_block(&mut self, queue: PendingQueue, missing_entry: HashBytes, pending_block: PendingBlock) {
+    fn queue_pending_block(
+        &mut self,
+        queue: PendingQueue,
+        missing_entry: HashBytes,
+        pending_block: PendingBlock,
+    ) {
         let queued = self
             .pending_queue_mut(queue)
             .entry(missing_entry)
@@ -352,7 +378,9 @@ impl SkovData {
     }
 
     fn print_pending_queue(&self, queue: PendingQueue) -> String {
-        if self.pending_queue_ref(queue).is_empty() { return String::new() }
+        if self.pending_queue_ref(queue).is_empty() {
+            return String::new();
+        }
 
         // it's heavy debugging at this point; we don't mind reallocating the string
         let mut output = format!("\n{}: [", queue);
@@ -372,8 +400,7 @@ impl SkovData {
 
     pub fn display_state(&self) {
         info!(
-            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\
-            {}{}{}",
+            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}{}{}{}",
             self.block_tree
                 .values()
                 .collect::<BinaryHeap<_>>()
