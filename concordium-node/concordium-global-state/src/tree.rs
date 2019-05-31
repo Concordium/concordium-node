@@ -20,7 +20,7 @@ use crate::{
     transaction::*,
 };
 
-use self::PendingQueue::*;
+use self::PendingQueueType::*;
 
 lazy_static! {
     pub static ref SKOV_QUEUE: SkovQueue = { SkovQueue::default() };
@@ -124,6 +124,11 @@ impl fmt::Debug for SkovError {
     }
 }
 
+const SKOV_OK_PREALLOCATION_SIZE: usize = 128;
+const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
+
+type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
+
 #[derive(Debug)]
 pub struct SkovData {
     // the blocks whose parent and last finalized blocks are already in the tree
@@ -135,20 +140,17 @@ pub struct SkovData {
     // the last finalized block
     last_finalized: Rc<BlockPtr>,
     // blocks waiting for their parent to be added to the tree; the key is the parent's hash
-    awaiting_parent_block: HashMap<BlockHash, Vec<PendingBlock>>,
+    awaiting_parent_block: PendingQueue,
     // blocks waiting for their last finalized block to be finalized
-    awaiting_last_finalized_finalization: HashMap<BlockHash, Vec<PendingBlock>>,
+    awaiting_last_finalized_finalization: PendingQueue,
     // blocks waiting for their last finalized block to be inserted in the tree
-    awaiting_last_finalized_block: HashMap<BlockHash, Vec<PendingBlock>>,
+    awaiting_last_finalized_block: PendingQueue,
     // finalization records that point to a block not present in the tree
     inapplicable_finalization_records: Vec<FinalizationRecord>,
     // contains transactions
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
 }
-
-const SKOV_OK_PREALLOCATION_SIZE: usize = 128;
-const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
 
 impl SkovData {
     pub fn new(genesis_data: &[u8]) -> Self {
@@ -335,7 +337,7 @@ impl SkovData {
         result
     }
 
-    fn pending_queue_ref(&self, queue: PendingQueue) -> &HashMap<HashBytes, Vec<PendingBlock>> {
+    fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {
         match queue {
             AwaitingParentBlock => &self.awaiting_parent_block,
             AwaitingLastFinalizedBlock => &self.awaiting_last_finalized_block,
@@ -345,8 +347,8 @@ impl SkovData {
 
     fn pending_queue_mut(
         &mut self,
-        queue: PendingQueue,
-    ) -> &mut HashMap<HashBytes, Vec<PendingBlock>> {
+        queue: PendingQueueType,
+    ) -> &mut PendingQueue {
         match queue {
             AwaitingParentBlock => &mut self.awaiting_parent_block,
             AwaitingLastFinalizedBlock => &mut self.awaiting_last_finalized_block,
@@ -356,7 +358,7 @@ impl SkovData {
 
     fn queue_pending_block(
         &mut self,
-        queue: PendingQueue,
+        queue: PendingQueueType,
         missing_entry: HashBytes,
         pending_block: PendingBlock,
     ) {
@@ -368,7 +370,7 @@ impl SkovData {
         queued.push(pending_block);
     }
 
-    fn refresh_pending_queue(&mut self, queue: PendingQueue, target_hash: &HashBytes) {
+    fn refresh_pending_queue(&mut self, queue: PendingQueueType, target_hash: &HashBytes) {
         if let Some(affected_blocks) = self.pending_queue_mut(queue).remove(target_hash) {
             for pending_block in affected_blocks {
                 // silence errors here, as it is a housekeeping operation
@@ -377,7 +379,7 @@ impl SkovData {
         }
     }
 
-    fn print_pending_queue(&self, queue: PendingQueue) -> String {
+    fn print_pending_queue(&self, queue: PendingQueueType) -> String {
         if self.pending_queue_ref(queue).is_empty() {
             return String::new();
         }
@@ -420,13 +422,13 @@ impl SkovData {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PendingQueue {
+pub enum PendingQueueType {
     AwaitingParentBlock,
     AwaitingLastFinalizedBlock,
     AwaitingLastFinalizedFinalization,
 }
 
-impl fmt::Display for PendingQueue {
+impl fmt::Display for PendingQueueType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let name = match *self {
             AwaitingParentBlock => "awaiting parent block",
