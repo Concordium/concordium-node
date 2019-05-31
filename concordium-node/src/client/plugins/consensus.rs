@@ -259,7 +259,7 @@ pub fn handle_global_state_request(
         }
 
         // debug info
-        skov.display_state();
+        // skov.display_state();
     }
 
     Ok(())
