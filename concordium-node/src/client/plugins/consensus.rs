@@ -393,7 +393,7 @@ fn send_block_to_consensus(
 
     // send unique blocks to the consensus layer
     match baker.send_block(peer_id.as_raw(), content) {
-        0i64 => info!("Peer {} sent a block ({:?}) to consensus", peer_id, hash,),
+        0i64 => info!("Peer {} sent block {:?} to consensus", peer_id, hash,),
         err_code => error!(
             "Peer {} can't send a block from network to consensus due to error code #{} (block: \
              {:?})",
