@@ -99,9 +99,10 @@ pub enum SkovError {
 impl fmt::Debug for SkovError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            SkovError::MissingParentBlock(ref parent, ref pending) => {
-                format!("block {:?} is missing parent ({:?})", pending, parent)
-            }
+            SkovError::MissingParentBlock(ref parent, ref pending) => format!(
+                "block {:?} is pointing to a parent ({:?}) that is not in the tree",
+                pending, parent
+            ),
             SkovError::MissingLastFinalizedBlock(ref last_finalized, ref pending) => format!(
                 "block {:?} is pointing to a last finalized block ({:?}) that is not in the tree",
                 pending, last_finalized
@@ -115,9 +116,10 @@ impl fmt::Debug for SkovError {
                 "block {:?} wrongly states that {:?} is the last finalized block",
                 pending, last_finalized
             ),
-            SkovError::MissingBlockToFinalize(ref target) => {
-                format!("can't finalize block {:?} as it's not in the tree", target)
-            }
+            SkovError::MissingBlockToFinalize(ref target) => format!(
+                "finalization record {:?} is pointing to a block that is not in the tree",
+                target
+            ),
         };
 
         write!(f, "Skov error: {}", msg)
