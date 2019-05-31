@@ -7,6 +7,7 @@ use failure::Fallible;
 use std::{
     cell::Cell,
     cmp::Ordering,
+    fmt,
     hash::{Hash, Hasher},
     io::{Cursor, Read, Write},
     mem::size_of,
@@ -262,14 +263,13 @@ impl From<BakedBlock> for PendingBlock {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockStatus {
     Alive,
     Dead,
     Finalized,
 }
 
-#[derive(Debug)]
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
@@ -338,4 +338,10 @@ impl PartialOrd for BlockPtr {
 
 impl Ord for BlockPtr {
     fn cmp(&self, other: &Self) -> Ordering { self.block.slot().cmp(&other.block.slot()) }
+}
+
+impl fmt::Debug for BlockPtr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} ({:?})", self.hash, self.status.get())
+    }
 }

@@ -869,8 +869,13 @@ impl P2PNode {
             NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
                 let local_peers = read_or_die!(self.tls_server).get_all_current_peers();
                 let mut updated_packet = inner_pkt.clone();
+
+                // if we are the originator (carbon_copies is empty) of the packet or
+                // the number of desired nodes is greater than the current number of
+                // peers, we must send out the broadcast; otherwise, we roll the dice
+                // to determine if we are going to re-broadcast it
                 let ignore_carbon_copies = if carbon_copies.is_empty()
-                    || local_peers.len() < self.config.desired_nodes_count as usize
+                    || self.config.desired_nodes_count as usize > local_peers.len()
                 {
                     true
                 } else {
