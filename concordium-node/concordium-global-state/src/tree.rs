@@ -171,10 +171,10 @@ impl SkovData {
             };
 
         // verify if the pending block's last finalized block had already been finalized
-        if !self.finalization_list
+        if !self
+            .finalization_list
             .iter()
-            .find(|&record| record.block_pointer == pending_block.block.last_finalized)
-            .is_some()
+            .any(|record| record.block_pointer == pending_block.block.last_finalized)
         {
             let error = SkovError::InvalidLastFinalized(
                 pending_block.block.last_finalized.clone(),
@@ -186,7 +186,8 @@ impl SkovData {
             return SkovResult::Error(error);
         }
 
-        // verify if the pending block's last finalized block is actually the last finalized one
+        // verify if the pending block's last finalized block is actually the last
+        // finalized one
         if pending_block.block.last_finalized != self.last_finalized.hash {
             let error = SkovError::InvalidLastFinalized(
                 pending_block.block.last_finalized.clone(),
@@ -279,8 +280,8 @@ impl SkovData {
         };
 
         // the target last finalized is in the block tree; therefore, check if there are
-        // no blocks targetting a missing last finalized block that can apply to be inserted in
-        // the tree again now
+        // no blocks targetting a missing last finalized block that can apply to be
+        // inserted in the tree again now
         self.update_awaiting_finalization_record(&target_hash);
 
         result
