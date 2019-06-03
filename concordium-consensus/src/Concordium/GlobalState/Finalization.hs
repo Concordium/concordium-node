@@ -9,7 +9,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.Types
 
-newtype FinalizationIndex = FinalizationIndex Word64 deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
+newtype FinalizationIndex = FinalizationIndex {theFinalizationIndex :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, Serialize)
 
 
 data FinalizationProof = FinalizationProof [(Word32, Sig.Signature)]
@@ -39,3 +39,6 @@ instance Serialize FinalizationRecord where
         let finalizationProof = FinalizationProof sigs
         finalizationDelay <- get
         return $ FinalizationRecord{..}
+
+instance Show FinalizationRecord where
+    show FinalizationRecord{..} = "FinalizationRecord{index=" ++ show (theFinalizationIndex finalizationIndex)  ++ ", block=" ++ show finalizationBlockPointer ++ "}"
