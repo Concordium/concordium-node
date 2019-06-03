@@ -15,6 +15,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
+import Concordium.ID.Types(cdi_regId)
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -290,7 +291,11 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     bsoModifyAccount bs accountUpdates = return $
         let account = bs ^. blockAccounts . singular (ix (accountUpdates ^. TS.auAddress))
             updatedAccount = TS.updateAccount accountUpdates account
-        in bs & blockAccounts %~ Account.putAccount updatedAccount
+        in case accountUpdates ^. TS.auCredential of
+             Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount
+             Just cdi ->
+               bs & blockAccounts %~ Account.putAccount updatedAccount
+                                   . Account.recordRegId (cdi_regId cdi)
 
 type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
 
