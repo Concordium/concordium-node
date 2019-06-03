@@ -23,7 +23,6 @@ import Concordium.GlobalState.Finalization
 
 import Concordium.Afgjort.Finalize
 
-import Control.Monad.IO.Class
 import Data.IORef
 import Text.Read hiding (get)
 import qualified Data.Map as Map

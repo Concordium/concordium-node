@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, FlexibleContexts, ScopedTypeVariables, RecordWildCards #-}
+{-# LANGUAGE LambdaCase, FlexibleContexts, ScopedTypeVariables, RecordWildCards, FlexibleInstances, MultiParamTypeClasses #-}
 module Concordium.Runner where
 
 import Control.Concurrent.Chan
@@ -24,6 +24,7 @@ import Concordium.Skov
 import Concordium.Skov.Update (execFSM', FSM')
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
+import Concordium.Getters
 
 data InMessage src =
     MsgShutdown
@@ -111,6 +112,9 @@ data SyncRunner = SyncRunner {
     syncLogMethod :: LogMethod IO
 }
 
+instance SkovStateQueryable SyncRunner (SimpleSkovMonad SkovFinalizationState IO) where
+    runStateQuery sr a = readMVar (syncState sr) >>= evalSSM a
+
 data SimpleOutMessage
     = SOMsgNewBlock BakedBlock
     | SOMsgFinalization FinalizationMessage
@@ -156,6 +160,11 @@ makeSyncRunner syncLogMethod bkr gen initBS bakerCallback = do
         bakerThread <- forkIO $ runBaker
         syncBakerThread <- newMVar bakerThread
         return $ SyncRunner{..}
+
+stopSyncRunner :: SyncRunner -> IO ()
+stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
+        Nothing -> return ()
+        Just thrd -> killThread thrd
 
 runFSMWithStateLog :: SyncRunner -> FSM LogIO a -> IO (a, [SkovFinalizationEvent])
 runFSMWithStateLog SyncRunner{..} a = runWithStateLog syncState syncLogMethod (\sfs -> (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runFSM a syncFinalizationInstance sfs)
