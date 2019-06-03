@@ -16,13 +16,13 @@ import Concordium.TimeMonad
 currentTimestamp :: (TimeMonad m) => m Timestamp
 currentTimestamp = truncate . utcTimeToPOSIXSeconds <$> currentTime
 
-timeUntilNextSlot :: (TimeMonad m, SkovMonad m) => m NominalDiffTime
+timeUntilNextSlot :: (TimeMonad m, SkovQueryMonad m) => m NominalDiffTime
 timeUntilNextSlot = do
     gen <- getGenesisData
     now <- utcTimeToPOSIXSeconds <$> currentTime
     return $ (now - (fromInteger $ toInteger (genesisTime gen))) `mod'` (fromInteger $ toInteger $ genesisSlotDuration gen)
 
-getCurrentSlot :: (TimeMonad m, SkovMonad m) => m Slot
+getCurrentSlot :: (TimeMonad m, SkovQueryMonad m) => m Slot
 getCurrentSlot = do
         GenesisData{..} <- getGenesisData
         ct <- currentTimestamp

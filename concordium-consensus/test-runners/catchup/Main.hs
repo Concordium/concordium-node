@@ -75,7 +75,7 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             when connected $ case msg of
                 IEMessage imsg -> writeChan bakerChan imsg
                 IECatchupFinalization fp reciprocate chan -> do
-                    finMsgs <- map snd <$> Get.getFinalizationMessages sfsRef fp
+                    finMsgs <- Get.getFinalizationMessages sfsRef fp
                     forM_ finMsgs $ writeChan chan . IEMessage . MsgFinalizationReceived sfsRef
                     when reciprocate $ do
                         myFp <- Get.getFinalizationPoint sfsRef

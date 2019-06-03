@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase, FlexibleContexts, ScopedTypeVariables, RecordWildCards #-}
 module Concordium.Runner where
 
 import Control.Concurrent.Chan
@@ -8,9 +8,8 @@ import Control.Monad.State.Class
 import Control.Monad.Writer.Class
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Exception
 import Data.IORef
--- import Control.Monad.Trans.RWS hiding (get)
-import qualified Data.ByteString as BS
 import Data.Monoid
 
 import Concordium.Types
@@ -31,12 +30,12 @@ data InMessage src =
     | MsgTimer
     | MsgBlockReceived src BakedBlock
     | MsgTransactionReceived Transaction
-    | MsgFinalizationReceived src BS.ByteString
+    | MsgFinalizationReceived src FinalizationMessage
     | MsgFinalizationRecordReceived src FinalizationRecord
 
 data OutMessage src = 
     MsgNewBlock BakedBlock
-    | MsgFinalization BS.ByteString
+    | MsgFinalization FinalizationMessage
     | MsgFinalizationRecord FinalizationRecord
     | MsgMissingBlock src BlockHash BlockHeight
     | MsgMissingFinalization src (Either BlockHash FinalizationIndex)
@@ -47,10 +46,10 @@ makeRunner logm bkr gen initBS = do
         inChan <- newChan
         outChan <- newChan
         let
-            finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
-            sfs = initialSkovFinalizationState finInst gen initBS
+            syncFinalizationInstance = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
+            sfs = initialSkovFinalizationState syncFinalizationInstance gen initBS
         out <- newIORef sfs
-        _ <- forkIO $ runLoggerT (execFSM' (msgLoop inChan outChan out 0 MsgTimer) finInst gen initBS) logm
+        _ <- forkIO $ runLoggerT (execFSM' (msgLoop inChan outChan out 0 MsgTimer) syncFinalizationInstance gen initBS) logm
         return (inChan, outChan, out)
     where
         updateFinState :: IORef SkovFinalizationState -> FSM' LogIO ()
@@ -104,8 +103,9 @@ makeRunner logm bkr gen initBS = do
             forM_ (evs []) handleMessage
             return r
 
-{-
+
 data SyncRunner = SyncRunner {
+    syncFinalizationInstance :: FinalizationInstance,
     syncState :: MVar SkovFinalizationState,
     syncBakerThread :: MVar ThreadId,
     syncLogMethod :: LogMethod IO
@@ -116,25 +116,58 @@ data SimpleOutMessage
     | SOMsgFinalization FinalizationMessage
     | SOMsgFinalizationRecord FinalizationRecord
 
-runWithStateLog :: MVar SkovFinalizationState -> LogMethod IO -> FSM LogIO a -> IO a
-runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar mvState) $ \state ->
-        runLoggerT 
+-- |Run a computation, atomically using the skov/finalization state.  If the computation fails with an
+-- exception, the state may be restored to the original state, ensuring that the lock is released.
+runWithStateLog :: MVar SkovFinalizationState -> LogMethod IO -> (SkovFinalizationState -> LogIO (a, SkovFinalizationState)) -> IO a
+{-# INLINE runWithStateLog #-}
+runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar mvState) $ \state0 -> do
+        (ret, state') <- runLoggerT (a state0) logm
+        putMVar mvState state'
+        return ret
 
 makeSyncRunner :: forall m. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (FSM m) -> (SimpleOutMessage -> IO ()) -> IO SyncRunner
 makeSyncRunner syncLogMethod bkr gen initBS bakerCallback = do
         let
-            finInst = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
-            sfs = initialSkovFinalizationState finInst gen initBS
-        syncState <- newMVar sfs
+            syncFinalizationInstance = FinalizationInstance (bakerSignKey bkr) (bakerElectionKey bkr)
+            sfs0 = initialSkovFinalizationState syncFinalizationInstance gen initBS
+        syncState <- newMVar sfs0
         let
-            runBaker = bakeLoop `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
-            bakeLoop = do
-                curSfs <- takeMVar syncState
-                runLoggerT syncLogMethod 
-        syncBakerThread <- newEmptyMVar
-    where
-        runBaker mvState = bakeLoop `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
-            where
-                bakeLoop
+            runBaker = bakeLoop 0 `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
+            bakeLoop lastSlot = do
+                (mblock, sfs', evs, curSlot) <- runWithStateLog syncState syncLogMethod (\sfs -> do
+                        let bake = do
+                                curSlot <- getCurrentSlot
+                                mblock <- if (curSlot > lastSlot) then bakeForSlot bkr curSlot else return Nothing
+                                return (mblock, curSlot)
+                        ((mblock, curSlot), sfs', evs) <- runFSM bake syncFinalizationInstance sfs
+                        return ((mblock, sfs', evs, curSlot), sfs'))
+                forM_ mblock $ bakerCallback . SOMsgNewBlock
+                let
+                    handleMessage (SkovFinalization (BroadcastFinalizationMessage fmsg)) = bakerCallback (SOMsgFinalization fmsg)
+                    handleMessage (SkovFinalization (BroadcastFinalizationRecord frec)) = bakerCallback (SOMsgFinalizationRecord frec)
+                    handleMessage _ = return () -- This should not be possible.
+                forM_ (appEndo evs []) handleMessage
+                delay <- evalSSM (do
+                    ttns <- timeUntilNextSlot
+                    curSlot' <- getCurrentSlot
+                    return $! if curSlot == curSlot' then truncate (ttns * 1e6) else 0) sfs'
+                when (delay > 0) $ threadDelay delay
+                bakeLoop curSlot
+        bakerThread <- forkIO $ runBaker
+        syncBakerThread <- newMVar bakerThread
+        return $ SyncRunner{..}
 
- -}
+runFSMWithStateLog :: SyncRunner -> FSM LogIO a -> IO (a, [SkovFinalizationEvent])
+runFSMWithStateLog SyncRunner{..} a = runWithStateLog syncState syncLogMethod (\sfs -> (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runFSM a syncFinalizationInstance sfs)
+
+syncReceiveBlock :: SyncRunner -> BakedBlock -> IO [SkovFinalizationEvent]
+syncReceiveBlock syncRunner block = snd <$> runFSMWithStateLog syncRunner (storeBlock block)
+
+syncReceiveTransaction :: SyncRunner -> Transaction -> IO [SkovFinalizationEvent]
+syncReceiveTransaction syncRunner trans = snd <$> runFSMWithStateLog syncRunner (receiveTransaction trans)
+
+syncReceiveFinalizationMessage :: SyncRunner -> FinalizationMessage -> IO [SkovFinalizationEvent]
+syncReceiveFinalizationMessage syncRunner finMsg = snd <$> runFSMWithStateLog syncRunner (receiveFinalizationMessage finMsg)
+
+syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO [SkovFinalizationEvent]
+syncReceiveFinalizationRecord syncRunner finRec = snd <$> runFSMWithStateLog syncRunner (finalizeBlock finRec)

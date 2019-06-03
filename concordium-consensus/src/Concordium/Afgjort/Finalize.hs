@@ -7,6 +7,7 @@ module Concordium.Afgjort.Finalize (
     FinalizationState(..),
     FinalizationSessionId(..),
     FinalizationPoint,
+    FinalizationMessage,
     initialFinalizationState,
     verifyFinalProof,
     makeFinalizationCommittee,
@@ -21,7 +22,6 @@ module Concordium.Afgjort.Finalize (
 
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
-import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import Data.Map(Map)
 import Data.Word
@@ -138,11 +138,11 @@ instance S.Serialize FinalizationMessage where
         msgSignature <- S.get
         return FinalizationMessage{..}
 
-encodeSignFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> BS.ByteString
-encodeSignFinalizationMessage key hdr bdy = encMsg <> (runPut $ S.put sig)
+signFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> FinalizationMessage
+signFinalizationMessage key msgHeader msgBody = FinalizationMessage {..}
     where
-        sig = Sig.sign key encMsg
-        encMsg = runPut $ S.put hdr >> S.put bdy
+        msgSignature = Sig.sign key encMsg
+        encMsg = runPut $ S.put msgHeader >> S.put msgBody
 
 toPartyInfo :: FinalizationCommittee -> Word32 -> Maybe PartyInfo
 toPartyInfo com p = parties com Vec.!? fromIntegral p
@@ -217,11 +217,11 @@ initialFinalizationState FinalizationInstance{..} genHash com = FinalizationStat
 }
 
 data FinalizationOutputEvent
-    = BroadcastFinalizationMessage BS.ByteString
+    = BroadcastFinalizationMessage FinalizationMessage
     | BroadcastFinalizationRecord FinalizationRecord
 
 class (SkovMonad m, MonadState s m, FinalizationStateLenses s, MonadIO m) => FinalizationMonad s m where
-    broadcastFinalizationMessage :: BS.ByteString -> m ()
+    broadcastFinalizationMessage :: FinalizationMessage -> m ()
     broadcastFinalizationRecord :: FinalizationRecord -> m ()
     requestMissingFinalization :: FinalizationIndex -> m ()
     requestMissingBlock :: BlockHash -> m ()
@@ -302,7 +302,7 @@ handleWMVBAOutputEvents evs = do
                     case msg0 of
                         WMVBAFreezeMessage (Proposal v) -> logEvent Afgjort LLDebug $ "Nominating block " ++ show v
                         _ -> return ()
-                    let msg = encodeSignFinalizationMessage finMySignKey msgHdr msg0
+                    let msg = signFinalizationMessage finMySignKey msgHdr msg0
                     broadcastFinalizationMessage msg
                     -- We manually loop back messages here
                     receiveFinalizationMessage msg
@@ -354,40 +354,36 @@ requestAbsentBlocks msg = forM_ (messageValues msg) $ \block -> do
 
 
 -- |Called when a finalization message is received.
-receiveFinalizationMessage :: (FinalizationMonad s m) => BS.ByteString -> m ()
-receiveFinalizationMessage msg0 = case runGet S.get msg0 of
-        Left _ -> do
-            logEvent Afgjort LLWarning $ "Received ill-formed finalization message"
-            return () -- Message could not be decoded
-        Right (msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..}) -> do
-            FinalizationState{..} <- use finState
-            -- Check this is the right session
-            when (_finsSessionId == msgSessionId) $
-                -- Check the finalization index is not out of date
-                case compare msgFinalizationIndex _finsIndex of
-                    LT -> return () -- message is out of date
-                    GT -> do
-                        -- Save the message for a later finalization index
+receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> m ()
+receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
+        FinalizationState{..} <- use finState
+        -- Check this is the right session
+        when (_finsSessionId == msgSessionId) $
+            -- Check the finalization index is not out of date
+            case compare msgFinalizationIndex _finsIndex of
+                LT -> return () -- message is out of date
+                GT -> do
+                    -- Save the message for a later finalization index
+                    finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, msgBody, msgSignature) :)
+                    -- Since we're behind, request the finalization record we're apparently missing
+                    logEvent Afgjort LLDebug $ "Requesting missing finalization at index " ++ (show $ msgFinalizationIndex - 1)
+                    requestMissingFinalization (msgFinalizationIndex - 1)
+                    -- Request any missing blocks that this message refers to
+                    requestAbsentBlocks msgBody
+                EQ -> -- handle the message now, since it's the current round
+                    if checkMessage _finsCommittee msg then do
+                        -- Save the message
                         finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, msgBody, msgSignature) :)
-                        -- Since we're behind, request the finalization record we're apparently missing
-                        logEvent Afgjort LLDebug $ "Requesting missing finalization at index " ++ (show $ msgFinalizationIndex - 1)
-                        requestMissingFinalization (msgFinalizationIndex - 1)
                         -- Request any missing blocks that this message refers to
                         requestAbsentBlocks msgBody
-                    EQ -> -- handle the message now, since it's the current round
-                        if checkMessage _finsCommittee msg then do
-                            -- Save the message
-                            finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, msgBody, msgSignature) :)
-                            -- Request any missing blocks that this message refers to
-                            requestAbsentBlocks msgBody
-                            -- Check if we're participating in finalization for this index
-                            forM_ _finsCurrentRound $ \FinalizationRound{..} ->
-                                -- And it's the current round
-                                when (msgDelta == roundDelta) $ do
-                                    logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
-                                    liftWMVBA (receiveWMVBAMessage msgSenderIndex msgSignature msgBody)
-                        else
-                            logEvent Afgjort LLWarning $ "Received bad finalization message"
+                        -- Check if we're participating in finalization for this index
+                        forM_ _finsCurrentRound $ \FinalizationRound{..} ->
+                            -- And it's the current round
+                            when (msgDelta == roundDelta) $ do
+                                logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
+                                liftWMVBA (receiveWMVBAMessage msgSenderIndex msgSignature msgBody)
+                    else
+                        logEvent Afgjort LLWarning $ "Received bad finalization message"
 
 
 -- |Called to notify the finalization routine when a new block arrives.
@@ -459,15 +455,14 @@ instance S.Serialize FinalizationPoint where
 
 -- |Get all of the finalization messages received for indexes beyond the last finalized index
 -- and no sooner than the given finalization point.
-getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [(String, BS.ByteString)]
+getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [FinalizationMessage]
 getPendingFinalizationMessages fs (FinalizationPoint sess lowIndex lowIndexDelta)
         | sess == fs ^. finSessionId = Map.foldrWithKey eachIndex [] (at lowIndex . non Map.empty %~ Map.dropWhileAntitone (<lowIndexDelta) $ Map.dropWhileAntitone (< lowIndex) $ fs ^. finPendingMessages)
         | otherwise = []
     where
         eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
         eachDelta ind delta msgs l = map (eachMsg ind delta) msgs ++ l
-        eachMsg ind delta (senderIndex, msgBody, msgSignature) = let fmsg = FinalizationMessage{..} in
-                                                                 (show fmsg, runPut (S.put fmsg))
+        eachMsg ind delta (senderIndex, msgBody, msgSignature) = FinalizationMessage{..}
             where
                 msgHeader = FinalizationMessageHeader {
                     msgSessionId = fs ^. finSessionId,

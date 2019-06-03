@@ -138,8 +138,9 @@ outLoop logm chan cbk missingBlock missingFinBlock missingFinIx = do
             logm External LLDebug $ "Sending block data size = " ++ show (BS.length bbs)
             BS.useAsCStringLen bbs $ \(cstr, l) -> cbk 0 cstr (fromIntegral l)
         MsgFinalization finMsg -> do
-            logm External LLDebug $ "Sending finalization message size = " ++ show (BS.length finMsg)
-            BS.useAsCStringLen finMsg $ \(cstr, l) -> cbk 1 cstr (fromIntegral l)
+            let finbs = runPut (put finMsg)
+            logm External LLDebug $ "Sending finalization message size = " ++ show (BS.length finbs)
+            BS.useAsCStringLen finbs $ \(cstr, l) -> cbk 1 cstr (fromIntegral l)
         MsgFinalizationRecord finRec -> do
             let bs = runPut (put finRec)
             logm External LLDebug $ "Sending finalization record data size = " ++ show (BS.length bs)
@@ -200,12 +201,19 @@ receiveBlock bptr src cstr l = do
                         writeChan cin $ MsgBlockReceived src block
                         return 0
 
-receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO ()
+receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
 receiveFinalization bptr src cstr l = do
     BakerRunner cin _ _ logm <- deRefStablePtr bptr
-    logm External LLDebug $ "Received finalization message size = " ++ show l
+    logm External LLDebug $ "Received finalization message size = " ++ show l ++ ".  Decoding ..."
     bs <- BS.packCStringLen (cstr, fromIntegral l)
-    writeChan cin $ MsgFinalizationReceived src bs
+    case runGet get bs of
+        Left _ -> do
+            logm External LLDebug "Deserialization of finalization message failed."
+            return 1
+        Right finMsg -> do
+            logm External LLDebug "Finalization message deserialized."
+            writeChan cin $ MsgFinalizationReceived src finMsg
+            return 0
 
 receiveFinalizationRecord :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
 receiveFinalizationRecord bptr src cstr l = do
@@ -352,7 +360,7 @@ getBlock bptr blockRef = do
         BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
         bh <- blockReferenceToBlockHash blockRef
         logm External LLInfo $ "Received request for block: " ++ show bh
-        b <- runLoggerT (Get.getBlockData sfsRef bh) logm
+        b <- Get.getBlockData sfsRef bh
         case b of
             Nothing -> do
                 logm External LLInfo $ "Block not available"
@@ -373,7 +381,7 @@ getBlockDelta bptr blockRef delta = do
         BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
         bh <- blockReferenceToBlockHash blockRef
         logm External LLInfo $ "Received request for descendent of block " ++ show bh ++ " with delta " ++ show delta
-        b <- runLoggerT (Get.getBlockDescendant sfsRef bh (BlockHeight delta)) logm
+        b <- Get.getBlockDescendant sfsRef bh (BlockHeight delta)
         case b of
             Nothing -> do
                 logm External LLInfo $ "Block not available"
@@ -393,7 +401,7 @@ getBlockFinalization bptr blockRef = do
         BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
         bh <- blockReferenceToBlockHash blockRef
         logm External LLInfo $ "Received request for finalization record for block: " ++ show bh
-        f <- runLoggerT (Get.getBlockFinalization sfsRef bh) logm
+        f <- Get.getBlockFinalization sfsRef bh
         case f of
             Nothing -> do
                 logm External LLInfo $ "Finalization record not available"
@@ -411,7 +419,7 @@ getIndexedFinalization :: StablePtr BakerRunner -> Word64 -> IO CString
 getIndexedFinalization bptr finInd = do
         BakerRunner _ _ sfsRef logm <- deRefStablePtr bptr
         logm External LLInfo $ "Received request for finalization record at index " ++ show finInd
-        f <- runLoggerT (Get.getIndexedFinalization sfsRef (fromIntegral finInd)) logm
+        f <- Get.getIndexedFinalization sfsRef (fromIntegral finInd)
         case f of
             Nothing -> do
                 logm External LLInfo $ "Finalization record not available"
@@ -445,9 +453,10 @@ getFinalizationMessages bptr peer finPtStr finPtLen callback = do
                 logm External LLDebug "Finalization point deserialization failed"
                 return 1
             Right fpt -> do
-                finMsgs <- runLoggerT (Get.getFinalizationMessages sfsRef fpt) logm
-                forM_  finMsgs $ \(toLog, finMsg) -> do logm External LLDebug $ "Sending finalization catchup, data = " ++ toLog
-                                                        BS.useAsCStringLen finMsg $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)
+                finMsgs <- Get.getFinalizationMessages sfsRef fpt
+                forM_ finMsgs $ \finMsg -> do
+                    logm External LLDebug $ "Sending finalization catchup, data = " ++ show finMsg
+                    BS.useAsCStringLen (runPut $ put finMsg) $ \(cstr, l) -> callFinalizationMessageCallback callback peer cstr (fromIntegral l)
                 return 0
 
 -- |Get the current point in the finalization protocol.
@@ -466,7 +475,7 @@ foreign export ccall makeGenesisData :: Timestamp -> Word64 -> FunPtr CStringCal
 foreign export ccall startBaker :: CString -> Int64 -> CString -> Int64 -> FunPtr BlockCallback -> FunPtr LogCallback -> FunPtr MissingByBlockDeltaCallback -> FunPtr MissingByBlockCallback -> FunPtr MissingByFinalizationIndexCallback -> IO (StablePtr BakerRunner)
 foreign export ccall stopBaker :: StablePtr BakerRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
-foreign export ccall receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO ()
+foreign export ccall receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
 foreign export ccall printBlock :: CString -> Int64 -> IO ()
 foreign export ccall receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
