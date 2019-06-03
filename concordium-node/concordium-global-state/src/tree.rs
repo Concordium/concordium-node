@@ -190,7 +190,10 @@ impl SkovData {
     pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify if the pending block's parent block is already in the tree
         let parent_block =
-            if let Some(parent_ptr) = self.get_block_by_hash(&pending_block.block.pointer) {
+            if let Some(parent_ptr) = self.block_tree.get(&pending_block.block.pointer) {
+                parent_ptr
+            // or at least among the candidates
+            } else if let Some(parent_ptr) = self.tree_candidates.get(&pending_block.block.pointer) {
                 parent_ptr
             } else {
                 let error = SkovError::MissingParentBlock(
@@ -209,7 +212,7 @@ impl SkovData {
 
         // verify if the pending block's last finalized block is in the tree and
         // that it had already been finalized
-        if let Some(lf_ptr) = self.get_block_by_hash(&pending_block.block.last_finalized) {
+        if let Some(lf_ptr) = self.block_tree.get(&pending_block.block.last_finalized) {
             if lf_ptr.status.get() != BlockStatus::Finalized {
                 let error = SkovError::LastFinalizedNotFinalized(
                     pending_block.block.last_finalized.clone(),
@@ -272,10 +275,6 @@ impl SkovData {
         }
     }
 
-    pub fn get_block_by_hash(&self, hash: &HashBytes) -> Option<&Rc<BlockPtr>> {
-        self.block_tree.get(hash)
-    }
-
     pub fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
@@ -296,7 +295,7 @@ impl SkovData {
         // search, as we are expecting only to keep the most recent finalization records and the
         // most recent one is always first
         if self.finalization_list.iter().any(|rec| *rec == record) {
-            return SkovResult::DuplicateEntry;
+            return SkovResult::Success; // don't mind these duplicates, at least not for now
         }
 
         let housekeeping_hash = record.block_pointer.clone();
@@ -319,9 +318,8 @@ impl SkovData {
         self.block_tree.insert(target_hash, target_block);
         self.finalization_list.push(record);
 
-        // clear the tree candidate queue, as the other blocks can be dropped now
-        // TODO: determine if we want to retain the dead blocks
-        self.tree_candidates.clear();
+        // prune the tree candidate queue, as some of the blocks can probably be dropped now
+        self.prune_candidate_list();
 
         // the block is now in the block tree; run housekeeping that
         // can possibly move some queued pending blocks to the tree now
@@ -372,6 +370,14 @@ impl SkovData {
                 let _ = self.add_block(pending_block);
             }
         }
+    }
+
+    fn prune_candidate_list(&mut self) {
+        let current_height = self.last_finalized.height;
+
+        self.tree_candidates.retain(|_, candidate|
+            candidate.height >= current_height
+        )
     }
 
     fn print_pending_queue(&self, queue: PendingQueueType) -> String {
