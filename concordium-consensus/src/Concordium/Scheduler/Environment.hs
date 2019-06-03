@@ -63,6 +63,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- |Add account credential to an account address. The account with this address is assumed to exist.
   addAccountCredential :: AccountAddress -> ID.CredentialDeploymentInformation -> m ()
 
+  -- |Add account encryption key to account address. The account with this address is assumed to exist.
+  addAccountEncryptionKey :: AccountAddress -> ID.AccountEncryptionKey -> m ()
+
   -- |Create new account in the global state. Return @True@ if the account was
   -- successfully created and @False@ if the account address already existed.
   putNewAccount :: Account -> m Bool

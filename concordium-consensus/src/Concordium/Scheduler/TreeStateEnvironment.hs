@@ -84,6 +84,11 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
     put s'
 
+  addAccountEncryptionKey addr encKey = do
+    s <- get
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
+    put s'
+
 
   commitStateAndAccountChanges cs = do
     s <- get

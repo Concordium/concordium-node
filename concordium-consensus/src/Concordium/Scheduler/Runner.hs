@@ -15,11 +15,10 @@ import qualified Data.HashMap.Strict as Map
 import Control.Monad.Except
 import Control.Monad.Fail(MonadFail)
 
-import qualified Concordium.ID.Types as IDTypes
-
 import Concordium.Crypto.SignatureScheme(KeyPair)
 
 import Concordium.Types
+import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Acorn.Parser.Runner
@@ -46,8 +45,8 @@ transactionHelper t = do
       return $ signTx keys meta (Types.encodePayload (Types.Update amount address msg 0)) -- NB: 0 is fine as size as that is not serialized
     (TJSON meta (Transfer to amount) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amount))
-    (TJSON meta (CreateAccount aci) keys) -> do
-      return $ signTx keys meta (Types.encodePayload (Types.CreateAccount aci))
+    (TJSON meta (DeployCredential c) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
 
 -- decodeAndProcessTransactions :: MonadFail m => ByteString -> Context m [Types.Transaction]
 -- decodeAndProcessTransactions txt =
@@ -71,7 +70,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | Transfer { toaddress :: Address
                             , amount :: Amount
                             }
-                 | CreateAccount { aci :: IDTypes.AccountCreationInformation }
+                 | DeployCredential {cdi :: CredentialDeploymentInformation}
   deriving(Show, Generic)
 
 data TransactionJSON = TJSON { metadata :: Types.TransactionHeader

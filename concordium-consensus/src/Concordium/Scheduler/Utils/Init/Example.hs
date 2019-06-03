@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
-module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount, mateuszACI) where
+module Concordium.Scheduler.Utils.Init.Example (initialState, makeTransaction, mateuszAccount) where
 
 import qualified Data.HashMap.Strict as Map
 import System.Random
@@ -15,7 +15,6 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
 import qualified Concordium.ID.Account as AH
-import qualified Concordium.ID.Types as AH
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 
@@ -71,13 +70,10 @@ initialTrans :: Int -> [Types.Transaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
  
 mateuszAccount :: AccountAddress
-mateuszAccount = AH.accountAddress mateuszACI
+mateuszAccount = AH.accountAddress (Sig.verifyKey mateuszKP) Ed25519
 
 mateuszKP :: KeyPair
 mateuszKP = fst (randomKeyPair (mkStdGen 0))
-
-mateuszACI :: AH.AccountCreationInformation
-mateuszACI = AH.createAccount (Sig.verifyKey mateuszKP)
 
 blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
@@ -106,7 +102,7 @@ initialState n =
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) [] mateuszACI []) Acc.emptyAccounts
+        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts
         gs = BlockState.emptyBlockState &
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods))
