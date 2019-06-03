@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 module Concordium.GlobalState.TreeState where
 
 import qualified Data.Sequence as Seq
@@ -156,6 +157,8 @@ data AccountUpdate = AccountUpdate {
   ,_auNonce :: !(Maybe Nonce)
   -- |Optionally a new account amount.
   ,_auAmount :: !(Maybe Amount)
+  -- |Optionally an encryption key.
+  ,_auEncryptionKey :: !(Maybe ID.AccountEncryptionKey)
   -- |Optionally an update to the encrypted amounts.
   ,_auEncrypted :: !EncryptedAmountUpdate
   -- |Optionally a new credential.
@@ -164,7 +167,7 @@ data AccountUpdate = AccountUpdate {
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Empty Nothing
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
@@ -176,6 +179,8 @@ updateAccount upd acc =
   (accountCredentials %~ (\cs -> case upd ^. auCredential of
                                    Just c -> c : cs
                                    Nothing -> cs)) .
+  (accountEncryptionKey %~ (\case Nothing -> upd ^. auEncryptionKey
+                                  Just _ -> error "updateAccount: Precondition violated (encryption key already exists).")) .
   (accountEncryptedAmount %~ (\eas -> case upd ^. auEncrypted of
                                         Empty -> eas
                                         Add ea -> ea:eas
@@ -210,6 +215,8 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
+  -- NB: In case we are adding a credential to an account this method __must__ also
+  -- update the global set of known credentials.
   bsoModifyAccount :: UpdatableBlockState m -> AccountUpdate -> m (UpdatableBlockState m)
   -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
   -- This method is only called when it is known the instance exists, and can thus assume it.

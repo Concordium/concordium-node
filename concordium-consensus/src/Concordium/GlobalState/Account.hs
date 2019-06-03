@@ -54,6 +54,9 @@ unsafeGetAccount addr Accounts{..} = case Map.lookup addr accountMap of
 regIdExists :: ID.CredentialRegistrationID -> Accounts -> Bool
 regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
 
+recordRegId :: ID.CredentialRegistrationID -> Accounts -> Accounts
+recordRegId rid accs = accs { accountRegIds = Set.insert rid (accountRegIds accs) }
+
 instance HashableTo H.Hash Accounts where
     getHash Accounts{..} = getHash accountTable
 

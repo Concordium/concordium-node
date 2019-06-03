@@ -32,7 +32,7 @@ instance S.Serialize TransactionSignature where
 -- | Data common to all transaction types.
 --
 --    * INVARIANT: First byte of 'thSender' matches the signature 'thScheme' field,
---    and @thSender = AH.accountAddress' thSenderKey thScheme@.
+--    and @thSender = AH.accountAddress thSenderKey thScheme@.
 --    * The last field is strictly redundant, but is here to avoid needless recomputation. In
 --    serialization we do not output it, and when deserializing we compute it from other data.
 data TransactionHeader = TransactionHeader {
@@ -110,7 +110,7 @@ makeTransactionHeader ::
   -> BlockHash
   -> TransactionHeader
 makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer =
-  TransactionHeader{thSender = AH.accountAddress' thSenderKey thScheme,..}
+  TransactionHeader{thSender = AH.accountAddress thSenderKey thScheme,..}
 
 -- |Make a transaction out of minimal data needed.
 makeTransaction :: TransactionSignature -> TransactionHeader -> EncodedPayload -> Transaction
