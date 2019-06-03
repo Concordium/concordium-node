@@ -52,13 +52,12 @@ updateMessageTypecheck size = assert (size > 0) (fromIntegral size)
 interContractMessage :: Energy
 interContractMessage = 10
 
--- |Cost to deploy an account. This cost is costant regardless of the details of
--- the account creation data.
-deployAccount :: Energy
-deployAccount = 1000
-
-
 -- |Cost to add a credential to an account. This cost is costant regardless of
--- the details of the data, which is possibly going to change.
+-- the details of the data. This might change.
 deployCredential :: Energy
 deployCredential = 3000
+
+
+-- |Cost to add an encryption key to an account.
+deployEncryptionKey :: Energy
+deployEncryptionKey = 500

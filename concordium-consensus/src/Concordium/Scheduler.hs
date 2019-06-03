@@ -35,7 +35,7 @@ import Prelude hiding (exp, mod)
 
 -- |Check that the transaction has a valid sender, and that the amount they have
 -- deposited is on their account.
-checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> m (Either FailureKind Amount)
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> m (Either FailureKind Account)
 checkHeader meta =
   if transactionGasAmount meta < Cost.minimumDeposit then return (Left DepositInsufficient)
   else do
@@ -51,10 +51,10 @@ checkHeader meta =
                        -- check they have enough funds to cover the deposit
                        unless (transactionGasAmount meta <= amnt) (throwError InsufficientFunds)
                        unless (txnonce == nextNonce) (throwError (NonSequentialNonce nextNonce))
-                       let sigCheck = verifyTransactionSignature' (acc ^. accountCreationInformation . to ID.aci_verifKey) -- the signature is correct.
+                       let sigCheck = verifyTransactionSignature' (acc ^. accountVerificationKey) -- the signature is correct.
                                                                   meta
                                                                   (transactionSignature meta)
-                       assert sigCheck (return amnt)) -- only use assert because we rely on the signature being valid in the transaction table
+                       assert sigCheck (return acc)) -- only use assert because we rely on the signature being valid in the transaction table
                        -- unless sigCheck (throwError IncorrectSignature))
         -- TODO: If we are going to check that the signature is correct before adding the transaction to the table then this check can be removed,
         -- but only for transactions for which this was done.
@@ -73,7 +73,8 @@ dispatch msg = do
   validMeta <- checkHeader msg
   case validMeta of
     Left fk -> return $ TxInvalid fk
-    Right oldAmount -> do
+    Right senderAccount -> do
+      let oldAmount = senderAccount ^. accountAmount
       -- at this point the transaction is going to be commited to the block. Hence we can increase the
       -- account nonce of the sender account.
       increaseAccountNonce (thSender meta)
@@ -140,33 +141,6 @@ dispatch msg = do
                 Left reason -> do
                     chargeExecutionCost (thSender meta) (computeRejectedCharge meta energy')
                     return $ TxValid (TxReject reason)
-  
-            CreateAccount aci -> do
-              -- before checking anything we check that the remaining amount of energy is sufficient to deploy the account.
-              -- If not we simply reject the transaction, after we have withdrawn the deposit
-              if Cost.deployAccount > energy then do
-                chargeExecutionCost (thSender meta) (energyToGtu energy) -- note energy not the cost to deploy the account since that is not available
-                return $! TxValid (TxReject OutOfEnergy)
-              else do
-                chargeExecutionCost (thSender meta) (energyToGtu Cost.deployAccount)
-                -- validate the account creation data
-                if AH.verifyAccount aci then do
-                -- if account information is correct then we create the account with initial
-                -- nonce 'minNonce', and 0 balance, no credentials and no encrypted amounts.
-                  let aaddr = AH.accountAddress aci
-                  let account = Account { _accountAddress = aaddr
-                                        , _accountNonce = minNonce
-                                        , _accountAmount = 0
-                                        , _accountCreationInformation = aci
-                                        , _accountEncryptedAmount = []
-                                        , _accountCredentials = []}
-                  r <- putNewAccount account
-                  if r then
-                    return $ TxValid (TxSuccess [AccountCreated aaddr])
-                  else
-                    return $ TxValid (TxReject (AccountAlreadyExists aaddr))
-                else 
-                  return $ TxValid (TxReject AccountCreationInformationInvalid)
             
             DeployCredential cdi -> do
               if Cost.deployCredential > energy then do
@@ -179,16 +153,47 @@ dispatch msg = do
                 if regIdEx then
                   return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdi_regId cdi)
                 else do
-                  -- first check that the account with the address exists in the global store
-                  let aaddr = AH.accountAddress' (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
+                  -- first whether an account with the address exists in the global store
+                  let aaddr = AH.accountAddress (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
                   macc <- getAccount aaddr
                   case macc of
-                    Nothing -> return $ TxValid $ TxReject DeployCredentialToNonExistentAccount
-                    Just _ -> if AH.verifyCredential cdi then do
+                    Nothing ->  -- account does not yet exist, so create it, but we need to be careful
+                      let account = Account { _accountAddress = aaddr
+                                            , _accountNonce = minNonce
+                                            , _accountAmount = 0
+                                            , _accountEncryptionKey = Nothing
+                                            , _accountEncryptedAmount = []
+                                            , _accountVerificationKey = ID.cdi_verifKey cdi
+                                            , _accountSignatureScheme = ID.cdi_sigScheme cdi
+                                            , _accountCredentials = []}
+                      in if AH.verifyCredential cdi then do
+                           _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                                      -- We know the address does not yet exist.
+                           addAccountCredential aaddr cdi  -- and then add the credentials
+                           return $! TxValid (TxSuccess [AccountCreated aaddr, CredentialDeployed cdi])
+                         else return $! TxValid $ TxReject AccountCredentialInvalid
+
+                    Just _ -> -- otherwise we just try to add a credential to the account
+                              if AH.verifyCredential cdi then do
                                 addAccountCredential aaddr cdi
                                 return $! TxValid $ TxSuccess [CredentialDeployed cdi]
                               else
                                 return $! TxValid $ TxReject AccountCredentialInvalid
+            
+            DeployEncryptionKey encKey ->
+              if Cost.deployEncryptionKey > energy then do
+                chargeExecutionCost (thSender meta) (energyToGtu energy)
+                return $! TxValid (TxReject OutOfEnergy)
+              else do
+                chargeExecutionCost (thSender meta) (energyToGtu Cost.deployEncryptionKey)
+                case senderAccount ^. accountEncryptionKey of
+                  Nothing -> do
+                    let aaddr = senderAccount ^. accountAddress
+                    addAccountEncryptionKey aaddr encKey
+                    return . TxValid . TxSuccess $ [AccountEncryptionKeyDeployed aaddr encKey]
+                  Just encKey' -> return . TxValid . TxReject $ AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'
+         
+
 
 handleModule :: TransactionMonad m => TransactionHeader -> Int -> Core.Module -> m (Core.ModuleRef, Interface, ValueInterface)
 handleModule meta msize mod = do
@@ -198,7 +203,7 @@ handleModule meta msize mod = do
   tickEnergy (Cost.deployModule msize)
   imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` MissingImports
   iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
-  let mhash = Core.moduleHash mod
+  let mhash = Core.imRef imod
   viface <- runMaybeT (I.evalModule imod mhash) `rejectingWith` EvaluationError
   return (mhash, iface, viface)
 

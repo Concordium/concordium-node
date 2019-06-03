@@ -28,44 +28,43 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState & -- NB: We need 6 * deploy account since we still charge the cost even if an account already exists (case 4 in the tests).
-    (blockAccounts .~ Acc.putAccount (Types.Account alesAccount 1 (Types.energyToGtu (6 * Cost.deployAccount + 7 * Cost.checkHeader)) [] alesACI []) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccount (mkAccount alesVK (Types.energyToGtu (6 * Cost.deployCredential + 7 * Cost.checkHeader))) Acc.emptyAccounts) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 deployAccountCost :: Types.Amount
-deployAccountCost = Types.energyToGtu (Cost.deployAccount + Cost.checkHeader)
+deployAccountCost = Types.energyToGtu (Cost.deployCredential + Cost.checkHeader)
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = CreateAccount $ createAccountFrom 10
+  [TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 10) 0)
          , metadata = makeHeader alesKP 1 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = CreateAccount $ createAccountFrom 11
+  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 11) 1)
          , metadata = makeHeader alesKP 2 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = CreateAccount $ createAccountFrom 12
+  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 12) 2)
          , metadata = makeHeader alesKP 3 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = CreateAccount $ createAccountFrom 12
+  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 13) 2) -- should fail because repeated credential ID
          , metadata = makeHeader alesKP 4 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = CreateAccount $ createAccountFrom 13
+  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 14) 4)
          , metadata = makeHeader alesKP 5 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = CreateAccount $ createAccountFrom 14
+  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 14) 5) -- deploy just a new predicate
          , metadata = makeHeader alesKP 6 deployAccountCost
          , keypair = alesKP
          }
-  ,TJSON { payload = CreateAccount $ createAccountFrom 14
-         , metadata = makeHeader alesKP 7 100
+  ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 16) 6)  -- should run out of gas (see initial amount on the sender account)
+         , metadata = makeHeader alesKP 7 (Types.energyToGtu Cost.checkHeader)
          , keypair = alesKP
          }
   ]
-
 
 testAccountCreation ::
   PR.Context
@@ -85,26 +84,26 @@ testAccountCreation = do
 
 checkAccountCreationResult :: ([(Types.Transaction, Types.ValidResult)], [(Types.Transaction, Types.FailureKind)], [Maybe Types.Account]) -> Bool
 checkAccountCreationResult (suc, fails, state) =
-  null fails && -- all transactions succedd, but some are rejected
+  null fails && -- all transactions succeed, but some are rejected
   txsuc &&
   txstate
   where txsuc = case suc of
           (_, a11) : (_, a12) : (_, a13) : (_, a14) : (_, a15) : (_, a16) : (_, a17) : [] |
-            Types.TxSuccess [Types.AccountCreated _] <- a11,
-            Types.TxSuccess [Types.AccountCreated _] <- a12,
-            Types.TxSuccess [Types.AccountCreated _] <- a13,
-            Types.TxReject (Types.AccountAlreadyExists _) <- a14,
-            Types.TxSuccess [Types.AccountCreated _] <- a15,
-            Types.TxSuccess [Types.AccountCreated _] <- a16,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a11,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a12,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a13,
+            Types.TxReject (Types.DuplicateAccountRegistrationID _) <- a14,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a15,
+            Types.TxSuccess [Types.CredentialDeployed _] <- a16,
             Types.TxReject Types.OutOfEnergy <- a17 -> True
           _ -> False
         txstate = case state of
-                    [Just _, Just _, Just _, Just _, Just _] -> True
+                    [Just _, Just _, Just _, Nothing, Just _] -> True -- account 13 was not created because of duplicate registration id
                     _ -> False
 
 
 tests :: SpecWith ()
 tests = 
   describe "Account creation" $ do
-    specify "3 accounts created, fourth rejected, two more created, and out of gas " $ do
+    specify "3 accounts created, fourth rejected, one more created, a credential deployed, and out of gas " $ do
       PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult

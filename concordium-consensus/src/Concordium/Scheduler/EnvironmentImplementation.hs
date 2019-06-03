@@ -13,6 +13,7 @@ import Lens.Micro.Platform
 import Control.Monad.Reader
 import Control.Monad.RWS.Strict
 
+import Concordium.ID.Types(cdi_regId)
 import Concordium.Scheduler.Types
 import Concordium.GlobalState.TreeState(auAddress, updateAccount)
 import Concordium.GlobalState.TreeState.Basic
@@ -87,7 +88,13 @@ instance SchedulerMonad SchedulerImplementation where
 
 
   {-# INLINE addAccountCredential #-}
-  addAccountCredential addr cdi = blockAccounts . ix addr . accountCredentials %= (cdi :)
+  addAccountCredential addr cdi = do
+    blockAccounts . ix addr . accountCredentials %= (cdi :)
+    blockAccounts %= Acc.recordRegId (cdi_regId cdi)
+
+  {-# INLINE addAccountEncryptionKey #-}
+  addAccountEncryptionKey addr encKey = blockAccounts . ix addr . accountEncryptionKey .= (Just encKey)
+
 
   {-# INLINE putNewAccount #-}
   putNewAccount acc = do
