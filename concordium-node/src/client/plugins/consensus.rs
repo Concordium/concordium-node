@@ -27,7 +27,7 @@ use concordium_global_state::{
     block::{BakedBlock, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{SkovData, SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_QUEUE},
+    tree::{Skov, SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_QUEUE},
 };
 
 use crate::{
@@ -196,7 +196,7 @@ pub fn handle_global_state_request(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     request: SkovReq,
-    skov: &mut SkovData,
+    skov: &mut Skov,
 ) -> Fallible<()> {
     if let Some(ref mut baker) = baker {
         let packet_type = match request.body {
@@ -264,11 +264,13 @@ pub fn handle_global_state_request(
                         }
                     }
                 }
+
+                skov.register_error(e);
             }
         }
 
         // debug info
-        // skov.display_state();
+        // skov.display_stats();
     }
 
     Ok(())

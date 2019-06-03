@@ -1,4 +1,5 @@
-use chrono::prelude::Utc;
+use chrono::prelude::{DateTime, Utc};
+use circular_queue::CircularQueue;
 use failure::Fallible;
 
 use concordium_common::{
@@ -80,7 +81,7 @@ pub enum SkovResult {
     Error(SkovError),
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 // if there are two components, the first one is the target and the second is
 // the source
 pub enum SkovError {
@@ -96,7 +97,7 @@ pub enum SkovError {
     MissingBlockToFinalize(HashBytes),
 }
 
-impl fmt::Debug for SkovError {
+impl fmt::Display for SkovError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
             SkovError::MissingParentBlock(ref parent, ref pending) => format!(
@@ -126,11 +127,58 @@ impl fmt::Debug for SkovError {
     }
 }
 
-const SKOV_LONG_PREALLOCATION_SIZE: usize = 128;
-const SKOV_SHORT_PREALLOCATION_SIZE: usize = 16;
-const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
+pub struct Skov {
+    pub data: SkovData,
+    pub stats: SkovStats,
+}
 
-type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
+impl Skov {
+    pub fn new(genesis_data: &[u8]) -> Self {
+        Self {
+            data: SkovData::new(genesis_data),
+            stats: SkovStats::new(5),
+        }
+    }
+
+    pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
+        self.stats.register_block();
+        self.data.add_block(pending_block)
+    }
+
+    pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+        self.stats.register_finalization();
+        self.data.add_finalization(record)
+    }
+
+    pub fn register_error(&mut self, err: SkovError) {
+        self.stats.errors.push(err)
+    }
+
+    pub fn display_state(&self) {
+        info!(
+            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree candidates: {:?}{}{}{}",
+            self.data.block_tree
+                .values()
+                .collect::<BinaryHeap<_>>()
+                .into_sorted_vec()
+                .iter()
+                .collect::<Vec<_>>(),
+            self.data.last_finalized.hash,
+            self.data.finalization_list
+                .iter()
+                .map(|rec| &rec.block_pointer)
+                .collect::<Vec<_>>(),
+            self.data.tree_candidates,
+            self.data.print_pending_queue(AwaitingParentBlock),
+            self.data.print_pending_queue(AwaitingLastFinalizedBlock),
+            self.data.print_pending_queue(AwaitingLastFinalizedFinalization),
+        );
+    }
+
+    pub fn display_stats(&self) {
+        info!("Skov stats: {}", self.stats);
+    }
+}
 
 #[derive(Debug)]
 pub struct SkovData {
@@ -157,8 +205,14 @@ pub struct SkovData {
     // focus_block: BlockPtr,
 }
 
+type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
+
 impl SkovData {
-    pub fn new(genesis_data: &[u8]) -> Self {
+    fn new(genesis_data: &[u8]) -> Self {
+        const SKOV_LONG_PREALLOCATION_SIZE: usize = 128;
+        const SKOV_SHORT_PREALLOCATION_SIZE: usize = 16;
+        const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
+
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
         let mut finalization_list = Vec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
@@ -187,7 +241,7 @@ impl SkovData {
         }
     }
 
-    pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
+    fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify if the pending block's parent block is already in the tree
         let parent_block =
             if let Some(parent_ptr) = self.block_tree.get(&pending_block.block.pointer) {
@@ -290,7 +344,7 @@ impl SkovData {
         &self.finalization_list.last().unwrap().index + 1 // safe; always available
     }
 
-    pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+    fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
         // check for duplicates first, as all bakers broadcast it; we should be ok with a linear
         // search, as we are expecting only to keep the most recent finalization records and the
         // most recent one is always first
@@ -400,27 +454,6 @@ impl SkovData {
 
         output
     }
-
-    pub fn display_state(&self) {
-        info!(
-            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree candidates: {:?}{}{}{}",
-            self.block_tree
-                .values()
-                .collect::<BinaryHeap<_>>()
-                .into_sorted_vec()
-                .iter()
-                .collect::<Vec<_>>(),
-            self.last_finalized.hash,
-            self.finalization_list
-                .iter()
-                .map(|rec| &rec.block_pointer)
-                .collect::<Vec<_>>(),
-            self.tree_candidates,
-            self.print_pending_queue(AwaitingParentBlock),
-            self.print_pending_queue(AwaitingLastFinalizedBlock),
-            self.print_pending_queue(AwaitingLastFinalizedFinalization),
-        );
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -439,5 +472,58 @@ impl fmt::Display for PendingQueueType {
         };
 
         write!(f, "{}", name)
+    }
+}
+
+#[derive(Debug)]
+pub struct SkovStats {
+    block_times: CircularQueue<DateTime<Utc>>,
+    finalization_times: CircularQueue<DateTime<Utc>>,
+    errors: Vec<SkovError>,
+}
+
+macro_rules! register_entry {
+    ($method:ident, $times:ident) => {
+        fn $method(&mut self) {
+            self.$times.push(Utc::now())
+        }
+    };
+}
+
+impl SkovStats {
+    register_entry!(register_block, block_times);
+    register_entry!(register_finalization, finalization_times);
+
+    fn new(time_sizes: usize) -> Self {
+        Self {
+            block_times: CircularQueue::with_capacity(time_sizes),
+            finalization_times: CircularQueue::with_capacity(time_sizes),
+            errors: Vec::with_capacity(1), // usually just one error appears in the beginning
+        }
+    }
+}
+
+impl fmt::Display for SkovStats {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> Option<i64> {
+            let mass = (0..times.len() as i64).sum::<i64>();
+            if mass == 0 { return None; }
+
+            let diffs = times.iter().zip(times.iter().skip(1)).map(|(&t1, &t2)| t1 - t2);
+            let sum = diffs.enumerate().fold(chrono::Duration::zero(), |sum, (i, diff)| {
+                let weight = (times.len() - i) as i32;
+                sum + diff * weight
+            }).num_milliseconds() / 1000;
+
+            let wma = sum / mass;
+
+            Some(wma)
+        }
+
+        write!(f, "avg. block time: {}s; avg. finalization time: {}s, errors: {:?}",
+            get_avg_duration(&self.block_times).unwrap_or(0),
+            get_avg_duration(&self.finalization_times).unwrap_or(0),
+            self.errors,
+        )
     }
 }
