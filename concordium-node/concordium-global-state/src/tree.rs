@@ -133,7 +133,7 @@ type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
 
 #[derive(Debug)]
 pub struct SkovData {
-    // the blocks whose parent and last finalized blocks are already in the tree
+    // finalized blocks
     block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
     // finalization records; the blocks they point to must already be in the tree
     finalization_list: BinaryHeap<FinalizationRecord>,
@@ -141,6 +141,8 @@ pub struct SkovData {
     genesis_block_ptr: Rc<BlockPtr>,
     // the last finalized block
     last_finalized: Rc<BlockPtr>,
+    // valid blocks (parent and last finalized blocks are already in the tree) pending finalization
+    tree_candidates: HashMap<BlockHash, Rc<BlockPtr>>,
     // blocks waiting for their parent to be added to the tree; the key is the parent's hash
     awaiting_parent_block: PendingQueue,
     // blocks waiting for their last finalized block to be finalized
@@ -173,6 +175,7 @@ impl SkovData {
             finalization_list,
             genesis_block_ptr,
             last_finalized,
+            tree_candidates: HashMap::with_capacity(SKOV_OK_PREALLOCATION_SIZE),
             awaiting_parent_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             awaiting_last_finalized_finalization: HashMap::with_capacity(
                 SKOV_ERR_PREALLOCATION_SIZE,
@@ -255,16 +258,11 @@ impl SkovData {
             Utc::now(),
         );
 
-        let housekeeping_hash = block_ptr.hash.clone();
-
+        // put the new block pointer in the tree candidate queue where it will await a
+        // finalization record
         let insertion_result = self
-            .block_tree
+            .tree_candidates
             .insert(block_ptr.hash.clone(), Rc::new(block_ptr));
-
-        // the block is now in the block tree; run the housekeeping that can possibly
-        // move some queued pending blocks to the tree now
-        self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
-        self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
         if insertion_result.is_none() {
             SkovResult::Success
@@ -292,51 +290,44 @@ impl SkovData {
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+        // check for duplicates first, as all bakers broadcast it; we should be ok with a linear
+        // search, as we are expecting only to keep the most recent finalization records and the
+        // most recent one is always first
+        if self.finalization_list.iter().any(|rec| *rec == record) {
+            return SkovResult::DuplicateEntry;
+        }
+
         let housekeeping_hash = record.block_pointer.clone();
 
-        // we need a separate block here in order to be able to keep clones to a
-        // minimum, query the block tree only once and still be able to do
-        // awaiting_last_finalized housekeeping in this function
-        let result = {
-            let mut target_block = self.block_tree.get_mut(&record.block_pointer);
+        let mut target_block = self.tree_candidates.remove_entry(&record.block_pointer);
 
-            if let Some(ref mut block) = target_block {
-                block.status.set(BlockStatus::Finalized);
-            } else {
-                let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
+        if let Some((_, ref mut block)) = target_block {
+            block.status.set(BlockStatus::Finalized);
+        } else {
+            let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
 
-                self.inapplicable_finalization_records.push(record);
+            self.inapplicable_finalization_records.push(record);
 
-                return SkovResult::Error(error);
-            }
+            return SkovResult::Error(error);
+        }
 
-            // rebind the reference (so we don't have to search for it again) so it's no
-            // longer mutable
-            let target_block = &*target_block.unwrap(); // safe - we already checked for None
+        let (target_hash, target_block) = target_block.unwrap(); // safe - we've already checked
 
-            // we should be ok with a linear search, as we are expecting only to keep the
-            // most recent finalization records and the most recent one is always first
-            if self
-                .finalization_list
-                .iter()
-                .find(|&rec| *rec == record)
-                .is_none()
-            {
-                self.finalization_list.push(record);
-                self.last_finalized = Rc::clone(target_block);
+        self.last_finalized = Rc::clone(&target_block);
+        self.block_tree.insert(target_hash, target_block);
+        self.finalization_list.push(record);
 
-                SkovResult::Success
-            } else {
-                SkovResult::DuplicateEntry
-            }
-        };
+        // clear the tree candidate queue, as the other blocks can be dropped now
+        // TODO: determine if we want to retain the dead blocks
+        self.tree_candidates.clear();
 
-        // the target last finalized is in the block tree; therefore, check if there are
-        // no blocks targetting a missing last finalized block that can apply to be
-        // inserted in the tree again now
+        // the block is now in the block tree; run housekeeping that
+        // can possibly move some queued pending blocks to the tree now
+        self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
+        self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
-        result
+        SkovResult::Success
     }
 
     fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {
@@ -404,7 +395,7 @@ impl SkovData {
 
     pub fn display_state(&self) {
         info!(
-            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}{}{}{}",
+            "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree candidates: {:?}{}{}{}",
             self.block_tree
                 .values()
                 .collect::<BinaryHeap<_>>()
@@ -416,6 +407,7 @@ impl SkovData {
                 .iter()
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
+            self.tree_candidates,
             self.print_pending_queue(AwaitingParentBlock),
             self.print_pending_queue(AwaitingLastFinalizedBlock),
             self.print_pending_queue(AwaitingLastFinalizedFinalization),
