@@ -227,6 +227,7 @@ class BlockStateQuery m => BlockStateOperations m where
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
 class (Eq (BlockPointer m),
+       Ord (BlockPointer m),
        HashableTo BlockHash (BlockPointer m),
        BlockData (BlockPointer m),
        BlockPointerData (BlockPointer m),
@@ -272,6 +273,8 @@ class (Eq (BlockPointer m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
+    -- |Get the finalization record for a particular finalization index (if available).
+    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
     -- * Operations on branches
     -- |Get the branches.
     getBranches :: m (Branches m)
@@ -438,6 +441,7 @@ instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
     getLastFinalizedHeight = lift getLastFinalizedHeight
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
+    getFinalizationAtIndex fi = lift $ getFinalizationAtIndex fi
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
@@ -506,6 +510,7 @@ instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m) where
     getLastFinalizedHeight = lift getLastFinalizedHeight
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
+    getFinalizationAtIndex fi = lift $ getFinalizationAtIndex fi
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
