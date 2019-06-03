@@ -126,7 +126,8 @@ impl fmt::Debug for SkovError {
     }
 }
 
-const SKOV_OK_PREALLOCATION_SIZE: usize = 128;
+const SKOV_LONG_PREALLOCATION_SIZE: usize = 128;
+const SKOV_SHORT_PREALLOCATION_SIZE: usize = 16;
 const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
 
 type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
@@ -160,10 +161,10 @@ impl SkovData {
     pub fn new(genesis_data: &[u8]) -> Self {
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = Vec::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
+        let mut finalization_list = Vec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
         finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
-        let mut block_tree = HashMap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
+        let mut block_tree = HashMap::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
         block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
         let genesis_block_ref = block_tree.values().next().unwrap(); // safe; we just put it there
@@ -175,7 +176,7 @@ impl SkovData {
             finalization_list,
             genesis_block_ptr,
             last_finalized,
-            tree_candidates: HashMap::with_capacity(SKOV_OK_PREALLOCATION_SIZE),
+            tree_candidates: HashMap::with_capacity(SKOV_SHORT_PREALLOCATION_SIZE),
             awaiting_parent_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             awaiting_last_finalized_finalization: HashMap::with_capacity(
                 SKOV_ERR_PREALLOCATION_SIZE,
