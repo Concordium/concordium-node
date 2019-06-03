@@ -136,7 +136,7 @@ pub struct SkovData {
     // finalized blocks
     block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
     // finalization records; the blocks they point to must already be in the tree
-    finalization_list: BinaryHeap<FinalizationRecord>,
+    finalization_list: Vec<FinalizationRecord>,
     // the pointer to the genesis block
     genesis_block_ptr: Rc<BlockPtr>,
     // the last finalized block
@@ -160,7 +160,7 @@ impl SkovData {
     pub fn new(genesis_data: &[u8]) -> Self {
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = BinaryHeap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
+        let mut finalization_list = Vec::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
         finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
         let mut block_tree = HashMap::with_capacity(SKOV_OK_PREALLOCATION_SIZE);
@@ -278,6 +278,7 @@ impl SkovData {
     pub fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
+            .rev() // it's most probable that it's near the end
             .find(|&rec| rec.block_pointer == *hash)
     }
 
@@ -286,7 +287,7 @@ impl SkovData {
     pub fn get_last_finalized_height(&self) -> BlockHeight { self.last_finalized.height }
 
     pub fn get_next_finalization_index(&self) -> FinalizationIndex {
-        &self.finalization_list.peek().unwrap().index + 1 // safe; always available
+        &self.finalization_list.last().unwrap().index + 1 // safe; always available
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
