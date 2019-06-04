@@ -543,9 +543,7 @@ impl fmt::Display for SkovStats {
                 .num_milliseconds()
                 / 1000;
 
-            let wma = sum / mass;
-
-            wma
+            sum / mass
         }
 
         write!(
