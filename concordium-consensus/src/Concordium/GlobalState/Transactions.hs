@@ -42,8 +42,8 @@ data TransactionHeader = TransactionHeader {
     thSenderKey :: !IDTypes.AccountVerificationKey,
     -- |Per account nonce, strictly increasing, no gaps.
     thNonce :: !Nonce,
-    -- |Amount dedicated for the execution of this transaction.
-    thGasAmount :: !Amount,
+    -- |Amount of gas dedicated for the execution of this transaction.
+    thGasAmount :: !Energy,
     -- |Pointer to a finalized block. If this is too out of date at the time of
     -- execution the transaction is dropped.
     thFinalizedPointer :: !BlockHash,
@@ -106,7 +106,7 @@ makeTransactionHeader ::
   SchemeId
   -> IDTypes.AccountVerificationKey
   -> Nonce
-  -> Amount
+  -> Energy
   -> BlockHash
   -> TransactionHeader
 makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer =
@@ -151,7 +151,7 @@ class TransactionData t where
     transactionHeader :: t -> TransactionHeader
     transactionSender :: t -> AccountAddress
     transactionNonce :: t -> Nonce
-    transactionGasAmount :: t -> Amount
+    transactionGasAmount :: t -> Energy
     transactionPayload :: t -> EncodedPayload
     transactionSignature :: t -> TransactionSignature
     transactionHash :: t -> H.Hash

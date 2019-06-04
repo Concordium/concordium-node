@@ -16,6 +16,8 @@ import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances.Internal
 import Concordium.GlobalState.Instances
 
+import qualified Data.FixedByteString as FBS
+
 import Test.QuickCheck
 import Test.Hspec
 
@@ -55,17 +57,19 @@ makeArbitraryInstance = do
             messageType = Core.TBase Core.TInt32
         model <- VLiteral . Core.Int32 <$> arbitrary
         amount <- Amount <$> arbitrary
-        return $ makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount
+        owner <- AccountAddress . FBS.pack <$> (vector 21)
+        return $ makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount owner
 
 makeDummyInstance :: InstanceData -> ContractAddress -> Instance
 makeDummyInstance (InstanceData model amount) =
-        makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount
+        makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount owner
     where
         modRef = Core.ModuleRef (H.hash "module")
         tyname = 0
         dummyExpr = UnCast
         contract = ContractValue dummyExpr dummyExpr HM.empty
         messageType = Core.TBase Core.TInt32
+        owner = AccountAddress . FBS.pack . replicate 21 $ 0
 
 data InstanceData = InstanceData Value Amount
     deriving (Eq, Show)

@@ -222,6 +222,8 @@ class BlockStateQuery m => BlockStateOperations m where
   -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m -> ContractAddress -> Amount -> Value -> m (UpdatableBlockState m)
 
+  -- |Notify the block state that the given amount was spent on execution.
+  bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -430,6 +432,8 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
+  bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+
 type instance BlockPointer (MaybeT m) = BlockPointer m
 
 instance (TreeStateMonad m) => TreeStateMonad (MaybeT m) where
@@ -498,6 +502,9 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
 
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
+
+  bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+
 
 type instance BlockPointer (RWST r w s m) = BlockPointer m
 

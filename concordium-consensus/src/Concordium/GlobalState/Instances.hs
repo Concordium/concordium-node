@@ -39,14 +39,15 @@ makeInstance ::
     -> ValueInterface               -- ^Module value interface
     -> Value                        -- ^Initial state
     -> Amount                       -- ^Initial balance
+    -> AccountAddress               -- ^Owner/creator of the instance.
     -> ContractAddress              -- ^Address for the instance
     -> Instance
-makeInstance instanceContractModule instanceContract conVal instanceMessageType instanceModuleInterface instanceModuleValueInterface instanceModel instanceAmount instanceAddress
+makeInstance instanceContractModule instanceContract conVal instanceMessageType instanceModuleInterface instanceModuleValueInterface instanceModel instanceAmount instanceOwner instanceAddress
         = Instance {..}
     where
         instanceReceiveFun = updateMethod conVal
         instanceImplements = implements conVal
-        instanceParameterHash = makeInstanceParameterHash instanceAddress instanceContractModule instanceContract
+        instanceParameterHash = makeInstanceParameterHash instanceAddress instanceOwner instanceContractModule instanceContract
         instanceParameters = InstanceParameters {..}
         instanceHash = makeInstanceHash instanceParameters instanceModel instanceAmount
 
