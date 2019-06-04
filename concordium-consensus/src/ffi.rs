@@ -4,7 +4,7 @@ use failure::{format_err, Fallible};
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
-    fmt::{Display, Formatter, Result},
+    fmt,
     io::Cursor,
     os::raw::{c_char, c_int},
     ptr, slice,
@@ -137,24 +137,20 @@ impl TryFrom<u16> for PacketType {
     }
 }
 
-impl Display for PacketType {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        match self {
-            PacketType::Block => write!(f, "block"),
-            PacketType::Transaction => write!(f, "transaction"),
-            PacketType::FinalizationRecord => write!(f, "finalization record"),
-            PacketType::FinalizationMessage => write!(f, "finalization message"),
-            PacketType::CatchupBlockByHash => write!(f, "catch-up block by hash"),
-            PacketType::CatchupFinalizationRecordByHash => {
-                write!(f, "catch-up finalization record by hash")
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                write!(f, "catch-up finalization record by index")
-            }
-            PacketType::CatchupFinalizationMessagesByPoint => {
-                write!(f, "catch-up finalization messages by point")
-            }
-        }
+impl fmt::Display for PacketType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self {
+            PacketType::Block => "block",
+            PacketType::Transaction => "transaction",
+            PacketType::FinalizationRecord => "finalization record",
+            PacketType::FinalizationMessage => "finalization message",
+            PacketType::CatchupBlockByHash => "catch-up block by hash",
+            PacketType::CatchupFinalizationRecordByHash => "catch-up finalization record by hash",
+            PacketType::CatchupFinalizationRecordByIndex => "catch-up finalization record by index",
+            PacketType::CatchupFinalizationMessagesByPoint => "catch-up finalization messages by point",
+        };
+
+        write!(f, "{}", name)
     }
 }
 
@@ -470,7 +466,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
         };
 
         match callback_type {
-            CallbackType::Block => match CALLBACK_QUEUE.clone().send_block(data) {
+            CallbackType::Block => match CALLBACK_QUEUE.clone().send_message(PacketType::Block, data) {
                 Ok(_) => debug!("Queueing {} block bytes", data_length),
                 _ => error!("Didn't queue block message properly"),
             },
@@ -481,7 +477,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
                 }
             }
             CallbackType::FinalizationRecord => {
-                match CALLBACK_QUEUE.clone().send_finalization_record(data) {
+                match CALLBACK_QUEUE.clone().send_message(PacketType::FinalizationRecord, data) {
                     Ok(_) => debug!("Queueing {} bytes of finalization record", data_length),
                     _ => error!("Didn't queue finalization record message properly"),
                 }

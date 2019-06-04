@@ -24,7 +24,7 @@ use concordium_consensus::{
 };
 use concordium_global_state::{
     common::{sha256, SerializeToBytes},
-    finalization::{FinalizationMessage, FinalizationRecord},
+    finalization::FinalizationMessage,
     tree::{Skov, SkovReq},
 };
 use env_logger::{Builder, Env};
@@ -200,35 +200,37 @@ fn setup_baker_guards(
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
         let skov_sender_ref = skov_sender.clone();
-        let consensus_block_thread = spawn_or_die!("Process consensus block output", {
+        let consensus_message_thread = spawn_or_die!("Process consensus messages", {
             loop {
-                match baker_clone.out_queue().recv_block(&skov_sender_ref) {
-                    Ok(RelayOrStopEnvelope::Relay(block_bytes)) => {
+                match baker_clone.out_queue().recv_message(&skov_sender_ref) {
+                    Ok(RelayOrStopEnvelope::Relay(msg)) => {
                         let mut out_bytes =
-                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + block_bytes.len());
-                        match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
+                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
+                        match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
                             Ok(_) => {
-                                out_bytes.extend(&*block_bytes);
+                                out_bytes.extend(&*msg.payload);
                                 match &node_ref
                                     .send_broadcast_message(None, network_id, None, out_bytes)
                                 {
                                     Ok(_) => info!(
-                                        "Peer {} broadcasted block ({:?})",
+                                        "Peer {} broadcasted a {} ({:?})",
                                         node_ref.id(),
-                                        sha256(&block_bytes),
+                                        msg.variant,
+                                        sha256(&msg.payload),
                                     ),
                                     Err(_) => error!(
-                                        "Peer {} couldn't broadcast block ({:?})!",
+                                        "Peer {} couldn't broadcast a {} ({:?})!",
                                         node_ref.id(),
-                                        sha256(&block_bytes),
+                                        msg.variant,
+                                        sha256(&msg.payload),
                                     ),
                                 }
                             }
-                            Err(_) => error!("Can't write type to packet"),
+                            Err(_) => error!("Can't write a {} to a packet", msg.variant),
                         }
                     }
                     Ok(RelayOrStopEnvelope::Stop) => break,
-                    _ => error!("Error receiving block from the consensus layer"),
+                    _ => error!("Error receiving a message from the consensus layer"),
                 }
             }
         });
@@ -284,55 +286,10 @@ fn setup_baker_guards(
                 }
             });
 
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let skov_sender_ref = skov_sender.clone();
-        let consensus_fin_rec_thread =
-            spawn_or_die!("Process consensus finalization records output", {
-                loop {
-                    match baker_clone
-                        .out_queue()
-                        .recv_finalization_record(&skov_sender_ref)
-                    {
-                        Ok(RelayOrStopEnvelope::Relay(bytes)) => {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                ffi::PacketType::FinalizationRecord as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&*bytes);
-                                    match &node_ref
-                                        .send_broadcast_message(None, network_id, None, out_bytes)
-                                    {
-                                        Ok(_) => info!(
-                                            "Peer {} broadcasted a {}",
-                                            node_ref.id(),
-                                            FinalizationRecord::deserialize(&bytes)
-                                                .map(|msg| msg.to_string())
-                                                .unwrap_or_else(|_| String::from(
-                                                    "corrupt finalization record"
-                                                )),
-                                        ),
-                                        Err(_) => {
-                                            error!("Couldn't broadcast a finalization record!")
-                                        }
-                                    }
-                                }
-                                Err(_) => error!("Can't write type to packet"),
-                            }
-                        }
-                        Ok(RelayOrStopEnvelope::Stop) => break,
-                        _ => error!("Error receiving finalization record from the consensus layer"),
-                    }
-                }
-            });
-
         vec![
             catch_up_thread,
-            consensus_block_thread,
+            consensus_message_thread,
             consensus_fin_msg_thread,
-            consensus_fin_rec_thread,
         ]
     } else {
         vec![]

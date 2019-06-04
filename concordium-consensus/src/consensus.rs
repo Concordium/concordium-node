@@ -1,5 +1,5 @@
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
+    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSyncSender, RelayOrStopSenderHelper,
 };
 use failure::{bail, Fallible};
 
@@ -26,34 +26,54 @@ pub type Bytes = Box<[u8]>;
 
 pub type FinalizationCatchupTuple = (Option<PeerId>, Bytes);
 
+#[derive(Debug)]
+pub struct ConsensusMessage {
+    pub variant: PacketType,
+    pub producer: Option<PeerId>,
+    pub identifier: Option<HashBytes>,
+    pub payload: Bytes,
+}
+
+impl ConsensusMessage {
+    pub fn new(
+        variant: PacketType,
+        producer: Option<PeerId>,
+        identifier: Option<HashBytes>,
+        payload: Bytes
+    ) -> Self {
+        Self {
+            variant,
+            producer,
+            identifier,
+            payload,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block:               Arc<Mutex<RelayOrStopReceiver<Bytes>>>,
-    sender_block:                 Arc<Mutex<RelayOrStopSender<Bytes>>>,
+    receiver_request:             Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
+    sender_request:               RelayOrStopSyncSender<ConsensusMessage>,
     receiver_finalization:        Arc<Mutex<RelayOrStopReceiver<FinalizationCatchupTuple>>>,
     sender_finalization:          Arc<Mutex<RelayOrStopSender<FinalizationCatchupTuple>>>,
-    receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<Bytes>>>,
-    sender_finalization_record:   Arc<Mutex<RelayOrStopSender<Bytes>>>,
     receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
     sender_catchup_queue:         Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
 }
 
+const SYNC_CHANNEL_BOUND: usize = 64;
+
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<Bytes>>();
+        let (sender_request, receiver_request) = mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
         let (sender_finalization, receiver_finalization) =
             mpsc::channel::<RelayOrStopEnvelope<FinalizationCatchupTuple>>();
-        let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<RelayOrStopEnvelope<Bytes>>();
         let (sender_catchup, receiver_catchup) =
             mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
         ConsensusOutQueue {
-            receiver_block:               Arc::new(Mutex::new(receiver)),
-            sender_block:                 Arc::new(Mutex::new(sender)),
+            receiver_request:             Arc::new(Mutex::new(receiver_request)),
+            sender_request,
             receiver_finalization:        Arc::new(Mutex::new(receiver_finalization)),
             sender_finalization:          Arc::new(Mutex::new(sender_finalization)),
-            receiver_finalization_record: Arc::new(Mutex::new(receiver_finalization_record)),
-            sender_finalization_record:   Arc::new(Mutex::new(sender_finalization_record)),
             receiver_catchup_queue:       Arc::new(Mutex::new(receiver_catchup)),
             sender_catchup_queue:         Arc::new(Mutex::new(sender_catchup)),
         }
@@ -73,25 +93,30 @@ macro_rules! empty_queue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, block: Bytes) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_block).send_msg(block))
+    pub fn send_message(self, variant: PacketType, payload: Bytes) -> Fallible<()> {
+        let msg = ConsensusMessage::new(variant, None, None, payload);
+        into_err!(self.sender_request.send_msg(msg))
     }
 
-    pub fn recv_block(
+    pub fn recv_message(
         self,
         skov_sender: &RelayOrStopSender<SkovReq>,
-    ) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        let baked_block = into_err!(safe_lock!(self.receiver_block).recv());
+    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        let message = into_err!(safe_lock!(self.receiver_request).recv());
 
-        if let Ok(RelayOrStopEnvelope::Relay(ref block)) = baked_block {
-            handle_recv_block(skov_sender, block)?
+        if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
+            match msg.variant {
+                PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
+                PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
+                _ => unimplemented!("this consensus message can't be relayed to Skov yet"),
+            }
         }
 
-        baked_block
+        message
     }
 
-    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        into_err!(safe_lock!(self.receiver_block).try_recv())
+    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).try_recv())
     }
 
     pub fn send_finalization(self, msg: FinalizationCatchupTuple) -> Fallible<()> {
@@ -106,25 +131,8 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_finalization).try_recv())
     }
 
-    pub fn send_finalization_record(self, rec: Bytes) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization_record).send_msg(rec))
-    }
-
-    pub fn recv_finalization_record(
-        self,
-        skov_sender: &RelayOrStopSender<SkovReq>,
-    ) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        let record = into_err!(safe_lock!(self.receiver_finalization_record).recv());
-
-        if let Ok(RelayOrStopEnvelope::Relay(ref record)) = record {
-            handle_recv_finalization_record(skov_sender, record)?;
-        }
-
-        record
-    }
-
-    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        into_err!(safe_lock!(self.receiver_finalization_record).try_recv())
+    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).try_recv())
     }
 
     pub fn send_catchup(self, rec: CatchupRequest) -> Fallible<()> {
@@ -140,41 +148,29 @@ impl ConsensusOutQueue {
     }
 
     pub fn clear(&self) {
-        empty_queue!(self.receiver_block, "Block queue");
+        empty_queue!(self.receiver_request, "Consensus request queue");
         empty_queue!(self.receiver_finalization, "Finalization messages queue");
-        empty_queue!(
-            self.receiver_finalization_record,
-            "Finalization record queue"
-        );
         empty_queue!(self.receiver_catchup_queue, "Catch-up queue");
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_block).send_stop())?;
+        into_err!(self.sender_request.send_stop())?;
         into_err!(safe_lock!(self.sender_finalization).send_stop())?;
-        into_err!(safe_lock!(self.sender_finalization_record).send_stop())?;
         into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
         Ok(())
     }
 }
 
-fn handle_recv_block(
+fn relay_msg_to_skov(
     skov_sender: &RelayOrStopSender<SkovReq>,
-    baked_block: &Bytes,
+    message: &ConsensusMessage,
 ) -> Fallible<()> {
-    let pending_block = PendingBlock::new(baked_block)?;
-    let request_body = SkovReqBody::AddBlock(pending_block);
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
+    let request_body = match message.variant {
+        PacketType::Block => SkovReqBody::AddBlock(PendingBlock::new(&message.payload)?),
+        PacketType::FinalizationRecord => SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?),
+        _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
+    };
 
-    into_err!(skov_sender.send(request))
-}
-
-fn handle_recv_finalization_record(
-    skov_sender: &RelayOrStopSender<SkovReq>,
-    record: &Bytes,
-) -> Fallible<()> {
-    let record = FinalizationRecord::deserialize(record)?;
-    let request_body = SkovReqBody::AddFinalizationRecord(record);
     let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
 
     into_err!(skov_sender.send(request))
