@@ -25,7 +25,7 @@ use concordium_consensus::{
 use concordium_global_state::{
     common::{sha256, SerializeToBytes},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{SkovData, SKOV_QUEUE},
+    tree::{Skov, SKOV_QUEUE},
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -430,7 +430,7 @@ fn setup_process_output(
             .unwrap()
             .unwrap();
 
-        let mut skov_data = SkovData::new(&genesis_data);
+        let mut skov = Skov::new(&genesis_data);
 
         loop {
             match SKOV_QUEUE.recv_request() {
@@ -443,7 +443,7 @@ fn setup_process_output(
                         P2PNodeId(source),
                         _network_id,
                         request,
-                        &mut skov_data,
+                        &mut skov,
                     ) {
                         error!("There's an issue with a global state request: {}", e);
                     }

@@ -27,7 +27,7 @@ use concordium_global_state::{
     block::{BakedBlock, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{SkovData, SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_QUEUE},
+    tree::{Skov, SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_QUEUE},
 };
 
 use crate::{
@@ -196,7 +196,7 @@ pub fn handle_global_state_request(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     request: SkovReq,
-    skov: &mut SkovData,
+    skov: &mut Skov,
 ) -> Fallible<()> {
     if let Some(ref mut baker) = baker {
         let packet_type = match request.body {
@@ -226,17 +226,17 @@ pub fn handle_global_state_request(
                 );
             }
             SkovResult::Error(e) => {
-                warn!("{:?}", e);
+                warn!("{}", e);
 
                 if node.config.global_state_catch_up_requests {
                     match e {
                         SkovError::MissingParentBlock(ref missing, _)
                         | SkovError::MissingBlockToFinalize(ref missing)
                         | SkovError::MissingLastFinalizedBlock(ref missing, _) => {
-                            let mut inner_out_bytes =
+                            let mut request_bytes =
                                 Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
-                            inner_out_bytes.extend_from_slice(missing);
-                            inner_out_bytes
+                            request_bytes.extend_from_slice(missing);
+                            request_bytes
                                 .write_u64::<NetworkEndian>(0u64)
                                 .expect("Can't write to buffer");
 
@@ -245,21 +245,32 @@ pub fn handle_global_state_request(
                                 node,
                                 peer_id,
                                 network_id,
-                                &inner_out_bytes,
+                                &request_bytes,
                                 PacketDirection::Outbound,
                             )?;
                         }
-                        SkovError::InvalidLastFinalized(..)
-                        | SkovError::LastFinalizedNotFinalized(..) => {
+                        SkovError::LastFinalizedNotFinalized(ref target_hash, _) => {
+                            send_catchup_request_finalization_record_by_hash_to_consensus(
+                                baker,
+                                node,
+                                peer_id,
+                                network_id,
+                                &target_hash,
+                                PacketDirection::Outbound,
+                            )?;
+                        }
+                        SkovError::InvalidLastFinalized(..) => {
                             // TODO: decide how to handle
                         }
                     }
                 }
+
+                skov.register_error(e);
             }
         }
 
         // debug info
-        // skov.display_state();
+        // skov.display_stats();
     }
 
     Ok(())
@@ -384,7 +395,7 @@ fn send_block_to_consensus(
 
     // send unique blocks to the consensus layer
     match baker.send_block(peer_id.as_raw(), content) {
-        0i64 => info!("Peer {} sent a block ({:?}) to consensus", peer_id, hash,),
+        0i64 => info!("Peer {} sent block {:?} to consensus", peer_id, hash,),
         err_code => error!(
             "Peer {} can't send a block from network to consensus due to error code #{} (block: \
              {:?})",
