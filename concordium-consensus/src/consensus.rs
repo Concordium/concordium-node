@@ -95,22 +95,6 @@ impl ConsensusOutQueue {
         message
     }
 
-    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).try_recv())
-    }
-
-    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).try_recv())
-    }
-
-    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).try_recv())
-    }
-
-    pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
-        into_err!(safe_lock!(self.receiver_request).try_recv())
-    }
-
     pub fn clear(&self) {
         empty_queue!(self.receiver_request, "Consensus request queue");
     }
@@ -140,8 +124,15 @@ fn relay_msg_to_skov(
 
 #[cfg(test)]
 impl ConsensusOutQueue {
-    pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
+    pub fn try_recv_message(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).try_recv())
+    }
+
+    pub fn recv_timeout_message(
+        self,
+        timeout: Duration,
+    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).recv_timeout(timeout))
     }
 }
 
@@ -473,27 +464,21 @@ mod tests {
                     }
                 }
                 while let Ok(RelayOrStopEnvelope::Relay(msg)) =
-                    _th_container.out_queue().try_recv_finalization()
+                    _th_container.out_queue().try_recv_message()
                 {
                     debug!("Relaying {:?}", msg);
-                    _th_container.send_finalization(1, msg.1);
-                }
-                while let Ok(RelayOrStopEnvelope::Relay(rec)) =
-                    _th_container.out_queue().try_recv_finalization_record()
-                {
-                    debug!("Relaying {:?}", rec);
-                    _th_container.send_finalization_record(1, rec);
+                    let _ = _th_container.out_queue().send_message(msg);
                 }
             });
 
             for i in 0..$blocks_num {
                 match consensus_container
                     .out_queue()
-                    .recv_timeout_block(Duration::from_millis(500_000))
+                    .recv_timeout_message(Duration::from_millis(500_000))
                 {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
                         debug!("{} Got block data => {:?}", i, msg);
-                        consensus_container.send_block(1, msg);
+                        let _ = consensus_container.out_queue().send_message(msg);
                     }
                     Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
                     _ => {}
