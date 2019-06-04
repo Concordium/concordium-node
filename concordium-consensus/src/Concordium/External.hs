@@ -29,7 +29,7 @@ import Concordium.Scheduler.Utils.Init.Example (initialState)
 import Concordium.Birk.Bake
 import Concordium.Runner
 import Concordium.Show
-import Concordium.Skov (SkovFinalizationEvent(..))
+import Concordium.Skov (SkovFinalizationEvent(..), UpdateResult(..))
 import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..))
 import Concordium.Logger
 
@@ -232,6 +232,44 @@ stopBaker bptr = mask_ $ do
     stopSyncRunner bakerSyncRunner
     freeStablePtr bptr
 
+{- | Result values for receive functions.
+
++=======+====================================+========================================================================================+==========+
+| Value |                Name                |                                      Description                                       | Forward? |
++=======+====================================+========================================================================================+==========+
+|     0 | ResultSuccess                      | Message received, validated and processed                                              | Yes      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     1 | ResultSerializationFail            | Message deserialization failed                                                         | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     2 | ResultInvalid                      | The message was determined to be invalid                                               | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     3 | ResultPendingBlock                 | The message was received, but is awaiting a block to complete processing               | Yes      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     4 | ResultPendingFinalization          | The message was received, but is awaiting a finalization record to complete processing | Yes      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     5 | ResultAsync                        | The message was received, but is being processed asynchronously                        | Yes      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     6 | ResultDuplicate                    | The message duplicates a previously received message                                   | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     7 | ResultStale                        | The message may have been valid in the past, but is no longer relevant                 | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|     8 | ResultIncorrectFinalizationSession | The message refers to a different/unknown finalization session                         | No(?)    |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-}
+type ReceiveResult = Int64
+
+toReceiveResult :: UpdateResult -> ReceiveResult
+toReceiveResult ResultSuccess = 0
+toReceiveResult ResultSerializationFail = 1
+toReceiveResult ResultInvalid = 2
+toReceiveResult ResultPendingBlock = 3
+toReceiveResult ResultPendingFinalization = 4
+toReceiveResult ResultAsync = 5
+toReceiveResult ResultDuplicate = 6
+toReceiveResult ResultStale = 7
+toReceiveResult ResultIncorrectFinalizationSession = 8
+
+
 handleSkovFinalizationEvents :: LogMethod IO -> BakerRunner -> PeerID -> [SkovFinalizationEvent] -> IO ()
 handleSkovFinalizationEvents logm BakerRunner{..} src = mapM_ handleEvt
     where
@@ -254,58 +292,72 @@ handleSkovFinalizationEvents logm BakerRunner{..} src = mapM_ handleEvt
             bakerMissingFinalizationByIndex src fi
 
 -- |Handle receipt of a block.
-receiveBlock :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
+-- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
+-- and @ResultStale@.
+-- 'receiveBlock' may invoke the callbacks for new finalization messages and finalization records,
+-- and missing blocks and finalization records.
+receiveBlock :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr src cstr l = do
     bkr@BakerRunner {..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
-    case runGet get blockBS of
+    toReceiveResult <$> case runGet get blockBS of
         Left _ -> do
           logm External LLDebug "Block deserialization failed. Ignoring the block."
-          return 1
+          return ResultSerializationFail
         Right (GenesisBlock _) -> do
             logm External LLDebug $ "Genesis block deserialized. Ignoring the block."
-            return 1
+            return ResultSerializationFail
         Right (NormalBlock block) -> do
                         logm External LLInfo $ "Block deserialized. Sending to consensus."
-                        evts <- syncReceiveBlock bakerSyncRunner block
+                        (res, evts) <- syncReceiveBlock bakerSyncRunner block
                         handleSkovFinalizationEvents logm bkr src evts
-                        return 0
+                        return res
 
 -- |Handle receipt of a finalization message.
-receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
+-- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@ and @ResultIncorrectFinalizationSession@.
+-- 'receiveFinalization' may invoke the callbacks for new finalization messages and finalization records,
+-- and missing blocks and finalization records.
+receiveFinalization :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO ReceiveResult
 receiveFinalization bptr src cstr l = do
     bkr@BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLDebug $ "Received finalization message size = " ++ show l ++ ".  Decoding ..."
     bs <- BS.packCStringLen (cstr, fromIntegral l)
-    case runGet get bs of
+    toReceiveResult <$> case runGet get bs of
         Left _ -> do
             logm External LLDebug "Deserialization of finalization message failed."
-            return 1
+            return ResultSerializationFail
         Right finMsg -> do
             logm External LLDebug "Finalization message deserialized."
-            evts <- syncReceiveFinalizationMessage bakerSyncRunner finMsg
+            (res, evts) <- syncReceiveFinalizationMessage bakerSyncRunner finMsg
             handleSkovFinalizationEvents logm bkr src evts
-            return 0
+            return res
 
 -- |Handle receipt of a finalization record.
-receiveFinalizationRecord :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO Int64
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
+-- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, and @ResultStale@.
+-- (Currently, @ResultDuplicate@ cannot happen, although it may be supported in future.)
+-- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages and
+-- finalization records, and missing blocks and finalization records.
+receiveFinalizationRecord :: StablePtr BakerRunner -> PeerID -> CString -> Int64 -> IO ReceiveResult
 receiveFinalizationRecord bptr src cstr l = do
     bkr@BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLDebug $ "Received finalization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
-    case runGet get finRecBS of
+    toReceiveResult <$> case runGet get finRecBS of
         Left _ -> do
           logm External LLDebug "Deserialization of finalization record failed."
-          return 1
+          return ResultSerializationFail
         Right finRec -> do
           logm External LLDebug "Finalization record deserialized."
-          evts <- syncReceiveFinalizationRecord bakerSyncRunner finRec
+          (res, evts) <- syncReceiveFinalizationRecord bakerSyncRunner finRec
           handleSkovFinalizationEvents logm bkr src evts
-          return 0
+          return res
 
 -- |Print a representation of a block to the standard output.
 printBlock :: CString -> Int64 -> IO ()
@@ -316,20 +368,22 @@ printBlock cstr l = do
         Right block -> putStrLn $ showsBlock block ""
 
 -- |Handle receipt of a transaction.
-receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO Int64
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, and @ResultDuplicate@.
+receiveTransaction :: StablePtr BakerRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
-    case runGet get tbs of
-      Left _ -> do logm External LLDebug "Could not decode transaction into header + body."
-                   return 1
-      Right tr -> do
-        logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (trHeader tr)
-        evts <- syncReceiveTransaction bakerSyncRunner tr
-        unless (null evts) $ logm Skov LLWarning $ "Received transaction triggered events, which are being dropped"
-        return 0
+    toReceiveResult <$> case runGet get tbs of
+        Left _ -> do
+            logm External LLDebug "Could not decode transaction into header + body."
+            return ResultSerializationFail
+        Right tr -> do
+            logm External LLInfo $ "Transaction decoded. Its header is: " ++ show (trHeader tr)
+            (res, evts) <- syncReceiveTransaction bakerSyncRunner tr
+            unless (null evts) $ logm Skov LLWarning $ "Received transaction triggered events, which are being dropped"
+            return res
 
 
 -- |Returns a null-terminated string with a JSON representation of the current status of Consensus.

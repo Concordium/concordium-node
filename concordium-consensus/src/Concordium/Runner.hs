@@ -74,13 +74,13 @@ makeRunner logm bkr gen initBS = do
             _ <- handleMessages outChan out src $ storeBlock block
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgTransactionReceived trans) = do
-            handleMessagesNoSource outChan out $ receiveTransaction trans
+            _ <- handleMessagesNoSource outChan out $ receiveTransaction trans
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgFinalizationReceived src bs) = do
-            handleMessages outChan out src $ receiveFinalizationMessage bs
+            _ <- handleMessages outChan out src $ receiveFinalizationMessage bs
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake
         msgLoop inChan outChan out lastBake (MsgFinalizationRecordReceived src fr) = do
-            handleMessages outChan out src $ finalizeBlock fr
+            _ <- handleMessages outChan out src $ finalizeBlock fr
             (liftIO $ readChan inChan) >>= msgLoop inChan outChan out lastBake    
         handleMessages :: Chan (OutMessage source) -> IORef SkovFinalizationState -> source -> FSM' LogIO r -> FSM' LogIO r
         handleMessages outChan out src a = censor (const (Endo id)) $ do
@@ -169,14 +169,14 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
 runFSMWithStateLog :: SyncRunner -> FSM LogIO a -> IO (a, [SkovFinalizationEvent])
 runFSMWithStateLog SyncRunner{..} a = runWithStateLog syncState syncLogMethod (\sfs -> (\(ret, sfs', Endo evs) -> ((ret, evs []), sfs')) <$> runFSM a syncFinalizationInstance sfs)
 
-syncReceiveBlock :: SyncRunner -> BakedBlock -> IO [SkovFinalizationEvent]
-syncReceiveBlock syncRunner block = snd <$> runFSMWithStateLog syncRunner (storeBlock block)
+syncReceiveBlock :: SyncRunner -> BakedBlock -> IO (UpdateResult, [SkovFinalizationEvent])
+syncReceiveBlock syncRunner block = runFSMWithStateLog syncRunner (storeBlock block)
 
-syncReceiveTransaction :: SyncRunner -> Transaction -> IO [SkovFinalizationEvent]
-syncReceiveTransaction syncRunner trans = snd <$> runFSMWithStateLog syncRunner (receiveTransaction trans)
+syncReceiveTransaction :: SyncRunner -> Transaction -> IO (UpdateResult, [SkovFinalizationEvent])
+syncReceiveTransaction syncRunner trans = runFSMWithStateLog syncRunner (receiveTransaction trans)
 
-syncReceiveFinalizationMessage :: SyncRunner -> FinalizationMessage -> IO [SkovFinalizationEvent]
-syncReceiveFinalizationMessage syncRunner finMsg = snd <$> runFSMWithStateLog syncRunner (receiveFinalizationMessage finMsg)
+syncReceiveFinalizationMessage :: SyncRunner -> FinalizationMessage -> IO (UpdateResult, [SkovFinalizationEvent])
+syncReceiveFinalizationMessage syncRunner finMsg = runFSMWithStateLog syncRunner (receiveFinalizationMessage finMsg)
 
-syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO [SkovFinalizationEvent]
-syncReceiveFinalizationRecord syncRunner finRec = snd <$> runFSMWithStateLog syncRunner (finalizeBlock finRec)
+syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO (UpdateResult, [SkovFinalizationEvent])
+syncReceiveFinalizationRecord syncRunner finRec = runFSMWithStateLog syncRunner (finalizeBlock finRec)
