@@ -16,7 +16,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use concordium_common::{
     functor::{FilterFunctor, Functorable},
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
-    RelayOrStopReceiver,
+    RelayOrStopReceiver, RelayOrStopSender,
 };
 use concordium_consensus::{
     consensus,
@@ -25,7 +25,7 @@ use concordium_consensus::{
 use concordium_global_state::{
     common::{sha256, SerializeToBytes},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{Skov, SKOV_QUEUE},
+    tree::{Skov, SkovReq},
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -102,6 +102,7 @@ fn setup_baker_guards(
     baker: &mut Option<consensus::ConsensusContainer>,
     node: &P2PNode,
     conf: &configuration::Config,
+    skov_sender: RelayOrStopSender<SkovReq>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     if let Some(ref mut baker) = baker {
         let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
@@ -198,9 +199,10 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
+        let skov_sender_ref = skov_sender.clone();
         let consensus_block_thread = spawn_or_die!("Process consensus block output", {
             loop {
-                match baker_clone.out_queue().recv_block() {
+                match baker_clone.out_queue().recv_block(&skov_sender_ref) {
                     Ok(RelayOrStopEnvelope::Relay(block_bytes)) => {
                         let mut out_bytes =
                             Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + block_bytes.len());
@@ -284,10 +286,14 @@ fn setup_baker_guards(
 
         let baker_clone = baker.to_owned();
         let mut node_ref = node.clone();
+        let skov_sender_ref = skov_sender.clone();
         let consensus_fin_rec_thread =
             spawn_or_die!("Process consensus finalization records output", {
                 loop {
-                    match baker_clone.out_queue().recv_finalization_record() {
+                    match baker_clone
+                        .out_queue()
+                        .recv_finalization_record(&skov_sender_ref)
+                    {
                         Ok(RelayOrStopEnvelope::Relay(bytes)) => {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -408,6 +414,7 @@ fn setup_process_output(
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
+    (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
 ) -> Vec<std::thread::JoinHandle<()>> {
     let mut _db = db.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
@@ -433,7 +440,7 @@ fn setup_process_output(
         let mut skov = Skov::new(&genesis_data);
 
         loop {
-            match SKOV_QUEUE.recv_request() {
+            match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
                     let source = request.source.unwrap_or_else(|| node_ref.id().0);
 
@@ -535,6 +542,7 @@ fn setup_process_output(
                         pac.peer.id(),
                         _network_id,
                         pac.message.clone(),
+                        &skov_sender,
                     ) {
                         error!("There's an issue with an outbound packet: {}", e);
                     }
@@ -703,16 +711,25 @@ fn main() -> Fallible<()> {
         None
     };
 
+    let (skov_sender, skov_receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
+
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    let higer_process_threads =
-        setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out);
+    let higer_process_threads = setup_process_output(
+        &node,
+        &db,
+        &conf,
+        &rpc_serv,
+        &mut baker,
+        pkt_out,
+        (skov_receiver, skov_sender.clone()),
+    );
 
     // Create listeners on baker output to forward to P2PNode
     //
     // Threads #5, #6, #7, #8, #9
-    let ths = setup_baker_guards(&mut baker, &node, &conf);
+    let ths = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
