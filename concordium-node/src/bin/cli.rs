@@ -20,10 +20,9 @@ use concordium_common::{
 };
 use concordium_consensus::{
     consensus,
-    ffi::{self, PacketType::*},
+    ffi,
 };
 use concordium_global_state::{
-    common::SerializeToBytes,
     tree::{Skov, SkovReq},
 };
 use env_logger::{Builder, Env};
@@ -102,99 +101,9 @@ fn setup_baker_guards(
     node: &P2PNode,
     conf: &configuration::Config,
     skov_sender: RelayOrStopSender<SkovReq>,
-) -> Vec<std::thread::JoinHandle<()>> {
+) -> Option<std::thread::JoinHandle<()>> {
     if let Some(ref mut baker) = baker {
         let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let catch_up_thread = spawn_or_die!("Process consensus catch-up requests", {
-            use concordium_consensus::consensus::CatchupRequest::*;
-            use concordium_global_state::common::DELTA_LENGTH;
-            loop {
-                match baker_clone.out_queue().recv_catchup() {
-                    Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                        let (receiver_id, serialized_bytes) = match msg {
-                            BlockByHash(receiver_id, ref hash, delta) => {
-                                let mut inner_out_bytes = Vec::with_capacity(
-                                    PAYLOAD_TYPE_LENGTH as usize
-                                        + hash.len()
-                                        + DELTA_LENGTH as usize,
-                                );
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(CatchupBlockByHash as u16)
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes.extend(hash.iter());
-                                inner_out_bytes
-                                    .write_u64::<NetworkEndian>(delta)
-                                    .expect("Can't write to buffer");
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                            FinalizationRecordByHash(receiver_id, ref hash) => {
-                                let mut inner_out_bytes =
-                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + hash.len());
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(
-                                        CatchupFinalizationRecordByHash as u16,
-                                    )
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes.extend(hash.iter());
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                            FinalizationRecordByIndex(receiver_id, index) => {
-                                let mut inner_out_bytes =
-                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + 8);
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(
-                                        CatchupFinalizationRecordByIndex as u16,
-                                    )
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes
-                                    .write_u64::<NetworkEndian>(index)
-                                    .expect("Can't write to buffer");
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                            FinalizationMessagesByPoint(receiver_id, ref msg) => {
-                                let msg_bytes = msg.serialize();
-                                let mut inner_out_bytes = Vec::with_capacity(
-                                    PAYLOAD_TYPE_LENGTH as usize + msg_bytes.len(),
-                                );
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(FinalizationMessage as u16)
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes.extend(&*msg_bytes);
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                        };
-                        match &node_ref.send_direct_message(
-                            Some(receiver_id),
-                            network_id,
-                            None,
-                            serialized_bytes,
-                        ) {
-                            Ok(_) => info!(
-                                "Peer {} sent a {} to peer {}",
-                                node_ref.id(),
-                                msg,
-                                receiver_id,
-                            ),
-                            Err(_) => error!(
-                                "Peer {} couldn't send a {} catch-up request to peer {}",
-                                node_ref.id(),
-                                msg,
-                                receiver_id,
-                            ),
-                        }
-                    }
-                    Ok(RelayOrStopEnvelope::Stop) => break,
-                    Err(_) => error!("Can't read from queue"),
-                }
-            }
-        });
 
         let baker_clone = baker.to_owned();
         let mut node = node.clone();
@@ -243,12 +152,9 @@ fn setup_baker_guards(
             }
         });
 
-        vec![
-            catch_up_thread,
-            consensus_message_thread,
-        ]
+        Some(consensus_message_thread)
     } else {
-        vec![]
+        None
     }
 }
 
@@ -640,10 +546,10 @@ fn main() -> Fallible<()> {
         (skov_receiver, skov_sender.clone()),
     );
 
-    // Create listeners on baker output to forward to P2PNode
+    // Create a listener on baker output to forward to P2PNode
     //
-    // Threads #5 & #6
-    let ths = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
+    // Thread #5
+    let baker_thread = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
@@ -661,9 +567,7 @@ fn main() -> Fallible<()> {
         th.join().expect("Higher process thread panicked")
     }
 
-    for th in ths {
-        th.join().expect("Baker sub-thread panicked");
-    }
+    baker_thread.map(|th| th.join().expect("Baker sub-thread panicked"));
 
     // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {

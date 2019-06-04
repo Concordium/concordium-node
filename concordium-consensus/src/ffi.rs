@@ -6,6 +6,7 @@ use std::{
     ffi::{CStr, CString},
     fmt,
     io::Cursor,
+    mem,
     os::raw::{c_char, c_int},
     ptr, slice,
     sync::{
@@ -17,7 +18,7 @@ use std::{
 use crate::consensus::*;
 use concordium_global_state::{
     block::*,
-    common::{self, HashBytes, SerializeToBytes},
+    common,
     finalization::*,
 };
 
@@ -482,38 +483,34 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
 }
 
 pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: Delta) {
-    let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
-    info!(
-        "Got a catch-up request for block {:?} with delta {} from consensus",
-        hash, delta
-    );
-    catchup_enqueue(CatchupRequest::BlockByHash(peer_id, hash, delta));
+    let mut payload = slice::from_raw_parts(hash, common::SHA256 as usize).to_owned();
+    let delta_array = mem::transmute::<Delta, [u8; 8]>(delta);
+    payload.extend_from_slice(&delta_array);
+    let payload = payload.into_boxed_slice();
+
+    catchup_enqueue(ConsensusMessage::new(PacketType::CatchupBlockByHash, Some(peer_id), None, payload));
 }
 
 pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
-    info!(
-        "Got a catch-up request for finalization record of block {:?} from consensus",
-        hash
-    );
-    catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, hash));
+    let payload = Box::from(slice::from_raw_parts(hash, common::SHA256 as usize));
+
+    catchup_enqueue(ConsensusMessage::new(PacketType::CatchupFinalizationRecordByHash, Some(peer_id), None, payload));
 }
 
 pub extern "C" fn on_catchup_finalization_record_by_index(
     peer_id: PeerId,
     index: FinalizationIndex,
 ) {
-    catchup_enqueue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
+    let payload = unsafe { Box::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
+    catchup_enqueue(ConsensusMessage::new(PacketType::CatchupFinalizationRecordByIndex, Some(peer_id), None, payload));
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     info!("Got a catch-up request for finalization messages for point from consensus",);
     unsafe {
-        let s = slice::from_raw_parts(data as *const u8, len as usize);
-        match FinalizationMessage::deserialize(s) {
-            Ok(msg) => catchup_enqueue(CatchupRequest::FinalizationMessagesByPoint(peer_id, msg)),
-            Err(e) => error!("Deserialization of a finalization message failed: {:?}", e),
-        }
+        let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
+
+        catchup_enqueue(ConsensusMessage::new(PacketType::CatchupFinalizationMessagesByPoint, Some(peer_id), None, payload))
     }
 }
 

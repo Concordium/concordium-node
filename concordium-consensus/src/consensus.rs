@@ -50,24 +50,18 @@ impl ConsensusMessage {
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_request:             Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
-    sender_request:               RelayOrStopSyncSender<ConsensusMessage>,
-    receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
-    sender_catchup_queue:         Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
+    receiver_request: Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
+    sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
 }
 
-const SYNC_CHANNEL_BOUND: usize = 16;
+const SYNC_CHANNEL_BOUND: usize = 64;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender_request, receiver_request) = mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
-        let (sender_catchup, receiver_catchup) =
-            mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
         ConsensusOutQueue {
-            receiver_request:             Arc::new(Mutex::new(receiver_request)),
+            receiver_request: Arc::new(Mutex::new(receiver_request)),
             sender_request,
-            receiver_catchup_queue:       Arc::new(Mutex::new(receiver_catchup)),
-            sender_catchup_queue:         Arc::new(Mutex::new(sender_catchup)),
         }
     }
 }
@@ -98,9 +92,8 @@ impl ConsensusOutQueue {
         if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
             match msg.variant {
                 PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
-                PacketType::FinalizationMessage => {}, // not used yet,
                 PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
-                _ => unimplemented!("this consensus message can't be relayed to Skov yet"),
+                _ => {}, // not used yet,
             }
         }
 
@@ -119,26 +112,16 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_request).try_recv())
     }
 
-    pub fn send_catchup(self, rec: CatchupRequest) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_catchup_queue).send_msg(rec))
-    }
-
-    pub fn recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
-        into_err!(safe_lock!(self.receiver_catchup_queue).recv())
-    }
-
-    pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
-        into_err!(safe_lock!(self.receiver_catchup_queue).try_recv())
+    pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).try_recv())
     }
 
     pub fn clear(&self) {
         empty_queue!(self.receiver_request, "Consensus request queue");
-        empty_queue!(self.receiver_catchup_queue, "Catch-up queue");
     }
 
     pub fn stop(&self) -> Fallible<()> {
         into_err!(self.sender_request.send_stop())?;
-        into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
         Ok(())
     }
 }
@@ -444,13 +427,12 @@ impl fmt::Display for CatchupRequest {
     }
 }
 
-pub fn catchup_enqueue(request: CatchupRequest) {
-    let request_info = format!("{:?}", request);
-    debug!("Produced a catch-up request: {}", request_info);
+pub fn catchup_enqueue(request: ConsensusMessage) {
+    let request_info = format!("{:?}", request.payload);
 
-    match CALLBACK_QUEUE.clone().send_catchup(request) {
+    match CALLBACK_QUEUE.clone().send_message(request) {
         Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
-        _ => error!("Didn't queue catch-up request properly"),
+        _ => error!("Couldn't queue a catch-up request ({})", request_info),
     }
 }
 
