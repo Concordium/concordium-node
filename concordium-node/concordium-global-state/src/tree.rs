@@ -153,13 +153,25 @@ impl Skov {
     }
 
     pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
-        self.stats.register_block();
-        self.data.add_block(pending_block)
+        let timestamp = Utc::now();
+        let result = self.data.add_block(pending_block);
+
+        if let SkovResult::Success = result {
+            self.stats.register_block(timestamp);
+        };
+
+        result
     }
 
     pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        self.stats.register_finalization();
-        self.data.add_finalization(record)
+        let timestamp = Utc::now();
+        let result = self.data.add_finalization(record);
+
+        if let SkovResult::Success = result {
+            self.stats.register_finalization(timestamp);
+        };
+
+        result
     }
 
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
@@ -363,7 +375,7 @@ impl SkovData {
         // a linear search, as we are expecting only to keep the most recent
         // finalization records and the most recent one is always first
         if self.finalization_list.iter().any(|rec| *rec == record) {
-            return SkovResult::Success; // don't mind these duplicates, at least not for now
+            return SkovResult::DuplicateEntry; // don't mind these duplicates, at least not yet
         }
 
         let housekeeping_hash = record.block_pointer.clone();
@@ -495,8 +507,8 @@ pub struct SkovStats {
 
 macro_rules! register_entry {
     ($method:ident, $times:ident) => {
-        fn $method(&mut self) {
-            self.$times.push(Utc::now())
+        fn $method(&mut self, timestamp: DateTime<Utc>) {
+            self.$times.push(timestamp)
         }
     };
 }
