@@ -255,12 +255,12 @@ impl SkovData {
     }
 
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
-        // verify if the pending block's parent block is already in the tree
+        // verify if the pending block's parent block is among tree candidates
+        // or already in the tree
         let parent_block =
-            if let Some(parent_ptr) = self.block_tree.get(&pending_block.block.pointer) {
+            if let Some(parent_ptr) = self.tree_candidates.get(&pending_block.block.pointer) {
                 parent_ptr
-            // or at least among the candidates
-            } else if let Some(parent_ptr) = self.tree_candidates.get(&pending_block.block.pointer) {
+            } else if let Some(parent_ptr) = self.block_tree.get(&pending_block.block.pointer) {
                 parent_ptr
             } else {
                 let error = SkovError::MissingParentBlock(
