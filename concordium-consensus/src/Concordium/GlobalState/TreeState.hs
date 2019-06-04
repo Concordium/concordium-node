@@ -366,6 +366,9 @@ class (Eq (BlockPointer m),
     -- that of the last finalized block.
     commitTransaction :: Slot -> Transaction -> m ()
     -- |Add a transaction and mark it committed for the given slot number.
+    -- Returns @True@ if the transaction is newly added.  The transaction
+    -- will not be added if its nonce is not later than the last finalized
+    -- transaction for the sender.
     addCommitTransaction :: Transaction -> Slot -> m Bool
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
