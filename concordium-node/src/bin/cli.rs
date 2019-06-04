@@ -18,13 +18,8 @@ use concordium_common::{
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
     RelayOrStopReceiver, RelayOrStopSender,
 };
-use concordium_consensus::{
-    consensus,
-    ffi,
-};
-use concordium_global_state::{
-    tree::{Skov, SkovReq},
-};
+use concordium_consensus::{consensus, ffi};
+use concordium_global_state::tree::{Skov, SkovReq};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -125,17 +120,11 @@ fn setup_baker_guards(
                                         out_bytes,
                                     )
                                 } else {
-                                    node.send_broadcast_message(
-                                        None, network_id, None, out_bytes,
-                                    )
+                                    node.send_broadcast_message(None, network_id, None, out_bytes)
                                 };
 
                                 match res {
-                                    Ok(_) => info!(
-                                        "Peer {} sent a {}",
-                                        node.id(),
-                                        msg.variant,
-                                    ),
+                                    Ok(_) => info!("Peer {} sent a {}", node.id(), msg.variant,),
                                     Err(_) => error!(
                                         "Peer {} couldn't send a {}!",
                                         node.id(),
@@ -464,8 +453,8 @@ fn main() -> Fallible<()> {
     };
 
     if let Some(ref baker) = baker {
-        // Register a handler for sending out a consensus catch-up request by finalization point
-        // after the handshake.
+        // Register a handler for sending out a consensus catch-up request by
+        // finalization point after the handshake.
         let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
         let baker_clone = baker.clone();
         let message_handshake_response_handler = &node.message_handler();
@@ -567,7 +556,9 @@ fn main() -> Fallible<()> {
         th.join().expect("Higher process thread panicked")
     }
 
-    baker_thread.map(|th| th.join().expect("Baker sub-thread panicked"));
+    if let Some(th) = baker_thread {
+        th.join().expect("Baker sub-thread panicked")
+    }
 
     // Close rpc server if present
     if let Some(ref mut serv) = rpc_serv {

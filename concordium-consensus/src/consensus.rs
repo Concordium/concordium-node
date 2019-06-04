@@ -1,5 +1,6 @@
 use concordium_common::{
-    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSyncSender, RelayOrStopSenderHelper,
+    into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
 
@@ -26,17 +27,13 @@ pub type Bytes = Box<[u8]>;
 
 #[derive(Debug)]
 pub struct ConsensusMessage {
-    pub variant: PacketType,
+    pub variant:  PacketType,
     pub producer: Option<PeerId>,
-    pub payload: Bytes,
+    pub payload:  Bytes,
 }
 
 impl ConsensusMessage {
-    pub fn new(
-        variant: PacketType,
-        producer: Option<PeerId>,
-        payload: Bytes
-    ) -> Self {
+    pub fn new(variant: PacketType, producer: Option<PeerId>, payload: Bytes) -> Self {
         Self {
             variant,
             producer,
@@ -55,7 +52,8 @@ const SYNC_CHANNEL_BOUND: usize = 64;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
-        let (sender_request, receiver_request) = mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
+        let (sender_request, receiver_request) =
+            mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
         ConsensusOutQueue {
             receiver_request: Arc::new(Mutex::new(receiver_request)),
             sender_request,
@@ -90,7 +88,7 @@ impl ConsensusOutQueue {
             match msg.variant {
                 PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
                 PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
-                _ => {}, // not used yet,
+                _ => {} // not used yet,
             }
         }
 
@@ -129,7 +127,9 @@ fn relay_msg_to_skov(
 ) -> Fallible<()> {
     let request_body = match message.variant {
         PacketType::Block => SkovReqBody::AddBlock(PendingBlock::new(&message.payload)?),
-        PacketType::FinalizationRecord => SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?),
+        PacketType::FinalizationRecord => {
+            SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?)
+        }
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 

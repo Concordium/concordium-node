@@ -16,11 +16,7 @@ use std::{
 };
 
 use crate::consensus::*;
-use concordium_global_state::{
-    block::*,
-    common,
-    finalization::*,
-};
+use concordium_global_state::{block::*, common, finalization::*};
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
@@ -148,7 +144,9 @@ impl fmt::Display for PacketType {
             PacketType::CatchupBlockByHash => "catch-up block by hash",
             PacketType::CatchupFinalizationRecordByHash => "catch-up finalization record by hash",
             PacketType::CatchupFinalizationRecordByIndex => "catch-up finalization record by index",
-            PacketType::CatchupFinalizationMessagesByPoint => "catch-up finalization messages by point",
+            PacketType::CatchupFinalizationMessagesByPoint => {
+                "catch-up finalization messages by point"
+            }
         };
 
         write!(f, "{}", name)
@@ -488,13 +486,21 @@ pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const 
     payload.extend_from_slice(&delta_array);
     let payload = payload.into_boxed_slice();
 
-    catchup_enqueue(ConsensusMessage::new(PacketType::CatchupBlockByHash, Some(peer_id), payload));
+    catchup_enqueue(ConsensusMessage::new(
+        PacketType::CatchupBlockByHash,
+        Some(peer_id),
+        payload,
+    ));
 }
 
 pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
     let payload = Box::from(slice::from_raw_parts(hash, common::SHA256 as usize));
 
-    catchup_enqueue(ConsensusMessage::new(PacketType::CatchupFinalizationRecordByHash, Some(peer_id), payload));
+    catchup_enqueue(ConsensusMessage::new(
+        PacketType::CatchupFinalizationRecordByHash,
+        Some(peer_id),
+        payload,
+    ));
 }
 
 pub extern "C" fn on_catchup_finalization_record_by_index(
@@ -502,7 +508,11 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
     index: FinalizationIndex,
 ) {
     let payload = unsafe { Box::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
-    catchup_enqueue(ConsensusMessage::new(PacketType::CatchupFinalizationRecordByIndex, Some(peer_id), payload));
+    catchup_enqueue(ConsensusMessage::new(
+        PacketType::CatchupFinalizationRecordByIndex,
+        Some(peer_id),
+        payload,
+    ));
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
@@ -510,7 +520,11 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     unsafe {
         let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
 
-        catchup_enqueue(ConsensusMessage::new(PacketType::CatchupFinalizationMessagesByPoint, Some(peer_id), payload))
+        catchup_enqueue(ConsensusMessage::new(
+            PacketType::CatchupFinalizationMessagesByPoint,
+            Some(peer_id),
+            payload,
+        ))
     }
 }
 
