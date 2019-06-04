@@ -206,6 +206,8 @@ impl Skov {
     }
 }
 
+type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
+
 #[derive(Debug)]
 pub struct SkovData {
     // finalized blocks
@@ -230,8 +232,6 @@ pub struct SkovData {
     transaction_table: TransactionTable,
     // focus_block: BlockPtr,
 }
-
-type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
 
 impl SkovData {
     fn new(genesis_data: &[u8]) -> Self {
@@ -505,18 +505,12 @@ pub struct SkovStats {
     errors:             Vec<SkovError>,
 }
 
-macro_rules! register_entry {
-    ($method:ident, $times:ident) => {
-        fn $method(&mut self, timestamp: DateTime<Utc>) {
-            self.$times.push(timestamp)
-        }
-    };
-}
-
 impl SkovStats {
-    register_entry!(register_block, block_times);
+    fn register_block(&mut self, timestamp: DateTime<Utc>) { self.block_times.push(timestamp) }
 
-    register_entry!(register_finalization, finalization_times);
+    fn register_finalization(&mut self, timestamp: DateTime<Utc>) {
+        self.finalization_times.push(timestamp)
+    }
 
     fn new(time_sizes: usize) -> Self {
         Self {
@@ -530,10 +524,10 @@ impl SkovStats {
 
 impl fmt::Display for SkovStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> Option<i64> {
+        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> i64 {
             let mass = (0..times.len() as i64).sum::<i64>();
             if mass == 0 {
-                return None;
+                return 0;
             }
 
             let diffs = times
@@ -551,14 +545,14 @@ impl fmt::Display for SkovStats {
 
             let wma = sum / mass;
 
-            Some(wma)
+            wma
         }
 
         write!(
             f,
             "avg. block time: {}s; avg. finalization time: {}s, errors: {:?}",
-            get_avg_duration(&self.block_times).unwrap_or(0),
-            get_avg_duration(&self.finalization_times).unwrap_or(0),
+            get_avg_duration(&self.block_times),
+            get_avg_duration(&self.finalization_times),
             self.errors,
         )
     }
