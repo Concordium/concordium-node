@@ -180,8 +180,11 @@ pub fn handle_pkt_out(
         };
 
         if let Some(body) = request_body {
-            let request = RelayOrStopEnvelope::Relay(
-                SkovReq::new(Some(peer_id.0), body, Some(content.clone())));
+            let request = RelayOrStopEnvelope::Relay(SkovReq::new(
+                Some(peer_id.0),
+                body,
+                Some(content.clone()),
+            ));
 
             skov_sender.send(request)?;
         }

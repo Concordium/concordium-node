@@ -290,7 +290,10 @@ fn setup_baker_guards(
         let consensus_fin_rec_thread =
             spawn_or_die!("Process consensus finalization records output", {
                 loop {
-                    match baker_clone.out_queue().recv_finalization_record(&skov_sender_ref) {
+                    match baker_clone
+                        .out_queue()
+                        .recv_finalization_record(&skov_sender_ref)
+                    {
                         Ok(RelayOrStopEnvelope::Relay(bytes)) => {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -411,8 +414,7 @@ fn setup_process_output(
     rpc_serv: &Option<RpcServerImpl>,
     baker: &mut Option<consensus::ConsensusContainer>,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-    skov_receiver: RelayOrStopReceiver<SkovReq>,
-    skov_sender: RelayOrStopSender<SkovReq>,
+    (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
 ) -> Vec<std::thread::JoinHandle<()>> {
     let mut _db = db.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
@@ -714,8 +716,15 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    let higer_process_threads =
-        setup_process_output(&node, &db, &conf, &rpc_serv, &mut baker, pkt_out, skov_receiver, skov_sender.clone());
+    let higer_process_threads = setup_process_output(
+        &node,
+        &db,
+        &conf,
+        &rpc_serv,
+        &mut baker,
+        pkt_out,
+        (skov_receiver, skov_sender.clone()),
+    );
 
     // Create listeners on baker output to forward to P2PNode
     //

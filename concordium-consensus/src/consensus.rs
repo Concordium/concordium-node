@@ -77,7 +77,10 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_block).send_msg(block))
     }
 
-    pub fn recv_block(self, skov_sender: &RelayOrStopSender<SkovReq>) -> Fallible<RelayOrStopEnvelope<Bytes>> {
+    pub fn recv_block(
+        self,
+        skov_sender: &RelayOrStopSender<SkovReq>,
+    ) -> Fallible<RelayOrStopEnvelope<Bytes>> {
         let baked_block = into_err!(safe_lock!(self.receiver_block).recv());
 
         if let Ok(RelayOrStopEnvelope::Relay(ref block)) = baked_block {
@@ -107,7 +110,10 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.sender_finalization_record).send_msg(rec))
     }
 
-    pub fn recv_finalization_record(self, skov_sender: &RelayOrStopSender<SkovReq>) -> Fallible<RelayOrStopEnvelope<Bytes>> {
+    pub fn recv_finalization_record(
+        self,
+        skov_sender: &RelayOrStopSender<SkovReq>,
+    ) -> Fallible<RelayOrStopEnvelope<Bytes>> {
         let record = into_err!(safe_lock!(self.receiver_finalization_record).recv());
 
         if let Ok(RelayOrStopEnvelope::Relay(ref record)) = record {
@@ -152,7 +158,10 @@ impl ConsensusOutQueue {
     }
 }
 
-fn handle_recv_block(skov_sender: &RelayOrStopSender<SkovReq>, baked_block: &Bytes) -> Fallible<()> {
+fn handle_recv_block(
+    skov_sender: &RelayOrStopSender<SkovReq>,
+    baked_block: &Bytes,
+) -> Fallible<()> {
     let pending_block = PendingBlock::new(baked_block)?;
     let request_body = SkovReqBody::AddBlock(pending_block);
     let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
@@ -160,7 +169,10 @@ fn handle_recv_block(skov_sender: &RelayOrStopSender<SkovReq>, baked_block: &Byt
     into_err!(skov_sender.send(request))
 }
 
-fn handle_recv_finalization_record(skov_sender: &RelayOrStopSender<SkovReq>, record: &Bytes) -> Fallible<()> {
+fn handle_recv_finalization_record(
+    skov_sender: &RelayOrStopSender<SkovReq>,
+    record: &Bytes,
+) -> Fallible<()> {
     let record = FinalizationRecord::deserialize(record)?;
     let request_body = SkovReqBody::AddFinalizationRecord(record);
     let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
