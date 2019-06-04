@@ -28,7 +28,6 @@ pub type Bytes = Box<[u8]>;
 pub struct ConsensusMessage {
     pub variant: PacketType,
     pub producer: Option<PeerId>,
-    pub identifier: Option<HashBytes>,
     pub payload: Bytes,
 }
 
@@ -36,13 +35,11 @@ impl ConsensusMessage {
     pub fn new(
         variant: PacketType,
         producer: Option<PeerId>,
-        identifier: Option<HashBytes>,
         payload: Bytes
     ) -> Self {
         Self {
             variant,
             producer,
-            identifier,
             payload,
         }
     }
