@@ -238,6 +238,10 @@ impl ConsensusContainer {
                             // block, so we'll do an early return at
                             // this point with the response code
                             // from consensus.
+                            // Return codes from the Haskell side are as follows:
+                            // 0 = Everything went okay
+                            // 1 = Message couldn't get deserialized properly
+                            // 2 = Message was a duplicate
                             return baker.send_block(peer_id, block);
                         }
                     }
@@ -247,6 +251,10 @@ impl ConsensusContainer {
         } else if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
             // We have a baker to send it to, so we 'll do an early return at this point
             // with the response code from consensus.
+            // Return codes from the Haskell side are as follows:
+            // 0 = Everything went okay
+            // 1 = Message couldn't get deserialized properly
+            // 2 = Message was a duplicate
             return baker.send_block(peer_id, block);
         }
         // If we didn't do an early return with the response code from consensus, we
@@ -257,15 +265,24 @@ impl ConsensusContainer {
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
-            baker.send_finalization(peer_id, msg);
+            // Return codes from the Haskell side are as follows:
+            // 0 = Everything went okay
+            // 1 = Message couldn't get deserialized properly
+            // 2 = Message was a duplicate
+            return baker.send_finalization(peer_id, msg);
         }
-        // As consensus doesn't return a status for this call, we assume success, i.e.
-        // 0.
-        0
+        // If we didn't do an early return with the response code from consensus, we
+        // emit a -1 to signal we didn't find any baker we could pass this
+        // request on to.
+        -1
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+            // Return codes from the Haskell side are as follows:
+            // 0 = Everything went okay
+            // 1 = Message couldn't get deserialized properly
+            // 2 = Message was a duplicate
             return baker.send_finalization_record(peer_id, rec);
         }
         // If we didn't do an early return with the response code from consensus, we
@@ -276,6 +293,9 @@ impl ConsensusContainer {
 
     pub fn send_transaction(&self, tx: &[u8]) -> i64 {
         if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+            // Return codes from the Haskell side are as follows:
+            // 0 = Everything went okay
+            // 1 = Message couldn't get deserialized properly
             return baker.send_transaction(tx.to_vec());
         }
         // If we didn't do an early return with the response code from consensus, we

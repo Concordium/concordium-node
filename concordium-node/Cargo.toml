@@ -32,6 +32,7 @@ concordium_crypto_sha2 = { package = "sha_2", path = "deps/internal/crypto/rust-
 concordium_crypto_elgamal = { package = "elgamal", path = "deps/internal/crypto/rust-src/elgamal" }
 concordium_crypto_pedersen_scheme = { package = "pedersen-scheme", path = "deps/internal/crypto/rust-src/pedersen_scheme" }
 concordium_dodis_yampolskiy_prf = { package = "dodis-yampolskiy-prf", path = "deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
+# concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/crypto/rust-src/curve_arithmetic" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
 libc = "0.2"
