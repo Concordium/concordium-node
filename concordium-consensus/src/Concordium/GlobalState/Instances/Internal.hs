@@ -18,6 +18,8 @@ import Data.HashMap.Strict(HashMap)
 data InstanceParameters = InstanceParameters {
     -- |Address of the instance
     instanceAddress :: !ContractAddress,
+    -- |Address of this contract instance owner, i.e., the creator account.
+    instanceOwner :: !AccountAddress,
     -- |The module that the contract is defined in
     instanceContractModule :: !Core.ModuleRef,
     -- |The name of the contract
@@ -62,9 +64,10 @@ instance Show Instance where
 instance HashableTo H.Hash Instance where
     getHash = instanceHash
 
-makeInstanceParameterHash :: ContractAddress -> Core.ModuleRef -> Core.TyName -> H.Hash
-makeInstanceParameterHash ca modRef conName = H.hashLazy $ runPutLazy $ do
+makeInstanceParameterHash :: ContractAddress -> AccountAddress -> Core.ModuleRef -> Core.TyName -> H.Hash
+makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put ca
+        put aa
         put modRef
         put conName
 

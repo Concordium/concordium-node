@@ -30,7 +30,7 @@ genTransactionHeader = do
   thScheme <- genSchemeId
   thSenderKey <- VerifyKey . BS.pack <$> (vector 32)
   thNonce <- Nonce <$> arbitrary
-  thGasAmount <- Amount <$> arbitrary
+  thGasAmount <- Energy <$> arbitrary
   thFinalizedPointer <- Hash . FBS.pack <$> vector 32
   return $ makeTransactionHeader thScheme thSenderKey thNonce thGasAmount thFinalizedPointer
 

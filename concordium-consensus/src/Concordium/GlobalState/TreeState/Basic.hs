@@ -26,6 +26,8 @@ import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.Instances as Instances
+import qualified Concordium.GlobalState.Rewards as Rewards
+import qualified Concordium.GlobalState.IdentityProviders as IPS
 
 import qualified Concordium.Crypto.SHA256 as Hash
 
@@ -37,16 +39,22 @@ import Data.Hashable hiding (unhashed, hashed)
 data BlockState = BlockState {
     _blockAccounts :: Account.Accounts,
     _blockInstances :: Instances.Instances,
-    _blockModules :: Modules.Modules
+    _blockModules :: Modules.Modules,
+    _blockBank :: Rewards.BankStatus,
+    _blockIdentityProviders :: IPS.IdentityProviders
 }
 
 makeLenses ''BlockState
 
+-- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
+-- has hard-coded initial values for amount of gtu in existence.
 emptyBlockState :: BlockState
 emptyBlockState = BlockState {
   _blockAccounts = Account.emptyAccounts
   , _blockInstances = Instances.emptyInstances
   , _blockModules = Modules.emptyModules
+  , _blockBank = Rewards.emptyBankStatus
+  , _blockIdentityProviders = IPS.emptyIdentityProviders
   }
 
 
@@ -296,6 +304,10 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
              Just cdi ->
                bs & blockAccounts %~ Account.putAccount updatedAccount
                                    . Account.recordRegId (cdi_regId cdi)
+
+    {-# INLINE bsoNotifyExecutionCost #-}
+    bsoNotifyExecutionCost bs amnt =
+      return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
 
 type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
 
