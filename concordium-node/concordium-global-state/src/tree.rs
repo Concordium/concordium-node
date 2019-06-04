@@ -1,17 +1,10 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use failure::Fallible;
-
-use concordium_common::{
-    into_err, safe_lock, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
-    RelayOrStopSenderHelper,
-};
 
 use std::{
     collections::{BinaryHeap, HashMap},
     fmt,
     rc::Rc,
-    sync::{mpsc, Arc, Mutex},
 };
 
 use crate::{
@@ -22,36 +15,6 @@ use crate::{
 };
 
 use self::PendingQueueType::*;
-
-lazy_static! {
-    pub static ref SKOV_QUEUE: SkovQueue = { SkovQueue::default() };
-}
-
-pub struct SkovQueue {
-    receiver: Arc<Mutex<RelayOrStopReceiver<SkovReq>>>,
-    sender:   Mutex<RelayOrStopSender<SkovReq>>,
-}
-
-impl Default for SkovQueue {
-    fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<SkovReq>>();
-
-        SkovQueue {
-            receiver: Arc::new(Mutex::new(receiver)),
-            sender:   Mutex::new(sender),
-        }
-    }
-}
-
-impl SkovQueue {
-    pub fn send_request(&self, request: SkovReq) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender)?.send_msg(request))
-    }
-
-    pub fn recv_request(&self) -> Fallible<RelayOrStopEnvelope<SkovReq>> {
-        into_err!(safe_lock!(self.receiver)?.recv())
-    }
-}
 
 #[derive(Debug)]
 pub struct SkovReq {

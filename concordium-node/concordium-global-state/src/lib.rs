@@ -1,7 +1,5 @@
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate lazy_static;
 
 // pub use concordium_consensus::consensus as consensus;
 

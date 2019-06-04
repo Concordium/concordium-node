@@ -13,7 +13,7 @@ use std::{
     io::{Read, Write},
 };
 
-use concordium_common::UCursor;
+use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
 
 use concordium_consensus::{
     consensus::{self, Bytes},
@@ -27,7 +27,7 @@ use concordium_global_state::{
     block::{BakedBlock, PendingBlock},
     common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{Skov, SkovError, SkovReq, SkovReqBody, SkovResult, SKOV_QUEUE},
+    tree::{Skov, SkovError, SkovReq, SkovReqBody, SkovResult},
 };
 
 use crate::{
@@ -157,6 +157,7 @@ pub fn handle_pkt_out(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     mut msg: UCursor,
+    skov_sender: &RelayOrStopSender<SkovReq>,
 ) -> Fallible<()> {
     if let Some(ref mut baker) = baker {
         ensure!(
@@ -179,9 +180,10 @@ pub fn handle_pkt_out(
         };
 
         if let Some(body) = request_body {
-            let request = SkovReq::new(Some(peer_id.0), body, Some(content.clone()));
+            let request = RelayOrStopEnvelope::Relay(
+                SkovReq::new(Some(peer_id.0), body, Some(content.clone())));
 
-            SKOV_QUEUE.send_request(request)?;
+            skov_sender.send(request)?;
         }
 
         send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
