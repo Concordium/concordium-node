@@ -200,7 +200,7 @@ extern "C" {
         peer_id: PeerId,
         finalization_data: *const u8,
         data_length: i64,
-    );
+    ) -> i64;
     pub fn receiveFinalizationRecord(
         baker: *mut baker_runner,
         peer_id: PeerId,
@@ -310,8 +310,8 @@ impl ConsensusBaker {
         wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) {
-        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization);
+    pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) -> i64 {
+        wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
