@@ -24,8 +24,6 @@ pub type PeerId = u64;
 pub type Delta = u64;
 pub type Bytes = Box<[u8]>;
 
-pub type FinalizationCatchupTuple = (Option<PeerId>, Bytes);
-
 #[derive(Debug)]
 pub struct ConsensusMessage {
     pub variant: PacketType,
@@ -54,26 +52,20 @@ impl ConsensusMessage {
 pub struct ConsensusOutQueue {
     receiver_request:             Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
     sender_request:               RelayOrStopSyncSender<ConsensusMessage>,
-    receiver_finalization:        Arc<Mutex<RelayOrStopReceiver<FinalizationCatchupTuple>>>,
-    sender_finalization:          Arc<Mutex<RelayOrStopSender<FinalizationCatchupTuple>>>,
     receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
     sender_catchup_queue:         Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
 }
 
-const SYNC_CHANNEL_BOUND: usize = 64;
+const SYNC_CHANNEL_BOUND: usize = 16;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
         let (sender_request, receiver_request) = mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
-        let (sender_finalization, receiver_finalization) =
-            mpsc::channel::<RelayOrStopEnvelope<FinalizationCatchupTuple>>();
         let (sender_catchup, receiver_catchup) =
             mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
         ConsensusOutQueue {
             receiver_request:             Arc::new(Mutex::new(receiver_request)),
             sender_request,
-            receiver_finalization:        Arc::new(Mutex::new(receiver_finalization)),
-            sender_finalization:          Arc::new(Mutex::new(sender_finalization)),
             receiver_catchup_queue:       Arc::new(Mutex::new(receiver_catchup)),
             sender_catchup_queue:         Arc::new(Mutex::new(sender_catchup)),
         }
@@ -93,9 +85,8 @@ macro_rules! empty_queue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_message(self, variant: PacketType, payload: Bytes) -> Fallible<()> {
-        let msg = ConsensusMessage::new(variant, None, None, payload);
-        into_err!(self.sender_request.send_msg(msg))
+    pub fn send_message(self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender_request.send_msg(message))
     }
 
     pub fn recv_message(
@@ -107,6 +98,7 @@ impl ConsensusOutQueue {
         if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
             match msg.variant {
                 PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
+                PacketType::FinalizationMessage => {}, // not used yet,
                 PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
                 _ => unimplemented!("this consensus message can't be relayed to Skov yet"),
             }
@@ -119,16 +111,8 @@ impl ConsensusOutQueue {
         into_err!(safe_lock!(self.receiver_request).try_recv())
     }
 
-    pub fn send_finalization(self, msg: FinalizationCatchupTuple) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
-    }
-
-    pub fn recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
-        into_err!(safe_lock!(self.receiver_finalization).recv())
-    }
-
-    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
-        into_err!(safe_lock!(self.receiver_finalization).try_recv())
+    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).try_recv())
     }
 
     pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
@@ -149,13 +133,11 @@ impl ConsensusOutQueue {
 
     pub fn clear(&self) {
         empty_queue!(self.receiver_request, "Consensus request queue");
-        empty_queue!(self.receiver_finalization, "Finalization messages queue");
         empty_queue!(self.receiver_catchup_queue, "Catch-up queue");
     }
 
     pub fn stop(&self) -> Fallible<()> {
         into_err!(self.sender_request.send_stop())?;
-        into_err!(safe_lock!(self.sender_finalization).send_stop())?;
         into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
         Ok(())
     }

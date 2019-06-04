@@ -23,8 +23,7 @@ use concordium_consensus::{
     ffi::{self, PacketType::*},
 };
 use concordium_global_state::{
-    common::{sha256, SerializeToBytes},
-    finalization::FinalizationMessage,
+    common::SerializeToBytes,
     tree::{Skov, SkovReq},
 };
 use env_logger::{Builder, Env};
@@ -198,35 +197,44 @@ fn setup_baker_guards(
         });
 
         let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let skov_sender_ref = skov_sender.clone();
+        let mut node = node.clone();
         let consensus_message_thread = spawn_or_die!("Process consensus messages", {
             loop {
-                match baker_clone.out_queue().recv_message(&skov_sender_ref) {
+                match baker_clone.out_queue().recv_message(&skov_sender) {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
                         let mut out_bytes =
                             Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
                         match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
                             Ok(_) => {
                                 out_bytes.extend(&*msg.payload);
-                                match &node_ref
-                                    .send_broadcast_message(None, network_id, None, out_bytes)
-                                {
+
+                                let res = if let Some(peer_id) = msg.producer {
+                                    node.send_direct_message(
+                                        Some(P2PNodeId(peer_id)),
+                                        network_id,
+                                        None,
+                                        out_bytes,
+                                    )
+                                } else {
+                                    node.send_broadcast_message(
+                                        None, network_id, None, out_bytes,
+                                    )
+                                };
+
+                                match res {
                                     Ok(_) => info!(
-                                        "Peer {} broadcasted a {} ({:?})",
-                                        node_ref.id(),
+                                        "Peer {} sent a {}",
+                                        node.id(),
                                         msg.variant,
-                                        sha256(&msg.payload),
                                     ),
                                     Err(_) => error!(
-                                        "Peer {} couldn't broadcast a {} ({:?})!",
-                                        node_ref.id(),
+                                        "Peer {} couldn't send a {}!",
+                                        node.id(),
                                         msg.variant,
-                                        sha256(&msg.payload),
                                     ),
                                 }
                             }
-                            Err(_) => error!("Can't write a {} to a packet", msg.variant),
+                            Err(_) => error!("Can't write a consensus message type to a packet"),
                         }
                     }
                     Ok(RelayOrStopEnvelope::Stop) => break,
@@ -235,61 +243,9 @@ fn setup_baker_guards(
             }
         });
 
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let consensus_fin_msg_thread =
-            spawn_or_die!("Process consensus finalization message output", {
-                loop {
-                    match baker_clone.out_queue().recv_finalization() {
-                        Ok(RelayOrStopEnvelope::Relay((peer_id_opt, bytes))) => {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                ffi::PacketType::FinalizationMessage as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&*bytes);
-                                    let res = if let Some(peer_id) = peer_id_opt {
-                                        node_ref.send_direct_message(
-                                            Some(P2PNodeId(peer_id)),
-                                            network_id,
-                                            None,
-                                            out_bytes,
-                                        )
-                                    } else {
-                                        node_ref.send_broadcast_message(
-                                            None, network_id, None, out_bytes,
-                                        )
-                                    };
-
-                                    match res {
-                                        Ok(_) => info!(
-                                            "Peer {} broadcasted a {}",
-                                            node_ref.id(),
-                                            FinalizationMessage::deserialize(&bytes)
-                                                .map(|msg| msg.to_string())
-                                                .unwrap_or_else(|_| String::from(
-                                                    "corrupt finalization message"
-                                                ))
-                                        ),
-                                        Err(_) => {
-                                            error!("Couldn't broadcast a finalization packet!")
-                                        }
-                                    }
-                                }
-                                Err(_) => error!("Can't write type to packet"),
-                            }
-                        }
-                        Ok(RelayOrStopEnvelope::Stop) => break,
-                        _ => error!("Error receiving finalization packet from the consensus layer"),
-                    }
-                }
-            });
-
         vec![
             catch_up_thread,
             consensus_message_thread,
-            consensus_fin_msg_thread,
         ]
     } else {
         vec![]
@@ -602,11 +558,12 @@ fn main() -> Fallible<()> {
     };
 
     if let Some(ref baker) = baker {
-        // Register handler for sending out a consensus catch-up request after handshake
-        // by finalization point.
+        // Register a handler for sending out a consensus catch-up request by finalization point
+        // after the handshake.
         let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
         let baker_clone = baker.clone();
         let message_handshake_response_handler = &node.message_handler();
+
         safe_write!(message_handshake_response_handler)?.add_response_callback(
             make_atomic_callback!(move |msg: &NetworkResponse| {
                 if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
@@ -685,7 +642,7 @@ fn main() -> Fallible<()> {
 
     // Create listeners on baker output to forward to P2PNode
     //
-    // Threads #5, #6, #7, #8, #9
+    // Threads #5 & #6
     let ths = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
 
     // Wait for node closing

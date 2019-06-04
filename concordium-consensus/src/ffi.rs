@@ -457,6 +457,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             block_data as *const u8,
             data_length as usize,
         ));
+
         let callback_type = match CallbackType::try_from(block_type as u8) {
             Ok(ct) => ct,
             Err(e) => {
@@ -465,24 +466,18 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             }
         };
 
-        match callback_type {
-            CallbackType::Block => match CALLBACK_QUEUE.clone().send_message(PacketType::Block, data) {
-                Ok(_) => debug!("Queueing {} block bytes", data_length),
-                _ => error!("Didn't queue block message properly"),
-            },
-            CallbackType::FinalizationMessage => {
-                match CALLBACK_QUEUE.clone().send_finalization((None, data)) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization", data_length),
-                    _ => error!("Didn't queue finalization message properly"),
-                }
-            }
-            CallbackType::FinalizationRecord => {
-                match CALLBACK_QUEUE.clone().send_message(PacketType::FinalizationRecord, data) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization record", data_length),
-                    _ => error!("Didn't queue finalization record message properly"),
-                }
-            }
-        }
+        let message_variant = match callback_type {
+            CallbackType::Block => PacketType::Block,
+            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+        };
+
+        let message = ConsensusMessage::new(message_variant, None, None, data);
+
+        match CALLBACK_QUEUE.clone().send_message(message) {
+            Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
+            _ => error!("Couldn't queue a {} properly", message_variant),
+        };
     }
 }
 
