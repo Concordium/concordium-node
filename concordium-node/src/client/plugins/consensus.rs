@@ -226,7 +226,7 @@ pub fn handle_global_state_request(
                 );
             }
             SkovResult::Error(e) => {
-                warn!("{:?}", e);
+                warn!("{}", e);
 
                 if node.config.global_state_catch_up_requests {
                     match e {

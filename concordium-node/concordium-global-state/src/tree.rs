@@ -81,6 +81,19 @@ pub enum SkovResult {
     Error(SkovError),
 }
 
+
+impl fmt::Display for SkovResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg = match self {
+            SkovResult::Success => "successful entry".to_owned(),
+            SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
+            SkovResult::Error(e) => e.to_string(),
+        };
+
+        write!(f, "Skov: {}", msg)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 // if there are two components, the first one is the target and the second is
 // the source
@@ -123,7 +136,7 @@ impl fmt::Display for SkovError {
             ),
         };
 
-        write!(f, "Skov error: {}", msg)
+        write!(f, "error: {}", msg)
     }
 }
 
