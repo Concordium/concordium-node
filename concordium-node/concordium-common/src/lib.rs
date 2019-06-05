@@ -31,6 +31,9 @@ pub enum RelayOrStopEnvelope<T> {
 /// Represents a `Sender<T>` that is promoted to use `RelayOrStopEnvelope`s
 pub type RelayOrStopSender<T> = std::sync::mpsc::Sender<RelayOrStopEnvelope<T>>;
 
+/// Represents a `Sender<T>` that is promoted to use `RelayOrStopEnvelope`s
+pub type RelayOrStopSyncSender<T> = std::sync::mpsc::SyncSender<RelayOrStopEnvelope<T>>;
+
 /// Represents a `Receiver<T>` that is promoted to use `RelayOrStopEnvelope`s
 pub type RelayOrStopReceiver<T> = std::sync::mpsc::Receiver<RelayOrStopEnvelope<T>>;
 
@@ -44,6 +47,18 @@ pub trait RelayOrStopSenderHelper<T> {
 }
 
 impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSender<T> {
+    #[inline]
+    fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
+        self.send(RelayOrStopEnvelope::Stop)
+    }
+
+    #[inline]
+    fn send_msg(&self, msg: T) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
+        self.send(RelayOrStopEnvelope::Relay(msg))
+    }
+}
+
+impl<T> RelayOrStopSenderHelper<T> for RelayOrStopSyncSender<T> {
     #[inline]
     fn send_stop(&self) -> Result<(), std::sync::mpsc::SendError<RelayOrStopEnvelope<T>>> {
         self.send(RelayOrStopEnvelope::Stop)

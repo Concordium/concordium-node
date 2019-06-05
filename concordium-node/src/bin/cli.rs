@@ -18,15 +18,8 @@ use concordium_common::{
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
     RelayOrStopReceiver, RelayOrStopSender,
 };
-use concordium_consensus::{
-    consensus,
-    ffi::{self, PacketType::*},
-};
-use concordium_global_state::{
-    common::{sha256, SerializeToBytes},
-    finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{Skov, SkovReq},
-};
+use concordium_consensus::{consensus, ffi};
+use concordium_global_state::tree::{Skov, SkovReq};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
@@ -103,239 +96,54 @@ fn setup_baker_guards(
     node: &P2PNode,
     conf: &configuration::Config,
     skov_sender: RelayOrStopSender<SkovReq>,
-) -> Vec<std::thread::JoinHandle<()>> {
+) -> Option<std::thread::JoinHandle<()>> {
     if let Some(ref mut baker) = baker {
         let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
         let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let catch_up_thread = spawn_or_die!("Process consensus catch-up requests", {
-            use concordium_consensus::consensus::CatchupRequest::*;
-            use concordium_global_state::common::DELTA_LENGTH;
+        let mut node = node.clone();
+        let consensus_message_thread = spawn_or_die!("Process consensus messages", {
             loop {
-                match baker_clone.out_queue().recv_catchup() {
+                match baker_clone.out_queue().recv_message(&skov_sender) {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                        let (receiver_id, serialized_bytes) = match msg {
-                            BlockByHash(receiver_id, ref hash, delta) => {
-                                let mut inner_out_bytes = Vec::with_capacity(
-                                    PAYLOAD_TYPE_LENGTH as usize
-                                        + hash.len()
-                                        + DELTA_LENGTH as usize,
-                                );
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(CatchupBlockByHash as u16)
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes.extend(hash.iter());
-                                inner_out_bytes
-                                    .write_u64::<NetworkEndian>(delta)
-                                    .expect("Can't write to buffer");
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                            FinalizationRecordByHash(receiver_id, ref hash) => {
-                                let mut inner_out_bytes =
-                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + hash.len());
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(
-                                        CatchupFinalizationRecordByHash as u16,
-                                    )
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes.extend(hash.iter());
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                            FinalizationRecordByIndex(receiver_id, index) => {
-                                let mut inner_out_bytes =
-                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + 8);
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(
-                                        CatchupFinalizationRecordByIndex as u16,
-                                    )
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes
-                                    .write_u64::<NetworkEndian>(index)
-                                    .expect("Can't write to buffer");
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                            FinalizationMessagesByPoint(receiver_id, ref msg) => {
-                                let msg_bytes = msg.serialize();
-                                let mut inner_out_bytes = Vec::with_capacity(
-                                    PAYLOAD_TYPE_LENGTH as usize + msg_bytes.len(),
-                                );
-                                inner_out_bytes
-                                    .write_u16::<NetworkEndian>(FinalizationMessage as u16)
-                                    .expect("Can't write to buffer");
-                                inner_out_bytes.extend(&*msg_bytes);
-
-                                (P2PNodeId(receiver_id), inner_out_bytes)
-                            }
-                        };
-                        match &node_ref.send_direct_message(
-                            Some(receiver_id),
-                            network_id,
-                            None,
-                            serialized_bytes,
-                        ) {
-                            Ok(_) => info!(
-                                "Peer {} sent a {} to peer {}",
-                                node_ref.id(),
-                                msg,
-                                receiver_id,
-                            ),
-                            Err(_) => error!(
-                                "Peer {} couldn't send a {} catch-up request to peer {}",
-                                node_ref.id(),
-                                msg,
-                                receiver_id,
-                            ),
-                        }
-                    }
-                    Ok(RelayOrStopEnvelope::Stop) => break,
-                    Err(_) => error!("Can't read from queue"),
-                }
-            }
-        });
-
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let skov_sender_ref = skov_sender.clone();
-        let consensus_block_thread = spawn_or_die!("Process consensus block output", {
-            loop {
-                match baker_clone.out_queue().recv_block(&skov_sender_ref) {
-                    Ok(RelayOrStopEnvelope::Relay(block_bytes)) => {
                         let mut out_bytes =
-                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + block_bytes.len());
-                        match out_bytes.write_u16::<NetworkEndian>(ffi::PacketType::Block as u16) {
+                            Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
+                        match out_bytes.write_u16::<NetworkEndian>(msg.variant as u16) {
                             Ok(_) => {
-                                out_bytes.extend(&*block_bytes);
-                                match &node_ref
-                                    .send_broadcast_message(None, network_id, None, out_bytes)
-                                {
-                                    Ok(_) => info!(
-                                        "Peer {} broadcasted block ({:?})",
-                                        node_ref.id(),
-                                        sha256(&block_bytes),
-                                    ),
+                                out_bytes.extend(&*msg.payload);
+
+                                let res = if let Some(peer_id) = msg.producer {
+                                    node.send_direct_message(
+                                        Some(P2PNodeId(peer_id)),
+                                        network_id,
+                                        None,
+                                        out_bytes,
+                                    )
+                                } else {
+                                    node.send_broadcast_message(None, network_id, None, out_bytes)
+                                };
+
+                                match res {
+                                    Ok(_) => info!("Peer {} sent a {}", node.id(), msg.variant,),
                                     Err(_) => error!(
-                                        "Peer {} couldn't broadcast block ({:?})!",
-                                        node_ref.id(),
-                                        sha256(&block_bytes),
+                                        "Peer {} couldn't send a {}!",
+                                        node.id(),
+                                        msg.variant,
                                     ),
                                 }
                             }
-                            Err(_) => error!("Can't write type to packet"),
+                            Err(_) => error!("Can't write a consensus message type to a packet"),
                         }
                     }
                     Ok(RelayOrStopEnvelope::Stop) => break,
-                    _ => error!("Error receiving block from the consensus layer"),
+                    _ => error!("Error receiving a message from the consensus layer"),
                 }
             }
         });
 
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let consensus_fin_msg_thread =
-            spawn_or_die!("Process consensus finalization message output", {
-                loop {
-                    match baker_clone.out_queue().recv_finalization() {
-                        Ok(RelayOrStopEnvelope::Relay((peer_id_opt, bytes))) => {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                ffi::PacketType::FinalizationMessage as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&*bytes);
-                                    let res = if let Some(peer_id) = peer_id_opt {
-                                        node_ref.send_direct_message(
-                                            Some(P2PNodeId(peer_id)),
-                                            network_id,
-                                            None,
-                                            out_bytes,
-                                        )
-                                    } else {
-                                        node_ref.send_broadcast_message(
-                                            None, network_id, None, out_bytes,
-                                        )
-                                    };
-
-                                    match res {
-                                        Ok(_) => info!(
-                                            "Peer {} broadcasted a {}",
-                                            node_ref.id(),
-                                            FinalizationMessage::deserialize(&bytes)
-                                                .map(|msg| msg.to_string())
-                                                .unwrap_or_else(|_| String::from(
-                                                    "corrupt finalization message"
-                                                ))
-                                        ),
-                                        Err(_) => {
-                                            error!("Couldn't broadcast a finalization packet!")
-                                        }
-                                    }
-                                }
-                                Err(_) => error!("Can't write type to packet"),
-                            }
-                        }
-                        Ok(RelayOrStopEnvelope::Stop) => break,
-                        _ => error!("Error receiving finalization packet from the consensus layer"),
-                    }
-                }
-            });
-
-        let baker_clone = baker.to_owned();
-        let mut node_ref = node.clone();
-        let skov_sender_ref = skov_sender.clone();
-        let consensus_fin_rec_thread =
-            spawn_or_die!("Process consensus finalization records output", {
-                loop {
-                    match baker_clone
-                        .out_queue()
-                        .recv_finalization_record(&skov_sender_ref)
-                    {
-                        Ok(RelayOrStopEnvelope::Relay(bytes)) => {
-                            let mut out_bytes =
-                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                            match out_bytes.write_u16::<NetworkEndian>(
-                                ffi::PacketType::FinalizationRecord as u16,
-                            ) {
-                                Ok(_) => {
-                                    out_bytes.extend(&*bytes);
-                                    match &node_ref
-                                        .send_broadcast_message(None, network_id, None, out_bytes)
-                                    {
-                                        Ok(_) => info!(
-                                            "Peer {} broadcasted a {}",
-                                            node_ref.id(),
-                                            FinalizationRecord::deserialize(&bytes)
-                                                .map(|msg| msg.to_string())
-                                                .unwrap_or_else(|_| String::from(
-                                                    "corrupt finalization record"
-                                                )),
-                                        ),
-                                        Err(_) => {
-                                            error!("Couldn't broadcast a finalization record!")
-                                        }
-                                    }
-                                }
-                                Err(_) => error!("Can't write type to packet"),
-                            }
-                        }
-                        Ok(RelayOrStopEnvelope::Stop) => break,
-                        _ => error!("Error receiving finalization record from the consensus layer"),
-                    }
-                }
-            });
-
-        vec![
-            catch_up_thread,
-            consensus_block_thread,
-            consensus_fin_msg_thread,
-            consensus_fin_rec_thread,
-        ]
+        Some(consensus_message_thread)
     } else {
-        vec![]
+        None
     }
 }
 
@@ -645,11 +453,12 @@ fn main() -> Fallible<()> {
     };
 
     if let Some(ref baker) = baker {
-        // Register handler for sending out a consensus catch-up request after handshake
-        // by finalization point.
+        // Register a handler for sending out a consensus catch-up request by
+        // finalization point after the handshake.
         let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
         let baker_clone = baker.clone();
         let message_handshake_response_handler = &node.message_handler();
+
         safe_write!(message_handshake_response_handler)?.add_response_callback(
             make_atomic_callback!(move |msg: &NetworkResponse| {
                 if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
@@ -726,10 +535,10 @@ fn main() -> Fallible<()> {
         (skov_receiver, skov_sender.clone()),
     );
 
-    // Create listeners on baker output to forward to P2PNode
+    // Create a listener on baker output to forward to P2PNode
     //
-    // Threads #5, #6, #7, #8, #9
-    let ths = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
+    // Thread #5
+    let baker_thread = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
@@ -747,8 +556,8 @@ fn main() -> Fallible<()> {
         th.join().expect("Higher process thread panicked")
     }
 
-    for th in ths {
-        th.join().expect("Baker sub-thread panicked");
+    if let Some(th) = baker_thread {
+        th.join().expect("Baker sub-thread panicked")
     }
 
     // Close rpc server if present

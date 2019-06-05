@@ -1,5 +1,6 @@
 use concordium_common::{
     into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
+    RelayOrStopSyncSender,
 };
 use failure::{bail, Fallible};
 
@@ -24,38 +25,38 @@ pub type PeerId = u64;
 pub type Delta = u64;
 pub type Bytes = Box<[u8]>;
 
-pub type FinalizationCatchupTuple = (Option<PeerId>, Bytes);
+#[derive(Debug)]
+pub struct ConsensusMessage {
+    pub variant:  PacketType,
+    pub producer: Option<PeerId>,
+    pub payload:  Bytes,
+}
+
+impl ConsensusMessage {
+    pub fn new(variant: PacketType, producer: Option<PeerId>, payload: Bytes) -> Self {
+        Self {
+            variant,
+            producer,
+            payload,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ConsensusOutQueue {
-    receiver_block:               Arc<Mutex<RelayOrStopReceiver<Bytes>>>,
-    sender_block:                 Arc<Mutex<RelayOrStopSender<Bytes>>>,
-    receiver_finalization:        Arc<Mutex<RelayOrStopReceiver<FinalizationCatchupTuple>>>,
-    sender_finalization:          Arc<Mutex<RelayOrStopSender<FinalizationCatchupTuple>>>,
-    receiver_finalization_record: Arc<Mutex<RelayOrStopReceiver<Bytes>>>,
-    sender_finalization_record:   Arc<Mutex<RelayOrStopSender<Bytes>>>,
-    receiver_catchup_queue:       Arc<Mutex<RelayOrStopReceiver<CatchupRequest>>>,
-    sender_catchup_queue:         Arc<Mutex<RelayOrStopSender<CatchupRequest>>>,
+    receiver_request: Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
+    sender_request:   RelayOrStopSyncSender<ConsensusMessage>,
 }
+
+const SYNC_CHANNEL_BOUND: usize = 64;
 
 impl Default for ConsensusOutQueue {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<RelayOrStopEnvelope<Bytes>>();
-        let (sender_finalization, receiver_finalization) =
-            mpsc::channel::<RelayOrStopEnvelope<FinalizationCatchupTuple>>();
-        let (sender_finalization_record, receiver_finalization_record) =
-            mpsc::channel::<RelayOrStopEnvelope<Bytes>>();
-        let (sender_catchup, receiver_catchup) =
-            mpsc::channel::<RelayOrStopEnvelope<CatchupRequest>>();
+        let (sender_request, receiver_request) =
+            mpsc::sync_channel::<RelayOrStopEnvelope<ConsensusMessage>>(SYNC_CHANNEL_BOUND);
         ConsensusOutQueue {
-            receiver_block:               Arc::new(Mutex::new(receiver)),
-            sender_block:                 Arc::new(Mutex::new(sender)),
-            receiver_finalization:        Arc::new(Mutex::new(receiver_finalization)),
-            sender_finalization:          Arc::new(Mutex::new(sender_finalization)),
-            receiver_finalization_record: Arc::new(Mutex::new(receiver_finalization_record)),
-            sender_finalization_record:   Arc::new(Mutex::new(sender_finalization_record)),
-            receiver_catchup_queue:       Arc::new(Mutex::new(receiver_catchup)),
-            sender_catchup_queue:         Arc::new(Mutex::new(sender_catchup)),
+            receiver_request: Arc::new(Mutex::new(receiver_request)),
+            sender_request,
         }
     }
 }
@@ -73,108 +74,49 @@ macro_rules! empty_queue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_block(self, block: Bytes) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_block).send_msg(block))
+    pub fn send_message(self, message: ConsensusMessage) -> Fallible<()> {
+        into_err!(self.sender_request.send_msg(message))
     }
 
-    pub fn recv_block(
+    pub fn recv_message(
         self,
         skov_sender: &RelayOrStopSender<SkovReq>,
-    ) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        let baked_block = into_err!(safe_lock!(self.receiver_block).recv());
+    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        let message = into_err!(safe_lock!(self.receiver_request).recv());
 
-        if let Ok(RelayOrStopEnvelope::Relay(ref block)) = baked_block {
-            handle_recv_block(skov_sender, block)?
+        if let Ok(RelayOrStopEnvelope::Relay(ref msg)) = message {
+            match msg.variant {
+                PacketType::Block => relay_msg_to_skov(skov_sender, &msg)?,
+                PacketType::FinalizationRecord => relay_msg_to_skov(skov_sender, &msg)?,
+                _ => {} // not used yet,
+            }
         }
 
-        baked_block
-    }
-
-    pub fn try_recv_block(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        into_err!(safe_lock!(self.receiver_block).try_recv())
-    }
-
-    pub fn send_finalization(self, msg: FinalizationCatchupTuple) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization).send_msg(msg))
-    }
-
-    pub fn recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
-        into_err!(safe_lock!(self.receiver_finalization).recv())
-    }
-
-    pub fn try_recv_finalization(self) -> Fallible<RelayOrStopEnvelope<FinalizationCatchupTuple>> {
-        into_err!(safe_lock!(self.receiver_finalization).try_recv())
-    }
-
-    pub fn send_finalization_record(self, rec: Bytes) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_finalization_record).send_msg(rec))
-    }
-
-    pub fn recv_finalization_record(
-        self,
-        skov_sender: &RelayOrStopSender<SkovReq>,
-    ) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        let record = into_err!(safe_lock!(self.receiver_finalization_record).recv());
-
-        if let Ok(RelayOrStopEnvelope::Relay(ref record)) = record {
-            handle_recv_finalization_record(skov_sender, record)?;
-        }
-
-        record
-    }
-
-    pub fn try_recv_finalization_record(self) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        into_err!(safe_lock!(self.receiver_finalization_record).try_recv())
-    }
-
-    pub fn send_catchup(self, rec: CatchupRequest) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_catchup_queue).send_msg(rec))
-    }
-
-    pub fn recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
-        into_err!(safe_lock!(self.receiver_catchup_queue).recv())
-    }
-
-    pub fn try_recv_catchup(self) -> Fallible<RelayOrStopEnvelope<CatchupRequest>> {
-        into_err!(safe_lock!(self.receiver_catchup_queue).try_recv())
+        message
     }
 
     pub fn clear(&self) {
-        empty_queue!(self.receiver_block, "Block queue");
-        empty_queue!(self.receiver_finalization, "Finalization messages queue");
-        empty_queue!(
-            self.receiver_finalization_record,
-            "Finalization record queue"
-        );
-        empty_queue!(self.receiver_catchup_queue, "Catch-up queue");
+        empty_queue!(self.receiver_request, "Consensus request queue");
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(safe_lock!(self.sender_block).send_stop())?;
-        into_err!(safe_lock!(self.sender_finalization).send_stop())?;
-        into_err!(safe_lock!(self.sender_finalization_record).send_stop())?;
-        into_err!(safe_lock!(self.sender_catchup_queue).send_stop())?;
+        into_err!(self.sender_request.send_stop())?;
         Ok(())
     }
 }
 
-fn handle_recv_block(
+fn relay_msg_to_skov(
     skov_sender: &RelayOrStopSender<SkovReq>,
-    baked_block: &Bytes,
+    message: &ConsensusMessage,
 ) -> Fallible<()> {
-    let pending_block = PendingBlock::new(baked_block)?;
-    let request_body = SkovReqBody::AddBlock(pending_block);
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
+    let request_body = match message.variant {
+        PacketType::Block => SkovReqBody::AddBlock(PendingBlock::new(&message.payload)?),
+        PacketType::FinalizationRecord => {
+            SkovReqBody::AddFinalizationRecord(FinalizationRecord::deserialize(&message.payload)?)
+        }
+        _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
+    };
 
-    into_err!(skov_sender.send(request))
-}
-
-fn handle_recv_finalization_record(
-    skov_sender: &RelayOrStopSender<SkovReq>,
-    record: &Bytes,
-) -> Fallible<()> {
-    let record = FinalizationRecord::deserialize(record)?;
-    let request_body = SkovReqBody::AddFinalizationRecord(record);
     let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
 
     into_err!(skov_sender.send(request))
@@ -182,8 +124,15 @@ fn handle_recv_finalization_record(
 
 #[cfg(test)]
 impl ConsensusOutQueue {
-    pub fn recv_timeout_block(self, timeout: Duration) -> Fallible<RelayOrStopEnvelope<Bytes>> {
-        into_err!(safe_lock!(self.receiver_block).recv_timeout(timeout))
+    pub fn try_recv_message(self) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).try_recv())
+    }
+
+    pub fn recv_timeout_message(
+        self,
+        timeout: Duration,
+    ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
+        into_err!(safe_lock!(self.receiver_request).recv_timeout(timeout))
     }
 }
 
@@ -466,13 +415,12 @@ impl fmt::Display for CatchupRequest {
     }
 }
 
-pub fn catchup_enqueue(request: CatchupRequest) {
-    let request_info = format!("{:?}", request);
-    debug!("Produced a catch-up request: {}", request_info);
+pub fn catchup_enqueue(request: ConsensusMessage) {
+    let request_info = format!("{:?}", request.payload);
 
-    match CALLBACK_QUEUE.clone().send_catchup(request) {
+    match CALLBACK_QUEUE.clone().send_message(request) {
         Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
-        _ => error!("Didn't queue catch-up request properly"),
+        _ => error!("Couldn't queue a catch-up request ({})", request_info),
     }
 }
 
@@ -516,27 +464,21 @@ mod tests {
                     }
                 }
                 while let Ok(RelayOrStopEnvelope::Relay(msg)) =
-                    _th_container.out_queue().try_recv_finalization()
+                    _th_container.out_queue().try_recv_message()
                 {
                     debug!("Relaying {:?}", msg);
-                    _th_container.send_finalization(1, msg.1);
-                }
-                while let Ok(RelayOrStopEnvelope::Relay(rec)) =
-                    _th_container.out_queue().try_recv_finalization_record()
-                {
-                    debug!("Relaying {:?}", rec);
-                    _th_container.send_finalization_record(1, rec);
+                    let _ = _th_container.out_queue().send_message(msg);
                 }
             });
 
             for i in 0..$blocks_num {
                 match consensus_container
                     .out_queue()
-                    .recv_timeout_block(Duration::from_millis(500_000))
+                    .recv_timeout_message(Duration::from_millis(500_000))
                 {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
                         debug!("{} Got block data => {:?}", i, msg);
-                        consensus_container.send_block(1, msg);
+                        let _ = consensus_container.out_queue().send_message(msg);
                     }
                     Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
                     _ => {}

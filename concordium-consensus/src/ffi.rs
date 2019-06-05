@@ -4,8 +4,9 @@ use failure::{format_err, Fallible};
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
-    fmt::{Display, Formatter, Result},
+    fmt,
     io::Cursor,
+    mem,
     os::raw::{c_char, c_int},
     ptr, slice,
     sync::{
@@ -15,11 +16,7 @@ use std::{
 };
 
 use crate::consensus::*;
-use concordium_global_state::{
-    block::*,
-    common::{self, HashBytes, SerializeToBytes},
-    finalization::*,
-};
+use concordium_global_state::{block::*, common, finalization::*};
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
@@ -137,24 +134,22 @@ impl TryFrom<u16> for PacketType {
     }
 }
 
-impl Display for PacketType {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        match self {
-            PacketType::Block => write!(f, "block"),
-            PacketType::Transaction => write!(f, "transaction"),
-            PacketType::FinalizationRecord => write!(f, "finalization record"),
-            PacketType::FinalizationMessage => write!(f, "finalization message"),
-            PacketType::CatchupBlockByHash => write!(f, "catch-up block by hash"),
-            PacketType::CatchupFinalizationRecordByHash => {
-                write!(f, "catch-up finalization record by hash")
-            }
-            PacketType::CatchupFinalizationRecordByIndex => {
-                write!(f, "catch-up finalization record by index")
-            }
+impl fmt::Display for PacketType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self {
+            PacketType::Block => "block",
+            PacketType::Transaction => "transaction",
+            PacketType::FinalizationRecord => "finalization record",
+            PacketType::FinalizationMessage => "finalization message",
+            PacketType::CatchupBlockByHash => "catch-up block by hash",
+            PacketType::CatchupFinalizationRecordByHash => "catch-up finalization record by hash",
+            PacketType::CatchupFinalizationRecordByIndex => "catch-up finalization record by index",
             PacketType::CatchupFinalizationMessagesByPoint => {
-                write!(f, "catch-up finalization messages by point")
+                "catch-up finalization messages by point"
             }
-        }
+        };
+
+        write!(f, "{}", name)
     }
 }
 
@@ -461,6 +456,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             block_data as *const u8,
             data_length as usize,
         ));
+
         let callback_type = match CallbackType::try_from(block_type as u8) {
             Ok(ct) => ct,
             Err(e) => {
@@ -469,60 +465,66 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
             }
         };
 
-        match callback_type {
-            CallbackType::Block => match CALLBACK_QUEUE.clone().send_block(data) {
-                Ok(_) => debug!("Queueing {} block bytes", data_length),
-                _ => error!("Didn't queue block message properly"),
-            },
-            CallbackType::FinalizationMessage => {
-                match CALLBACK_QUEUE.clone().send_finalization((None, data)) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization", data_length),
-                    _ => error!("Didn't queue finalization message properly"),
-                }
-            }
-            CallbackType::FinalizationRecord => {
-                match CALLBACK_QUEUE.clone().send_finalization_record(data) {
-                    Ok(_) => debug!("Queueing {} bytes of finalization record", data_length),
-                    _ => error!("Didn't queue finalization record message properly"),
-                }
-            }
-        }
+        let message_variant = match callback_type {
+            CallbackType::Block => PacketType::Block,
+            CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+            CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+        };
+
+        let message = ConsensusMessage::new(message_variant, None, data);
+
+        match CALLBACK_QUEUE.clone().send_message(message) {
+            Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
+            _ => error!("Couldn't queue a {} properly", message_variant),
+        };
     }
 }
 
 pub unsafe extern "C" fn on_catchup_block_by_hash(peer_id: PeerId, hash: *const u8, delta: Delta) {
-    let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
-    info!(
-        "Got a catch-up request for block {:?} with delta {} from consensus",
-        hash, delta
-    );
-    catchup_enqueue(CatchupRequest::BlockByHash(peer_id, hash, delta));
+    let mut payload = slice::from_raw_parts(hash, common::SHA256 as usize).to_owned();
+    let delta_array = mem::transmute::<Delta, [u8; 8]>(delta);
+    payload.extend_from_slice(&delta_array);
+    let payload = payload.into_boxed_slice();
+
+    catchup_enqueue(ConsensusMessage::new(
+        PacketType::CatchupBlockByHash,
+        Some(peer_id),
+        payload,
+    ));
 }
 
 pub unsafe extern "C" fn on_catchup_finalization_record_by_hash(peer_id: PeerId, hash: *const u8) {
-    let hash = HashBytes::new(slice::from_raw_parts(hash, common::SHA256 as usize));
-    info!(
-        "Got a catch-up request for finalization record of block {:?} from consensus",
-        hash
-    );
-    catchup_enqueue(CatchupRequest::FinalizationRecordByHash(peer_id, hash));
+    let payload = Box::from(slice::from_raw_parts(hash, common::SHA256 as usize));
+
+    catchup_enqueue(ConsensusMessage::new(
+        PacketType::CatchupFinalizationRecordByHash,
+        Some(peer_id),
+        payload,
+    ));
 }
 
 pub extern "C" fn on_catchup_finalization_record_by_index(
     peer_id: PeerId,
     index: FinalizationIndex,
 ) {
-    catchup_enqueue(CatchupRequest::FinalizationRecordByIndex(peer_id, index));
+    let payload = unsafe { Box::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
+    catchup_enqueue(ConsensusMessage::new(
+        PacketType::CatchupFinalizationRecordByIndex,
+        Some(peer_id),
+        payload,
+    ));
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
     info!("Got a catch-up request for finalization messages for point from consensus",);
     unsafe {
-        let s = slice::from_raw_parts(data as *const u8, len as usize);
-        match FinalizationMessage::deserialize(s) {
-            Ok(msg) => catchup_enqueue(CatchupRequest::FinalizationMessagesByPoint(peer_id, msg)),
-            Err(e) => error!("Deserialization of a finalization message failed: {:?}", e),
-        }
+        let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
+
+        catchup_enqueue(ConsensusMessage::new(
+            PacketType::CatchupFinalizationMessagesByPoint,
+            Some(peer_id),
+            payload,
+        ))
     }
 }
 
