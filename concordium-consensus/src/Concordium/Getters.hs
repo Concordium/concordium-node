@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, FunctionalDependencies, FlexibleContexts #-}
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
@@ -13,105 +14,96 @@ import Concordium.Skov.Update (isAncestorOf)
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.GlobalState.TreeState.Basic as Basic
 import Concordium.Types as T
 import Concordium.GlobalState.Information
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState.Basic
 
 import Concordium.Afgjort.Finalize
 
-import Control.Monad.IO.Class
 import Data.IORef
 import Text.Read hiding (get)
 import qualified Data.Map as Map
-import qualified Data.ByteString as BS
 import Data.Aeson
-
+import Control.Monad.State.Class
 import Data.Word
 
-hsh :: Basic.BlockPointer -> String
-hsh = show . (getHash :: Basic.BlockPointer -> BlockHash)
+class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
+    runStateQuery :: z -> m a -> IO a
 
-getBestBlockState :: IORef SkovFinalizationState -> IO (TS.BlockState (SimpleSkovMonad s m))
-getBestBlockState sfsRef = do
-    sfs <- readIORef sfsRef
-    flip evalSSM (sfs ^. sfsSkov) (bpState <$> bestBlock)
+instance SkovStateQueryable (IORef SkovFinalizationState) (SimpleSkovMonad SkovFinalizationState IO) where
+    runStateQuery sfsRef a = readIORef sfsRef >>= evalSSM a
 
-getLastFinalState :: IORef SkovFinalizationState -> IO (TS.BlockState (SimpleSkovMonad s m))
-getLastFinalState sfsRef = do
-    sfs <- readIORef sfsRef
-    flip evalSSM (sfs ^. sfsSkov) (bpState <$> lastFinalizedBlock)
+hsh :: (HashableTo BlockHash a) => a -> String
+hsh x = show (getHash x :: BlockHash)
 
-getLastFinalAccountList :: IORef SkovFinalizationState -> IO [AccountAddress]
-getLastFinalAccountList sfsRef = do
-  bs <- getLastFinalState sfsRef
-  evalSSM (TS.getAccountList bs) bs
-  -- (Map.keys . accountMap . (^. blockAccounts)) <$> getLastFinalState sfsRef
+getBestBlockState :: SkovStateQueryable z m => z -> IO (TS.BlockState m)
+getBestBlockState sfsRef = runStateQuery sfsRef (bpState <$> bestBlock)
 
-getLastFinalInstances :: IORef SkovFinalizationState -> IO [ContractAddress]
-getLastFinalInstances sfsRef = do
-  bs <- getLastFinalState sfsRef
-  evalSSM (do ilist <- TS.getContractInstanceList bs
-              return (map iaddress ilist)) bs
+getLastFinalState :: SkovStateQueryable z m => z -> IO (TS.BlockState m)
+getLastFinalState sfsRef = runStateQuery sfsRef (bpState <$> lastFinalizedBlock)
 
-getLastFinalAccountInfo :: IORef SkovFinalizationState -> AccountAddress -> IO (Maybe AccountInfo)
-getLastFinalAccountInfo sfsRef addr = do
-  bs <- getLastFinalState sfsRef
-  maybeAccount <- evalSSM (TS.getAccount bs addr) bs
-  case maybeAccount of
-    Nothing -> return Nothing
-    Just acc -> return $ Just (AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount))
+getLastFinalAccountList :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> IO [AccountAddress]
+getLastFinalAccountList sfsRef = runStateQuery sfsRef $ do
+    lfState <- bpState <$> lastFinalizedBlock
+    TS.getAccountList lfState
 
-getLastFinalContractInfo :: IORef SkovFinalizationState -> AT.ContractAddress -> IO (Maybe InstanceInfo)
-getLastFinalContractInfo sfsRef addr = do
-  bs <- getLastFinalState sfsRef
-  maybeIstance <- evalSSM (TS.getContractInstance bs addr) bs
-  case maybeIstance of
-    Nothing -> return Nothing
-    Just is -> return $ Just (instanceInfo is)
+getLastFinalInstances :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> IO [ContractAddress]
+getLastFinalInstances sfsRef = runStateQuery sfsRef $ do
+    lfState <- bpState <$> lastFinalizedBlock
+    ilist <- TS.getContractInstanceList lfState
+    return (map iaddress ilist)
+  
+getLastFinalAccountInfo :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> AccountAddress -> IO (Maybe AccountInfo)
+getLastFinalAccountInfo sfsRef addr = runStateQuery sfsRef $ do
+        lfState <- bpState <$> lastFinalizedBlock
+        fmap accInfo <$> TS.getAccount lfState addr
+    where
+        accInfo acc = AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount)
 
-getConsensusStatus :: IORef SkovFinalizationState -> IO Value
-getConsensusStatus sfsRef = do
-    sfs <- readIORef sfsRef
-    flip evalSSM (sfs ^. sfsSkov) $ do
+getLastFinalContractInfo :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> AT.ContractAddress -> IO (Maybe InstanceInfo)
+getLastFinalContractInfo sfsRef addr = runStateQuery sfsRef $ do
+        lfState <- bpState <$> lastFinalizedBlock
+        fmap instanceInfo <$> TS.getContractInstance lfState addr
+
+getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
+getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
+        genesis <- genesisBlock
+        stats <- TS.getConsensusStatistics
         return $ object [
                 "bestBlock" .= hsh bb,
-                "genesisBlock" .= hsh (sfs ^. Basic.genesisBlockPointer),
+                "genesisBlock" .= hsh genesis,
                 "lastFinalizedBlock" .= hsh lfb,
                 "bestBlockHeight" .= theBlockHeight (bpHeight bb),
                 "lastFinalizedBlockHeight" .= theBlockHeight (bpHeight lfb),
-                "blocksReceivedCount" .= (sfs ^. Basic.statistics . TS.blocksReceivedCount),
-                "blockLastReceivedTime" .= (sfs ^. Basic.statistics . TS.blockLastReceived),
-                "blockReceiveLatencyEMA" .= (sfs ^. Basic.statistics . TS.blockReceiveLatencyEMA),
-                "blockReceiveLatencyEMSD" .= sqrt (sfs ^. Basic.statistics . TS.blockReceiveLatencyEMVar),
-                "blockReceivePeriodEMA" .= (sfs ^. Basic.statistics . TS.blockReceivePeriodEMA),
-                "blockReceivePeriodEMSD" .= (sqrt <$> (sfs ^. Basic.statistics . TS.blockReceivePeriodEMVar)),
-                "blocksVerifiedCount" .= (sfs ^. Basic.statistics . TS.blocksVerifiedCount),
-                "blockLastArrivedTime" .= (sfs ^. Basic.statistics . TS.blockLastArrive),
-                "blockArriveLatencyEMA" .= (sfs ^. Basic.statistics . TS.blockArriveLatencyEMA),
-                "blockArriveLatencyEMSD" .= sqrt (sfs ^. Basic.statistics . TS.blockArriveLatencyEMVar),
-                "blockArrivePeriodEMA" .= (sfs ^. Basic.statistics . TS.blockArrivePeriodEMA),
-                "blockArrivePeriodEMSD" .= (sqrt <$> (sfs ^. Basic.statistics . TS.blockArrivePeriodEMVar)),
-                "transactionsPerBlockEMA" .= (sfs ^. Basic.statistics . TS.transactionsPerBlockEMA),
-                "transactionsPerBlockEMSD" .= sqrt (sfs ^. Basic.statistics . TS.transactionsPerBlockEMVar),
-                "finalizationCount" .= (sfs ^. Basic.statistics . TS.finalizationCount),
-                "lastFinalizedTime" .= (sfs ^. Basic.statistics . TS.lastFinalizedTime),
-                "finalizationPeriodEMA" .= (sfs ^. Basic.statistics . TS.finalizationPeriodEMA),
-                "finalizationPeriodEMSD" .= (sqrt <$> (sfs ^. Basic.statistics . TS.finalizationPeriodEMVar))
+                "blocksReceivedCount" .= (stats ^. TS.blocksReceivedCount),
+                "blockLastReceivedTime" .= (stats ^. TS.blockLastReceived),
+                "blockReceiveLatencyEMA" .= (stats ^. TS.blockReceiveLatencyEMA),
+                "blockReceiveLatencyEMSD" .= sqrt (stats ^. TS.blockReceiveLatencyEMVar),
+                "blockReceivePeriodEMA" .= (stats ^. TS.blockReceivePeriodEMA),
+                "blockReceivePeriodEMSD" .= (sqrt <$> (stats ^. TS.blockReceivePeriodEMVar)),
+                "blocksVerifiedCount" .= (stats ^. TS.blocksVerifiedCount),
+                "blockLastArrivedTime" .= (stats ^. TS.blockLastArrive),
+                "blockArriveLatencyEMA" .= (stats ^. TS.blockArriveLatencyEMA),
+                "blockArriveLatencyEMSD" .= sqrt (stats ^. TS.blockArriveLatencyEMVar),
+                "blockArrivePeriodEMA" .= (stats ^. TS.blockArrivePeriodEMA),
+                "blockArrivePeriodEMSD" .= (sqrt <$> (stats ^. TS.blockArrivePeriodEMVar)),
+                "transactionsPerBlockEMA" .= (stats ^. TS.transactionsPerBlockEMA),
+                "transactionsPerBlockEMSD" .= sqrt (stats ^. TS.transactionsPerBlockEMVar),
+                "finalizationCount" .= (stats ^. TS.finalizationCount),
+                "lastFinalizedTime" .= (stats ^. TS.lastFinalizedTime),
+                "finalizationPeriodEMA" .= (stats ^. TS.finalizationPeriodEMA),
+                "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. TS.finalizationPeriodEMVar))
             ]
 
-getBlockInfo :: IORef SkovFinalizationState -> String -> IO Value
+getBlockInfo :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
-        Just bh -> do
-            sfs <- readIORef sfsRef
-            flip evalSSM (sfs ^. sfsSkov) $
+        Just bh -> runStateQuery sfsRef $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
@@ -134,66 +126,49 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "transactionCount" .= bpTransactionCount bp
                             ]
 
-getAncestors :: IORef SkovFinalizationState -> String -> BlockHeight -> IO Value
+getAncestors :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
-        Just bh -> do
-            sfs <- readIORef sfsRef
-            flip evalSSM (sfs ^. sfsSkov) $
+        Just bh -> runStateQuery sfsRef $
                 resolveBlock bh >>= \case
                     Nothing -> return Null
                     Just bp -> do
                         let heightLim = if count > bpHeight bp then 0 else bpHeight bp - count + 1
                         return $ toJSONList $ map hsh $ takeWhile (\b -> bpHeight b >= heightLim) $ iterate bpParent bp
  
-getBranches :: IORef SkovFinalizationState -> IO Value
-getBranches sfsRef = do
-        sfs <- readIORef sfsRef
-        flip evalSSM (sfs ^. sfsSkov) $ do
+getBranches :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
+getBranches sfsRef = runStateQuery sfsRef $ do
             brs <- branchesFromTop
             let brt = foldl up Map.empty brs
             lastFin <- lastFinalizedBlock
             return $ object ["blockHash" .= hsh lastFin, "children" .= Map.findWithDefault [] lastFin brt]
     where
-        up :: Map.Map Basic.BlockPointer [Value] -> [Basic.BlockPointer] -> Map.Map Basic.BlockPointer [Value]
         up childrenMap = foldr (\b -> at (bpParent b) . non [] %~ (object ["blockHash" .= hsh b, "children" .= Map.findWithDefault [] b childrenMap] :)) Map.empty
 
-getBlockData :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe Block)
-getBlockData sfsRef bh = do
-        sfs <- liftIO $ readIORef sfsRef
-        flip evalSSM (sfs ^. sfsSkov) $
+getBlockData :: (SkovStateQueryable z m) => z -> BlockHash -> IO (Maybe Block)
+getBlockData sfsRef bh = runStateQuery sfsRef $
             fmap bpBlock <$> resolveBlock bh
 
-getBlockDescendant :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> BlockHeight -> m (Maybe Block)
-getBlockDescendant sfsRef ancestor distance = do
-        sfs <- liftIO $ readIORef sfsRef
-        flip evalSSM (sfs ^. sfsSkov) $
+getBlockDescendant :: (SkovStateQueryable z m) => z -> BlockHash -> BlockHeight -> IO (Maybe Block)
+getBlockDescendant sfsRef ancestor distance = runStateQuery sfsRef $
             resolveBlock ancestor >>= \case
                 Nothing -> return Nothing
                 Just bp -> do
                     candidates <- getBlocksAtHeight (bpHeight bp + distance)
                     return $ bpBlock <$> candidates ^? each . filtered (bp `isAncestorOf`)
 
-getBlockFinalization :: (MonadIO m) => IORef SkovFinalizationState -> BlockHash -> m (Maybe FinalizationRecord)
-getBlockFinalization sfsRef bh = do
-        sfs <- liftIO $ readIORef sfsRef
-        flip evalSSM (sfs ^. sfsSkov) $ do
+getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
+getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
             bs <- TS.getBlockStatus bh
             case bs of
                 Just (TS.BlockFinalized _ fr) -> return $ Just fr
                 _ -> return Nothing
 
-getIndexedFinalization :: (MonadIO m) => IORef SkovFinalizationState -> FinalizationIndex -> m (Maybe FinalizationRecord)
-getIndexedFinalization sfsRef finInd = do
-        sfs <- liftIO $ readIORef sfsRef
-        return $ fst <$> sfs ^? finalizationList . ix (fromIntegral finInd)
+getIndexedFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> FinalizationIndex -> IO (Maybe FinalizationRecord)
+getIndexedFinalization sfsRef finInd = runStateQuery sfsRef $ TS.getFinalizationAtIndex finInd
 
-getFinalizationMessages :: (MonadIO m) => IORef SkovFinalizationState -> FinalizationPoint -> m [(String, BS.ByteString)]
-getFinalizationMessages sfsRef finPt = do
-        sfs <- liftIO $ readIORef sfsRef
-        return $ getPendingFinalizationMessages sfs finPt
+getFinalizationMessages :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s) => z -> FinalizationPoint -> IO [FinalizationMessage]
+getFinalizationMessages sfsRef finPt = runStateQuery sfsRef $ get <&> \sfs -> getPendingFinalizationMessages sfs finPt
 
-getFinalizationPoint :: (MonadIO m) => IORef SkovFinalizationState -> m FinalizationPoint
-getFinalizationPoint sfsRef = do
-        sfs <- liftIO $ readIORef sfsRef
-        return $ getCurrentFinalizationPoint sfs
+getFinalizationPoint :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s) => z -> IO FinalizationPoint
+getFinalizationPoint sfsRef = runStateQuery sfsRef $ get <&> getCurrentFinalizationPoint

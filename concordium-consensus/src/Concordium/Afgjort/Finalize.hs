@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, ScopedTypeVariables, TemplateHaskell, LambdaCase, FlexibleContexts, MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards, ScopedTypeVariables, TemplateHaskell, LambdaCase, FlexibleContexts, MultiParamTypeClasses, RankNTypes #-}
 module Concordium.Afgjort.Finalize (
     FinalizationMonad(..),
     FinalizationStateLenses(..),
@@ -7,6 +7,7 @@ module Concordium.Afgjort.Finalize (
     FinalizationState(..),
     FinalizationSessionId(..),
     FinalizationPoint,
+    FinalizationMessage,
     initialFinalizationState,
     verifyFinalProof,
     makeFinalizationCommittee,
@@ -21,9 +22,10 @@ module Concordium.Afgjort.Finalize (
 
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
-import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import Data.Map(Map)
+import qualified Data.Set as Set
+import Data.Set(Set)
 import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
@@ -46,6 +48,12 @@ import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
+
+members :: (Ord a) => a -> Lens' (Set a) Bool
+members e = lens (Set.member e) upd
+    where
+        upd s True = Set.insert e s
+        upd s False = Set.delete e s
 
 data FinalizationInstance = FinalizationInstance {
     finMySignKey :: Sig.KeyPair,
@@ -138,11 +146,11 @@ instance S.Serialize FinalizationMessage where
         msgSignature <- S.get
         return FinalizationMessage{..}
 
-encodeSignFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> BS.ByteString
-encodeSignFinalizationMessage key hdr bdy = encMsg <> (runPut $ S.put sig)
+signFinalizationMessage :: Sig.KeyPair -> FinalizationMessageHeader -> WMVBAMessage -> FinalizationMessage
+signFinalizationMessage key msgHeader msgBody = FinalizationMessage {..}
     where
-        sig = Sig.sign key encMsg
-        encMsg = runPut $ S.put hdr >> S.put bdy
+        msgSignature = Sig.sign key encMsg
+        encMsg = runPut $ S.put msgHeader >> S.put msgBody
 
 toPartyInfo :: FinalizationCommittee -> Word32 -> Maybe PartyInfo
 toPartyInfo com p = parties com Vec.!? fromIntegral p
@@ -171,7 +179,7 @@ data FinalizationState = FinalizationState {
     _finsIndex :: FinalizationIndex,
     _finsHeight :: BlockHeight,
     _finsCommittee :: FinalizationCommittee,
-    _finsPendingMessages :: Map FinalizationIndex (Map BlockHeight [(Party, WMVBAMessage, Sig.Signature)]),
+    _finsPendingMessages :: Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature))),
     _finsCurrentRound :: Maybe FinalizationRound
 }
 makeLenses ''FinalizationState
@@ -191,7 +199,7 @@ class FinalizationStateLenses s where
     finCommittee = finState . finsCommittee
     -- |All received finalization messages for the current and future finalization indexes.
     -- (Previously, this was just future messages, but now we store all of them for catch-up purposes.)
-    finPendingMessages :: Lens' s (Map FinalizationIndex (Map BlockHeight [(Party, WMVBAMessage, Sig.Signature)]))
+    finPendingMessages :: Lens' s (Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature))))
     finPendingMessages = finState . finsPendingMessages
     finCurrentRound :: Lens' s (Maybe FinalizationRound)
     finCurrentRound = finState . finsCurrentRound
@@ -217,11 +225,11 @@ initialFinalizationState FinalizationInstance{..} genHash com = FinalizationStat
 }
 
 data FinalizationOutputEvent
-    = BroadcastFinalizationMessage BS.ByteString
+    = BroadcastFinalizationMessage FinalizationMessage
     | BroadcastFinalizationRecord FinalizationRecord
 
 class (SkovMonad m, MonadState s m, FinalizationStateLenses s, MonadIO m) => FinalizationMonad s m where
-    broadcastFinalizationMessage :: BS.ByteString -> m ()
+    broadcastFinalizationMessage :: FinalizationMessage -> m ()
     broadcastFinalizationRecord :: FinalizationRecord -> m ()
     requestMissingFinalization :: FinalizationIndex -> m ()
     requestMissingBlock :: BlockHash -> m ()
@@ -274,7 +282,7 @@ newRound newDelta me = do
             }
             toFinMsg (src, msg, sig) = FinalizationMessage (msgHdr src) msg sig
         -- Filter the messages that have valid signatures and reference legitimate parties
-        pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non [] <%= filter (checkMessage committee . toFinMsg)
+        pmsgs <- finPendingMessages . at finIx . non Map.empty . at newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
         forM_ justifiedInputs $ \i -> do
             logEvent Afgjort LLTrace $ "Justified input at " ++ show finIx ++ ": " ++ show i
@@ -302,10 +310,11 @@ handleWMVBAOutputEvents evs = do
                     case msg0 of
                         WMVBAFreezeMessage (Proposal v) -> logEvent Afgjort LLDebug $ "Nominating block " ++ show v
                         _ -> return ()
-                    let msg = encodeSignFinalizationMessage finMySignKey msgHdr msg0
+                    let msg = signFinalizationMessage finMySignKey msgHdr msg0
                     broadcastFinalizationMessage msg
                     -- We manually loop back messages here
-                    receiveFinalizationMessage msg
+                    _ <- receiveFinalizationMessage msg
+                    return ()
                 handleEv (WMVBAComplete Nothing) =
                     -- Round failed, so start a new one
                     nextRound _finsIndex roundDelta
@@ -316,7 +325,7 @@ handleWMVBAOutputEvents evs = do
                         finalizationProof = FinalizationProof sigs,
                         finalizationDelay = roundDelta
                     }
-                    finalizeBlock finRec
+                    _ <- finalizeBlock finRec
                     broadcastFinalizationRecord finRec
             mapM_ handleEv evs
 
@@ -354,30 +363,33 @@ requestAbsentBlocks msg = forM_ (messageValues msg) $ \block -> do
 
 
 -- |Called when a finalization message is received.
-receiveFinalizationMessage :: (FinalizationMonad s m) => BS.ByteString -> m ()
-receiveFinalizationMessage msg0 = case runGet S.get msg0 of
-        Left _ -> do
-            logEvent Afgjort LLWarning $ "Received ill-formed finalization message"
-            return () -- Message could not be decoded
-        Right (msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..}) -> do
-            FinalizationState{..} <- use finState
-            -- Check this is the right session
-            when (_finsSessionId == msgSessionId) $
-                -- Check the finalization index is not out of date
-                case compare msgFinalizationIndex _finsIndex of
-                    LT -> return () -- message is out of date
-                    GT -> do
-                        -- Save the message for a later finalization index
-                        finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, msgBody, msgSignature) :)
+receiveFinalizationMessage :: (FinalizationMonad s m) => FinalizationMessage -> m UpdateResult
+receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
+        FinalizationState{..} <- use finState
+        -- Check this is the right session
+        if (_finsSessionId == msgSessionId) then 
+            -- Check the finalization index is not out of date
+            case compare msgFinalizationIndex _finsIndex of
+                LT -> return ResultStale -- message is out of date
+                GT -> do
+                    -- Save the message for a later finalization index
+                    isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (msgSenderIndex, msgBody, msgSignature) <<.= True
+                    if isDuplicate then
+                        return ResultDuplicate
+                    else do
                         -- Since we're behind, request the finalization record we're apparently missing
                         logEvent Afgjort LLDebug $ "Requesting missing finalization at index " ++ (show $ msgFinalizationIndex - 1)
                         requestMissingFinalization (msgFinalizationIndex - 1)
                         -- Request any missing blocks that this message refers to
                         requestAbsentBlocks msgBody
-                    EQ -> -- handle the message now, since it's the current round
-                        if checkMessage _finsCommittee msg then do
-                            -- Save the message
-                            finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non [] %= ((msgSenderIndex, msgBody, msgSignature) :)
+                        return ResultPendingFinalization
+                EQ -> -- handle the message now, since it's the current round
+                    if checkMessage _finsCommittee msg then do
+                        -- Save the message
+                        isDuplicate <- finPendingMessages . at msgFinalizationIndex . non Map.empty . at msgDelta . non Set.empty . members (msgSenderIndex, msgBody, msgSignature) <<.= True
+                        if isDuplicate then
+                            return ResultDuplicate
+                        else do
                             -- Request any missing blocks that this message refers to
                             requestAbsentBlocks msgBody
                             -- Check if we're participating in finalization for this index
@@ -386,9 +398,12 @@ receiveFinalizationMessage msg0 = case runGet S.get msg0 of
                                 when (msgDelta == roundDelta) $ do
                                     logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
                                     liftWMVBA (receiveWMVBAMessage msgSenderIndex msgSignature msgBody)
-                        else
-                            logEvent Afgjort LLWarning $ "Received bad finalization message"
-
+                            return ResultSuccess
+                    else do
+                        logEvent Afgjort LLWarning $ "Received bad finalization message"
+                        return ResultInvalid
+            else
+                return ResultIncorrectFinalizationSession
 
 -- |Called to notify the finalization routine when a new block arrives.
 notifyBlockArrival :: (FinalizationMonad s m, BlockPointerData bp) => bp -> m ()
@@ -459,15 +474,14 @@ instance S.Serialize FinalizationPoint where
 
 -- |Get all of the finalization messages received for indexes beyond the last finalized index
 -- and no sooner than the given finalization point.
-getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [(String, BS.ByteString)]
+getPendingFinalizationMessages :: (FinalizationStateLenses s) => s -> FinalizationPoint -> [FinalizationMessage]
 getPendingFinalizationMessages fs (FinalizationPoint sess lowIndex lowIndexDelta)
         | sess == fs ^. finSessionId = Map.foldrWithKey eachIndex [] (at lowIndex . non Map.empty %~ Map.dropWhileAntitone (<lowIndexDelta) $ Map.dropWhileAntitone (< lowIndex) $ fs ^. finPendingMessages)
         | otherwise = []
     where
         eachIndex ind m l = Map.foldrWithKey (eachDelta ind) l m
-        eachDelta ind delta msgs l = map (eachMsg ind delta) msgs ++ l
-        eachMsg ind delta (senderIndex, msgBody, msgSignature) = let fmsg = FinalizationMessage{..} in
-                                                                 (show fmsg, runPut (S.put fmsg))
+        eachDelta ind delta msgs l = map (eachMsg ind delta) (Set.toList msgs) ++ l
+        eachMsg ind delta (senderIndex, msgBody, msgSignature) = FinalizationMessage{..}
             where
                 msgHeader = FinalizationMessageHeader {
                     msgSessionId = fs ^. finSessionId,

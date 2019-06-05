@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module ConcordiumTests.Konsensus where
 
 import qualified Data.Sequence as Seq
@@ -9,7 +10,6 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad
 import Control.Monad.IO.Class
-import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 import Data.Bits
 import Data.Monoid
@@ -171,14 +171,14 @@ data Event
     = EBake Slot
     | EBlock BakedBlock
     | ETransaction Transaction
-    | EFinalization BS.ByteString
+    | EFinalization FinalizationMessage
     | EFinalizationRecord FinalizationRecord
 
 instance Show Event where
     show (EBake sl) = "bake for " ++ show sl
     show (EBlock b) = "block: " ++ show (getHash b :: BlockHash)
     show (ETransaction tr) = "transaction: " ++ show tr
-    show (EFinalization _) = "finalization message"
+    show (EFinalization fmsg) = "finalization message: " ++ show fmsg
     show (EFinalizationRecord fr) = "finalize: " ++ show (finalizationBlockPointer fr)
 
 type EventPool = Seq (Int, Event)
@@ -312,15 +312,15 @@ instance Show SkovFinalizationState where
 
 
 withInitialStates :: Int -> (States -> EventPool -> PropertyM IO Property) -> Property
-withInitialStates n run = monadicIO $ do
+withInitialStates n r = monadicIO $ do
         s0 <- pick $ initialiseStates n
-        run s0 (initialEvents s0)
+        r s0 (initialEvents s0)
 
 withInitialStatesTransactions :: Int -> Int -> (States -> EventPool -> PropertyM IO Property) -> Property
-withInitialStatesTransactions n trcount run = monadicIO $ do
+withInitialStatesTransactions n trcount r = monadicIO $ do
         s0 <- pick $ initialiseStates n
         trs <- pick $ genTransactions trcount
-        run s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
+        r s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
 
 tests :: Spec
 tests = parallel $ describe "Concordium.Konsensus" $ do

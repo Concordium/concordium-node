@@ -17,6 +17,17 @@ import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData, BlockSta
 import Concordium.Logger
 import Concordium.TimeMonad
 
+data UpdateResult
+    = ResultSuccess
+    | ResultSerializationFail
+    | ResultInvalid
+    | ResultPendingBlock
+    | ResultPendingFinalization
+    | ResultAsync
+    | ResultDuplicate
+    | ResultStale
+    | ResultIncorrectFinalizationSession
+
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m)) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
@@ -41,7 +52,7 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m)) => SkovQ
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
-    storeBlock :: BakedBlock -> m BlockHash
+    storeBlock :: BakedBlock -> m UpdateResult
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
@@ -52,10 +63,10 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         -> BlockState m       -- ^State
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
-    receiveTransaction :: Transaction -> m ()
+    receiveTransaction :: Transaction -> m UpdateResult
     -- |Add a finalization record.  This should (eventually) result
     -- in a block being finalized.
-    finalizeBlock :: FinalizationRecord -> m ()
+    finalizeBlock :: FinalizationRecord -> m UpdateResult
 
 instance SkovQueryMonad m => SkovQueryMonad (MaybeT m) where
     resolveBlock = lift . resolveBlock

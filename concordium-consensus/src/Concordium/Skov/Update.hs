@@ -140,7 +140,7 @@ processAwaitingLastFinalized sl = do
             Just pb -> do
                 -- This block is awaiting its last final block to be finalized.
                 -- At this point, it should be or it never will.
-                addBlock sl pb
+                _ <- addBlock sl pb
                 processAwaitingLastFinalized sl
 
 -- |Process the available finalization records to determine if a block can be finalized.
@@ -228,7 +228,7 @@ processFinalizationPool sl@SkovListeners{..} = do
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
-addBlock :: forall w m. (HasCallStack, TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> PendingBlock -> m ()
+addBlock :: forall w m. (HasCallStack, TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> PendingBlock -> m UpdateResult
 addBlock sl@SkovListeners{..} block = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
@@ -243,7 +243,7 @@ addBlock sl@SkovListeners{..} block = do
                     getBlockStatus (blockLastFinalized bf) >>= \case
                         Just (BlockFinalized _ _) -> return ()
                         _ -> notifyMissingFinalization (Left $ blockLastFinalized bf)
-                    return ()
+                    return ResultPendingBlock
                 Just BlockDead -> deadBlock
                 Just (BlockAlive parentP) -> tryAddLiveParent parentP
                 Just (BlockFinalized parentP _) -> do
@@ -251,16 +251,19 @@ addBlock sl@SkovListeners{..} block = do
                     -- If the parent is finalized, it had better be the last finalized, or else the block is already dead
                     if parentP /= lfb then deadBlock else tryAddLiveParent parentP
     where
-        deadBlock :: m ()
-        deadBlock = blockArriveDead $ getHash block
-        invalidBlock :: m ()
+        deadBlock :: m UpdateResult
+        deadBlock = do
+            blockArriveDead $ getHash block
+            return ResultStale
+        invalidBlock :: m UpdateResult
         invalidBlock = do
             logEvent Skov LLWarning $ "Block is not valid: " ++ show block
-            deadBlock
+            blockArriveDead $ getHash block
+            return ResultInvalid
         bf = bbFields (pbBlock block)
         parent = blockPointer bf
         check q a = if q then a else invalidBlock
-        tryAddLiveParent :: BlockPointer m -> m ()
+        tryAddLiveParent :: BlockPointer m -> m UpdateResult
         tryAddLiveParent parentP = do -- The parent block must be Alive or Finalized
             let lf = blockLastFinalized bf
             -- Check that the blockSlot is beyond the parent slot
@@ -273,7 +276,7 @@ addBlock sl@SkovListeners{..} block = do
                         addAwaitingLastFinalized (bpHeight lfBlockP) block
                         notifyMissingFinalization (Left lf)
                         logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending finalization of block " ++ show (bpHash lfBlockP) ++ " at height " ++ show (theBlockHeight $ bpHeight lfBlockP)
-                        return ()
+                        return ResultPendingFinalization
                     -- If the block's last finalized block is finalized, we can proceed with validation.
                     -- Together with the fact that the parent is alive, we know that the new node
                     -- is a descendent of the finalized block.
@@ -321,7 +324,8 @@ addBlock sl@SkovListeners{..} block = do
                                                 children <- takePendingChildren (getHash block)
                                                 forM_ children $ \childpb -> do
                                                     childStatus <- getBlockStatus (getHash childpb)
-                                                    when (isNothing childStatus) $ addBlock sl childpb
+                                                    when (isNothing childStatus) $ void $ addBlock sl childpb
+                                                return ResultSuccess
                     -- If the block's last finalized block is dead, then the block arrives dead.
                     -- If the block's last finalized block is pending then it can't be an ancestor,
                     -- so the block is invalid and it arrives dead.
@@ -365,20 +369,21 @@ blockArrive block parentP lfBlockP gs = do
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
-doStoreBlock :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> BakedBlock -> m BlockHash
+doStoreBlock :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> BakedBlock -> m UpdateResult
 {-# INLINE doStoreBlock #-}
 doStoreBlock sl = \block0 -> do
     curTime <- currentTime
     let pb = makePendingBlock block0 curTime
     let cbp = getHash pb
     oldBlock <- getBlockStatus cbp
-    when (isNothing oldBlock) $ do
-        -- The block is new, so we have some work to do.
-        logEvent Skov LLDebug $ "Received block " ++ show cbp
-        updateReceiveStatistics pb
-        forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
-        addBlock sl pb
-    return cbp
+    case oldBlock of
+        Nothing -> do
+            -- The block is new, so we have some work to do.
+            logEvent Skov LLDebug $ "Received block " ++ show cbp
+            updateReceiveStatistics pb
+            forM_ (blockTransactions pb) $ \tr -> doReceiveTransaction tr (blockSlot pb)
+            addBlock sl pb
+        Just _ -> return ResultDuplicate
 
 -- |Store a block that is baked by this node in the tree.  The block
 -- is presumed to be valid.
@@ -396,33 +401,48 @@ doStoreBakedBlock SkovListeners{..} = \pb parent lastFin st -> do
         return bp
 
 -- |Add a new finalization record to the finalization pool.
-doFinalizeBlock :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> FinalizationRecord -> m ()
+doFinalizeBlock :: (TreeStateMonad m, SkovMonad m, MonadWriter w m, MissingEvent w) => SkovListeners m -> FinalizationRecord -> m UpdateResult
 {-# INLINE doFinalizeBlock #-}
 doFinalizeBlock sl = \finRec -> do
     let thisFinIx = finalizationIndex finRec
     nextFinIx <- getNextFinalizationIndex
     case compare thisFinIx nextFinIx of
-        LT -> return () -- Already finalized at that index
+        LT -> return ResultStale -- Already finalized at that index
         EQ -> do 
                 addFinalizationRecordToPool finRec
                 processFinalizationPool sl
+                newFinIx <- getNextFinalizationIndex
+                if newFinIx == nextFinIx then do
+                    fbs <- getBlockStatus (finalizationBlockPointer finRec)
+                    return $! case fbs of
+                        Nothing -> ResultPendingBlock
+                        _ -> ResultInvalid
+                else return ResultSuccess
         GT -> do
                 logEvent Skov LLDebug $ "Requesting finalization at index " ++ show (thisFinIx - 1) ++ "."
                 notifyMissingFinalization (Right $ thisFinIx - 1)
                 addFinalizationRecordToPool finRec
+                return ResultPendingFinalization
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
 -- and 0 if the transaction was received separately from a block.
-doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m ()
+-- This returns 'ResultSuccess' if the transaction is freshly added.
+-- Otherwise, it returns 'ResultDuplicate', which indicates that either
+-- the transaction is a duplicate, or a transaction with the same sender
+-- and nonce has already been finalized.
+doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = do
         added <- addCommitTransaction tr slot
-        when added $ do
+        if added then do
             ptrs <- getPendingTransactions
             focus <- getFocusBlock
             macct <- getAccount (bpState focus) (transactionSender tr)
             let nextNonce = maybe minNonce _accountNonce macct
             putPendingTransactions $ extendPendingTransactionTable nextNonce tr ptrs
+            return ResultSuccess
+        else
+            return ResultDuplicate
 
 -- * Monad implementations
 
