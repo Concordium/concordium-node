@@ -32,15 +32,16 @@ import Concordium.Skov
 
 import Data.List(intercalate)
 
+import Concordium.GlobalState.Rewards as Rewards
 import Concordium.Scheduler.Utils.Init.Example as Example
 
-nAccounts :: Int
-nAccounts = 2
+nContracts :: Int
+nContracts = 2
 
 transactions :: StdGen -> [Transaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
-        contr i = ContractAddress (fromIntegral $ i `mod` nAccounts) 0
+        contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
@@ -108,7 +109,7 @@ gsToString :: BlockState -> String
 gsToString gs = intercalate "\\l" . map show $ keys
     where
         ca n = ContractAddress (fromIntegral n) 0
-        keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nAccounts-1)
+        keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
 main :: IO ()
 main = do
@@ -121,7 +122,7 @@ main = do
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
-    let iState = Example.initialState nAccounts
+    let iState = Example.initialState nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bix, (_, bid)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
@@ -140,6 +141,7 @@ main = do
                     let stateStr = case gs' of
                                     Nothing -> ""
                                     Just gs -> gsToString gs
+
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
@@ -149,4 +151,3 @@ main = do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop
     loop
-

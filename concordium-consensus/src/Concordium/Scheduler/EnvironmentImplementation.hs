@@ -102,3 +102,11 @@ instance SchedulerMonad SchedulerImplementation where
     let addr = acc ^. accountAddress
     if addr `Acc.exists` accs then return False
     else True <$ (blockAccounts .= Acc.putAccount acc accs)
+
+  {-# INLINE energyToGtu #-}
+  -- |FIXME: Replace this by sourcing the exchange rate from somewhere else.
+  energyToGtu = return . fromIntegral
+
+  {-# INLINE notifyExecutionCost #-}
+  notifyExecutionCost amnt =
+    blockBank . executionCost += amnt

@@ -25,14 +25,17 @@ import SchedulerTests.DummyData
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
+initialAmount :: Types.Amount
+initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
+
 initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState & -- NB: We need 6 * deploy account since we still charge the cost even if an account already exists (case 4 in the tests).
-    (blockAccounts .~ Acc.putAccount (mkAccount alesVK (Types.energyToGtu (6 * Cost.deployCredential + 7 * Cost.checkHeader))) Acc.emptyAccounts) .
+    (blockAccounts .~ Acc.putAccount (mkAccount alesVK initialAmount) Acc.emptyAccounts) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
-deployAccountCost :: Types.Amount
-deployAccountCost = Types.energyToGtu (Cost.deployCredential + Cost.checkHeader)
+deployAccountCost :: Types.Energy
+deployAccountCost = Cost.deployCredential + Cost.checkHeader
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -61,7 +64,7 @@ transactionsInput =
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential (mkDummyCDI (accountVFKeyFrom 16) 6)  -- should run out of gas (see initial amount on the sender account)
-         , metadata = makeHeader alesKP 7 (Types.energyToGtu Cost.checkHeader)
+         , metadata = makeHeader alesKP 7 Cost.checkHeader
          , keypair = alesKP
          }
   ]
@@ -71,7 +74,9 @@ testAccountCreation ::
     IO
     ([(Types.Transaction, Types.ValidResult)],
      [(Types.Transaction, Types.FailureKind)],
-     [Maybe Types.Account])
+     [Maybe Types.Account],
+     Types.Account,
+     Types.BankStatus)
 testAccountCreation = do
     transactions <- processTransactions transactionsInput
     let ((suc, fails), state) = Types.runSI (Sch.filterTransactions transactions)
@@ -80,13 +85,20 @@ testAccountCreation = do
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFrom [10,11,12,13,14]
     
-    return (suc, fails, map (\addr -> accounts ^? ix addr) accAddrs)
+    return (suc, fails, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
 
-checkAccountCreationResult :: ([(Types.Transaction, Types.ValidResult)], [(Types.Transaction, Types.FailureKind)], [Maybe Types.Account]) -> Bool
-checkAccountCreationResult (suc, fails, state) =
+checkAccountCreationResult ::
+  ([(Types.Transaction, Types.ValidResult)],
+   [(Types.Transaction, Types.FailureKind)],
+   [Maybe Types.Account],
+   Types.Account,
+   Types.BankStatus)
+  -> Bool
+checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   null fails && -- all transactions succeed, but some are rejected
   txsuc &&
-  txstate
+  txstateAccs &&
+  stateInvariant
   where txsuc = case suc of
           (_, a11) : (_, a12) : (_, a13) : (_, a14) : (_, a15) : (_, a16) : (_, a17) : [] |
             Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] <- a11,
@@ -97,10 +109,10 @@ checkAccountCreationResult (suc, fails, state) =
             Types.TxSuccess [Types.CredentialDeployed _] <- a16,
             Types.TxReject Types.OutOfEnergy <- a17 -> True
           _ -> False
-        txstate = case state of
-                    [Just _, Just _, Just _, Nothing, Just _] -> True -- account 13 was not created because of duplicate registration id
-                    _ -> False
-
+        txstateAccs = case stateAccs of
+                        [Just _, Just _, Just _, Nothing, Just _] -> True -- account 13 was not created because of duplicate registration id
+                        _ -> False
+        stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 
 tests :: SpecWith ()
 tests = 

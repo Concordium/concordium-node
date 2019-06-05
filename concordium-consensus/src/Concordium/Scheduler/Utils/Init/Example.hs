@@ -78,14 +78,14 @@ mateuszKP = fst (randomKeyPair (mkStdGen 0))
 blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
-makeHeader :: KeyPair -> Nonce -> Amount -> Types.TransactionHeader
+makeHeader :: KeyPair -> Nonce -> Energy -> Types.TransactionHeader
 makeHeader kp nonce amount = Types.makeTransactionHeader Ed25519 (Sig.verifyKey kp) nonce amount blockPointer 
 
 initSimpleCounter :: Int -> Types.Transaction
 initSimpleCounter n = Runner.signTx
                              mateuszKP
                              (makeHeader mateuszKP (fromIntegral n) 10000)
-                             (Types.encodePayload (Types.InitContract 1000 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0)) (-1))) -- -1 as the size is ignore by encodePayload
+                             (Types.encodePayload (Types.InitContract 0 simpleCounterHash (fromJust (Map.lookup "Counter" simpleCounterTyCtx)) (Core.Literal (Core.Int64 0)) (-1))) -- -1 as the size is ignore by encodePayload
 
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.Transaction
 makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
@@ -102,9 +102,13 @@ initialState n =
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 (2 ^ (62 :: Int)) [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts
+        initialAmount = 2 ^ (62 :: Int)
+        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 initialAmount [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts
         gs = BlockState.emptyBlockState &
                (BlockState.blockAccounts .~ initAccount) .
-               (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods))
+               (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
+               (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10)
         gs' = Types.execSI (execTransactions (initialTrans n)) Types.dummyChainMeta gs
-    in gs' & BlockState.blockAccounts .~ initAccount
+    in gs' & (BlockState.blockAccounts .~ initAccount) .
+             (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.
+

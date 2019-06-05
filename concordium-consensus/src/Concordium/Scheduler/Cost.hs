@@ -11,7 +11,7 @@ checkHeader = 100
 
 -- |Minimal deposit needed in order to start processing the transaction.
 -- We should have this since checking the header is non-trivial cost.
-minimumDeposit :: Amount
+minimumDeposit :: Energy
 minimumDeposit = 100
 
 -- |Cost to deploy the module. Computed from the serialized size of the module.
@@ -56,7 +56,6 @@ interContractMessage = 10
 -- the details of the data. This might change.
 deployCredential :: Energy
 deployCredential = 3000
-
 
 -- |Cost to add an encryption key to an account.
 deployEncryptionKey :: Energy

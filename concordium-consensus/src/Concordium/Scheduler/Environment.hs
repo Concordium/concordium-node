@@ -44,7 +44,9 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
-  -- accumulated through the execution.
+  -- accumulated through the execution. This method is also in charge of
+  -- recording which accounts were affected by the transaction for reward and
+  -- other purposes.
   commitStateAndAccountChanges :: ChangeSet -> m ()
 
   -- |Commit a module interface and module value to global state. Returns @True@
@@ -73,7 +75,11 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- |Reduce the public balance on the account to charge for execution cost. The
   -- given amount is the amount to charge (subtract). The precondition of this
   -- method is that the account address exists and its balance is sufficient to
-  -- cover the costs. These are not checked.
+  -- cover the costs. These are not checked. This method should only be used
+  -- directly when the given account's balance is the only one affected by the
+  -- transaction, either because a transaction was rejected, or because it was a
+  -- transaction such which only affects one account's balance such as
+  -- DeployCredential.
   chargeExecutionCost :: AccountAddress -> Amount -> m ()
   chargeExecutionCost addr amnt = do
     macc <- getAccount addr
@@ -81,7 +87,22 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
       case macc of
         Nothing -> error "chargeExecutionCost precondition violated."
         Just acc -> let balance = acc ^. accountAmount
-                    in assert (balance >= amnt) $ commitStateAndAccountChanges (csWithAccountBalance addr (balance - amnt))
+                    in do assert (balance >= amnt) $ commitStateAndAccountChanges (csWithAccountBalance addr (balance - amnt))
+                          notifyExecutionCost amnt
+
+  -- |Notify the global state that the amount was charged for execution. This
+  -- can be then reimbursed to the baker, or some other logic can be implemented
+  -- on top of it.
+  notifyExecutionCost :: Amount -> m ()
+
+  -- |Convert the given energy amount into a the amount of GTU. The exchange
+  -- rate can vary depending on the current state of the blockchain.
+  -- TODO: In this setup the exchange rate is determined by the blockchain, and
+  -- the user (aka sender of the transaction) cannot choose to pay more to have
+  -- their transaction prioritised. If the user can choose to do so then this
+  -- function needs to be replaced.
+  energyToGtu :: Energy -> m Amount
+
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts

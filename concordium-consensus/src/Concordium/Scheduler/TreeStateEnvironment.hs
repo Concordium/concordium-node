@@ -98,6 +98,15 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     s'' <- lift (foldM bsoModifyAccount s' (cs ^. accountUpdates))
     put s''
 
+  -- |FIXME: Make this variable base on block state
+  energyToGtu = return . fromIntegral
+
+  -- |TODO: implement
+  notifyExecutionCost amnt = do
+    s <- get
+    s' <- lift (bsoNotifyExecutionCost s amnt)
+    put s'
+
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState'.
 executeFrom ::

@@ -19,7 +19,7 @@ import System.Random
 blockPointer :: BlockHash
 blockPointer = Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))
 
-makeHeader :: Sig.KeyPair -> Nonce -> Amount -> TransactionHeader
+makeHeader :: Sig.KeyPair -> Nonce -> Energy -> TransactionHeader
 makeHeader kp nonce amount = makeTransactionHeader Sig.Ed25519 (Sig.verifyKey kp) nonce amount blockPointer
 
 
