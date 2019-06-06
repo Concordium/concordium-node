@@ -1,4 +1,4 @@
-use failure::{bail, err_msg, Fallible};
+use failure::{bail, Error, Fallible};
 use mio::{Event, Poll, Token};
 use rand::seq::IteratorRandom;
 use std::{
@@ -6,14 +6,20 @@ use std::{
     collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
     rc::Rc,
-    sync::{mpsc::Sender, Arc, RwLock},
+    sync::{
+        mpsc::{channel, Sender},
+        Arc, RwLock,
+    },
 };
 
+use super::fails;
 use crate::{
     common::{
-        get_current_stamp, serialization::serialize_into_memory, P2PNodeId, PeerType, RemotePeer,
+        get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
+        PeerType, RemotePeer,
     },
-    connection::Connection,
+    connection::{Connection, ConnectionStatus},
+    dumper::DumpItem,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::{BannedNode, BannedNodes},
@@ -22,8 +28,7 @@ use crate::{
     },
     stats_export_service::StatsExportService,
 };
-
-use super::fails;
+use concordium_common::UCursor;
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
@@ -39,12 +44,13 @@ const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 /// Connections are stored in RC in two `hashmap`s in order to improve
 /// performance access for specific look-ups.
 pub struct TlsServerPrivate {
-    connections:              Vec<Rc<RefCell<Connection>>>,
-    pub to_disconnect:        Rc<RefCell<VecDeque<P2PNodeId>>>,
-    pub unreachable_nodes:    UnreachableNodes,
-    pub banned_peers:         Rc<RefCell<BannedNodes>>,
-    pub networks:             Arc<RwLock<HashSet<NetworkId>>>,
-    pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
+    pub network_request_sender: Sender<NetworkRawRequest>,
+    connections:                Vec<Rc<RefCell<Connection>>>,
+    pub to_disconnect:          Rc<RefCell<VecDeque<P2PNodeId>>>,
+    pub unreachable_nodes:      UnreachableNodes,
+    pub banned_peers:           Rc<RefCell<BannedNodes>>,
+    pub networks:               Arc<RwLock<HashSet<NetworkId>>>,
+    pub stats_export_service:   Option<Arc<RwLock<StatsExportService>>>,
 }
 
 impl TlsServerPrivate {
@@ -52,7 +58,10 @@ impl TlsServerPrivate {
         networks: HashSet<NetworkId>,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     ) -> Self {
+        let (network_request_sender, _) = channel();
+
         TlsServerPrivate {
+            network_request_sender,
             connections: Vec::new(),
             to_disconnect: Rc::new(RefCell::new(VecDeque::<P2PNodeId>::new())),
             unreachable_nodes: UnreachableNodes::new(),
@@ -60,6 +69,13 @@ impl TlsServerPrivate {
             networks: Arc::new(RwLock::new(networks)),
             stats_export_service,
         }
+    }
+
+    pub fn set_network_request_sender(&mut self, sender: Sender<NetworkRawRequest>) {
+        for conn in &self.connections {
+            conn.borrow_mut().set_network_request_sender(sender.clone());
+        }
+        self.network_request_sender = sender;
     }
 
     pub fn connections_posthandshake_count(&self, exclude_type: Option<PeerType>) -> u16 {
@@ -218,12 +234,10 @@ impl TlsServerPrivate {
 
         if let Some(rc_conn) = self.find_connection_by_token(token) {
             let mut conn = rc_conn.borrow_mut();
-            conn.ready(event)?;
+            conn.ready(event)
         } else {
-            bail!(fails::PeerNotFoundError)
+            Err(Error::from(fails::PeerNotFoundError))
         }
-
-        Ok(())
     }
 
     pub fn cleanup_connections(
@@ -316,7 +330,7 @@ impl TlsServerPrivate {
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|rc_conn| {
                 let rc_conn_borrowed = rc_conn.borrow();
-                rc_conn_borrowed.closing ||
+                rc_conn_borrowed.status() == ConnectionStatus::Closing ||
                     filter_predicate_stable_conn_and_no_handshake(&rc_conn_borrowed) ||
                     filter_predicate_bootstrapper_no_activity_allowed_period(&rc_conn_borrowed) ||
                     filter_predicate_node_no_activity_allowed_period(&rc_conn_borrowed)
@@ -325,7 +339,7 @@ impl TlsServerPrivate {
                 // Deregister connection from the poll and shut down the socket
                 let mut conn = rc_conn.borrow_mut();
                 trace!("Going to kill {}:{}", conn.remote_addr().ip(), conn.remote_addr().port());
-                wrap_connection_already_gone_as_non_fatal(conn.token(),into_err!(poll.deregister(&conn.socket)))?;
+                wrap_connection_already_gone_as_non_fatal(conn.token(), conn.deregister(poll))?;
                 wrap_connection_already_gone_as_non_fatal(conn.token(), conn.shutdown())?;
                 // Report number of peers to stats export engine
                 if let Some(ref service) = &self.stats_export_service {
@@ -350,10 +364,10 @@ impl TlsServerPrivate {
         }
 
         if !err_conns.is_empty() {
-            bail!(err_msg(format!(
+            bail!(format!(
                 "Some connections couldn't be cleaned: {:?}",
                 err_conns
-            )));
+            ));
         }
 
         // Toss out a random selection, for now, of connections that's post-handshake,
@@ -397,7 +411,7 @@ impl TlsServerPrivate {
                     None,
                 );
                 if let Ok(request_ping_data) = serialize_into_memory(&request_ping, 128) {
-                    if let Err(e) = conn.serialize_bytes(&request_ping_data) {
+                    if let Err(e) = conn.async_send(UCursor::from(request_ping_data)) {
                         error!("{}", e);
                     }
                     conn.set_measured_ping_sent();
@@ -420,32 +434,25 @@ impl TlsServerPrivate {
     /// * amount of packets written to connections
     pub fn send_over_all_connections(
         &mut self,
-        data: &[u8],
+        data: UCursor,
         filter_conn: &dyn Fn(&Connection) -> bool,
-        send_status: &dyn Fn(&Connection, Fallible<usize>),
+        send_status: &dyn Fn(&Connection, Fallible<()>),
     ) -> usize {
         self.connections
             .iter_mut()
-            .filter(|conn| filter_conn(&conn.borrow()))
-            .map(|conn| {
-                let mut conn_mut_borrowed = conn.borrow_mut();
-                let status = conn_mut_borrowed.serialize_bytes(data);
-                send_status(&conn_mut_borrowed, status)
+            .filter(|rc_conn| filter_conn(&rc_conn.borrow()))
+            .map(|rc_conn| {
+                let conn = rc_conn.borrow();
+                let status = conn.async_send(data.clone());
+                send_status(&conn, status)
             })
             .count()
     }
 
-    pub fn dump_all_connections(&mut self, x: Sender<crate::dumper::DumpItem>) {
+    pub fn dump_all_connections(&mut self, log_dumper: Option<Sender<DumpItem>>) {
         self.connections.iter_mut().for_each(|conn| {
             let mut conn_mut_borrowed = conn.borrow_mut();
-            conn_mut_borrowed.dump_tx.replace(x.clone());
-        });
-    }
-
-    pub fn dump_stop_all_connections(&mut self) {
-        self.connections.iter_mut().for_each(|conn| {
-            let mut conn_mut_borrowed = conn.borrow_mut();
-            conn_mut_borrowed.dump_tx.take();
+            conn_mut_borrowed.set_log_dumper(log_dumper.clone());
         });
     }
 

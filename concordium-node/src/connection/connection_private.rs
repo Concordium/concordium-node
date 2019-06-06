@@ -1,22 +1,28 @@
-use rustls::{ClientSession, ServerSession};
 use std::{
     collections::HashSet,
-    net::SocketAddr,
+    net::{Shutdown, SocketAddr},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::Sender,
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
 };
 
+use chrono::prelude::*;
 use failure::Fallible;
+use mio::{net::TcpStream, Event, Poll, PollOpt, Ready, Token};
+use snow::Keypair;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType, RemotePeer},
-    connection::{fails, CommonSession, P2PEvent},
+    connection::{
+        fails, ConnectionStatus, FrameSink, FrameStream, HandshakeStreamSink, P2PEvent, Readiness,
+    },
+    dumper::DumpItem,
     network::{Buckets, NetworkId},
     stats_export_service::StatsExportService,
 };
+use concordium_common::UCursor;
 
 /// It is just a helper struct to facilitate sharing information with
 /// message handlers, which are set up from _inside_ `Connection`.
@@ -30,8 +36,11 @@ pub struct ConnectionPrivate {
     pub local_end_networks:  Arc<RwLock<HashSet<NetworkId>>>,
     pub buckets:             Arc<RwLock<Buckets>>,
 
-    // Session
-    pub tls_session: Box<dyn CommonSession>,
+    // Socket and Sink/Stream
+    socket:         TcpStream,
+    message_sink:   FrameSink,
+    message_stream: FrameStream,
+    pub status:     ConnectionStatus,
 
     // Stats
     pub last_seen:            AtomicU64,
@@ -45,6 +54,8 @@ pub struct ConnectionPrivate {
     pub last_latency_measured: u64,
 
     pub blind_trusted_broadcast: bool,
+
+    pub log_dumper: Option<Sender<DumpItem>>,
 }
 
 impl ConnectionPrivate {
@@ -75,14 +86,126 @@ impl ConnectionPrivate {
     pub fn remote_peer(&self) -> RemotePeer { self.remote_peer.clone() }
 
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, addr: SocketAddr) -> Fallible<()> {
+        self.status = ConnectionStatus::PostHandshake;
         self.remote_peer = self.remote_peer.promote_to_post_handshake(id, addr)?;
         Ok(())
     }
 
     #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
+
+    /// It registers `token` into `poll`.
+    /// This allows us to receive notifications once `socket` is able to read
+    /// or/and write.
+    #[inline]
+    pub fn register(&self, token: Token, poll: &mut Poll) -> Fallible<()> {
+        into_err!(poll.register(
+            &self.socket,
+            token,
+            Ready::readable() | Ready::writable(),
+            PollOpt::edge()
+        ))
+    }
+
+    #[inline]
+    pub fn deregister(&self, poll: &mut Poll) -> Fallible<()> {
+        into_err!(poll.deregister(&self.socket))
+    }
+
+    /// It shuts `socket` down.
+    #[inline]
+    pub fn shutdown(&mut self) -> Fallible<()> { into_err!(self.socket.shutdown(Shutdown::Both)) }
+
+    /// This function is called when `poll` indicates that `socket` is ready to
+    /// write or/and read.
+    ///
+    /// # Return
+    /// A vector of read messages. If message cannot be completed in one read,
+    /// an empty vector will be returned.
+    pub fn ready(&mut self, ev: &Event) -> Fallible<Vec<UCursor>> {
+        let mut messages = vec![];
+        let ev_readiness = ev.readiness();
+
+        // 1. Try to read messages from `socket`.
+        if ev_readiness.is_readable() {
+            loop {
+                let read_result = self.message_stream.read(&mut self.socket);
+                match read_result {
+                    Ok(readiness) => match readiness {
+                        Readiness::Ready(message) => {
+                            self.send_to_dump(&message, true);
+                            messages.push(message)
+                        }
+                        Readiness::NotReady => break,
+                    },
+                    Err(err) => {
+                        if err.downcast_ref::<fails::UnwantedMessageError>().is_some()
+                            || err.downcast_ref::<fails::MessageTooBigError>().is_some()
+                            || err.downcast_ref::<fails::StreamConnectionReset>().is_some()
+                        {
+                            // In this case, we have to drop this connection, so we can avoid to
+                            // write any data.
+                            self.status = ConnectionStatus::Closing;
+                        } else {
+                            error!("Message stream error: {:?}", err);
+                            return Err(err);
+                        }
+
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 2. Write pending data into `socket`.
+        if self.status != ConnectionStatus::Closing && ev_readiness.is_writable() {
+            self.message_sink.flush(&mut self.socket)?;
+        }
+
+        // 3. Check closing...
+        if self.status == ConnectionStatus::Closing {
+            self.status = ConnectionStatus::Closed;
+            self.shutdown()?;
+        }
+
+        Ok(messages)
+    }
+
+    /// It sends `input` through `socket`.
+    /// This functions returns (almost) immediately, because it does NOT wait
+    /// for real write. Function `ConnectionPrivate::ready` will make ensure to
+    /// write chunks of the message
+    #[inline]
+    pub fn async_send(&mut self, input: UCursor) -> Fallible<Readiness<usize>> {
+        self.send_to_dump(&input, false);
+        self.message_sink.write(input, &mut self.socket)
+    }
+
+    fn send_to_dump(&self, buf: &UCursor, inbound: bool) {
+        if let Some(ref sender) = self.log_dumper {
+            let di = DumpItem::new(
+                Utc::now(),
+                inbound,
+                self.remote_peer(),
+                self.remote_peer().addr().ip(),
+                buf.clone(),
+            );
+            let _ = sender.send(di);
+        }
+    }
+
+    #[inline]
+    pub fn set_log_dumper(&mut self, log_dumper: Option<Sender<DumpItem>>) {
+        self.log_dumper = log_dumper;
+    }
+
+    #[cfg(test)]
+    pub fn validate_packet_type(&mut self, msg: &[u8]) -> Readiness<bool> {
+        self.message_stream.validate_packet_type(msg)
+    }
 }
 
+#[derive(Default)]
 pub struct ConnectionPrivateBuilder {
     pub local_peer:         Option<P2PPeer>,
     pub remote_peer:        Option<RemotePeer>,
@@ -90,64 +213,55 @@ pub struct ConnectionPrivateBuilder {
     pub buckets:            Option<Arc<RwLock<Buckets>>>,
 
     // Sessions
-    pub server_session: Option<ServerSession>,
-    pub client_session: Option<ClientSession>,
+    pub socket:       Option<TcpStream>,
+    pub key_pair:     Option<Keypair>,
+    pub is_initiator: bool,
 
     // Stats
     pub stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
     pub event_log:            Option<Sender<P2PEvent>>,
 
     pub blind_trusted_broadcast: Option<bool>,
-}
-
-impl Default for ConnectionPrivateBuilder {
-    fn default() -> Self { ConnectionPrivateBuilder::new() }
+    pub log_dumper:              Option<Sender<DumpItem>>,
 }
 
 impl ConnectionPrivateBuilder {
-    pub fn new() -> ConnectionPrivateBuilder {
-        ConnectionPrivateBuilder {
-            local_peer:              None,
-            remote_peer:             None,
-            local_end_networks:      None,
-            buckets:                 None,
-            server_session:          None,
-            client_session:          None,
-            stats_export_service:    None,
-            event_log:               None,
-            blind_trusted_broadcast: None,
-        }
-    }
-
     pub fn build(self) -> Fallible<ConnectionPrivate> {
         let u64_max_value: u64 = u64::max_value();
-        let tls_session = if let Some(s) = self.server_session {
-            Box::new(s) as Box<dyn CommonSession>
-        } else if let Some(c) = self.client_session {
-            Box::new(c) as Box<dyn CommonSession>
-        } else {
-            bail!(fails::MissingFieldsConnectionBuilder);
-        };
+
         if let (
             Some(local_peer),
             Some(remote_peer),
             Some(local_end_networks),
             Some(buckets),
+            Some(socket),
+            Some(key_pair),
             Some(blind_trusted_broadcast),
         ) = (
             self.local_peer,
             self.remote_peer,
             self.local_end_networks,
             self.buckets,
+            self.socket,
+            self.key_pair,
             self.blind_trusted_broadcast,
         ) {
+            let peer_type = local_peer.peer_type();
+            let handshaker = Arc::new(Mutex::new(HandshakeStreamSink::new(
+                key_pair,
+                self.is_initiator,
+            )));
+
             Ok(ConnectionPrivate {
                 local_peer,
                 remote_peer,
                 remote_end_networks: HashSet::new(),
                 local_end_networks,
                 buckets,
-                tls_session,
+                socket,
+                message_sink: FrameSink::new(Arc::clone(&handshaker)),
+                message_stream: FrameStream::new(peer_type, handshaker),
+                status: ConnectionStatus::PreHandshake,
                 last_seen: AtomicU64::new(get_current_stamp()),
                 failed_pkts: 0,
                 stats_export_service: self.stats_export_service,
@@ -156,10 +270,21 @@ impl ConnectionPrivateBuilder {
                 sent_ping: u64_max_value,
                 last_latency_measured: u64_max_value,
                 blind_trusted_broadcast,
+                log_dumper: self.log_dumper,
             })
         } else {
-            bail!(fails::MissingFieldsConnectionBuilder)
+            Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))
         }
+    }
+
+    pub fn set_as_initiator(mut self, value: bool) -> Self {
+        self.is_initiator = value;
+        self
+    }
+
+    pub fn set_socket(mut self, socket: TcpStream) -> Self {
+        self.socket = Some(socket);
+        self
     }
 
     pub fn set_local_peer(mut self, p: P2PPeer) -> ConnectionPrivateBuilder {
@@ -185,13 +310,8 @@ impl ConnectionPrivateBuilder {
         self
     }
 
-    pub fn set_server_session(mut self, ss: Option<ServerSession>) -> ConnectionPrivateBuilder {
-        self.server_session = ss;
-        self
-    }
-
-    pub fn set_client_session(mut self, cs: Option<ClientSession>) -> ConnectionPrivateBuilder {
-        self.client_session = cs;
+    pub fn set_key_pair(mut self, kp: Keypair) -> ConnectionPrivateBuilder {
+        self.key_pair = Some(kp);
         self
     }
 
@@ -210,6 +330,14 @@ impl ConnectionPrivateBuilder {
 
     pub fn set_blind_trusted_broadcast(mut self, btb: bool) -> ConnectionPrivateBuilder {
         self.blind_trusted_broadcast = Some(btb);
+        self
+    }
+
+    pub fn set_log_dumper(
+        mut self,
+        log_dumper: Option<Sender<DumpItem>>,
+    ) -> ConnectionPrivateBuilder {
+        self.log_dumper = log_dumper;
         self
     }
 }

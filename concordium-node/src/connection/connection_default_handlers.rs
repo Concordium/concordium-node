@@ -1,4 +1,5 @@
-use concordium_common::functor::FuncResult;
+use concordium_common::{functor::FuncResult, UCursor};
+
 use std::{cell::RefCell, collections::HashSet, sync::atomic::Ordering};
 
 use crate::{
@@ -11,17 +12,17 @@ use crate::{
 };
 
 use super::{fails, handler_utils::*};
-use failure::bail;
+use failure::Error;
 
 macro_rules! reject_handshake {
     ($direction:ident, $message:ident) => {{
         if let $direction::Handshake(..) = $message {
-            bail!(fails::UnwantedMessageError {
+            Err(failure::Error::from(fails::UnwantedMessageError {
                 message: "Unwanted handshake message".to_owned(),
-            })
+            }))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }};
 }
 
@@ -55,10 +56,11 @@ pub fn default_network_request_ping_handle(
         serialize_into_memory(&pong_msg, 64)?
     };
 
-    Ok(serialize_bytes(
-        &mut *priv_conn.borrow_mut().tls_session,
-        &pong_data,
-    )?)
+    // Ignore the return value because it is an asynchronous operation.
+    priv_conn
+        .borrow_mut()
+        .async_send(UCursor::from(pong_data))
+        .map(|_bytes| ())
 }
 
 /// It sends the list of nodes.
@@ -91,14 +93,15 @@ pub fn default_network_request_find_node_handle(
             serialize_into_memory(&find_node_msg, 256)?
         };
 
-        Ok(serialize_bytes(
-            &mut *priv_conn.borrow_mut().tls_session,
-            &response_data,
-        )?)
+        // Ignore returned because it is an asynchronous operation.
+        priv_conn
+            .borrow_mut()
+            .async_send(UCursor::from(response_data))
+            .map(|_bytes| ())
     } else {
-        bail!(make_msg_error(
-            "Find node handler cannot handler this packet"
-        ))
+        Err(Error::from(make_msg_error(
+            "Find node handler cannot handle this packet",
+        )))
     }
 }
 
@@ -134,14 +137,15 @@ pub fn default_network_request_get_peers(
             serialize_into_memory(&peer_list_msg, 256)?
         };
 
-        Ok(serialize_bytes(
-            &mut *priv_conn.borrow_mut().tls_session,
-            &peer_list_packet,
-        )?)
+        // Ignore returned because it is an asynchronous operation.
+        priv_conn
+            .borrow_mut()
+            .async_send(UCursor::from(peer_list_packet))
+            .map(|_bytes| ())
     } else {
-        bail!(make_msg_error(
-            "Get peers handler cannot handler this packet"
-        ))
+        Err(Error::from(make_msg_error(
+            "Get peers handler cannot handler this packet",
+        )))
     }
 }
 
@@ -161,9 +165,9 @@ pub fn default_network_response_find_node(
 
         Ok(())
     } else {
-        bail!(make_msg_error(
-            "Response find node handler cannot handler this packet"
-        ))
+        Err(Error::from(make_msg_error(
+            "Response find node handler cannot handler this packet",
+        )))
     }
 }
 

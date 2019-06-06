@@ -4,7 +4,7 @@ use crate::common::{
     P2PNodeId, PeerType,
 };
 
-use failure::Fallible;
+use failure::{Error, Fallible};
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
@@ -41,11 +41,11 @@ impl P2PPeerBuilder {
                 last_seen: get_current_stamp(),
             })
         } else {
-            bail!(fails::MissingFieldsError::new(
+            Err(Error::from(fails::MissingFieldsError::new(
                 self.peer_type,
                 self.id,
-                self.addr
-            ))
+                self.addr,
+            )))
         }
     }
 }

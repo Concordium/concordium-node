@@ -5,7 +5,7 @@ use crate::{
     network::{NetworkRequest, NetworkResponse},
 };
 use concordium_common::functor::FuncResult;
-use failure::bail;
+use failure::Error;
 use std::cell::RefCell;
 
 pub fn handshake_response_handle(
@@ -32,9 +32,9 @@ pub fn handshake_response_handle(
 
         Ok(())
     } else {
-        bail!(fails::UnwantedMessageError {
+        Err(Error::from(fails::UnwantedMessageError {
             message: format!("Was expecting handshake, received {:?}", req),
-        });
+        }))
     }
 }
 
@@ -65,8 +65,8 @@ pub fn handshake_request_handle(
         }
         Ok(())
     } else {
-        bail!(fails::UnwantedMessageError {
+        Err(Error::from(fails::UnwantedMessageError {
             message: format!("Was expecting handshake, received {:?}", req),
-        });
+        }))
     }
 }

@@ -93,7 +93,6 @@ pub mod rpc;
 pub mod stats_engine;
 pub mod utils;
 
-#[cfg(test)]
 pub mod test_utils;
 
 #[cfg(feature = "s11n_capnp")]

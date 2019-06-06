@@ -1,7 +1,7 @@
 use crate::common::{fails::InvalidIpType, serialization::ReadArchive};
 
 use concordium_common::{HashBytes, UCursor, SHA256};
-use failure::{bail, err_msg, Fallible};
+use failure::{err_msg, Error, Fallible};
 
 use std::{
     cmp::Eq,
@@ -81,13 +81,11 @@ impl Deserializable for IpAddr {
     where
         A: ReadArchive, {
         let ip_type = u8::deserialize(archive)?;
-        let ip = match ip_type {
-            4u8 => IpAddr::from(Ipv4Addr::deserialize(archive)?),
-            6u8 => IpAddr::from(Ipv6Addr::deserialize(archive)?),
-            _ => bail!(InvalidIpType::new(ip_type.to_string())),
-        };
-
-        Ok(ip)
+        match ip_type {
+            4u8 => Ok(IpAddr::from(Ipv4Addr::deserialize(archive)?)),
+            6u8 => Ok(IpAddr::from(Ipv6Addr::deserialize(archive)?)),
+            _ => Err(Error::from(InvalidIpType::new(ip_type.to_string()))),
+        }
     }
 }
 

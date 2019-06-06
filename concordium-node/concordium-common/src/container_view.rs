@@ -1,4 +1,10 @@
-use std::{cmp::min, convert::From, ops::Index, sync::Arc, vec::Vec};
+use std::{
+    cmp::min,
+    convert::From,
+    ops::{Deref, Index},
+    sync::Arc,
+    vec::Vec,
+};
 
 /// It is a shared view over
 #[derive(Debug, Clone)]
@@ -38,7 +44,15 @@ impl ContainerView {
     pub fn as_slice(&self) -> &[u8] { &self.data[self.offset..][..self.len] }
 }
 
+impl Deref for ContainerView {
+    type Target = [u8];
+
+    #[inline]
+    fn deref(&self) -> &[u8] { &self.data[self.offset..][..self.len] }
+}
+
 impl PartialEq for ContainerView {
+    #[inline]
     fn eq(&self, other: &ContainerView) -> bool { self.as_slice() == other.as_slice() }
 }
 

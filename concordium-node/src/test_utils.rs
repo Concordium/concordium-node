@@ -13,6 +13,7 @@ use concordium_common::{
 use failure::Fallible;
 use std::{
     cell::RefCell,
+    net::TcpListener,
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::Receiver,
@@ -24,47 +25,49 @@ use structopt::StructOpt;
 
 static INIT: Once = ONCE_INIT;
 static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
-static PORT_RPC_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static PORT_START_NODE: u16 = 8888;
-static PORT_START_RPC: u16 = 10002;
 
 pub const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
 
-/// It returns next port available and it ensures that next `slot_size`
-/// ports will be available too.
-///
-/// # Arguments
-/// * `slot_size` - Size of blocked ports. It
-///
-/// # Example
-/// ```
-/// let port_range_1 = next_port_offset(10); // It will return 0, you can use from 0..9
-/// let port_range_2 = next_port_offset(20); // It will return 10, you can use from 10..19
-/// let port_range_3 = next_port_offset(100); // It will return 30, you can use from 20..129
-/// let port_range_4 = next_port_offset(130);
-/// ```
-pub fn next_port_offset_node(slot_size: usize) -> u16 {
-    PORT_OFFSET.fetch_add(slot_size, Ordering::SeqCst) as u16 + PORT_START_NODE
+/// It returns next available port
+pub fn next_available_port() -> u16 {
+    let mut available_port = None;
+
+    while available_port.is_none() {
+        let port = PORT_OFFSET.fetch_add(1, Ordering::SeqCst) as u16 + PORT_START_NODE;
+        available_port = TcpListener::bind(("127.0.0.1", port)).map(|_| port).ok();
+        assert!(port < std::u16::MAX);
+    }
+
+    available_port.unwrap()
 }
 
-pub fn next_port_offset_rpc(slot_size: usize) -> u16 {
-    PORT_RPC_OFFSET.fetch_add(slot_size, Ordering::SeqCst) as u16 + PORT_START_RPC
-}
+use chrono::{offset::Utc, DateTime};
+use std::io::Write;
 
 /// It initializes the global logger with a `env_logger`, but just once.
-pub fn setup() {
-    INIT.call_once(|| env_logger::init());
+pub fn setup_logger() {
+    // INIT.call_once(|| env_logger::init());
 
     // @note It adds thread ID to each message.
-    // INIT.call_once( || {
-    // let mut builder = env_logger::Builder::from_default_env();
-    // builder.format(
-    // |buf, record| {
-    // let curr_thread = thread::current();
-    // writeln!( buf, "{}@{:?} {}", record.level(), curr_thread.id(), record.args())
-    // })
-    // .init();
-    // });
+    INIT.call_once(|| {
+        let mut builder = env_logger::Builder::from_default_env();
+        builder
+            .format(|buf, record| {
+                let curr_thread = std::thread::current();
+                let now: DateTime<Utc> = std::time::SystemTime::now().into();
+                writeln!(
+                    buf,
+                    "[{} {} {} {:?}] {}",
+                    now.format("%c"),
+                    record.level(),
+                    record.target(),
+                    curr_thread.id(),
+                    record.args()
+                )
+            })
+            .init();
+    });
 }
 
 #[cfg(debug_assertions)]
@@ -90,15 +93,19 @@ pub fn max_recv_timeout() -> std::time::Duration {
 /// As `make_node_and_sync`, this returns a tuple but it contains list
 /// of objects instead of just one.
 pub fn make_nodes_from_port(
-    port: u16,
     count: usize,
     networks: Vec<u16>,
+    blind_trusted_broadcast: bool,
 ) -> Fallible<Vec<(RefCell<P2PNode>, Receiver<NetworkMessage>)>> {
     let mut nodes_and_receivers = Vec::with_capacity(count);
 
-    for i in 0..count {
-        let (node, receiver) =
-            make_node_and_sync(port + i as u16, networks.clone(), true, PeerType::Node)?;
+    for _i in 0..count {
+        let (node, receiver) = make_node_and_sync(
+            next_available_port(),
+            networks.clone(),
+            blind_trusted_broadcast,
+            PeerType::Node,
+        )?;
 
         nodes_and_receivers.push((RefCell::new(node), receiver));
     }
@@ -146,7 +153,7 @@ pub fn make_node_and_sync(
         Ok(())
     }));
 
-    let _ = node.spawn();
+    node.spawn();
     Ok((node, msg_wait_rx))
 }
 
@@ -207,17 +214,13 @@ pub fn wait_direct_message_timeout(
     timeout: std::time::Duration,
 ) -> Option<UCursor> {
     let mut payload = None;
-    loop {
-        match waiter.recv_timeout(timeout) {
-            Ok(msg) => {
-                if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
-                    if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
-                        payload = Some(pac.message.clone());
-                        break;
-                    }
-                }
+
+    while let Ok(msg) = waiter.recv_timeout(timeout) {
+        if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
+            if let NetworkPacketType::DirectMessage(..) = pac.packet_type {
+                payload = Some(pac.message.clone());
+                break;
             }
-            Err(_timeout_error) => break,
         }
     }
 
@@ -237,7 +240,7 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 /// node.
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// let (mut node, waiter) = make_node_and_sync(5555, vec![100], true).unwrap();
 /// let node_id_and_port = format!("{}(port={})", node.id(), 5555);
 ///
@@ -250,7 +253,7 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 ///         Ok(())
 ///     }));
 /// ```
-pub fn log_any_message_handler<T>(id: T, message: &NetworkMessage)
+pub fn log_any_message_handler<T>(id: T, message: &NetworkMessage) -> Fallible<()>
 where
     T: std::fmt::Display, {
     let msg_type: String = match message {
@@ -291,4 +294,6 @@ where
         NetworkMessage::InvalidMessage => "Invalid".to_owned(),
     };
     info!("Message at {}: {}", id, msg_type);
+
+    Ok(())
 }

@@ -1,19 +1,21 @@
-use byteorder::{NetworkEndian, WriteBytesExt};
-use std::{cell::RefCell, collections::HashSet, sync::mpsc::Sender};
-
+use super::fails;
 use crate::{
     common::{
         counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
         serialization::serialize_into_memory, P2PPeer,
     },
-    connection::{connection_private::ConnectionPrivate, CommonSession, P2PEvent},
+    connection::{connection_private::ConnectionPrivate, P2PEvent},
     network::{NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
 };
-use concordium_common::{fails::FunctorError, functor::FuncResult};
-use std::sync::atomic::Ordering;
+use concordium_common::{fails::FunctorError, functor::FuncResult, UCursor};
 
-use super::fails;
 use failure::{Backtrace, Error};
+
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    sync::{atomic::Ordering, mpsc::Sender},
+};
 
 const BOOTSTRAP_PEER_COUNT: usize = 100;
 
@@ -29,17 +31,6 @@ pub fn make_fn_error_peer(e: &'static str) -> FunctorError {
 
 pub fn make_log_error(e: &'static str) -> FunctorError {
     FunctorError::from(vec![Error::from(fails::LogError { message: e })])
-}
-
-pub fn serialize_bytes(session: &mut dyn CommonSession, pkt: &[u8]) -> FuncResult<()> {
-    // Write size of pkt into 4 bytes vector.
-    let mut size_vec = Vec::with_capacity(4);
-    size_vec.write_u32::<NetworkEndian>(pkt.len() as u32)?;
-
-    session.write_all(&size_vec[..])?;
-    session.write_all(pkt)?;
-
-    Ok(())
 }
 
 /// Log when it has been joined to a network.
@@ -79,8 +70,6 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
         (remote_end_networks, local_peer)
     };
 
-    let session = &mut *priv_conn.borrow_mut().tls_session;
-
     // Send handshake
     let handshake_msg = NetworkMessage::NetworkResponse(
         NetworkResponse::Handshake(local_peer.clone(), my_nets, vec![]),
@@ -88,7 +77,11 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
         None,
     );
     let handshake_data = serialize_into_memory(&handshake_msg, 128)?;
-    serialize_bytes(session, &handshake_data)?;
+
+    // Ignore returned value because it is an asynchronous operation.
+    let _ = priv_conn
+        .borrow_mut()
+        .async_send(UCursor::from(handshake_data))?;
 
     // Send ping
     let ping_msg = NetworkMessage::NetworkRequest(
@@ -97,7 +90,11 @@ pub fn send_handshake_and_ping(priv_conn: &RefCell<ConnectionPrivate>) -> FuncRe
         None,
     );
     let ping_data = serialize_into_memory(&ping_msg, 64)?;
-    serialize_bytes(session, &ping_data)?;
+
+    // Ignore returned value because it is an asynchronous operation.
+    let _ = priv_conn
+        .borrow_mut()
+        .async_send(UCursor::from(ping_data))?;
 
     TOTAL_MESSAGES_SENT_COUNTER.fetch_add(2, Ordering::Relaxed);
     Ok(())
@@ -131,7 +128,8 @@ pub fn send_peer_list(
         serialize_into_memory(&peer_list_msg, 256)?
     };
 
-    serialize_bytes(&mut *priv_conn.borrow_mut().tls_session, &data)?;
+    // Ignore returned value because it is an asynchronous operation.
+    let _ = priv_conn.borrow_mut().async_send(UCursor::from(data))?;
 
     if let Some(ref service) = priv_conn.borrow().stats_export_service {
         let mut writable_service = safe_write!(service)?;
