@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     block::*,
-    common::{HashBytes, Slot},
+    common::{HashBytes, SerializeToBytes, Slot},
     finalization::*,
     transaction::*,
 };
@@ -20,26 +20,28 @@ use self::PendingQueueType::*;
 pub struct SkovReq {
     pub source: Option<u64>, // PeerId
     pub body:   SkovReqBody,
-    pub raw:    Option<Box<[u8]>>,
 }
 
 impl SkovReq {
-    pub fn new(source: Option<u64>, body: SkovReqBody, raw: Option<Box<[u8]>>) -> Self {
-        Self { source, body, raw }
+    pub fn new(source: Option<u64>, body: SkovReqBody) -> Self {
+        Self { source, body }
     }
 }
 
 #[derive(Debug)]
 pub enum SkovReqBody {
     AddBlock(PendingBlock),
-    GetBlock(HashBytes),
+    GetBlock(HashBytes, Delta),
     AddFinalizationRecord(FinalizationRecord),
     GetFinalizationRecord(HashBytes),
 }
 
+type Bytes = Box<[u8]>;
+
 #[derive(Debug)]
 pub enum SkovResult {
-    Success,
+    SuccessfulEntry,
+    SuccessfulQuery(Bytes),
     DuplicateEntry,
     Error(SkovError),
 }
@@ -47,7 +49,8 @@ pub enum SkovResult {
 impl fmt::Display for SkovResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match self {
-            SkovResult::Success => "successful entry".to_owned(),
+            SkovResult::SuccessfulEntry => "successful entry".to_owned(),
+            SkovResult::SuccessfulQuery(_) => "successful query".to_owned(),
             SkovResult::DuplicateEntry => "duplicate entry".to_owned(),
             SkovResult::Error(e) => e.to_string(),
         };
@@ -70,6 +73,10 @@ pub enum SkovError {
     InvalidLastFinalized(HashBytes, HashBytes),
     // the block pointed to by the finalization record is not in the tree
     MissingBlockToFinalize(HashBytes),
+    // the requested finalization record is not available
+    MissingFinalizationRecord(HashBytes),
+    // the requested block is not available
+    MissingBlock(HashBytes, Delta),
 }
 
 impl fmt::Display for SkovError {
@@ -96,6 +103,14 @@ impl fmt::Display for SkovError {
                 "finalization record {:?} is pointing to a block that is not in the tree",
                 target
             ),
+            SkovError::MissingFinalizationRecord(ref target) => format!(
+                "requested finalization record {:?} is not available",
+                target
+            ),
+            SkovError::MissingBlock(ref hash, delta) => format!(
+                "requested block {:?} delta {} is not available",
+                hash, delta
+            ),
         };
 
         write!(f, "error: {}", msg)
@@ -119,7 +134,7 @@ impl Skov {
         let timestamp = Utc::now();
         let result = self.data.add_block(pending_block);
 
-        if let SkovResult::Success = result {
+        if let SkovResult::SuccessfulEntry = result {
             self.stats.register_block(timestamp);
         };
 
@@ -130,11 +145,27 @@ impl Skov {
         let timestamp = Utc::now();
         let result = self.data.add_finalization(record);
 
-        if let SkovResult::Success = result {
+        if let SkovResult::SuccessfulEntry = result {
             self.stats.register_finalization(timestamp);
         };
 
         result
+    }
+
+    pub fn get_block(&self, hash: HashBytes, delta: Delta) -> SkovResult {
+        if let Some(block) = self.data.get_block(&hash) {
+            SkovResult::SuccessfulQuery(block.serialize())
+        } else {
+            SkovResult::Error(SkovError::MissingBlock(hash, delta))
+        }
+    }
+
+    pub fn get_finalization_record(&self, hash: HashBytes) -> SkovResult {
+        if let Some(record) = self.data.get_finalization_record(&hash) {
+            SkovResult::SuccessfulQuery(record.serialize())
+        } else {
+            SkovResult::Error(SkovError::MissingFinalizationRecord(hash))
+        }
     }
 
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
@@ -312,13 +343,25 @@ impl SkovData {
             .insert(block_ptr.hash.clone(), Rc::new(block_ptr));
 
         if insertion_result.is_none() {
-            SkovResult::Success
+            SkovResult::SuccessfulEntry
         } else {
             SkovResult::DuplicateEntry
         }
     }
 
-    pub fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
+    pub fn get_block(&self, hash: &HashBytes) -> Option<&Block> {
+        let block_ptr = if let Some(block_ptr) = self.tree_candidates.get(&hash) {
+            block_ptr
+        } else if let Some(block_ptr) = self.block_tree.get(&hash) {
+            block_ptr
+        } else {
+            return None;
+        };
+
+        Some(&block_ptr.block)
+    }
+
+    pub fn get_finalization_record(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
             .rev() // it's most probable that it's near the end
@@ -371,7 +414,7 @@ impl SkovData {
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
-        SkovResult::Success
+        SkovResult::SuccessfulEntry
     }
 
     fn pending_queue_ref(&self, queue: PendingQueueType) -> &PendingQueue {
@@ -407,6 +450,7 @@ impl SkovData {
     fn refresh_pending_queue(&mut self, queue: PendingQueueType, target_hash: &HashBytes) {
         if let Some(affected_blocks) = self.pending_queue_mut(queue).remove(target_hash) {
             for pending_block in affected_blocks {
+                debug!("Reattempted to add block {:?} to the tree", target_hash);
                 // silence errors here, as it is a housekeeping operation
                 let _ = self.add_block(pending_block);
             }
@@ -511,10 +555,10 @@ impl fmt::Display for SkovStats {
 
         write!(
             f,
-            "avg. block time: {}s; avg. finalization time: {}s, errors: {:?}",
+            "avg. block time: {}s; avg. finalization time: {}s{}",
             get_avg_duration(&self.block_times),
             get_avg_duration(&self.finalization_times),
-            self.errors,
+            if !self.errors.is_empty() { format!(", errors: {:?}", self.errors) } else { "".to_owned() },
         )
     }
 }

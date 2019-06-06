@@ -96,7 +96,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:           Slot,
     pub pointer:        BlockHash,
@@ -106,6 +106,13 @@ pub struct BakedBlock {
     pub last_finalized: BlockHash,
     transactions:       Transactions,
     signature:          ByteString,
+}
+
+// this is a very debug method used only by the Display impl of ConsensusMessage
+impl fmt::Debug for BakedBlock {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "block {:?} -> {:?}", sha256(&self.serialize()), self.pointer)
+    }
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
@@ -223,6 +230,8 @@ pub type Timestamp = u64;
 pub type Duration = u64;
 
 pub type BlockHeight = u64;
+
+pub type Delta = u64;
 
 pub type BlockHash = HashBytes;
 

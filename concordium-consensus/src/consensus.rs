@@ -1,3 +1,5 @@
+use byteorder::{ByteOrder, NetworkEndian};
+
 use concordium_common::{
     into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
     RelayOrStopSyncSender,
@@ -8,7 +10,9 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    fmt, str,
+    fmt,
+    mem,
+    str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
 };
@@ -22,10 +26,8 @@ use concordium_global_state::{
 };
 
 pub type PeerId = u64;
-pub type Delta = u64;
 pub type Bytes = Box<[u8]>;
 
-#[derive(Debug)]
 pub struct ConsensusMessage {
     pub variant:  PacketType,
     pub producer: Option<PeerId>,
@@ -39,6 +41,38 @@ impl ConsensusMessage {
             producer,
             payload,
         }
+    }
+}
+
+impl fmt::Debug for ConsensusMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        macro_rules! print_deserialized {
+            ($object:ty) => {{
+                if let Ok(object) = <$object>::deserialize(&self.payload) {
+                    format!("{:?}", object)
+                } else {
+                    format!("corrupted bytes")
+                }
+            }};
+        }
+
+        let content = match self.variant {
+            PacketType::Block => print_deserialized!(BakedBlock),
+            PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
+            PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
+            PacketType::CatchupBlockByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                let delta = NetworkEndian::read_u64(&self.payload[SHA256 as usize..][..mem::size_of::<Delta>()]);
+                format!("catch-up request for block {:?}, delta {}", hash, delta)
+            },
+            PacketType::CatchupFinalizationRecordByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                format!("catch-up request for the finalization record for block {:?}", hash)
+            },
+            p => format!("{}", p)
+        };
+
+        write!(f, "{}", content)
     }
 }
 
@@ -59,18 +93,6 @@ impl Default for ConsensusOutQueue {
             sender_request,
         }
     }
-}
-
-macro_rules! empty_queue {
-    ($queue:expr, $name:tt) => {
-        if let Ok(ref mut q) = $queue.try_lock() {
-            debug!(
-                "Drained the queue \"{}\" for {} element(s)",
-                $name,
-                q.try_iter().count()
-            );
-        }
-    };
 }
 
 impl ConsensusOutQueue {
@@ -96,7 +118,12 @@ impl ConsensusOutQueue {
     }
 
     pub fn clear(&self) {
-        empty_queue!(self.receiver_request, "Consensus request queue");
+        if let Ok(ref mut q) = self.receiver_request.try_lock() {
+            debug!(
+                "Drained the Consensus request queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
     }
 
     pub fn stop(&self) -> Fallible<()> {
@@ -117,7 +144,7 @@ fn relay_msg_to_skov(
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
+    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body));
 
     into_err!(skov_sender.send(request))
 }
@@ -381,37 +408,6 @@ impl ConsensusContainer {
             .iter()
             .next()
             .map(|(_, baker)| Arc::clone(&baker.genesis_data))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum CatchupRequest {
-    BlockByHash(PeerId, HashBytes, Delta),
-    FinalizationMessagesByPoint(PeerId, FinalizationMessage),
-    FinalizationRecordByHash(PeerId, HashBytes),
-    FinalizationRecordByIndex(PeerId, FinalizationIndex),
-}
-
-impl fmt::Display for CatchupRequest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                CatchupRequest::BlockByHash(_, hash, delta) => {
-                    format!("block {:?} delta {}", hash, delta)
-                }
-                CatchupRequest::FinalizationMessagesByPoint(..) => {
-                    "finalization messages by point".to_string()
-                }
-                CatchupRequest::FinalizationRecordByHash(_, hash) => {
-                    format!("finalization record of {:?}", hash)
-                }
-                CatchupRequest::FinalizationRecordByIndex(_, index) => {
-                    format!("finalization record by index ({})", index)
-                }
-            }
-        )
     }
 }
 

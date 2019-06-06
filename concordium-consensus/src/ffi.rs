@@ -129,7 +129,7 @@ impl TryFrom<u16> for PacketType {
     fn try_from(value: u16) -> Fallible<PacketType> {
         PACKET_TYPE_FROM_INT
             .get(value as usize)
-            .cloned()
+            .copied()
             .ok_or_else(|| format_err!("Unsupported packet type ({})", value))
     }
 }
@@ -141,11 +141,11 @@ impl fmt::Display for PacketType {
             PacketType::Transaction => "transaction",
             PacketType::FinalizationRecord => "finalization record",
             PacketType::FinalizationMessage => "finalization message",
-            PacketType::CatchupBlockByHash => "catch-up block by hash",
-            PacketType::CatchupFinalizationRecordByHash => "catch-up finalization record by hash",
-            PacketType::CatchupFinalizationRecordByIndex => "catch-up finalization record by index",
+            PacketType::CatchupBlockByHash => "\"catch-up block by hash\" request",
+            PacketType::CatchupFinalizationRecordByHash => "\"catch-up finalization record by hash\" request",
+            PacketType::CatchupFinalizationRecordByIndex => "\"catch-up finalization record by index\" request",
             PacketType::CatchupFinalizationMessagesByPoint => {
-                "catch-up finalization messages by point"
+                "\"catch-up finalization messages by point\" request"
             }
         };
 
@@ -516,7 +516,7 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
 }
 
 pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
-    info!("Got a catch-up request for finalization messages for point from consensus",);
+    debug!("Got a catch-up request for finalization messages for point from consensus",);
     unsafe {
         let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
 

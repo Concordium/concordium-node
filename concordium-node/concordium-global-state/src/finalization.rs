@@ -19,18 +19,18 @@ const WMVBA_TYPE: u8 = 1;
 const VAL: u8 = BLOCK_HASH;
 const TICKET: u8 = 80;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct FinalizationMessage {
     header:    FinalizationMessageHeader,
     message:   WmvbaMessage,
     signature: ByteString,
 }
 
-impl fmt::Display for FinalizationMessage {
+impl fmt::Debug for FinalizationMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "finalization message (sess {}, idx {}) from party {} ({})",
+            "finalization message (sess {}, idx {}, party {}, {})",
             self.header.session_id, self.header.index, self.header.sender, self.message
         )
     }
@@ -80,7 +80,7 @@ type Party = u32;
 struct FinalizationMessageHeader {
     session_id: SessionId,
     index:      FinalizationIndex,
-    delta:      BlockHeight,
+    delta:      Delta,
     sender:     Party,
 }
 
@@ -371,7 +371,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for CssDoneReporting {
     }
 }
 
-#[derive(Debug)]
 pub struct FinalizationRecord {
     pub index:         FinalizationIndex,
     pub block_pointer: BlockHash,
@@ -393,9 +392,9 @@ impl Ord for FinalizationRecord {
     fn cmp(&self, other: &Self) -> Ordering { self.index.cmp(&other.index) }
 }
 
-impl fmt::Display for FinalizationRecord {
+impl fmt::Debug for FinalizationRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "finalization record ({:?})", self.block_pointer)
+        write!(f, "finalization record for block {:?}", self.block_pointer)
     }
 }
 
