@@ -62,7 +62,7 @@ pub fn main() -> Fallible<()> {
     stop_haskell();
 
     match consensus_baked_data {
-        Ok((genesis_data, private_data_blobs)) => {
+        Ok((genesis_data, private_data)) => {
             let genesis_out_path: PathBuf =
                 [&conf.output_dir, FILE_NAME_GENESIS_DATA].iter().collect();
             match OpenOptions::new()
@@ -94,50 +94,47 @@ pub fn main() -> Fallible<()> {
                     exit(1);
                 }
             }
-            private_data_blobs
-                .iter()
-                .for_each(|(baker_id, private_data)| {
-                    let private_data_out_path: PathBuf = [
-                        &conf.output_dir,
-                        &format!(
-                            "{}{}{}",
-                            FILE_NAME_PREFIX_BAKER_PRIVATE,
-                            baker_id,
-                            FILE_NAME_SUFFIX_BAKER_PRIVATE
-                        ),
-                    ]
-                    .iter()
-                    .collect();
-                    match OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .create(true)
-                        .open(&private_data_out_path)
-                    {
-                        Ok(mut baker_file) => match baker_file.write_all(&private_data) {
-                            Ok(_) => info!(
-                                "Wrote out private data to {}",
-                                private_data_out_path.to_str().unwrap()
-                            ),
-                            Err(err) => {
-                                error!(
-                                    "Could not write private data to file {} due to {}",
-                                    private_data_out_path.to_str().unwrap(),
-                                    err
-                                );
-                                exit(1);
-                            }
-                        },
-                        Err(err) => {
-                            error!(
-                                "Could not open private data file {} for writing due to {}",
-                                private_data_out_path.to_str().unwrap(),
-                                err
-                            );
-                            exit(1);
-                        }
+
+            let private_data_out_path: PathBuf = [
+                &conf.output_dir,
+                &format!(
+                    "{}{}",
+                    FILE_NAME_PREFIX_BAKER_PRIVATE,
+                    FILE_NAME_SUFFIX_BAKER_PRIVATE
+                ),
+            ]
+            .iter()
+            .collect();
+
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&private_data_out_path)
+            {
+                Ok(mut baker_file) => match baker_file.write_all(&private_data) {
+                    Ok(_) => info!(
+                        "Wrote out private data to {}",
+                        private_data_out_path.to_str().unwrap()
+                    ),
+                    Err(err) => {
+                        error!(
+                            "Could not write private data to file {} due to {}",
+                            private_data_out_path.to_str().unwrap(),
+                            err
+                        );
+                        exit(1);
                     }
-                });
+                },
+                Err(err) => {
+                    error!(
+                        "Could not open private data file {} for writing due to {}",
+                        private_data_out_path.to_str().unwrap(),
+                        err
+                    );
+                    exit(1);
+                }
+            }
         }
         Err(err) => bail!("Can't generate data {}", err),
     }

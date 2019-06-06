@@ -561,8 +561,8 @@ fn main() -> Fallible<()> {
 
     // Close baker if present
     if let Some(ref mut baker_ref) = baker {
-        if let Some(baker_id) = conf.cli.baker.baker_id {
-            baker_ref.stop_baker(baker_id)
+        if conf.cli.baker.baker_id.is_some() {
+            baker_ref.stop_baker()
         };
         ffi::stop_haskell();
     }

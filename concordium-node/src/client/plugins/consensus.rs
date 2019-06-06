@@ -7,7 +7,6 @@ use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 
 use std::{
-    collections::HashMap,
     convert::TryFrom,
     fs::OpenOptions,
     io::{Read, Write},
@@ -88,7 +87,7 @@ fn get_baker_data(
         if !genesis_loc.exists() || !private_loc.exists() {
             consensus::ConsensusContainer::generate_data(conf.baker_genesis, conf.baker_num_bakers)?
         } else {
-            (vec![], HashMap::new())
+            (vec![], vec![])
         };
 
     let given_genesis = if !genesis_loc.exists() {
@@ -125,9 +124,9 @@ fn get_baker_data(
             .open(&private_loc)
         {
             Ok(mut file) => {
-                if let Some(baker_id) = conf.baker_id {
-                    match file.write_all(&generated_private_data[&(baker_id as i64)]) {
-                        Ok(_) => generated_private_data[&(baker_id as i64)].to_owned(),
+                if conf.baker_id.is_some() {
+                    match file.write_all(&generated_private_data) {
+                        Ok(_) => generated_private_data.to_owned(),
                         Err(_) => bail!("Couldn't write out private baker data"),
                     }
                 } else {
