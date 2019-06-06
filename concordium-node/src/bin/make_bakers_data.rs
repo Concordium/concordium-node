@@ -99,8 +99,7 @@ pub fn main() -> Fallible<()> {
                 &conf.output_dir,
                 &format!(
                     "{}{}",
-                    FILE_NAME_PREFIX_BAKER_PRIVATE,
-                    FILE_NAME_SUFFIX_BAKER_PRIVATE
+                    FILE_NAME_PREFIX_BAKER_PRIVATE, FILE_NAME_SUFFIX_BAKER_PRIVATE
                 ),
             ]
             .iter()

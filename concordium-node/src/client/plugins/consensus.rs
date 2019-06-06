@@ -180,15 +180,12 @@ pub fn handle_pkt_out(
         };
 
         if let Some(body) = request_body {
-            let request = RelayOrStopEnvelope::Relay(SkovReq::new(
-                Some(peer_id.0),
-                body,
-            ));
+            let request = RelayOrStopEnvelope::Relay(SkovReq::new(Some(peer_id.0), body));
 
             skov_sender.send(request)?;
         }
 
-        send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, Box::from(content))
+        send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
     } else {
         Ok(())
     }
@@ -200,7 +197,8 @@ pub fn handle_global_state_request(
     skov: &mut Skov,
 ) -> Fallible<()> {
     if baker.is_some() {
-        let source = request.source
+        let source = request
+            .source
             .map(|peer_id| P2PNodeId(peer_id).to_string())
             .unwrap_or_else(|| "our consensus layer".to_owned());
 
@@ -228,10 +226,7 @@ pub fn handle_global_state_request(
                 // not handled yet
             }
             SkovResult::DuplicateEntry => {
-                warn!(
-                    "Skov: got a duplicate {} from {}",
-                    packet_type, source
-                );
+                warn!("Skov: got a duplicate {} from {}", packet_type, source);
             }
             SkovResult::Error(e) => {
                 warn!("{}", e);
@@ -320,7 +315,10 @@ fn send_transaction_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     baker.send_transaction(content);
-    info!("Peer {}'s transaction was sent to our consensus layer", peer_id);
+    info!(
+        "Peer {}'s transaction was sent to our consensus layer",
+        peer_id
+    );
     Ok(())
 }
 
@@ -332,10 +330,13 @@ fn send_finalization_record_to_consensus(
     let record = FinalizationRecord::deserialize(&content)?;
 
     match baker.send_finalization_record(peer_id.as_raw(), content) {
-        0i64 => info!("Peer {}'s {:?} was sent to our consensus layer", peer_id, record),
+        0i64 => info!(
+            "Peer {}'s {:?} was sent to our consensus layer",
+            peer_id, record
+        ),
         err_code => error!(
-            "Peer {}'s finalization record can't be sent to our consensus layer due to error code #{} (record: \
-             {:?})",
+            "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
+             #{} (record: {:?})",
             peer_id, err_code, record,
         ),
     }
@@ -351,7 +352,10 @@ fn send_finalization_message_to_consensus(
     let message = FinalizationMessage::deserialize(&content)?;
 
     baker.send_finalization(peer_id.as_raw(), content);
-    debug!("Peer {}'s {:?} was sent to our consensus layer", peer_id, message);
+    debug!(
+        "Peer {}'s {:?} was sent to our consensus layer",
+        peer_id, message
+    );
 
     Ok(())
 }
@@ -365,7 +369,10 @@ fn send_block_to_consensus(
 
     // send unique blocks to the consensus layer
     match baker.send_block(peer_id.as_raw(), content) {
-        0i64 => info!("Peer {}'s {:?} was sent to our consensus layer", peer_id, deserialized),
+        0i64 => info!(
+            "Peer {}'s {:?} was sent to our consensus layer",
+            peer_id, deserialized
+        ),
         err_code => error!(
             "Peer {}'s block can't be sent to our consensus layer due to error code #{} (block: \
              {:?})",
@@ -390,8 +397,8 @@ fn send_catchup_finalization_messages_by_point_to_consensus(
             peer_id
         ),
         err_code => error!(
-            "Peer {} couldn't obtain finalization messages by point from our consensus layer due to error \
-             code {} (bytes: {:?}, length: {})",
+            "Peer {} couldn't obtain finalization messages by point from our consensus layer due \
+             to error code {} (bytes: {:?}, length: {})",
             peer_id,
             err_code,
             content,
@@ -431,10 +438,7 @@ macro_rules! send_catchup_request_to_consensus {
                 out_bytes.extend(res);
 
                 match &$node.send_direct_message(Some($peer_id), $network_id, None, out_bytes) {
-                    Ok(_) => info!(
-                        "Responded to a {} from peer {}",
-                        $req_type, $peer_id
-                    ),
+                    Ok(_) => info!("Responded to a {} from peer {}", $req_type, $peer_id),
                     Err(_) => error!(
                         "Couldn't respond to a {} from peer {}!",
                         $req_type, $peer_id
@@ -442,8 +446,7 @@ macro_rules! send_catchup_request_to_consensus {
                 }
             } else {
                 error!(
-                    "Consensus doesn't have the data to fulfill a {} \
-                     that peer {} requested",
+                    "Consensus doesn't have the data to fulfill a {} that peer {} requested",
                     $req_type, $peer_id
                 );
             }

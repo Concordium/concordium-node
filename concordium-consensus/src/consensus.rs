@@ -9,9 +9,7 @@ use failure::{bail, Fallible};
 #[cfg(test)]
 use std::time::Duration;
 use std::{
-    fmt,
-    mem,
-    str,
+    fmt, mem, str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
 };
@@ -61,14 +59,19 @@ impl fmt::Debug for ConsensusMessage {
             PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
             PacketType::CatchupBlockByHash => {
                 let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                let delta = NetworkEndian::read_u64(&self.payload[SHA256 as usize..][..mem::size_of::<Delta>()]);
+                let delta = NetworkEndian::read_u64(
+                    &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
+                );
                 format!("catch-up request for block {:?}, delta {}", hash, delta)
-            },
+            }
             PacketType::CatchupFinalizationRecordByHash => {
                 let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                format!("catch-up request for the finalization record for block {:?}", hash)
-            },
-            p => format!("{}", p)
+                format!(
+                    "catch-up request for the finalization record for block {:?}",
+                    hash
+                )
+            }
+            p => format!("{}", p),
         };
 
         write!(f, "{}", content)
@@ -193,7 +196,9 @@ impl ConsensusContainer {
                 error!("Some queues couldn't send a stop signal");
             };
 
-            baker.as_ref().map(|baker| baker.stop());
+            if let Some(baker) = baker.as_ref() {
+                baker.stop()
+            }
             baker.take();
 
             if baker.is_none() {
@@ -373,7 +378,9 @@ impl ConsensusContainer {
     }
 
     pub fn get_genesis_data(&self) -> Option<Arc<Bytes>> {
-        safe_read!(self.baker).as_ref().map(|baker| Arc::clone(&baker.genesis_data))
+        safe_read!(self.baker)
+            .as_ref()
+            .map(|baker| Arc::clone(&baker.genesis_data))
     }
 }
 

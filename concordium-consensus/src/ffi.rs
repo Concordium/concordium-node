@@ -142,8 +142,12 @@ impl fmt::Display for PacketType {
             PacketType::FinalizationRecord => "finalization record",
             PacketType::FinalizationMessage => "finalization message",
             PacketType::CatchupBlockByHash => "\"catch-up block by hash\" request",
-            PacketType::CatchupFinalizationRecordByHash => "\"catch-up finalization record by hash\" request",
-            PacketType::CatchupFinalizationRecordByIndex => "\"catch-up finalization record by index\" request",
+            PacketType::CatchupFinalizationRecordByHash => {
+                "\"catch-up finalization record by hash\" request"
+            }
+            PacketType::CatchupFinalizationRecordByIndex => {
+                "\"catch-up finalization record by index\" request"
+            }
             PacketType::CatchupFinalizationMessagesByPoint => {
                 "\"catch-up finalization messages by point\" request"
             }

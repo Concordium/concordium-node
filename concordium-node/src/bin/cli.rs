@@ -124,7 +124,9 @@ fn setup_baker_guards(
                                 };
 
                                 // temporarily silence the most spammy messages
-                                if msg.variant == ffi::PacketType::FinalizationMessage { continue; }
+                                if msg.variant == ffi::PacketType::FinalizationMessage {
+                                    continue;
+                                }
 
                                 let msg_metadata = if let Some(tgt) = msg.producer {
                                     format!("direct message to peer {}", P2PNodeId(tgt))
@@ -264,11 +266,9 @@ fn setup_process_output(
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
-                    if let Err(e) = handle_global_state_request(
-                        &mut baker_clone,
-                        request,
-                        &mut skov,
-                    ) {
+                    if let Err(e) =
+                        handle_global_state_request(&mut baker_clone, request, &mut skov)
+                    {
                         error!("There's an issue with a global state request: {}", e);
                     }
                 }
@@ -380,18 +380,20 @@ fn setup_process_output(
     vec![global_state_thread, guard_pkt]
 }
 
-fn attain_post_handshake_catch_up(node: &P2PNode, baker: &consensus::ConsensusContainer) -> Fallible<()> {
+fn attain_post_handshake_catch_up(
+    node: &P2PNode,
+    baker: &consensus::ConsensusContainer,
+) -> Fallible<()> {
     let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
     let baker_clone = baker.clone();
     let message_handshake_response_handler = &node.message_handler();
 
-    safe_write!(message_handshake_response_handler)?.add_response_callback(
-        make_atomic_callback!(move |msg: &NetworkResponse| {
+    safe_write!(message_handshake_response_handler)?.add_response_callback(make_atomic_callback!(
+        move |msg: &NetworkResponse| {
             if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
                 if remote_peer.peer_type() == PeerType::Node {
                     if let Some(net) = nets.iter().next() {
-                        let mut locked_cloned_node =
-                            write_or_die!(cloned_handshake_response_node);
+                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
                         if let Ok(bytes) = baker_clone.get_finalization_point() {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
@@ -426,16 +428,14 @@ fn attain_post_handshake_catch_up(node: &P2PNode, baker: &consensus::ConsensusCo
                             }
                         }
                     } else {
-                        error!(
-                            "Handshake without network, so can't ask for finalization messages"
-                        );
+                        error!("Handshake without network, so can't ask for finalization messages");
                     }
                 }
             }
 
             Ok(())
-        }),
-    );
+        }
+    ));
 
     Ok(())
 }

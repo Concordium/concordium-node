@@ -111,7 +111,12 @@ pub struct BakedBlock {
 // this is a very debug method used only by the Display impl of ConsensusMessage
 impl fmt::Debug for BakedBlock {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "block {:?} -> {:?}", sha256(&self.serialize()), self.pointer)
+        write!(
+            f,
+            "block {:?} -> {:?}",
+            sha256(&self.serialize()),
+            self.pointer
+        )
     }
 }
 

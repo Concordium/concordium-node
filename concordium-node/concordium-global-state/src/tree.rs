@@ -23,9 +23,7 @@ pub struct SkovReq {
 }
 
 impl SkovReq {
-    pub fn new(source: Option<u64>, body: SkovReqBody) -> Self {
-        Self { source, body }
-    }
+    pub fn new(source: Option<u64>, body: SkovReqBody) -> Self { Self { source, body } }
 }
 
 #[derive(Debug)]
@@ -558,7 +556,11 @@ impl fmt::Display for SkovStats {
             "avg. block time: {}s; avg. finalization time: {}s{}",
             get_avg_duration(&self.block_times),
             get_avg_duration(&self.finalization_times),
-            if !self.errors.is_empty() { format!(", errors: {:?}", self.errors) } else { "".to_owned() },
+            if !self.errors.is_empty() {
+                format!(", errors: {:?}", self.errors)
+            } else {
+                "".to_owned()
+            },
         )
     }
 }
