@@ -2,7 +2,7 @@
 use crate::dumper::create_dump_thread;
 use crate::{
     common::{
-        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp,
+        counter::TOTAL_MESSAGES_SENT_COUNTER, get_current_stamp, process_network_requests,
         serialization::serialize_into_memory, P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
     configuration,
@@ -10,7 +10,6 @@ use crate::{
         Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
         NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
     },
-    crypto,
     network::{
         packet::MessageId, Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
         NetworkPacketType, NetworkRequest, NetworkResponse,
@@ -18,7 +17,6 @@ use crate::{
     p2p::{
         banned_nodes::BannedNode,
         fails,
-        no_certificate_verification::NoCertificateVerification,
         p2p_node_handlers::{
             forward_network_packet_message, forward_network_request, forward_network_response,
         },
@@ -38,7 +36,7 @@ use get_if_addrs;
 #[cfg(target_os = "windows")]
 use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
-use rustls::{Certificate, ClientConfig, NoClientAuth, ServerConfig};
+
 #[cfg(test)]
 use std::cell::RefCell;
 
@@ -104,7 +102,7 @@ impl ResendQueueEntry {
 
 #[derive(Clone)]
 pub struct P2PNode {
-    tls_server:           Arc<RwLock<TlsServer>>,
+    pub tls_server:       Arc<RwLock<TlsServer>>,
     poll:                 Arc<RwLock<Poll>>,
     id:                   P2PNodeId,
     send_queue_in:        Sender<Arc<NetworkMessage>>,
@@ -199,68 +197,6 @@ impl P2PNode {
             panic!("Couldn't register server with poll!")
         };
 
-        // Generate key pair and cert
-        let (cert, private_key) = match crypto::generate_certificate(&id.to_string()) {
-            Ok(x) => {
-                match x.x509.to_der() {
-                    Ok(der) => {
-                        // When setting the server single certificate on rustls, it requires a
-                        // rustls::PrivateKey. such PrivateKey is defined as
-                        // `pub struct PrivateKey(pub Vec<u8>);` and it expects the key
-                        // to come in DER format.
-                        //
-                        // As we have an `openssl::pkey::PKey`, inside the `utils::Cert` struct, we
-                        // could just use the function
-                        // `private_key_to_der()` over such key, BUT the output of that function
-                        // is reported as invalid key when fed into `set_single_cert` IF the
-                        // original key was an EcKey (if it was an RSA key,
-                        // the DER method works fine).
-                        //
-                        // There must be a bug somewhere in between the DER encoding of openssl or
-                        // the DER decoding of rustls when dealing with
-                        // EcKeys.
-                        //
-                        // Luckily for us, rustls offers a way to import a key from a
-                        // pkcs8-PEM-encoded buffer and openssl offers a
-                        // function for exporting a key into pkcs8-PEM-encoded buffer so connecting
-                        // those two functions, we get a valid `rustls::PrivateKey`.
-                        match rustls::internal::pemfile::pkcs8_private_keys(
-                            &mut std::io::BufReader::new(
-                                x.private_key
-                                    .private_key_to_pem_pkcs8()
-                                    .expect(
-                                        "Something went wrong when exporting a key through openssl",
-                                    )
-                                    .as_slice(),
-                            ),
-                        ) {
-                            Ok(der_keys) => (Certificate(der), der_keys[0].to_owned()),
-                            Err(e) => {
-                                panic!("Couldn't convert certificate to DER! {:?}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        panic!("Couldn't convert certificate to DER! {:?}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                panic!("Couldn't create certificate! {:?}", e);
-            }
-        };
-
-        let mut server_conf = ServerConfig::new(NoClientAuth::new());
-        server_conf
-            .set_single_cert(vec![cert], private_key)
-            .map_err(|e| error!("{}", e))
-            .ok();
-
-        let mut client_conf = ClientConfig::new();
-        client_conf
-            .dangerous()
-            .set_certificate_verifier(Arc::new(NoCertificateVerification));
-
         let own_peer_ip = if let Some(ref own_ip) = conf.common.external_ip {
             match IpAddr::from_str(own_ip) {
                 Ok(ip) => ip,
@@ -324,8 +260,7 @@ impl P2PNode {
             .collect();
         let tlsserv = TlsServerBuilder::new()
             .set_server(server)
-            .set_server_tls_config(Arc::new(server_conf))
-            .set_client_tls_config(Arc::new(client_conf))
+            .set_max_allowed_peers(config.max_allowed_nodes)
             .set_max_allowed_peers(config.max_allowed_nodes)
             .set_event_log(event_log)
             .set_stats_export_service(stats_export_service.clone())
@@ -537,7 +472,12 @@ impl P2PNode {
     }
 
     pub fn spawn(&mut self) {
+        // Prepare poll-loop channels.
+        let (network_request_sender, mut network_request_receiver) = channel();
+        write_or_die!(self.tls_server).set_network_request_sender(network_request_sender.clone());
+
         let mut self_clone = self.clone();
+
         let (tx, rx) = channel();
         self.quit_tx = Some(tx);
 
@@ -547,6 +487,8 @@ impl P2PNode {
 
             loop {
                 let _ = self_clone.process(&mut events).map_err(|e| error!("{}", e));
+
+                process_network_requests(&self_clone.tls_server, &mut network_request_receiver);
 
                 // Check termination channel.
                 if rx.try_recv().is_ok() {
@@ -594,19 +536,19 @@ impl P2PNode {
                     })?;
                     Ok(())
                 } else {
-                    bail!(fails::JoinError {
+                    Err(Error::from(fails::JoinError {
                         cause: err_msg("Event thread has already be joined"),
-                    });
+                    }))
                 }
             } else {
-                bail!(fails::JoinError {
+                Err(Error::from(fails::JoinError {
                     cause: err_msg("It is called from inside event thread"),
-                });
+                }))
             }
         } else {
-            bail!(fails::JoinError {
+            Err(Error::from(fails::JoinError {
                 cause: err_msg("Missing event thread id"),
-            });
+            }))
         }
     }
 
@@ -640,7 +582,7 @@ impl P2PNode {
         Utc::now().timestamp_millis() - self.start_time.timestamp_millis()
     }
 
-    fn check_sent_status(&self, conn: &Connection, status: Fallible<usize>) {
+    fn check_sent_status(&self, conn: &Connection, status: Fallible<()>) {
         if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
             match status {
                 Ok(_) => {
@@ -660,7 +602,7 @@ impl P2PNode {
 
     fn forward_network_request_over_all_connections(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
         let s11n_data = serialize_into_memory(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
@@ -672,7 +614,7 @@ impl P2PNode {
                 let no_filter = |_: &Connection| true;
 
                 write_or_die!(self.tls_server).send_over_all_connections(
-                    &data,
+                    UCursor::from(data),
                     &no_filter,
                     &check_sent_status_fn,
                 );
@@ -703,7 +645,8 @@ impl P2PNode {
 
     fn process_ban(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
+
         if let NetworkRequest::BanNode(_, to_ban) = inner_pkt {
             let s11n_data = serialize_into_memory(
                 &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
@@ -722,7 +665,7 @@ impl P2PNode {
                     };
 
                     write_or_die!(self.tls_server).send_over_all_connections(
-                        &data,
+                        UCursor::from(data),
                         &retain,
                         &check_sent_status_fn,
                     );
@@ -739,7 +682,7 @@ impl P2PNode {
 
     fn process_join_network(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
         let s11n_data = serialize_into_memory(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
@@ -750,7 +693,7 @@ impl P2PNode {
             Ok(data) => {
                 let mut locked_tls_server = write_or_die!(self.tls_server);
                 locked_tls_server.send_over_all_connections(
-                    &data,
+                    UCursor::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -769,7 +712,7 @@ impl P2PNode {
 
     fn process_leave_network(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
         let s11n_data = serialize_into_memory(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
@@ -779,7 +722,7 @@ impl P2PNode {
             Ok(data) => {
                 let mut locked_tls_server = write_or_die!(self.tls_server);
                 locked_tls_server.send_over_all_connections(
-                    &data,
+                    UCursor::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -798,7 +741,7 @@ impl P2PNode {
 
     fn process_get_peers(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
         let s11n_data = serialize_into_memory(
             &NetworkMessage::NetworkRequest(inner_pkt.clone(), Some(get_current_stamp()), None),
             256,
@@ -807,7 +750,7 @@ impl P2PNode {
         match s11n_data {
             Ok(data) => {
                 write_or_die!(self.tls_server).send_over_all_connections(
-                    &data,
+                    UCursor::from(data),
                     &is_valid_connection_post_handshake,
                     &check_sent_status_fn,
                 );
@@ -823,7 +766,7 @@ impl P2PNode {
 
     fn process_retransmit(&self, inner_pkt: &NetworkRequest) {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
         if let NetworkRequest::Retransmit(ref peer, ..) = inner_pkt {
             let filter = |conn: &Connection| is_conn_peer_id(conn, peer.id());
 
@@ -835,7 +778,7 @@ impl P2PNode {
             match s11n_data {
                 Ok(data) => {
                     write_or_die!(self.tls_server).send_over_all_connections(
-                        &data,
+                        UCursor::from(data),
                         &filter,
                         &check_sent_status_fn,
                     );
@@ -852,7 +795,7 @@ impl P2PNode {
 
     fn process_network_packet(&self, inner_pkt: &NetworkPacket) -> bool {
         let check_sent_status_fn =
-            |conn: &Connection, status: Fallible<usize>| self.check_sent_status(&conn, status);
+            |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
         let (ignore_carbon_copies, s11n_data) = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => (
@@ -900,35 +843,38 @@ impl P2PNode {
         };
 
         match s11n_data {
-            Ok(data) => match inner_pkt.packet_type {
-                NetworkPacketType::DirectMessage(ref receiver) => {
-                    let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
+            Ok(data) => {
+                let data_cursor = UCursor::from(data);
+                match inner_pkt.packet_type {
+                    NetworkPacketType::DirectMessage(ref receiver) => {
+                        let filter = |conn: &Connection| is_conn_peer_id(conn, *receiver);
 
-                    write_or_die!(self.tls_server).send_over_all_connections(
-                        &data,
-                        &filter,
-                        &check_sent_status_fn,
-                    ) >= 1
-                }
-                NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
-                    let filter = |conn: &Connection| {
-                        is_valid_connection_in_broadcast(
-                            conn,
-                            &carbon_copies,
-                            ignore_carbon_copies,
-                            &inner_pkt.peer,
-                            inner_pkt.network_id,
-                        )
-                    };
+                        write_or_die!(self.tls_server).send_over_all_connections(
+                            data_cursor,
+                            &filter,
+                            &check_sent_status_fn,
+                        ) >= 1
+                    }
+                    NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
+                        let filter = |conn: &Connection| {
+                            is_valid_connection_in_broadcast(
+                                conn,
+                                &carbon_copies,
+                                ignore_carbon_copies,
+                                &inner_pkt.peer,
+                                inner_pkt.network_id,
+                            )
+                        };
 
-                    write_or_die!(self.tls_server).send_over_all_connections(
-                        &data,
-                        &filter,
-                        &check_sent_status_fn,
-                    );
-                    true
+                        write_or_die!(self.tls_server).send_over_all_connections(
+                            data_cursor,
+                            &filter,
+                            &check_sent_status_fn,
+                        );
+                        true
+                    }
                 }
-            },
+            }
             Err(e) => {
                 error!(
                     "Packet message cannot be sent due to a serialization issue: {}",
@@ -1304,7 +1250,6 @@ impl P2PNode {
     }
 
     pub fn process(&mut self, events: &mut Events) -> Fallible<()> {
-        trace!("Going to process MIO events");
         read_or_die!(self.poll).poll(events, Some(Duration::from_millis(1000)))?;
 
         if self.peer_type != PeerType::Bootstrapper {
@@ -1399,8 +1344,6 @@ impl P2PNode {
 
 #[cfg(test)]
 impl P2PNode {
-    pub fn get_tls_server(&self) -> Arc<RwLock<TlsServer>> { Arc::clone(&self.tls_server) }
-
     pub fn deregister_connection(&self, conn: &RefCell<Connection>) -> Fallible<()> {
         let mut locked_poll = safe_write!(self.poll)?;
         conn.borrow().deregister(&mut locked_poll)

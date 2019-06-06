@@ -7,12 +7,13 @@ use crate::{
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_dns::dns;
-use failure::Fallible;
+use failure::{Error, Fallible};
 use hacl_star::{
     ed25519::{keypair, PublicKey, SecretKey, Signature},
     sha2,
 };
 use rand::rngs::OsRng;
+use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
 #[cfg(not(target_os = "windows"))]
@@ -33,6 +34,14 @@ pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
 
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// It transforms an hexadecimal string `hex` into binary data.
+pub fn from_hex_string(hex: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
+    (0..hex.len())
+        .step_by(2)
+        .map(|idx| u8::from_str_radix(&hex[idx..idx + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()
 }
 
 pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
@@ -115,11 +124,11 @@ pub fn parse_host_port(
             if let Ok(port) = port.parse::<u16>() {
                 Ok(vec![SocketAddr::new(ip, port)])
             } else {
-                bail!(HostPortParseError::new(input.to_owned()))
+                return Err(Error::from(HostPortParseError::new(input.to_owned())));
             }
         } else {
             match port.parse::<u16>() {
-                Err(_) => bail!(HostPortParseError::new(input.to_owned())), // couldn't parse port
+                Err(_) => Err(Error::from(HostPortParseError::new(input.to_owned()))), /* couldn't parse port */
                 Ok(port) => {
                     let resolver_addresses = resolvers
                         .iter()
@@ -155,13 +164,13 @@ pub fn parse_host_port(
                             .map(ToOwned::to_owned)
                             .collect::<Vec<_>>())
                     } else {
-                        bail!(NoDNSResolversAvailable)
+                        Err(Error::from(NoDNSResolversAvailable))
                     }
                 }
             }
         }
     } else {
-        bail!(HostPortParseError::new(input.to_owned())) // No colon in host:post
+        Err(Error::from(HostPortParseError::new(input.to_owned()))) // No colon in host:post
     }
 }
 
@@ -484,6 +493,14 @@ pub fn unban_node(
     };
     if !no_trust_bans {
         node.send_unban(to_unban);
+    }
+}
+
+/// It clones `kp`. `snow::Keypair` does not derive `Clone` in current version.
+pub fn clone_snow_keypair(kp: &Keypair) -> Keypair {
+    Keypair {
+        private: kp.private.clone(),
+        public:  kp.public.clone(),
     }
 }
 

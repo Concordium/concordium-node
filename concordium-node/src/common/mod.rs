@@ -1,3 +1,6 @@
+pub mod poll_loop;
+pub use poll_loop::{process_network_requests, NetworkRawRequest};
+
 pub mod counter;
 pub mod p2p_node_id;
 pub mod p2p_peer;
@@ -13,7 +16,7 @@ use concordium_common::UCursor;
 pub mod fails;
 
 use chrono::prelude::*;
-use failure::{bail, Fallible};
+use failure::{bail, Error, Fallible};
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
@@ -31,6 +34,7 @@ pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
 
 const PEER_TYPE_NODE: u8 = 0;
 const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
+pub const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -111,7 +115,7 @@ impl RemotePeer {
             RemotePeer::PreHandshake(peer_type, addr) => Ok(RemotePeer::PostHandshake(
                 P2PPeer::from(peer_type, id, addr),
             )),
-            _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, addr)),
+            _ => Err(Error::from(fails::RemotePeerAlreadyPromoted::new(id, addr))),
         }
     }
 
@@ -238,9 +242,9 @@ pub fn deserialize_ip(pkt: &mut UCursor) -> Fallible<IpAddr> {
     match ip_type {
         b"IP4" => deserialize_ip4(pkt),
         b"IP6" => deserialize_ip6(pkt),
-        _ => bail!(fails::InvalidIpType::new(
-            str::from_utf8(ip_type)?.to_owned()
-        )),
+        _ => Err(Error::from(fails::InvalidIpType::new(
+            str::from_utf8(ip_type)?.to_owned(),
+        ))),
     }
 }
 

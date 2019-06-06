@@ -58,10 +58,8 @@ tempfile = "^3.0.7"
 base64 = "0.10.1"
 sha2 = "0"
 base58 = "^0.1"
-# RusTLS needed dependencies
-rustls = { version = "0.15", features = ["dangerous_configuration"] }
-webpki = "0.19"
-openssl = "0.10"
+# Snow : Noise implementation.
+snow = { version = "0.5.2", features = ["hacl-star-accelerated"] }
 # Database dependencies
 rusqlite = { version = "0.17", features = ["bundled"] }
 # gRPC dependencies

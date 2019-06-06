@@ -137,6 +137,10 @@ impl UCursor {
     #[inline]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
+    /// It returns `true` if this cursor has been consumed.
+    #[inline]
+    pub fn is_eof(&self) -> bool { self.position() >= self.len() }
+
     pub fn read_into_view(&mut self, size: usize) -> Result<ContainerView> {
         match self {
             UCursor::Memory(ref mut cursor) => {
