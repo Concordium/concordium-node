@@ -457,16 +457,17 @@ fn main() -> Fallible<()> {
 
     node.spawn();
 
-    match db.get_banlist() {
+    let db = match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
                 node.ban_node(n);
             }
+            db
         }
         None => {
             warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist();
+            db.create_banlist(db_path.as_path())
         }
     };
 

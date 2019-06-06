@@ -15,19 +15,29 @@ impl Default for P2PDB {
     fn default() -> Self { P2PDB { conn: None } }
 }
 
+const RUSQLITE_NOTADATABASE_ERROR: i32 = 26;
+
+fn open_banlist(path: &Path) -> Option<Arc<Mutex<Connection>>> {
+    match Connection::open(path) {
+        Ok(x) => {
+            info!("Database loaded: {:?}", path);
+            Some(Arc::new(Mutex::new(x)))
+        }
+        Err(e) => {
+            error!("Couldn't open database! {:?}", e);
+            None
+        }
+    }
+}
+
 impl P2PDB {
     pub fn new(path: &Path) -> Self {
-        P2PDB {
-            conn: match Connection::open(path) {
-                Ok(x) => {
-                    info!("Database loaded!");
-                    Some(Arc::new(Mutex::new(x)))
-                }
-                Err(e) => {
-                    error!("Couldn't open database! {:?}", e);
-                    None
-                }
-            },
+        if path.exists() {
+            P2PDB {
+                conn: open_banlist(path),
+            }
+        } else {
+            P2PDB { conn: None }
         }
     }
 
@@ -37,7 +47,17 @@ impl P2PDB {
                 let conn = safe_lock!(conn).ok()?;
                 let by_id = conn
                     .prepare("SELECT id FROM bans_id")
-                    .map_err(|e| error!("Couldn't execute query! {:?}", e))
+                    .map_err(|e| {
+                        if let rusqlite::Error::SqliteFailure(x, _) = e {
+                            if x.extended_code == RUSQLITE_NOTADATABASE_ERROR {
+                                panic!("Malformed database! Fix it or remove the file.");
+                            } else {
+                                error!("Couldn't execute query! {:?}", e)
+                            }
+                        } else {
+                            panic!("Received a non SqliteFailure error from a db query: {}", e);
+                        }
+                    })
                     .ok()
                     .and_then(|mut x| {
                         match x.query_map(&[] as &[&dyn ToSql], |row| {
@@ -113,7 +133,8 @@ impl P2PDB {
         }
     }
 
-    pub fn create_banlist(&self) {
+    pub fn create_banlist(mut self, path: &Path) -> Self {
+        self.conn = open_banlist(path);
         if let Some(ref conn) = self.conn {
             match safe_lock!(conn) {
                 Err(e) => {
@@ -133,6 +154,7 @@ impl P2PDB {
                 }
             }
         }
+        self
     }
 
     pub fn insert_ban_id(&self, id: &str) -> bool {

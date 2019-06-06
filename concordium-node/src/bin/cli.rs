@@ -413,16 +413,17 @@ fn main() -> Fallible<()> {
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
     // Banning nodes in database
-    match db.get_banlist() {
+    let db = match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
                 node.ban_node(n);
             }
+            db
         }
         None => {
             warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist();
+            db.create_banlist(db_path.as_path())
         }
     };
 
