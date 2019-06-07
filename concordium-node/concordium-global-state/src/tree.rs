@@ -131,7 +131,7 @@ impl Skov {
     pub fn new(genesis_data: &[u8]) -> Self {
         Self {
             data:  SkovData::new(genesis_data),
-            stats: SkovStats::new(5),
+            stats: SkovStats::new(16),
         }
     }
 
@@ -579,7 +579,7 @@ impl fmt::Display for SkovStats {
             get_avg_duration(&self.block_times),
             get_avg_duration(&self.finalization_times),
             if !self.errors.is_empty() {
-                format!(", errors: {:?}", self.errors)
+                format!(", {} error(s)", self.errors.len())
             } else {
                 "".to_owned()
             },
