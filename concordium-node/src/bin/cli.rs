@@ -254,6 +254,7 @@ fn setup_process_output(
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
     let mut baker_clone = baker.clone();
+    let mut node_clone = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         let genesis_data = baker_clone
             .clone()
@@ -267,7 +268,7 @@ fn setup_process_output(
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
                     if let Err(e) =
-                        handle_global_state_request(&mut baker_clone, request, &mut skov)
+                        handle_global_state_request(&mut node_clone, _network_id, &mut baker_clone, request, &mut skov)
                     {
                         error!("There's an issue with a global state request: {}", e);
                     }

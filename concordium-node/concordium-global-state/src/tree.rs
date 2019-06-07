@@ -29,9 +29,10 @@ impl SkovReq {
 #[derive(Debug)]
 pub enum SkovReqBody {
     AddBlock(PendingBlock),
-    GetBlock(HashBytes, Delta),
     AddFinalizationRecord(FinalizationRecord),
-    GetFinalizationRecord(HashBytes),
+    GetBlock(HashBytes, Delta),
+    GetFinalizationRecordByHash(HashBytes),
+    GetFinalizationRecordByIdx(FinalizationIndex),
 }
 
 type Bytes = Box<[u8]>;
@@ -71,10 +72,12 @@ pub enum SkovError {
     InvalidLastFinalized(HashBytes, HashBytes),
     // the block pointed to by the finalization record is not in the tree
     MissingBlockToFinalize(HashBytes),
-    // the requested finalization record is not available
-    MissingFinalizationRecord(HashBytes),
     // the requested block is not available
     MissingBlock(HashBytes, Delta),
+    // the requested finalization record for the given block hash is not available
+    MissingFinalizationRecordByHash(HashBytes),
+    // the requested finalization record with the given finalization index is not available
+    MissingFinalizationRecordByIdx(FinalizationIndex),
 }
 
 impl fmt::Display for SkovError {
@@ -98,16 +101,20 @@ impl fmt::Display for SkovError {
                 pending, last_finalized
             ),
             SkovError::MissingBlockToFinalize(ref target) => format!(
-                "finalization record {:?} is pointing to a block that is not in the tree",
-                target
-            ),
-            SkovError::MissingFinalizationRecord(ref target) => format!(
-                "requested finalization record {:?} is not available",
+                "finalization record for block {:?} references a block that is not in the tree",
                 target
             ),
             SkovError::MissingBlock(ref hash, delta) => format!(
                 "requested block {:?} delta {} is not available",
                 hash, delta
+            ),
+            SkovError::MissingFinalizationRecordByHash(ref hash) => format!(
+                "requested finalization record for block {:?} is not available",
+                hash
+            ),
+            SkovError::MissingFinalizationRecordByIdx(index) => format!(
+                "requested finalization record for index {} is not available",
+                index
             ),
         };
 
@@ -158,11 +165,19 @@ impl Skov {
         }
     }
 
-    pub fn get_finalization_record(&self, hash: HashBytes) -> SkovResult {
-        if let Some(record) = self.data.get_finalization_record(&hash) {
+    pub fn get_finalization_record_by_hash(&self, hash: HashBytes) -> SkovResult {
+        if let Some(record) = self.data.get_finalization_record_by_hash(&hash) {
             SkovResult::SuccessfulQuery(record.serialize())
         } else {
-            SkovResult::Error(SkovError::MissingFinalizationRecord(hash))
+            SkovResult::Error(SkovError::MissingFinalizationRecordByHash(hash))
+        }
+    }
+
+    pub fn get_finalization_record_by_idx(&self, idx: FinalizationIndex) -> SkovResult {
+        if let Some(record) = self.data.get_finalization_record_by_idx(idx) {
+            SkovResult::SuccessfulQuery(record.serialize())
+        } else {
+            SkovResult::Error(SkovError::MissingFinalizationRecordByIdx(idx))
         }
     }
 
@@ -359,11 +374,18 @@ impl SkovData {
         Some(&block_ptr.block)
     }
 
-    pub fn get_finalization_record(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
+    fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
             .rev() // it's most probable that it's near the end
             .find(|&rec| rec.block_pointer == *hash)
+    }
+
+    fn get_finalization_record_by_idx(&self, idx: FinalizationIndex) -> Option<&FinalizationRecord> {
+        self.finalization_list
+            .iter()
+            .rev() // it's most probable that it's near the end
+            .find(|&rec| rec.index == idx)
     }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }

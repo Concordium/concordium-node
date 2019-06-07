@@ -27,7 +27,7 @@ use concordium_consensus::{
 use concordium_global_state::{
     block::{BakedBlock, Delta, PendingBlock},
     common::{HashBytes, SerializeToBytes, SHA256},
-    finalization::{FinalizationMessage, FinalizationRecord},
+    finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
     tree::{Skov, SkovReq, SkovReqBody, SkovResult},
 };
 
@@ -169,15 +169,41 @@ pub fn handle_pkt_out(
 
         let consensus_type = msg.read_u16::<NetworkEndian>()?;
         let view = msg.read_all_into_view()?;
-        let content = Box::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
+        let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
         let packet_type = PacketType::try_from(consensus_type)?;
 
-        let request_body = match packet_type {
-            Block => Some(SkovReqBody::AddBlock(PendingBlock::new(&content)?)),
-            FinalizationRecord => Some(SkovReqBody::AddFinalizationRecord(
-                FinalizationRecord::deserialize(&content)?,
-            )),
-            _ => None, // will be expanded later on
+        let (request_body, consensus_applicable) = match packet_type {
+            Block => {
+                let payload = PendingBlock::new(&content)?;
+                let body = Some(SkovReqBody::AddBlock(payload));
+                (body, true)
+            },
+            FinalizationRecord => {
+                let payload = FinalizationRecord::deserialize(&content)?;
+                let body = Some(SkovReqBody::AddFinalizationRecord(payload));
+                (body, true)
+            },
+            CatchupBlockByHash => {
+                let hash = HashBytes::new(&content[..SHA256 as usize]);
+                let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
+
+                if delta == 0 {
+                    (Some(SkovReqBody::GetBlock(hash, delta)), false)
+                } else {
+                    (None, true)
+                }
+            },
+            CatchupFinalizationRecordByHash => {
+                let payload = HashBytes::new(&content);
+                let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
+                (body, false)
+            },
+            CatchupFinalizationRecordByIndex => {
+                let idx = NetworkEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
+                let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
+                (body, false)
+            },
+            _ => (None, true), // will be expanded later on
         };
 
         if let Some(body) = request_body {
@@ -186,13 +212,20 @@ pub fn handle_pkt_out(
             skov_sender.send(request)?;
         }
 
-        send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
+        if consensus_applicable {
+            send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, Box::from(content))
+        } else {
+            info!("A {} was handled only by Skov", packet_type);
+            Ok(())
+        }
     } else {
         Ok(())
     }
 }
 
 pub fn handle_global_state_request(
+    node: &mut P2PNode,
+    network_id: NetworkId,
     baker: &mut Option<consensus::ConsensusContainer>,
     request: SkovReq,
     skov: &mut Skov,
@@ -206,13 +239,17 @@ pub fn handle_global_state_request(
         let packet_type = match request.body {
             SkovReqBody::AddBlock(..) => PacketType::Block,
             SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
-            _ => unreachable!(), // will be expanded in due course
+            SkovReqBody::GetBlock(..) => PacketType::CatchupBlockByHash,
+            SkovReqBody::GetFinalizationRecordByHash(..) => PacketType::CatchupFinalizationRecordByHash,
+            SkovReqBody::GetFinalizationRecordByIdx(..) => PacketType::CatchupFinalizationRecordByIndex,
         };
 
         let result = match request.body {
             SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
             SkovReqBody::AddFinalizationRecord(record) => skov.add_finalization(record),
-            _ => unreachable!(), // will be expanded alongside Skov
+            SkovReqBody::GetBlock(hash, delta) => skov.get_block(hash, delta),
+            SkovReqBody::GetFinalizationRecordByHash(hash) => skov.get_finalization_record_by_hash(hash),
+            SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
         };
 
         match result {
@@ -223,8 +260,28 @@ pub fn handle_global_state_request(
                     source
                 );
             }
-            SkovResult::SuccessfulQuery(_) => {
-                // not handled yet
+            SkovResult::SuccessfulQuery(result) => {
+                let return_type = match packet_type {
+                    PacketType::CatchupBlockByHash => PacketType::Block,
+                    PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
+                    _ => unreachable!("Impossible packet type in a query result!"),
+                };
+
+                let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
+                out_bytes
+                    .write_u16::<NetworkEndian>(return_type as u16)
+                    .expect("Can't write to buffer");
+                out_bytes.extend(&*result);
+
+                let source = request.source.map(|src| P2PNodeId(src)).unwrap();
+
+                match node.send_direct_message(Some(source), network_id, None, out_bytes) {
+                    Ok(_) => info!("Responded to a {} from peer {}", packet_type, source),
+                    Err(_) => error!(
+                        "Couldn't respond to a {} from peer {}!",
+                        packet_type, source
+                    ),
+                }
             }
             SkovResult::DuplicateEntry => {
                 warn!("Skov: got a duplicate {} from {}", packet_type, source);
