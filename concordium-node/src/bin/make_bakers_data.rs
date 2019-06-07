@@ -108,6 +108,7 @@ pub fn main() -> Fallible<()> {
                     ]
                     .iter()
                     .collect();
+
                     match OpenOptions::new()
                         .read(true)
                         .write(true)

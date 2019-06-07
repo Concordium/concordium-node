@@ -1,3 +1,5 @@
+use byteorder::{ByteOrder, NetworkEndian};
+
 use concordium_common::{
     into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
     RelayOrStopSyncSender,
@@ -8,7 +10,7 @@ use failure::{bail, Fallible};
 use std::time::Duration;
 use std::{
     collections::HashMap,
-    fmt, str,
+    fmt, mem, str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
 };
@@ -22,10 +24,9 @@ use concordium_global_state::{
 };
 
 pub type PeerId = u64;
-pub type Delta = u64;
 pub type Bytes = Box<[u8]>;
+pub type PrivateData = HashMap<i64, Vec<u8>>;
 
-#[derive(Debug)]
 pub struct ConsensusMessage {
     pub variant:  PacketType,
     pub producer: Option<PeerId>,
@@ -39,6 +40,43 @@ impl ConsensusMessage {
             producer,
             payload,
         }
+    }
+}
+
+impl fmt::Debug for ConsensusMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        macro_rules! print_deserialized {
+            ($object:ty) => {{
+                if let Ok(object) = <$object>::deserialize(&self.payload) {
+                    format!("{:?}", object)
+                } else {
+                    format!("corrupted bytes")
+                }
+            }};
+        }
+
+        let content = match self.variant {
+            PacketType::Block => print_deserialized!(BakedBlock),
+            PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
+            PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
+            PacketType::CatchupBlockByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                let delta = NetworkEndian::read_u64(
+                    &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
+                );
+                format!("catch-up request for block {:?}, delta {}", hash, delta)
+            }
+            PacketType::CatchupFinalizationRecordByHash => {
+                let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
+                format!(
+                    "catch-up request for the finalization record for block {:?}",
+                    hash
+                )
+            }
+            p => format!("{}", p),
+        };
+
+        write!(f, "{}", content)
     }
 }
 
@@ -59,18 +97,6 @@ impl Default for ConsensusOutQueue {
             sender_request,
         }
     }
-}
-
-macro_rules! empty_queue {
-    ($queue:expr, $name:tt) => {
-        if let Ok(ref mut q) = $queue.try_lock() {
-            debug!(
-                "Drained the queue \"{}\" for {} element(s)",
-                $name,
-                q.try_iter().count()
-            );
-        }
-    };
 }
 
 impl ConsensusOutQueue {
@@ -96,7 +122,12 @@ impl ConsensusOutQueue {
     }
 
     pub fn clear(&self) {
-        empty_queue!(self.receiver_request, "Consensus request queue");
+        if let Ok(ref mut q) = self.receiver_request.try_lock() {
+            debug!(
+                "Drained the Consensus request queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
     }
 
     pub fn stop(&self) -> Fallible<()> {
@@ -117,7 +148,7 @@ fn relay_msg_to_skov(
         _ => unreachable!("ConsensusOutQueue::recv_message was extended!"),
     };
 
-    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body, None));
+    let request = RelayOrStopEnvelope::Relay(SkovReq::new(None, request_body));
 
     into_err!(skov_sender.send(request))
 }
@@ -138,9 +169,8 @@ impl ConsensusOutQueue {
 
 macro_rules! baker_running_wrapper {
     ($self:ident, $call:expr) => {{
-        safe_read!($self.bakers)
-            .values()
-            .next()
+        safe_read!($self.baker)
+            .as_ref()
             .map(|baker| $call(baker))
             .ok_or_else(|| failure::Error::from(BakerNotRunning))
     }};
@@ -148,70 +178,43 @@ macro_rules! baker_running_wrapper {
 
 lazy_static! {
     pub static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
-    pub static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
-        { RwLock::new(HashMap::new()) };
+    pub static ref GENERATED_PRIVATE_DATA: RwLock<PrivateData> = { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
-type PrivateData = HashMap<i64, Vec<u8>>;
-
 #[derive(Clone, Default)]
 pub struct ConsensusContainer {
-    bakers: Arc<RwLock<HashMap<BakerId, ConsensusBaker>>>,
+    baker: Arc<RwLock<Option<ConsensusBaker>>>,
 }
 
 impl ConsensusContainer {
     pub fn start_baker(&mut self, baker_id: u64, genesis_data: Vec<u8>, private_data: Vec<u8>) {
-        safe_write!(self.bakers).insert(
-            baker_id,
-            ConsensusBaker::new(baker_id, genesis_data, private_data),
-        );
+        safe_write!(self.baker).replace(ConsensusBaker::new(baker_id, genesis_data, private_data));
     }
 
-    pub fn stop_baker(&mut self, baker_id: BakerId) {
-        let bakers = &mut safe_write!(self.bakers);
+    pub fn stop_baker(&mut self) {
+        if let Ok(mut baker) = self.baker.write() {
+            if CALLBACK_QUEUE.stop().is_err() {
+                error!("Some queues couldn't send a stop signal");
+            };
 
-        if CALLBACK_QUEUE.stop().is_err() {
-            error!("Some queues couldn't send a stop signal");
-        };
+            if let Some(baker) = baker.as_ref() {
+                baker.stop()
+            }
+            baker.take();
 
-        match bakers.get_mut(&baker_id) {
-            Some(baker) => baker.stop(),
-            None => error!("Can't find baker"),
-        }
-
-        bakers.remove(&baker_id);
-
-        if bakers.is_empty() {
-            CALLBACK_QUEUE.clear();
+            if baker.is_none() {
+                CALLBACK_QUEUE.clear();
+            }
+        } else {
+            error!("The baker can't be stopped!");
         }
     }
 
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
     pub fn send_block(&self, peer_id: PeerId, block: Bytes) -> i64 {
-        // When running tests we need to validate sending packets back, as we have no
-        // higher outer processing loop with `Skov` to handle this.
-        if cfg!(test) {
-            for (id, baker) in safe_read!(self.bakers).iter() {
-                match BakedBlock::deserialize(&block) {
-                    Ok(deserialized_block) => {
-                        if deserialized_block.baker_id != *id {
-                            // We have found a baker to send it to, which didn't also bake the
-                            // block, so we'll do an early return at
-                            // this point with the response code
-                            // from consensus.
-                            // Return codes from the Haskell side are as follows:
-                            // 0 = Everything went okay
-                            // 1 = Message couldn't get deserialized properly
-                            // 2 = Message was a duplicate
-                            return baker.send_block(peer_id, block);
-                        }
-                    }
-                    Err(_) => error!("Error when deserializing a block!"),
-                }
-            }
-        } else if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+        if let Some(baker) = &*safe_read!(self.baker) {
             // We have a baker to send it to, so we 'll do an early return at this point
             // with the response code from consensus.
             // Return codes from the Haskell side are as follows:
@@ -227,7 +230,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) -> i64 {
-        if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+        if let Some(baker) = &*safe_read!(self.baker) {
             // Return codes from the Haskell side are as follows:
             // 0 = Everything went okay
             // 1 = Message couldn't get deserialized properly
@@ -241,7 +244,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
-        if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+        if let Some(baker) = &*safe_read!(self.baker) {
             // Return codes from the Haskell side are as follows:
             // 0 = Everything went okay
             // 1 = Message couldn't get deserialized properly
@@ -255,7 +258,7 @@ impl ConsensusContainer {
     }
 
     pub fn send_transaction(&self, tx: &[u8]) -> i64 {
-        if let Some((_, baker)) = safe_read!(self.bakers).iter().next() {
+        if let Some(baker) = &*safe_read!(self.baker) {
             // Return codes from the Haskell side are as follows:
             // 0 = Everything went okay
             // 1 = Message couldn't get deserialized properly
@@ -377,41 +380,9 @@ impl ConsensusContainer {
     }
 
     pub fn get_genesis_data(&self) -> Option<Arc<Bytes>> {
-        safe_read!(self.bakers)
-            .iter()
-            .next()
-            .map(|(_, baker)| Arc::clone(&baker.genesis_data))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum CatchupRequest {
-    BlockByHash(PeerId, HashBytes, Delta),
-    FinalizationMessagesByPoint(PeerId, FinalizationMessage),
-    FinalizationRecordByHash(PeerId, HashBytes),
-    FinalizationRecordByIndex(PeerId, FinalizationIndex),
-}
-
-impl fmt::Display for CatchupRequest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                CatchupRequest::BlockByHash(_, hash, delta) => {
-                    format!("block {:?} delta {}", hash, delta)
-                }
-                CatchupRequest::FinalizationMessagesByPoint(..) => {
-                    "finalization messages by point".to_string()
-                }
-                CatchupRequest::FinalizationRecordByHash(_, hash) => {
-                    format!("finalization record of {:?}", hash)
-                }
-                CatchupRequest::FinalizationRecordByIndex(_, index) => {
-                    format!("finalization record by index ({})", index)
-                }
-            }
-        )
+        safe_read!(self.baker)
+            .as_ref()
+            .map(|baker| Arc::clone(&baker.genesis_data))
     }
 }
 
@@ -421,115 +392,5 @@ pub fn catchup_enqueue(request: ConsensusMessage) {
     match CALLBACK_QUEUE.clone().send_message(request) {
         Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
         _ => error!("Couldn't queue a catch-up request ({})", request_info),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use concordium_common::RelayOrStopEnvelope;
-    use std::{
-        sync::{Once, ONCE_INIT},
-        time::Duration,
-    };
-
-    static INIT: Once = ONCE_INIT;
-
-    fn setup() { INIT.call_once(|| env_logger::init()); }
-
-    macro_rules! bakers_test {
-        ($genesis_time:expr, $num_bakers:expr, $blocks_num:expr) => {
-            let (genesis_data, private_data) =
-                ConsensusContainer::generate_data($genesis_time, $num_bakers)
-                    .unwrap_or_else(|_| panic!("Couldn't read Haskell data"));
-            let mut consensus_container = ConsensusContainer::default();
-
-            for i in 0..$num_bakers {
-                &consensus_container.start_baker(
-                    i,
-                    genesis_data.clone(),
-                    private_data.get(&(i as i64)).unwrap().to_vec(),
-                );
-            }
-
-            let relay_th_guard = Arc::new(RwLock::new(true));
-            let _th_guard = Arc::clone(&relay_th_guard);
-            let _th_container = consensus_container.clone();
-            let _aux_th = thread::spawn(move || loop {
-                thread::sleep(Duration::from_millis(1_000));
-                if let Ok(val) = _th_guard.read() {
-                    if !*val {
-                        debug!("Terminating relay thread, zapping..");
-                        return;
-                    }
-                }
-                while let Ok(RelayOrStopEnvelope::Relay(msg)) =
-                    _th_container.out_queue().try_recv_message()
-                {
-                    debug!("Relaying {:?}", msg);
-                    let _ = _th_container.out_queue().send_message(msg);
-                }
-            });
-
-            for i in 0..$blocks_num {
-                match consensus_container
-                    .out_queue()
-                    .recv_timeout_message(Duration::from_millis(500_000))
-                {
-                    Ok(RelayOrStopEnvelope::Relay(msg)) => {
-                        debug!("{} Got block data => {:?}", i, msg);
-                        let _ = consensus_container.out_queue().send_message(msg);
-                    }
-                    Err(msg) => panic!(format!("No message at {}! {}", i, msg)),
-                    _ => {}
-                }
-            }
-            debug!("Stopping relay thread");
-            if let Ok(mut guard) = relay_th_guard.write() {
-                *guard = false;
-            }
-            _aux_th.join().unwrap();
-
-            debug!("Shutting down bakers");
-            for i in 0..$num_bakers {
-                &consensus_container.stop_baker(i);
-            }
-            debug!("Test concluded");
-        };
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! baker_test_tx {
-        ($genesis_time:expr, $retval:expr, $data:expr) => {
-            debug!("Performing TX test call to Haskell via FFI");
-            let (genesis_data, private_data) =
-                match ConsensusContainer::generate_data($genesis_time, 1) {
-                    Ok((genesis, private_data)) => (genesis, private_data),
-                    _ => panic!("Couldn't read Haskell data"),
-                };
-            let mut consensus_container = ConsensusContainer::new(genesis_data);
-            &consensus_container.start_baker(0, private_data.get(&(0 as i64)).unwrap().to_vec());
-            assert_eq!(consensus_container.send_transaction($data), $retval as i64);
-            &consensus_container.stop_baker(0);
-        };
-    }
-
-    #[test]
-    pub fn consensus_tests() {
-        setup();
-        start_haskell();
-        bakers_test!(0, 5, 10);
-        bakers_test!(0, 10, 5);
-        // Re-enable when we have acorn sc-tx tests possible
-        // baker_test_tx!(0, 0,
-        // &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"
-        // Increment\",\"txNonce\":\"
-        // de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".
-        // to_string()); baker_test_tx!(0, 1,
-        // &"{\"txAddr\":\"31\",\"txSender\":\"53656e6465723a203131\",\"txMessage\":\"
-        // Incorrect\",\"txNonce\":\"
-        // de8bb42d9c1ea10399a996d1875fc1a0b8583d21febc4e32f63d0e7766554dc1\"}".
-        // to_string());
-        stop_haskell();
     }
 }

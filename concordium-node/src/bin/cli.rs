@@ -129,12 +129,29 @@ fn setup_baker_guards(
                                     node.send_broadcast_message(None, network_id, None, out_bytes)
                                 };
 
+                                // temporarily silence the most spammy messages
+                                if msg.variant == ffi::PacketType::FinalizationMessage {
+                                    continue;
+                                }
+
+                                let msg_metadata = if let Some(tgt) = msg.producer {
+                                    format!("direct message to peer {}", P2PNodeId(tgt))
+                                } else {
+                                    "broadcast".to_string()
+                                };
+
                                 match res {
-                                    Ok(_) => info!("Peer {} sent a {}", node.id(), msg.variant,),
-                                    Err(_) => error!(
-                                        "Peer {} couldn't send a {}!",
+                                    Ok(_) => info!(
+                                        "Peer {} sent a {} containing a {:?}",
                                         node.id(),
-                                        msg.variant,
+                                        msg_metadata,
+                                        msg
+                                    ),
+                                    Err(_) => error!(
+                                        "Peer {} couldn't send a {} containing a {:?}!",
+                                        node.id(),
+                                        msg_metadata,
+                                        msg,
                                     ),
                                 }
                             }
@@ -242,7 +259,6 @@ fn setup_process_output(
     let transactions_cache = TransactionsCache::new();
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
     let mut baker_clone = baker.clone();
-    let mut node_ref = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
         let genesis_data = baker_clone
             .clone()
@@ -253,21 +269,14 @@ fn setup_process_output(
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
-                    let source = request.source.unwrap_or_else(|| node_ref.id().0);
-
-                    if let Err(e) = handle_global_state_request(
-                        &mut node_ref,
-                        &mut baker_clone,
-                        P2PNodeId(source),
-                        _network_id,
-                        request,
-                        &mut skov,
-                    ) {
+                    if let Err(e) =
+                        handle_global_state_request(&mut baker_clone, request, &mut skov)
+                    {
                         error!("There's an issue with a global state request: {}", e);
                     }
                 }
                 Ok(RelayOrStopEnvelope::Stop) => break,
-                _ => error!("Can't receive a global state request!"),
+                _ => panic!("Can't receive global state requests! Another thread must have died."),
             }
         }
     });
@@ -399,6 +408,66 @@ fn setup_process_output(
     vec![global_state_thread, guard_pkt]
 }
 
+fn attain_post_handshake_catch_up(
+    node: &P2PNode,
+    baker: &consensus::ConsensusContainer,
+) -> Fallible<()> {
+    let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
+    let baker_clone = baker.clone();
+    let message_handshake_response_handler = &node.message_handler();
+
+    safe_write!(message_handshake_response_handler)?.add_response_callback(make_atomic_callback!(
+        move |msg: &NetworkResponse| {
+            if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
+                if remote_peer.peer_type() == PeerType::Node {
+                    if let Some(net) = nets.iter().next() {
+                        let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
+                        if let Ok(bytes) = baker_clone.get_finalization_point() {
+                            let mut out_bytes =
+                                Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
+                            match out_bytes.write_u16::<NetworkEndian>(
+                                ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
+                            ) {
+                                Ok(_) => {
+                                    out_bytes.extend(&bytes);
+                                    match locked_cloned_node.send_direct_message(
+                                        Some(remote_peer.id()),
+                                        *net,
+                                        None,
+                                        out_bytes,
+                                    ) {
+                                        Ok(_) => info!(
+                                            "Peer {} requested finalization messages by point \
+                                             from peer {}",
+                                            locked_cloned_node.id(),
+                                            remote_peer.id()
+                                        ),
+                                        Err(_) => error!(
+                                            "Peer {} couldn't send a catch-up request for \
+                                             finalization messages by point!",
+                                            locked_cloned_node.id(),
+                                        ),
+                                    }
+                                }
+                                Err(_) => error!(
+                                    "Can't write type to packet {}",
+                                    ffi::PacketType::CatchupFinalizationMessagesByPoint
+                                ),
+                            }
+                        }
+                    } else {
+                        error!("Handshake without network, so can't ask for finalization messages");
+                    }
+                }
+            }
+
+            Ok(())
+        }
+    ));
+
+    Ok(())
+}
+
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
@@ -481,63 +550,10 @@ fn main() -> Fallible<()> {
         None
     };
 
+    // Register a handler for sending out a consensus catch-up request by
+    // finalization point after the handshake.
     if let Some(ref baker) = baker {
-        // Register a handler for sending out a consensus catch-up request by
-        // finalization point after the handshake.
-        let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
-        let baker_clone = baker.clone();
-        let message_handshake_response_handler = &node.message_handler();
-
-        safe_write!(message_handshake_response_handler)?.add_response_callback(
-            make_atomic_callback!(move |msg: &NetworkResponse| {
-                if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
-                    if remote_peer.peer_type() == PeerType::Node {
-                        if let Some(net) = nets.iter().next() {
-                            let mut locked_cloned_node =
-                                write_or_die!(cloned_handshake_response_node);
-                            if let Ok(bytes) = baker_clone.get_finalization_point() {
-                                let mut out_bytes =
-                                    Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
-                                match out_bytes.write_u16::<NetworkEndian>(
-                                    ffi::PacketType::CatchupFinalizationMessagesByPoint as u16,
-                                ) {
-                                    Ok(_) => {
-                                        out_bytes.extend(&bytes);
-                                        match locked_cloned_node.send_direct_message(
-                                            Some(remote_peer.id()),
-                                            *net,
-                                            None,
-                                            out_bytes,
-                                        ) {
-                                            Ok(_) => info!(
-                                                "Peer {} requested finalization messages by point \
-                                                 from peer {}",
-                                                locked_cloned_node.id(),
-                                                remote_peer.id()
-                                            ),
-                                            Err(_) => error!(
-                                                "Peer {} couldn't send a catch-up request for \
-                                                 finalization messages by point!",
-                                                locked_cloned_node.id(),
-                                            ),
-                                        }
-                                    }
-                                    Err(_) => error!(
-                                        "Can't write type to packet {}",
-                                        ffi::PacketType::CatchupFinalizationMessagesByPoint
-                                    ),
-                                }
-                            }
-                        } else {
-                            error!(
-                                "Handshake without network, so can't ask for finalization messages"
-                            );
-                        }
-                    }
-                }
-                Ok(())
-            }),
-        );
+        attain_post_handshake_catch_up(&node, baker)?;
     }
 
     // Starting rpc server
@@ -574,8 +590,8 @@ fn main() -> Fallible<()> {
 
     // Close baker if present
     if let Some(ref mut baker_ref) = baker {
-        if let Some(baker_id) = conf.cli.baker.baker_id {
-            baker_ref.stop_baker(baker_id)
+        if conf.cli.baker.baker_id.is_some() {
+            baker_ref.stop_baker()
         };
         ffi::stop_haskell();
     }

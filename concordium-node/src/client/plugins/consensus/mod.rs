@@ -11,6 +11,7 @@ use std::{
     convert::TryFrom,
     fs::OpenOptions,
     io::{Read, Write},
+    mem,
 };
 
 use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
@@ -24,10 +25,10 @@ use concordium_consensus::{
 };
 
 use concordium_global_state::{
-    block::{BakedBlock, PendingBlock},
-    common::{sha256, HashBytes, SerializeToBytes, DELTA_LENGTH, SHA256},
+    block::{BakedBlock, Delta, PendingBlock},
+    common::{HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationMessage, FinalizationRecord},
-    tree::{Skov, SkovError, SkovReq, SkovReqBody, SkovResult},
+    tree::{Skov, SkovReq, SkovReqBody, SkovResult},
 };
 
 use crate::{
@@ -184,11 +185,7 @@ pub fn handle_pkt_out(
         };
 
         if let Some(body) = request_body {
-            let request = RelayOrStopEnvelope::Relay(SkovReq::new(
-                Some(peer_id.0),
-                body,
-                Some(content.clone()),
-            ));
+            let request = RelayOrStopEnvelope::Relay(SkovReq::new(Some(peer_id.0), body));
 
             skov_sender.send(request)?;
         }
@@ -200,14 +197,16 @@ pub fn handle_pkt_out(
 }
 
 pub fn handle_global_state_request(
-    node: &mut P2PNode,
     baker: &mut Option<consensus::ConsensusContainer>,
-    peer_id: P2PNodeId,
-    network_id: NetworkId,
     request: SkovReq,
     skov: &mut Skov,
 ) -> Fallible<()> {
-    if let Some(ref mut baker) = baker {
+    if baker.is_some() {
+        let source = request
+            .source
+            .map(|peer_id| P2PNodeId(peer_id).to_string())
+            .unwrap_or_else(|| "our consensus layer".to_owned());
+
         let packet_type = match request.body {
             SkovReqBody::AddBlock(..) => PacketType::Block,
             SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
@@ -221,58 +220,21 @@ pub fn handle_global_state_request(
         };
 
         match result {
-            SkovResult::Success => {
+            SkovResult::SuccessfulEntry => {
                 trace!(
-                    "Skov: successfully processed a {} from peer {}",
+                    "Skov: successfully processed a {} from {}",
                     packet_type,
-                    peer_id
+                    source
                 );
             }
+            SkovResult::SuccessfulQuery(_) => {
+                // not handled yet
+            }
             SkovResult::DuplicateEntry => {
-                warn!(
-                    "Skov: got a duplicate {} from peer {}",
-                    packet_type, peer_id
-                );
+                warn!("Skov: got a duplicate {} from {}", packet_type, source);
             }
             SkovResult::Error(e) => {
                 warn!("{}", e);
-
-                if node.config.global_state_catch_up_requests {
-                    match e {
-                        SkovError::MissingParentBlock(ref missing, _)
-                        | SkovError::MissingBlockToFinalize(ref missing)
-                        | SkovError::MissingLastFinalizedBlock(ref missing, _) => {
-                            let mut request_bytes =
-                                Vec::with_capacity(SHA256 as usize + DELTA_LENGTH as usize);
-                            request_bytes.extend_from_slice(missing);
-                            request_bytes
-                                .write_u64::<NetworkEndian>(0u64)
-                                .expect("Can't write to buffer");
-
-                            send_catchup_request_block_by_hash_to_consensus(
-                                baker,
-                                node,
-                                peer_id,
-                                network_id,
-                                &request_bytes,
-                                PacketDirection::Outbound,
-                            )?;
-                        }
-                        SkovError::LastFinalizedNotFinalized(ref target_hash, _) => {
-                            send_catchup_request_finalization_record_by_hash_to_consensus(
-                                baker,
-                                node,
-                                peer_id,
-                                network_id,
-                                &target_hash,
-                                PacketDirection::Outbound,
-                            )?;
-                        }
-                        SkovError::InvalidLastFinalized(..) => {
-                            // TODO: decide how to handle
-                        }
-                    }
-                }
 
                 skov.register_error(e);
             }
@@ -285,7 +247,7 @@ pub fn handle_global_state_request(
     Ok(())
 }
 
-pub fn send_msg_to_consensus(
+fn send_msg_to_consensus(
     node: &mut P2PNode,
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
@@ -300,10 +262,10 @@ pub fn send_msg_to_consensus(
         FinalizationRecord => send_finalization_record_to_consensus(baker, peer_id, content),
         CatchupBlockByHash => {
             ensure!(
-                content.len() == SHA256 as usize + DELTA_LENGTH as usize,
+                content.len() == SHA256 as usize + mem::size_of::<Delta>(),
                 "{} needs {} bytes",
                 CatchupBlockByHash,
-                SHA256 + DELTA_LENGTH,
+                SHA256 as usize + mem::size_of::<Delta>(),
             );
             send_catchup_request_block_by_hash_to_consensus(
                 baker,
@@ -358,7 +320,10 @@ fn send_transaction_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     baker.send_transaction(content);
-    info!("Peer {} sent a transaction to the consensus layer", peer_id);
+    info!(
+        "Peer {}'s transaction was sent to our consensus layer",
+        peer_id
+    );
     Ok(())
 }
 
@@ -370,10 +335,13 @@ fn send_finalization_record_to_consensus(
     let record = FinalizationRecord::deserialize(&content)?;
 
     match baker.send_finalization_record(peer_id.as_raw(), content) {
-        0i64 => info!("Peer {} sent a {} to consensus", peer_id, record),
+        0i64 => info!(
+            "Peer {}'s {:?} was sent to our consensus layer",
+            peer_id, record
+        ),
         err_code => error!(
-            "Peer {} can't send a finalization record to consensus due to error code #{} (record: \
-             {:?})",
+            "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
+             #{} (record: {:?})",
             peer_id, err_code, record,
         ),
     }
@@ -389,7 +357,10 @@ fn send_finalization_message_to_consensus(
     let message = FinalizationMessage::deserialize(&content)?;
 
     baker.send_finalization(peer_id.as_raw(), content);
-    info!("Peer {} sent a {} to the consensus layer", peer_id, message);
+    debug!(
+        "Peer {}'s {:?} was sent to our consensus layer",
+        peer_id, message
+    );
 
     Ok(())
 }
@@ -400,13 +371,15 @@ fn send_block_to_consensus(
     content: Bytes,
 ) -> Fallible<()> {
     let deserialized = BakedBlock::deserialize(&content)?;
-    let hash = sha256(&content);
 
     // send unique blocks to the consensus layer
     match baker.send_block(peer_id.as_raw(), content) {
-        0i64 => info!("Peer {} sent block {:?} to consensus", peer_id, hash,),
+        0i64 => info!(
+            "Peer {}'s {:?} was sent to our consensus layer",
+            peer_id, deserialized
+        ),
         err_code => error!(
-            "Peer {} can't send a block from network to consensus due to error code #{} (block: \
+            "Peer {}'s block can't be sent to our consensus layer due to error code #{} (block: \
              {:?})",
             peer_id, err_code, deserialized,
         ),
@@ -425,12 +398,12 @@ fn send_catchup_finalization_messages_by_point_to_consensus(
 ) -> Fallible<()> {
     match baker.get_finalization_messages(content, peer_id.as_raw())? {
         0i64 => info!(
-            "Peer {} requested finalization messages by point from consensus",
+            "Peer {} requested finalization messages by point from our consensus layer",
             peer_id
         ),
         err_code => error!(
-            "Peer {} could not request finalization messages by point from consensus due to error \
-             code {} (bytes: {:?}, length: {})",
+            "Peer {} couldn't obtain finalization messages by point from our consensus layer due \
+             to error code {} (bytes: {:?}, length: {})",
             peer_id,
             err_code,
             content,
@@ -470,20 +443,16 @@ macro_rules! send_catchup_request_to_consensus {
                 out_bytes.extend(res);
 
                 match &$node.send_direct_message(Some($peer_id), $network_id, None, out_bytes) {
-                    Ok(_) => info!(
-                        "Responded to a catch-up request type \"{}\" from peer {}",
-                        $req_type, $peer_id
-                    ),
+                    Ok(_) => info!("Responded to a {} from peer {}", $req_type, $peer_id),
                     Err(_) => error!(
-                        "Couldn't respond to a catch-up request type \"{}\" from peer {}!",
+                        "Couldn't respond to a {} from peer {}!",
                         $req_type, $peer_id
                     ),
                 }
             } else {
                 error!(
-                    "Consensus doesn't have the data to fulfill a catch-up request type \"{}\" \
-                     (to obtain a \"{}\") that peer {} requested (response: {:?})",
-                    $req_type, return_type, $peer_id, res
+                    "Consensus doesn't have the data to fulfill a {} that peer {} requested",
+                    $req_type, $peer_id
                 );
             }
         } else {
@@ -566,7 +535,7 @@ fn send_catchup_request_block_by_hash_to_consensus(
     direction: PacketDirection,
 ) -> Fallible<()> {
     let hash = HashBytes::new(&content[..SHA256 as usize]);
-    let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..DELTA_LENGTH as usize]);
+    let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
 
     if delta == 0 {
         send_catchup_request_to_consensus!(
