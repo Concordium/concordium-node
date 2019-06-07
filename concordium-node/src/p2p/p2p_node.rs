@@ -11,8 +11,8 @@ use crate::{
         NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
     },
     network::{
-        packet::MessageId, Buckets, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
+        NetworkPacket, NetworkPacketBuilder, NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::{
         banned_nodes::BannedNode,
@@ -1182,11 +1182,16 @@ impl P2PNode {
         self.queue_size_inc();
     }
 
-    pub fn send_retransmit(&mut self, receiver: P2PPeer, since: u64, nid: NetworkId) {
+    pub fn send_retransmit(
+        &mut self,
+        requested_type: RequestedElementType,
+        since: u64,
+        nid: NetworkId,
+    ) {
         send_or_die!(
             self.send_queue_in,
             Arc::new(NetworkMessage::NetworkRequest(
-                NetworkRequest::Retransmit(receiver, since, nid),
+                NetworkRequest::Retransmit(self.get_self_peer(), requested_type, since, nid),
                 None,
                 None,
             ))

@@ -31,6 +31,7 @@ use concordium_global_state::{
 };
 
 use crate::{
+    client::plugins::consensus::transactions_cache::TransactionsCache,
     common::{P2PNodeId, PacketDirection},
     configuration,
     network::NetworkId,
@@ -158,6 +159,9 @@ pub fn handle_pkt_out(
     network_id: NetworkId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<SkovReq>,
+    _transactions_cache: &TransactionsCache, /* TODO: When Skov has a Transaction Table, the
+                                              * references to the transactions have to be stored
+                                              * into this cache */
 ) -> Fallible<()> {
     if let Some(ref mut baker) = baker {
         ensure!(
@@ -592,3 +596,5 @@ fn send_catchup_request_block_by_hash_to_consensus(
         )
     }
 }
+
+pub mod transactions_cache;
