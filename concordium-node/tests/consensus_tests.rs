@@ -118,6 +118,6 @@ mod tests {
             Ok(ref res) => assert!(!res.payload.is_empty()),
             _ => panic!("Didn't get respones back from sending query"),
         }
-        consensus_container.stop_baker(0);
+        consensus_container.stop_baker();
     }
 }

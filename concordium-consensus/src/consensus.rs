@@ -25,6 +25,7 @@ use concordium_global_state::{
 
 pub type PeerId = u64;
 pub type Bytes = Box<[u8]>;
+pub type PrivateData = HashMap<i64, Vec<u8>>;
 
 pub struct ConsensusMessage {
     pub variant:  PacketType,
@@ -177,8 +178,7 @@ macro_rules! baker_running_wrapper {
 
 lazy_static! {
     pub static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
-    pub static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
-        { RwLock::new(HashMap::new()) };
+    pub static ref GENERATED_PRIVATE_DATA: RwLock<PrivateData> = { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
@@ -270,10 +270,7 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn generate_data(
-        genesis_time: u64,
-        num_bakers: u64,
-    ) -> Fallible<(Vec<u8>, HashMap<i64, Vec<u8>>)> {
+    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }

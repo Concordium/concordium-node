@@ -127,6 +127,13 @@ message DumpRequest {
 
 message Empty {}
 
+message RetransmitRequestMessage {
+  string id = 1;
+  uint32 element_type = 2;
+  google.protobuf.UInt64Value since = 3;
+  uint32 network_id = 4;
+}
+
 service P2P {
   // Suggest this peer connects to submitted peer details
   rpc PeerConnect (PeerConnectRequest) returns (SuccessResponse) {}
@@ -171,4 +178,5 @@ service P2P {
   rpc TpsTest(TpsRequest) returns (SuccessResponse) {}
   rpc DumpStart(DumpRequest) returns (SuccessResponse) {}
   rpc DumpStop(Empty) returns (SuccessResponse) {}
+  rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
 }

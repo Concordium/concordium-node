@@ -19,12 +19,18 @@ use concordium_common::{
     RelayOrStopReceiver, RelayOrStopSender,
 };
 use concordium_consensus::{consensus, ffi};
-use concordium_global_state::tree::{Skov, SkovReq};
+use concordium_global_state::{
+    common::SerializeToBytes,
+    tree::{Skov, SkovReq},
+};
 use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::{
-        plugins::{self, consensus::*},
+        plugins::{
+            self,
+            consensus::{transactions_cache::TransactionsCache, *},
+        },
         utils as client_utils,
     },
     common::{P2PNodeId, PeerType},
@@ -32,8 +38,8 @@ use p2p_client::{
     connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
     network::{
-        packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType,
-        NetworkRequest, NetworkResponse,
+        packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
+        NetworkPacketType, NetworkRequest, NetworkResponse,
     },
     p2p::*,
     rpc::RpcServerImpl,
@@ -250,9 +256,8 @@ fn setup_process_output(
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
-
+    let transactions_cache = TransactionsCache::new();
     let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-
     let mut baker_clone = baker.clone();
     let mut node_clone = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
@@ -261,9 +266,7 @@ fn setup_process_output(
             .map(|baker| baker.get_genesis_data())
             .unwrap()
             .unwrap();
-
         let mut skov = Skov::new(&genesis_data);
-
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
@@ -361,13 +364,38 @@ fn setup_process_output(
                         _network_id,
                         pac.message.clone(),
                         &skov_sender,
+                        &transactions_cache,
                     ) {
                         error!("There's an issue with an outbound packet: {}", e);
                     }
                 }
-                NetworkMessage::NetworkRequest(NetworkRequest::Retransmit(..), ..) => {
-                    panic!("Not implemented yet");
+                NetworkMessage::NetworkRequest(ref pac @ NetworkRequest::Retransmit(..), ..) => {
+                    if let NetworkRequest::Retransmit(requester, element_type, since, nid) = pac {
+                        match element_type {
+                            RequestedElementType::Transaction => {
+                                let transactions = transactions_cache.get_since(*since);
+                                transactions.iter().for_each(|transaction| {
+                                    if let Err(e) = node_ref.send_direct_message(
+                                        Some(requester.id()),
+                                        *nid,
+                                        None,
+                                        transaction.serialize().into_vec(),
+                                    ) {
+                                        error!(
+                                            "Couldn't send transaction in response to a \
+                                             retransmit request: {}",
+                                            e
+                                        )
+                                    }
+                                })
+                            }
+                            _ => error!(
+                                "Received request for unknown element type in a Retransmit request"
+                            ),
+                        }
+                    }
                 }
+
                 _ => {}
             }
         }
@@ -483,16 +511,17 @@ fn main() -> Fallible<()> {
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
     // Banning nodes in database
-    match db.get_banlist() {
+    let db = match db.get_banlist() {
         Some(nodes) => {
             info!("Found existing banlist, loading up!");
             for n in nodes {
                 node.ban_node(n);
             }
+            db
         }
         None => {
             warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist();
+            db.create_banlist(db_path.as_path())
         }
     };
 

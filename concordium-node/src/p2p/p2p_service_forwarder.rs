@@ -2,8 +2,9 @@ use crate::proto::{
     concordium_p2p_rpc_grpc::P2P, AccountAddress, BlockHash, BlockHashAndAmount,
     ContractInstanceAddress, DumpRequest, Empty, NetworkChangeRequest, NodeInfoResponse,
     NumberResponse, P2PNetworkMessage, PeerConnectRequest, PeerElement, PeerListResponse,
-    PeerStatsResponse, SendMessageRequest, SendTransactionRequest, StringResponse, SuccessResponse,
-    SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse, TpsRequest,
+    PeerStatsResponse, RetransmitRequestMessage, SendMessageRequest, SendTransactionRequest,
+    StringResponse, SuccessResponse, SuccessfulBytePayloadResponse, SuccessfulJsonPayloadResponse,
+    TpsRequest,
 };
 use futures::future::Future;
 use std::sync::Arc;
@@ -324,5 +325,14 @@ impl P2P for P2PServiceForwarder {
         sink: ::grpcio::UnarySink<SuccessResponse>,
     ) {
         forward_to_targets!(self.targets, dump_stop, ctx, req, sink);
+    }
+
+    fn retransmit_request(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: RetransmitRequestMessage,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        forward_to_targets!(self.targets, retransmit_request, ctx, req, sink);
     }
 }
