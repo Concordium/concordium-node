@@ -41,20 +41,22 @@ data BlockState = BlockState {
     _blockInstances :: Instances.Instances,
     _blockModules :: Modules.Modules,
     _blockBank :: Rewards.BankStatus,
-    _blockIdentityProviders :: IPS.IdentityProviders
+    _blockIdentityProviders :: IPS.IdentityProviders,
+    _blockBirkParameters :: BirkParameters
 }
 
 makeLenses ''BlockState
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: BlockState
-emptyBlockState = BlockState {
+emptyBlockState :: BirkParameters -> BlockState
+emptyBlockState _blockBirkParameters = BlockState {
   _blockAccounts = Account.emptyAccounts
   , _blockInstances = Instances.emptyInstances
   , _blockModules = Modules.emptyModules
   , _blockBank = Rewards.emptyBankStatus
   , _blockIdentityProviders = IPS.emptyIdentityProviders
+  ,..
   }
 
 
@@ -255,6 +257,11 @@ instance (Monad m, MonadState s m) => TS.BlockStateQuery (SkovTreeState s m) whe
     getAccountList bs =
       return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
   
+    {-# INLINE getBirkParameters #-}
+    getBirkParameters = return . _blockBirkParameters
+
+    {-# INLINE getInflationRate #-}
+    getInflationRate = return . Rewards._mintedGTUPerSlot . _blockBank
 
 type instance TS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
@@ -308,6 +315,23 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
+
+    {-# INLINE bsoGetBirkParameters #-}
+    bsoGetBirkParameters = return . _blockBirkParameters
+
+    bsoUpdateBaker bs bid binfo = return $
+        let updated = bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid binfo (birkBakers bp) })
+        in case bs ^? blockBirkParameters . to birkBakers . ix bid of
+             Nothing -> (False, updated)
+             Just _ -> (True, updated)
+
+    bsoRemoveBaker bs bid = return $ 
+        case bs ^? blockBirkParameters . to birkBakers . ix bid of
+          Nothing -> (False, bs)
+          Just _ -> (True, bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.delete bid (birkBakers bp) }))
+
+    bsoSetInflation bs amnt = return $
+        bs & blockBank . Rewards.mintedGTUPerSlot .~ amnt
 
 type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
 
