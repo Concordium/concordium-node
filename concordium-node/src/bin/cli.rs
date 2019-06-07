@@ -270,9 +270,13 @@ fn setup_process_output(
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
-                    if let Err(e) =
-                        handle_global_state_request(&mut node_clone, _network_id, &mut baker_clone, request, &mut skov)
-                    {
+                    if let Err(e) = handle_global_state_request(
+                        &mut node_clone,
+                        _network_id,
+                        &mut baker_clone,
+                        request,
+                        &mut skov,
+                    ) {
                         error!("There's an issue with a global state request: {}", e);
                     }
                 }

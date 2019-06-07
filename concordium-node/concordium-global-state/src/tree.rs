@@ -390,7 +390,10 @@ impl SkovData {
             .find(|&rec| rec.block_pointer == *hash)
     }
 
-    fn get_finalization_record_by_idx(&self, idx: FinalizationIndex) -> Option<&FinalizationRecord> {
+    fn get_finalization_record_by_idx(
+        &self,
+        idx: FinalizationIndex,
+    ) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
             .rev() // it's most probable that it's near the end

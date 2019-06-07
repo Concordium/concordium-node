@@ -182,32 +182,33 @@ pub fn handle_pkt_out(
                 let payload = PendingBlock::new(&content)?;
                 let body = Some(SkovReqBody::AddBlock(payload));
                 (body, true)
-            },
+            }
             FinalizationRecord => {
                 // we save our own finalization records, so there's no need
                 // for duplicates from the rest of the committee
-                return Ok(())
-            },
+                return Ok(());
+            }
             CatchupBlockByHash => {
                 let hash = HashBytes::new(&content[..SHA256 as usize]);
-                let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
+                let delta =
+                    NetworkEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
 
                 if delta == 0 {
                     (Some(SkovReqBody::GetBlock(hash, delta)), false)
                 } else {
                     (None, true)
                 }
-            },
+            }
             CatchupFinalizationRecordByHash => {
                 let payload = HashBytes::new(&content);
                 let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
                 (body, false)
-            },
+            }
             CatchupFinalizationRecordByIndex => {
                 let idx = NetworkEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
                 let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
                 (body, false)
-            },
+            }
             _ => (None, true), // will be expanded later on
         };
 
@@ -218,7 +219,14 @@ pub fn handle_pkt_out(
         }
 
         if consensus_applicable {
-            send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, Box::from(content))
+            send_msg_to_consensus(
+                node,
+                baker,
+                peer_id,
+                network_id,
+                packet_type,
+                Box::from(content),
+            )
         } else {
             Ok(())
         }
@@ -239,15 +247,21 @@ pub fn handle_global_state_request(
             SkovReqBody::AddBlock(..) => PacketType::Block,
             SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
             SkovReqBody::GetBlock(..) => PacketType::CatchupBlockByHash,
-            SkovReqBody::GetFinalizationRecordByHash(..) => PacketType::CatchupFinalizationRecordByHash,
-            SkovReqBody::GetFinalizationRecordByIdx(..) => PacketType::CatchupFinalizationRecordByIndex,
+            SkovReqBody::GetFinalizationRecordByHash(..) => {
+                PacketType::CatchupFinalizationRecordByHash
+            }
+            SkovReqBody::GetFinalizationRecordByIdx(..) => {
+                PacketType::CatchupFinalizationRecordByIndex
+            }
         };
 
         let result = match request.body {
             SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
             SkovReqBody::AddFinalizationRecord(record) => skov.add_finalization(record),
             SkovReqBody::GetBlock(hash, delta) => skov.get_block(hash, delta),
-            SkovReqBody::GetFinalizationRecordByHash(hash) => skov.get_finalization_record_by_hash(hash),
+            SkovReqBody::GetFinalizationRecordByHash(hash) => {
+                skov.get_finalization_record_by_hash(hash)
+            }
             SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
         };
 
@@ -277,7 +291,7 @@ pub fn handle_global_state_request(
                     .expect("Can't write to buffer");
                 out_bytes.extend(&*result);
 
-                let source = request.source.map(|src| P2PNodeId(src)).unwrap();
+                let source = request.source.map(P2PNodeId).unwrap();
 
                 match node.send_direct_message(Some(source), network_id, None, out_bytes) {
                     Ok(_) => info!("Responded to a {} from peer {}", packet_type, source),
@@ -336,7 +350,7 @@ fn send_msg_to_consensus(
         CatchupFinalizationMessagesByPoint => {
             send_catchup_finalization_messages_by_point_to_consensus(baker, peer_id, &content)
         }
-        _ => unreachable!("Impossible! A Skov-only request was passed on to consensus")
+        _ => unreachable!("Impossible! A Skov-only request was passed on to consensus"),
     }
 }
 
