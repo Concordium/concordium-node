@@ -11,6 +11,7 @@ import Data.Serialize
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Types
 
 type BakerId = Word64
 
@@ -32,7 +33,8 @@ type VoterPower = Int
 data BakerInfo = BakerInfo {
     bakerElectionVerifyKey :: BakerElectionVerifyKey,
     bakerSignatureVerifyKey :: BakerSignVerifyKey,
-    bakerLotteryPower :: LotteryPower
+    bakerLotteryPower :: LotteryPower,
+    bakerAccount :: AccountAddress
 } deriving (Eq, Generic, Show)
 instance Serialize BakerInfo where
 
