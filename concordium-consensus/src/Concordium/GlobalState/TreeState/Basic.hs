@@ -316,6 +316,10 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     bsoNotifyExecutionCost bs amnt =
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
 
+    {-# INLINE bsoGetExecutionCost #-}
+    bsoGetExecutionCost bs =
+      return $ bs ^. blockBank . Rewards.executionCost 
+
     {-# INLINE bsoGetBirkParameters #-}
     bsoGetBirkParameters = return . _blockBirkParameters
 
@@ -444,7 +448,9 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
                 else return False
 
     {-# INLINE thawBlockState #-}
-    thawBlockState = return
+    thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
+                                      (blockBank . Rewards.identityIssuersRewards .~ HM.empty)
+
 
     {-# INLINE freezeBlockState #-}
     freezeBlockState = return
