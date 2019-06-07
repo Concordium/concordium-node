@@ -152,6 +152,7 @@ fn get_baker_data(
     Ok((given_genesis, given_private_data))
 }
 
+/// Handles packets coming from other peers
 pub fn handle_pkt_out(
     node: &mut P2PNode,
     baker: &mut Option<consensus::ConsensusContainer>,
@@ -179,9 +180,9 @@ pub fn handle_pkt_out(
                 (body, true)
             },
             FinalizationRecord => {
-                let payload = FinalizationRecord::deserialize(&content)?;
-                let body = Some(SkovReqBody::AddFinalizationRecord(payload));
-                (body, true)
+                // we save our own finalization records, so there's no need
+                // for duplicates from the rest of the committee
+                return Ok(())
             },
             CatchupBlockByHash => {
                 let hash = HashBytes::new(&content[..SHA256 as usize]);
@@ -231,11 +232,6 @@ pub fn handle_global_state_request(
     skov: &mut Skov,
 ) -> Fallible<()> {
     if baker.is_some() {
-        let source = request
-            .source
-            .map(|peer_id| P2PNodeId(peer_id).to_string())
-            .unwrap_or_else(|| "our consensus layer".to_owned());
-
         let packet_type = match request.body {
             SkovReqBody::AddBlock(..) => PacketType::Block,
             SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
@@ -251,6 +247,11 @@ pub fn handle_global_state_request(
             SkovReqBody::GetFinalizationRecordByHash(hash) => skov.get_finalization_record_by_hash(hash),
             SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
         };
+
+        let source = request
+            .source
+            .map(|peer_id| P2PNodeId(peer_id).to_string())
+            .unwrap_or_else(|| "our consensus layer".to_owned());
 
         match result {
             SkovResult::SuccessfulEntry => {
