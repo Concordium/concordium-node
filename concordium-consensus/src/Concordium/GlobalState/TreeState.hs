@@ -14,6 +14,7 @@ import Data.Time.Clock.POSIX
 import Data.List
 import Data.Maybe
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
@@ -143,6 +144,15 @@ class Monad m => BlockStateQuery m where
     -- |Get the list of contract instances existing in the given block state.
     getContractInstanceList :: BlockState m -> m [Instance]
 
+    -- |Get Birk parameters from the point of view of this block state. Although
+    -- these will not change as often as the rest of the block state, they are
+    -- still block dependent.
+    getBirkParameters :: BlockState m -> m BirkParameters
+
+    -- |Get the inflation rate for the current state (amount of GTU created per
+    -- slot).
+    getInflationRate :: BlockState m -> m Amount
+
 type family UpdatableBlockState (m :: * -> *) :: *
 
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
@@ -224,6 +234,32 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Notify the block state that the given amount was spent on execution.
   bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
+  -- |Get Birk parameters from the point of view of this block state. Although
+  -- these will not change as often as the rest of the block state, they are
+  -- still block dependent. They are needed in 'UpdatableBlockState' because in
+  -- particular the reward accounts for the bakers and others will need to be
+  -- determined at the end of the block, and they might have changed as a result
+  -- of block execution.
+  bsoGetBirkParameters :: UpdatableBlockState m -> m BirkParameters
+
+  -- |Get the account of the given baker.
+  bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe AccountAddress)
+  bsoGetBakerAccount s bid = do
+    BirkParameters{..} <- bsoGetBirkParameters s
+    return $ bakerAccount <$> Map.lookup bid birkBakers
+
+  -- |Add a new baker to the list of allowed bakers or update an existing baker.
+  -- If a baker with a given 'BakerId' already exists return 'True', otherwise return 'False'.
+  bsoUpdateBaker :: UpdatableBlockState m -> BakerId -> BakerInfo -> m (Bool, UpdatableBlockState m)
+
+  -- |Remove a baker from the list of allowed bakers. Return 'True' if a baker
+  -- with given 'BakerId' existed, and 'False' otherwise.
+  bsoRemoveBaker :: UpdatableBlockState m -> BakerId -> m (Bool, UpdatableBlockState m)
+
+  -- |Set the amount of minted GTU per slot.
+  bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -416,6 +452,9 @@ instance BlockStateQuery m => BlockStateQuery (MaybeT m) where
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
 
+  getBirkParameters = lift . getBirkParameters
+  getInflationRate = lift . getInflationRate
+
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
 
 instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
@@ -433,6 +472,12 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+
+  bsoGetBirkParameters = lift . bsoGetBirkParameters
+  bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
+  bsoRemoveBaker s = lift . bsoRemoveBaker s
+  bsoSetInflation s = lift . bsoSetInflation s
+
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
 
@@ -487,6 +532,9 @@ instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
 
+  getBirkParameters = lift . getBirkParameters
+  getInflationRate = lift . getInflationRate
+
 type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
 
 instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m) where
@@ -505,6 +553,10 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
 
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
 
+  bsoGetBirkParameters = lift . bsoGetBirkParameters
+  bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
+  bsoRemoveBaker s = lift . bsoRemoveBaker s
+  bsoSetInflation s = lift . bsoSetInflation s
 
 type instance BlockPointer (RWST r w s m) = BlockPointer m
 
