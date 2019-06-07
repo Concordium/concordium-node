@@ -184,23 +184,25 @@ impl Skov {
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
     pub fn display_state(&self) {
+        fn sorted_block_map(map: &HashMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
+            map.values()
+                .collect::<BinaryHeap<_>>()
+                .into_sorted_vec()
+                .into_iter()
+                .collect::<Vec<_>>()
+        }
+
         info!(
             "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree \
              candidates: {:?}{}{}{}",
-            self.data
-                .block_tree
-                .values()
-                .collect::<BinaryHeap<_>>()
-                .into_sorted_vec()
-                .iter()
-                .collect::<Vec<_>>(),
+            sorted_block_map(&self.data.block_tree),
             self.data.last_finalized.hash,
             self.data
                 .finalization_list
                 .iter()
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
-            self.data.tree_candidates,
+            sorted_block_map(&self.data.tree_candidates),
             self.data.print_pending_queue(AwaitingParentBlock),
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
@@ -498,8 +500,9 @@ impl SkovData {
                 output.push_str(&format!("{:?}, ", pending_hash));
             }
             output.truncate(output.len() - 2);
-            output.push_str("]");
+            output.push_str("], ");
         }
+        output.truncate(output.len() - 2);
         output.push_str("]");
 
         output
