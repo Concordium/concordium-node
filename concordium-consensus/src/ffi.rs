@@ -442,13 +442,13 @@ pub extern "C" fn on_genesis_generated(genesis_data: *const u8, data_length: i64
 }
 
 pub extern "C" fn on_private_data_generated(
-    _baker_id: i64,
+    baker_id: i64,
     private_data: *const u8,
     data_length: i64,
 ) {
     unsafe {
         let s = slice::from_raw_parts(private_data as *const u8, data_length as usize);
-        *safe_write!(GENERATED_PRIVATE_DATA) = s.to_owned();
+        safe_write!(GENERATED_PRIVATE_DATA).insert(baker_id, s.to_owned());
     }
 }
 

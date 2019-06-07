@@ -9,6 +9,7 @@ use failure::{bail, Fallible};
 #[cfg(test)]
 use std::time::Duration;
 use std::{
+    collections::HashMap,
     fmt, mem, str,
     sync::{mpsc, Arc, Mutex, RwLock},
     thread, time,
@@ -176,7 +177,8 @@ macro_rules! baker_running_wrapper {
 
 lazy_static! {
     pub static ref CALLBACK_QUEUE: ConsensusOutQueue = { ConsensusOutQueue::default() };
-    pub static ref GENERATED_PRIVATE_DATA: RwLock<Vec<u8>> = { RwLock::new(Vec::new()) };
+    pub static ref GENERATED_PRIVATE_DATA: RwLock<HashMap<i64, Vec<u8>>> =
+        { RwLock::new(HashMap::new()) };
     pub static ref GENERATED_GENESIS_DATA: RwLock<Option<Vec<u8>>> = { RwLock::new(None) };
 }
 
@@ -268,7 +270,10 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, Vec<u8>)> {
+    pub fn generate_data(
+        genesis_time: u64,
+        num_bakers: u64,
+    ) -> Fallible<(Vec<u8>, HashMap<i64, Vec<u8>>)> {
         if let Ok(ref mut lock) = GENERATED_GENESIS_DATA.write() {
             **lock = None;
         }
