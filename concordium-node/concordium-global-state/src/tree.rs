@@ -348,9 +348,9 @@ impl SkovData {
     }
 
     pub fn get_block(&self, hash: &HashBytes) -> Option<&Block> {
-        let block_ptr = if let Some(block_ptr) = self.tree_candidates.get(&hash) {
+        let block_ptr = if let Some(block_ptr) = self.tree_candidates.get(hash) {
             block_ptr
-        } else if let Some(block_ptr) = self.block_tree.get(&hash) {
+        } else if let Some(block_ptr) = self.block_tree.get(hash) {
             block_ptr
         } else {
             return None;
