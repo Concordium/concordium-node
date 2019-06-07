@@ -10,7 +10,7 @@ use crate::{
     configuration,
     db::P2PDB,
     failure::Fallible,
-    network::{NetworkId, NetworkMessage, NetworkPacketType},
+    network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
     p2p::{banned_nodes::BannedNode, P2PNode},
     proto::*,
 };
@@ -1130,6 +1130,38 @@ impl P2P for RpcServerImpl {
             r.set_value(locked_node.stop_dump().is_ok());
 
             sink.success(r)
+        } else {
+            sink.fail(grpcio::RpcStatus::new(
+                grpcio::RpcStatusCode::ResourceExhausted,
+                Some("Node can't be locked".to_string()),
+            ))
+        };
+        let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
+        ctx.spawn(f);
+    }
+
+    fn retransmit_request(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: RetransmitRequestMessage,
+        sink: ::grpcio::UnarySink<SuccessResponse>,
+    ) {
+        let f = if let Ok(mut node) = self.node.lock() {
+            if req.has_since() {
+                let mut r: SuccessResponse = SuccessResponse::new();
+                node.send_retransmit(
+                    RequestedElementType::from(req.get_element_type() as u8),
+                    req.get_since().get_value(),
+                    NetworkId::from(req.get_network_id() as u16),
+                );
+                r.set_value(true);
+                sink.success(r)
+            } else {
+                sink.fail(grpcio::RpcStatus::new(
+                    grpcio::RpcStatusCode::InvalidArgument,
+                    Some("`Since` argument can not be ommited".to_string()),
+                ))
+            }
         } else {
             sink.fail(grpcio::RpcStatus::new(
                 grpcio::RpcStatusCode::ResourceExhausted,
