@@ -69,6 +69,7 @@ data GenesisData = GenesisData {
     genesisTime :: Timestamp,
     genesisSlotDuration :: Duration,
     genesisBirkParameters :: BirkParameters,
+    genesisBakerAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters
 } deriving (Generic, Show)
 
