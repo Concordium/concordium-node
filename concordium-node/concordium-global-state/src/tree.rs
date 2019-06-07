@@ -351,11 +351,18 @@ impl SkovData {
             Utc::now(),
         );
 
+        let housekeeping_hash = block_ptr.hash.clone();
+
         // put the new block pointer in the tree candidate queue where it will await a
         // finalization record
         let insertion_result = self
             .tree_candidates
             .insert(block_ptr.hash.clone(), Rc::new(block_ptr));
+
+        // the block is now in the block tree; run housekeeping that
+        // can possibly move some queued pending blocks to the tree now
+        self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
+        self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
         if insertion_result.is_none() {
             SkovResult::SuccessfulEntry
@@ -430,10 +437,8 @@ impl SkovData {
         // now
         self.prune_candidate_list();
 
-        // the block is now in the block tree; run housekeeping that
-        // can possibly move some queued pending blocks to the tree now
-        self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
-        self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
+        // a new finalization record was registered; check for any blocks pending their
+        // last finalized block's finalization
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
         SkovResult::SuccessfulEntry
