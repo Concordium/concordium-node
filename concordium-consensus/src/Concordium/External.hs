@@ -82,8 +82,7 @@ makeGenesisData genTime nBakers cbkgen cbkbaker = do
     callGenesisDataCallback cbkgen (encode genData)
     mapM_ (\bkr@(BakerIdentity bid _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
     where
-        bakers = S.makeBakers (fromIntegral nBakers)
-        genData = S.makeGenesisData genTime bakers
+        (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers)
         bakersPrivate = map fst bakers
 
 -- | External function that logs in Rust a message using standard Rust log output
@@ -201,7 +200,7 @@ startBaker gdataC gdataLenC bidC bidLenC bcbk lcbk missingBlock missingFinBlock 
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         case (decode gdata, decode bdata) of
             (Right genData, Right bid) -> do
-                bakerSyncRunner <- makeSyncRunner logM bid genData (initialState (genesisBirkParameters genData) 2) bakerHandler
+                bakerSyncRunner <- makeSyncRunner logM bid genData (initialState (genesisBirkParameters genData) (genesisBakerAccounts genData) 2) bakerHandler
                 newStablePtr BakerRunner{..}
             _ -> ioError (userError $ "Error decoding serialized data.")
     where

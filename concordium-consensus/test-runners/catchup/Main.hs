@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import GHC.Stack
 import Control.Concurrent
 import Control.Monad
 import System.Random
@@ -61,12 +60,13 @@ sendTransactions chan (t : ts) = do
         sendTransactions chan ts
 sendTransactions _ _ = return ()
 
-makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity)
+makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
         sk                     <- Sig.newKeyPair
-        let spk = Sig.verifyKey sk in 
-            return (BakerInfo epk spk lot (makeBakerAccount bid), BakerIdentity bid sk spk ek epk)
+        let spk = Sig.verifyKey sk
+        let account = makeBakerAccount bid
+        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
 relayIn :: Chan InEvent -> Chan (InMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> IO ()
 relayIn msgChan bakerChan sfsRef connectedRef = loop
@@ -175,13 +175,14 @@ main = do
     let bakeShare = (1.0 / (fromInteger $ toInteger n))
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
     let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
-                (Map.fromList [(i, b) | (i, (b, _)) <- bis])
-    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _)) <- bis]
+                (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
+    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
-    let gen = GenesisData now 1 bps fps
-    let iState = Example.initialState bps nAccounts
+    let bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
+    let gen = GenesisData now 1 bps bakerAccounts fps
+    let iState = Example.initialState bps bakerAccounts nAccounts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bix, (_, bid)) -> do
+    chans <- mapM (\(bix, (_, bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
         logChan <- newChan
         let logLoop = do

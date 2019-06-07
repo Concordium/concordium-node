@@ -38,6 +38,8 @@ import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
 
+import Concordium.Startup(makeBakerAccount)
+
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
@@ -283,12 +285,13 @@ genTransactions n = mapM gent (take n [minNonce..])
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
-makeBaker :: BakerId -> LotteryPower -> Gen (BakerInfo, BakerIdentity)
+makeBaker :: BakerId -> LotteryPower -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- arbitrary
-        let spk = Sig.verifyKey sk in 
-            return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
+        let spk = Sig.verifyKey sk
+        let account = makeBakerAccount bid
+        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
 initialiseStates :: Int -> Gen States
 initialiseStates n = do
@@ -296,10 +299,11 @@ initialiseStates n = do
         let bakeShare = 1.0 / fromIntegral n
         bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
         let bps = BirkParameters "LeadershipElectionNonce" 0.5
-                (Map.fromList [(i, b) | (i, (b, _)) <- bis])
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
-            gen = GenesisData 0 1 bps fps
-        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState nAccounts)) | (_, (_, bid)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
+                (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
+            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
+            bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
+            gen = GenesisData 0 1 bps bakerAccounts fps
+        return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps bakerAccounts nAccounts)) | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"

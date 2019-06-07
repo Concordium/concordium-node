@@ -96,15 +96,17 @@ makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
 
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: BirkParameters -> Int -> BlockState.BlockState
-initialState birkParams n = 
+initialState :: BirkParameters -> [Account] -> Int -> BlockState.BlockState
+initialState birkParams bakerAccounts n = 
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
         initialAmount = 2 ^ (62 :: Int)
-        initAccount = Acc.putAccount (Types.Account mateuszAccount 1 initialAmount [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts
+        initAccount = foldl (flip Acc.putAccount)
+                            (Acc.putAccount (Types.Account mateuszAccount 1 initialAmount [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts)
+                            bakerAccounts
         gs = BlockState.emptyBlockState birkParams &
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .

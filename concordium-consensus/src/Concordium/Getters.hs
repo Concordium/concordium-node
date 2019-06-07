@@ -45,25 +45,25 @@ getBestBlockState sfsRef = runStateQuery sfsRef (bpState <$> bestBlock)
 getLastFinalState :: SkovStateQueryable z m => z -> IO (TS.BlockState m)
 getLastFinalState sfsRef = runStateQuery sfsRef (bpState <$> lastFinalizedBlock)
 
-getLastFinalAccountList :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> IO [AccountAddress]
+getLastFinalAccountList :: (SkovStateQueryable z m) => z -> IO [AccountAddress]
 getLastFinalAccountList sfsRef = runStateQuery sfsRef $ do
     lfState <- bpState <$> lastFinalizedBlock
     TS.getAccountList lfState
 
-getLastFinalInstances :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> IO [ContractAddress]
+getLastFinalInstances :: (SkovStateQueryable z m) => z -> IO [ContractAddress]
 getLastFinalInstances sfsRef = runStateQuery sfsRef $ do
     lfState <- bpState <$> lastFinalizedBlock
     ilist <- TS.getContractInstanceList lfState
     return (map iaddress ilist)
   
-getLastFinalAccountInfo :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> AccountAddress -> IO (Maybe AccountInfo)
+getLastFinalAccountInfo :: (SkovStateQueryable z m) => z -> AccountAddress -> IO (Maybe AccountInfo)
 getLastFinalAccountInfo sfsRef addr = runStateQuery sfsRef $ do
         lfState <- bpState <$> lastFinalizedBlock
         fmap accInfo <$> TS.getAccount lfState addr
     where
         accInfo acc = AccountInfo (acc ^. T.accountNonce) (acc ^. T.accountAmount)
 
-getLastFinalContractInfo :: (SkovStateQueryable z m, TS.BlockStateQuery m) => z -> AT.ContractAddress -> IO (Maybe InstanceInfo)
+getLastFinalContractInfo :: (SkovStateQueryable z m) => z -> AT.ContractAddress -> IO (Maybe InstanceInfo)
 getLastFinalContractInfo sfsRef addr = runStateQuery sfsRef $ do
         lfState <- bpState <$> lastFinalizedBlock
         fmap instanceInfo <$> TS.getContractInstance lfState addr
