@@ -234,6 +234,8 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Notify the block state that the given amount was spent on execution.
   bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+  -- |Get the execution reward for the current block.
+  bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
   -- |Get Birk parameters from the point of view of this block state. Although
   -- these will not change as often as the rest of the block state, they are
@@ -244,10 +246,13 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoGetBirkParameters :: UpdatableBlockState m -> m BirkParameters
 
   -- |Get the account of the given baker.
-  bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe AccountAddress)
+  bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
   bsoGetBakerAccount s bid = do
     BirkParameters{..} <- bsoGetBirkParameters s
-    return $ bakerAccount <$> Map.lookup bid birkBakers
+    let maddr = bakerAccount <$> Map.lookup bid birkBakers
+    case maddr of
+      Nothing -> return Nothing
+      Just addr -> bsoGetAccount s addr
 
   -- |Add a new baker to the list of allowed bakers or update an existing baker.
   -- If a baker with a given 'BakerId' already exists return 'True', otherwise return 'False'.
@@ -259,7 +264,6 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Set the amount of minted GTU per slot.
   bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
-
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -472,6 +476,7 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+  bsoGetExecutionCost = lift . bsoGetExecutionCost
 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
   bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
@@ -552,6 +557,7 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+  bsoGetExecutionCost = lift . bsoGetExecutionCost
 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
   bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
