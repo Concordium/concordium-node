@@ -11,14 +11,16 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..))
--- import Concordium.Kontrol.VerifyBlock
+import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..), getBirkParameters, bpParent)
 
 blockLuck :: (SkovQueryMonad m) => BlockPointer m -> m Double
 blockLuck block = case blockFields block of
         Nothing -> return 1 -- Genesis block has luck 1 by definition
         Just bf -> do
-            params <- getBirkParameters (blockSlot block)
+            -- get Birk parameters of the __parent__ block. These are the
+            -- parameters which determine valid bakers, election difficulty,
+            -- that determine the lock of the block itself.
+            params <- getBirkParameters (bpState (bpParent block))
             case birkBaker (blockBaker bf) params of
                 Nothing -> return 0 -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just baker ->

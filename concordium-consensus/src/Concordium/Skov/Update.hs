@@ -288,7 +288,9 @@ addBlock sl@SkovListeners{..} block = do
                         -- If the parent block is the genesis block then its last finalized pointer is to
                         -- itself and so the test will pass.
                         check (blockSlot lfBlockP >= blockSlot (bpLastFinalized parentP)) $ do
-                            bps@BirkParameters{..} <- getBirkParameters (blockSlot block)
+                            -- get Birk parameters from the __parent__ block. The baker must have existed in that
+                            -- block's state in order that the current block is valid
+                            bps@BirkParameters{..} <- getBirkParameters (bpState parentP)
                             case birkBaker (blockBaker bf) bps of
                                 Nothing -> invalidBlock
                                 Just (BakerInfo{..}) ->

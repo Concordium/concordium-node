@@ -34,6 +34,8 @@ import Concordium.Skov
 import Concordium.Afgjort.Finalize(FinalizationPoint)
 import qualified Concordium.Getters as Get
 
+import Concordium.Startup
+
 
 type Peer = IORef SkovFinalizationState
 
@@ -64,7 +66,7 @@ makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
         sk                     <- Sig.newKeyPair
         let spk = Sig.verifyKey sk in 
-            return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
+            return (BakerInfo epk spk lot (makeBakerAccount bid), BakerIdentity bid sk spk ek epk)
 
 relayIn :: Chan InEvent -> Chan (InMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> IO ()
 relayIn msgChan bakerChan sfsRef connectedRef = loop
@@ -83,7 +85,7 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             loop
 
 
-relay :: HasCallStack => Chan (OutMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
+relay :: Chan (OutMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
 relay inp sfsRef connectedRef monitor loopback outps = loop
     where
         chooseDelay = do
@@ -174,10 +176,10 @@ main = do
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
     let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
-    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
+    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
-    let iState = Example.initialState nAccounts
+    let iState = Example.initialState bps nAccounts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bix, (_, bid)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"

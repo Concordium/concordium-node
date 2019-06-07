@@ -21,6 +21,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.GlobalState.TreeState.Basic as BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.Parameters(BirkParameters)
 import qualified Concordium.Scheduler.Runner as Runner
 
 import qualified Acorn.Core as Core
@@ -95,8 +96,8 @@ makeTransaction inc ca n = Runner.signTx mateuszKP hdr payload
 
 
 -- |State with the given number of contract instances of the counter contract specified.
-initialState :: Int -> BlockState.BlockState
-initialState n = 
+initialState :: BirkParameters -> Int -> BlockState.BlockState
+initialState birkParams n = 
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
@@ -104,7 +105,7 @@ initialState n =
                             )
         initialAmount = 2 ^ (62 :: Int)
         initAccount = Acc.putAccount (Types.Account mateuszAccount 1 initialAmount [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts
-        gs = BlockState.emptyBlockState &
+        gs = BlockState.emptyBlockState birkParams &
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10)

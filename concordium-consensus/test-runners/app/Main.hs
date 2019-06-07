@@ -32,8 +32,9 @@ import Concordium.Skov
 
 import Data.List(intercalate)
 
-import Concordium.GlobalState.Rewards as Rewards
 import Concordium.Scheduler.Utils.Init.Example as Example
+
+import Concordium.Startup
 
 nContracts :: Int
 nContracts = 2
@@ -58,7 +59,7 @@ makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
         sk                     <- Sig.newKeyPair
         let spk = Sig.verifyKey sk in 
-            return (BakerInfo epk spk lot, BakerIdentity bid sk spk ek epk)
+            return (BakerInfo epk spk lot (makeBakerAccount bid), BakerIdentity bid sk spk ek epk)
 
 relay :: HasCallStack => Chan (OutMessage src) -> IORef SkovFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sfsRef monitor outps = loop
@@ -119,10 +120,10 @@ main = do
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
     let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
                 (Map.fromList [(i, b) | (i, (b, _)) <- bis])
-    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _, _)) <- bis]
+    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let gen = GenesisData now 1 bps fps
-    let iState = Example.initialState nContracts
+    let iState = Example.initialState bps nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bix, (_, bid)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"

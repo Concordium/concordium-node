@@ -12,6 +12,10 @@ import Concordium.ID.Types
 import Concordium.ID.Attributes
 import Concordium.Crypto.Ed25519Signature
 
+import qualified Data.Map as Map
+
+import Concordium.GlobalState.Parameters
+
 import qualified Concordium.Scheduler.Types as Types
 
 import System.Random
@@ -75,3 +79,11 @@ mkDummyCDI vfKey nregId =
         ,cdi_auxData = "auxdata"
         ,cdi_proof = Proof "proof"
         }
+
+emptyBirkParameters :: BirkParameters
+emptyBirkParameters = BirkParameters {
+  birkLeadershipElectionNonce = "",
+  birkElectionDifficulty = 0.5,
+  birkBakers = Map.empty
+  }
+  

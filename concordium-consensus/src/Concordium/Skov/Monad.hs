@@ -13,7 +13,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
-import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData, BlockState)
+import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery)
 import Concordium.Logger
 import Concordium.TimeMonad
 
@@ -28,7 +28,7 @@ data UpdateResult
     | ResultStale
     | ResultIncorrectFinalizationSession
 
-class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m)) => SkovQueryMonad m where
+class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
     -- |Determine if a block has been finalized.
@@ -83,9 +83,6 @@ instance SkovMonad m => SkovMonad (MaybeT m) where
     storeBakedBlock pb parent lastFin state = lift $ storeBakedBlock pb parent lastFin state
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
-
-getBirkParameters :: (SkovQueryMonad m) => Slot -> m BirkParameters
-getBirkParameters _ = genesisBirkParameters <$> getGenesisData
 
 getGenesisTime :: (SkovQueryMonad m) => m Timestamp
 getGenesisTime = genesisTime <$> getGenesisData

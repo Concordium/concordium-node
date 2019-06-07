@@ -30,7 +30,7 @@ initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
 
 initialBlockState :: BlockState
 initialBlockState = 
-  emptyBlockState & -- NB: We need 6 * deploy account since we still charge the cost even if an account already exists (case 4 in the tests).
+  emptyBlockState emptyBirkParameters & -- NB: We need 6 * deploy account since we still charge the cost even if an account already exists (case 4 in the tests).
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK initialAmount) Acc.emptyAccounts) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
