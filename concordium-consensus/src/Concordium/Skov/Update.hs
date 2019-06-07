@@ -311,7 +311,7 @@ addBlock sl@SkovListeners{..} block = do
                                     -- And the block signature
                                     check (verifyBlockSignature bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
-                                        executeFrom (blockSlot block) parentP lfBlockP ts >>= \case
+                                        executeFrom (blockSlot block) parentP lfBlockP (blockBaker . bbFields . pbBlock $ block) ts >>= \case
                                             Left err -> do
                                                 logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                                 invalidBlock

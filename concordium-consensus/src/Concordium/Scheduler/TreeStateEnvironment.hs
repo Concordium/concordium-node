@@ -12,6 +12,7 @@ import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Parameters
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import qualified Concordium.GlobalState.Modules as Modules
@@ -107,6 +108,17 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     s' <- lift (bsoNotifyExecutionCost s amnt)
     put s'
 
+-- |Reward the baker, identity providers, ...
+-- TODO: At the moment only execution cost goes to the baker.
+rewardEveryone :: TreeStateMonad m => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+rewardEveryone bshandle bid = do
+  amnt <- bsoGetExecutionCost bshandle
+  macc <- bsoGetBakerAccount bshandle bid
+  case macc of
+    Nothing -> error "Precondition violated. Baker account does not exist."
+    Just acc -> let balance = acc ^. accountAmount
+                in bsoModifyAccount bshandle (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (balance + amnt))
+
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState'.
 executeFrom ::
@@ -114,16 +126,23 @@ executeFrom ::
   => Slot -- ^Slot number of the block being executed.
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
+  -> BakerId -- ^Identity of the baker who should be rewarded.
   -> [Transaction] -- ^Transactions on this block.
   -> m (Either FailureKind (BlockState m))
-executeFrom slotNumber blockParent lfPointer txs =
+executeFrom slotNumber blockParent lfPointer blockBaker txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
     bshandle <- thawBlockState (bpState blockParent)
     (res, bshandle') <- runBSM (Sch.execTransactions txs) cm bshandle
-    finalbsHandle <- freezeBlockState bshandle'
+
+    -- the main execution is now done. At this point we must reward the baker
+    -- and other parties.
+
+    bshandle'' <- rewardEveryone bshandle' blockBaker
+
+    finalbsHandle <- freezeBlockState bshandle''
     case res of
       Left fk -> Left fk <$ purgeBlockState finalbsHandle
       Right () -> return (Right finalbsHandle)
@@ -134,14 +153,15 @@ executeFrom slotNumber blockParent lfPointer txs =
 -- the transaction table. If the purging is successful then the transaction is
 -- also removed from the pending table. Moreover all transactions which were added to the block
 -- are removed from the pending table.
--- INVARIANT: The function always returns a list of transactions which make a valid block.
+-- POSTCONDITION: The function always returns a list of transactions which make a valid block.
 constructBlock ::
   TreeStateMonad m
   => Slot -- ^Slot number of the block to bake
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
+  -> BakerId -- ^The baker of the block.
   -> m ([Transaction], BlockState m)
-constructBlock slotNumber blockParent lfPointer =
+constructBlock slotNumber blockParent lfPointer blockBaker =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -155,6 +175,8 @@ constructBlock slotNumber blockParent lfPointer =
     ((valid, invalid), bshandle') <- runBSM (Sch.filterTransactions txs) cm bshandle
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
+    bshandle'' <- rewardEveryone bshandle' blockBaker
+
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
     ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) valid
@@ -163,7 +185,7 @@ constructBlock slotNumber blockParent lfPointer =
     -- Moreover all transactions successfully added will be removed from the pending table.
     -- Or equivalently, only a subset of invalid transactions will remain in the pending table.
     let nextNonceFor addr = do
-          macc <- bsoGetAccount bshandle' addr
+          macc <- bsoGetAccount bshandle'' addr
           case macc of
             Nothing -> return minNonce
             Just acc -> return $ acc ^. accountNonce
@@ -176,5 +198,5 @@ constructBlock slotNumber blockParent lfPointer =
                    invalid
     -- commit the new pending transactions to the tree state
     putPendingTransactions newpt
-    bshandleFinal <- freezeBlockState bshandle'
+    bshandleFinal <- freezeBlockState bshandle''
     return (ret, bshandleFinal)

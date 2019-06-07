@@ -38,13 +38,13 @@ data BakerIdentity = BakerIdentity {
 
 instance Serialize BakerIdentity where
 
-processTransactions :: TreeStateMonad m => Slot -> BlockPointer m -> BlockPointer m -> m ([Transaction], BlockState m)
-processTransactions slot bh finalizedP = do
+processTransactions :: TreeStateMonad m => Slot -> BlockPointer m -> BlockPointer m -> BakerId -> m ([Transaction], BlockState m)
+processTransactions slot bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
   -- at this point we can contruct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
-  constructBlock slot bh finalizedP
+  constructBlock slot bh finalizedP bid
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
@@ -60,7 +60,7 @@ bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot
     nonce <- liftIO $ computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
-    (transactions, newState) <- processTransactions slot bb lastFinal
+    (transactions, newState) <- processTransactions slot bb lastFinal bakerId
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
