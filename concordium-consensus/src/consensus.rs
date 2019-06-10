@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, NetworkEndian};
+use byteorder::{ByteOrder, LittleEndian};
 
 use concordium_common::{
     into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
@@ -61,7 +61,7 @@ impl fmt::Debug for ConsensusMessage {
             PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
             PacketType::CatchupBlockByHash => {
                 let hash = HashBytes::new(&self.payload[..SHA256 as usize]);
-                let delta = NetworkEndian::read_u64(
+                let delta = LittleEndian::read_u64(
                     &self.payload[SHA256 as usize..][..mem::size_of::<Delta>()],
                 );
                 format!("catch-up request for block {:?}, delta {}", hash, delta)
