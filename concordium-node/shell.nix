@@ -12,7 +12,7 @@ let
 in
 with nixpkgs;
   stdenv.mkDerivation {
-    name = "moz_overlay_shell";
+    name = "concordium_shell";
     hardeningDisable = [ "all" ];
     buildInputs = [
       rustStableChannel
