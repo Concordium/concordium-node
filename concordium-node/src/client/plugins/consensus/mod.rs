@@ -52,6 +52,9 @@ pub fn start_baker(
         }
 
         info!("Starting up baker thread");
+        #[cfg(feature = "profiling")]
+        ffi::start_haskell(&conf.heap_profiling, conf.time_profiling);
+        #[cfg(not(feature = "profiling"))]
         ffi::start_haskell();
 
         match get_baker_data(app_prefs, conf) {

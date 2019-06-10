@@ -114,6 +114,20 @@ pub struct BakerConfig {
         default_value = "0"
     )]
     pub baker_genesis: u64,
+    #[cfg(feature = "profiling")]
+    #[structopt(
+        long = "heap-profiling",
+        help = "Profile the heap [(`cost`,-hc), (`type`, -hy), (`module`, -hm), (`description`, \
+                -hd)] in the Haskell subsystem",
+        default_value = "none"
+    )]
+    pub heap_profiling: String,
+    #[cfg(feature = "profiling")]
+    #[structopt(
+        long = "time-profiling",
+        help = "Profile the time in the Haskell subsystem"
+    )]
+    pub time_profiling: bool,
 }
 
 #[derive(StructOpt, Debug)]

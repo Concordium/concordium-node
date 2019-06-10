@@ -8,7 +8,7 @@ use std::{
     io::Cursor,
     mem,
     os::raw::{c_char, c_int},
-    ptr, slice,
+    slice,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Once, ONCE_INIT,
@@ -20,6 +20,7 @@ use concordium_global_state::{block::*, common, finalization::*};
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
+    pub fn hs_init_with_rtsopts(argc: &c_int, argv: *const *const *const c_char);
     pub fn hs_exit();
 }
 
@@ -32,6 +33,17 @@ static STOPPED: AtomicBool = AtomicBool::new(false);
 ///
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
+#[cfg(all(not(windows), feature = "profiling"))]
+pub fn start_haskell(heap: &str, time: bool) {
+    START_ONCE.call_once(|| {
+        start_haskell_init(heap, time);
+        unsafe {
+            ::libc::atexit(stop_nopanic);
+        }
+    });
+}
+
+#[cfg(not(feature = "profiling"))]
 pub fn start_haskell() {
     START_ONCE.call_once(|| {
         start_haskell_init();
@@ -41,32 +53,85 @@ pub fn start_haskell() {
     });
 }
 
-#[cfg(not(windows))]
-fn start_haskell_init() {
-    // OsString is expected to contain either byte-sized characters or UTF-8
-    // on every platform except Windows.
-    //
-    // It's safe to unwrap the CString here as program arguments can't
-    // contain nul bytes.
-    use std::os::unix::ffi::OsStrExt;
-    let args = ::std::env::args_os();
-    let mut argv = Vec::with_capacity(args.len() + 1);
-    args.map(|arg| {
-        CString::new(arg.as_os_str().as_bytes())
-            .unwrap()
-            .into_bytes_with_nul()
-    })
-    .for_each(|mut arg| argv.push(arg.as_mut_ptr() as *mut c_char));
-    argv.push(ptr::null_mut());
-    let mut argc = (argv.len() - 1) as c_int;
+#[cfg(all(not(windows), feature = "profiling"))]
+fn start_haskell_init(heap: &str, time: bool) {
+    let program_name = std::env::args().take(1).next().unwrap();
+    let mut args = vec![program_name.as_str()];
+
+    match heap {
+        "cost" => {
+            args.push("+RTS");
+            args.push("-hc");
+        }
+        "module" => {
+            args.push("+RTS");
+            args.push("-hm");
+        }
+        "description" => {
+            args.push("+RTS");
+            args.push("-hd");
+        }
+        "type" => {
+            args.push("+RTS");
+            args.push("-hy");
+        }
+        "none" => {}
+        _ => {
+            error!("Wrong heap profiling option provided: {}", heap);
+        }
+    }
+
+    if time {
+        if args.len() == 1 {
+            args.push("+RTS");
+        }
+        args.push("-p");
+    }
+
+    if args.len() > 1 {
+        args.push("-RTS");
+    }
+
+    info!(
+        "Starting baker with the following profiling arguments {:?}",
+        args
+    );
+    let args = args
+        .iter()
+        .map(|arg| CString::new(*arg).unwrap())
+        .collect::<Vec<CString>>();
+    let c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
+    let ptr_c_argc = &(c_args.len() as c_int);
+    let ptr_c_argv = &c_args.as_ptr();
     unsafe {
-        hs_init(&mut argc, &mut argv.as_mut_ptr());
+        hs_init_with_rtsopts(ptr_c_argc, ptr_c_argv as *const *const *const c_char);
+    }
+}
+
+#[cfg(all(not(windows), not(feature = "profiling")))]
+fn start_haskell_init() {
+    let program_name = std::env::args().take(1).next();
+    let args = program_name
+        .into_iter()
+        .map(|arg| CString::new(arg).unwrap())
+        .collect::<Vec<CString>>();
+    let c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
+    let ptr_c_argc = &(c_args.len() as c_int);
+    let ptr_c_argv = &c_args.as_ptr();
+    unsafe {
+        hs_init_with_rtsopts(ptr_c_argc, ptr_c_argv as *const *const *const c_char);
     }
 }
 
 #[cfg(windows)]
-fn start_haskell_init() {
-    // GHC on Windows ignores hs_init arguments and uses GetCommandLineW instead.
+fn start_haskell_init(_: bool, _: bool) {
+    // GHC on Windows ignores hs_init arguments and uses GetCommandLineW instead
     // See https://hackage.haskell.org/package/base-4.9.0.0/docs/src/GHC.Environment.html
     let mut argv0 = *b"\0";
     let mut argv = [argv0.as_mut_ptr() as *mut c_char, ptr::null_mut()];

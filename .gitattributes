@@ -5,3 +5,4 @@ scripts/CXXFeatureCheck.cmake linguist-detectable=false
 *.dll.a filter=lfs diff=lfs merge=lfs -text linguist-vendored
 *.a filter=lfs diff=lfs merge=lfs -text linguist-vendored
 *.pc filter=lfs diff=lfs merge=lfs -text linguist-vendored
+deps/static-libs filter=lfs diff=lfs merge=lfs -text

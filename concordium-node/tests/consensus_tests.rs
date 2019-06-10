@@ -45,6 +45,9 @@ mod tests {
 
     #[test]
     pub fn test_consensus_tests() {
+        #[cfg(feature = "profiling")]
+        start_haskell(false, false);
+        #[cfg(not(feature = "profiling"))]
         start_haskell();
         test_grpc_consensus();
         stop_haskell();

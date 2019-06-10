@@ -1,0 +1,1 @@
+packages: acorn ./Concordium ./globalstate-mockup/globalstate-types ./globalstate-mockup/globalstate ./crypto ./scheduler

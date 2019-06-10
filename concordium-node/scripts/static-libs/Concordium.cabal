@@ -1,0 +1,254 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: f1b3150c8749f5627a5c3a4b123d1d4b188903cd351a4c16b031f45b32bd9d60
+
+name:           Concordium
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/Concordium#readme>
+homepage:       https://github.com/githubuser/Concordium#readme
+bug-reports:    https://github.com/githubuser/Concordium/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/Concordium
+
+library
+  exposed-modules:
+      Concordium.Afgjort.ABBA
+      Concordium.Afgjort.CSS
+      Concordium.Afgjort.Finalize
+      Concordium.Afgjort.Freeze
+      Concordium.Afgjort.Lottery
+      Concordium.Afgjort.Types
+      Concordium.Afgjort.WMVBA
+      Concordium.Birk.Bake
+      Concordium.Birk.LeaderElection
+      Concordium.External
+      Concordium.Getters
+      Concordium.Kontrol
+      Concordium.Kontrol.BestBlock
+      Concordium.Logger
+      Concordium.Runner
+      Concordium.Show
+      Concordium.Skov
+      Concordium.Skov.Monad
+      Concordium.Skov.Query
+      Concordium.Skov.Statistics
+      Concordium.Skov.Update
+      Concordium.Startup
+      Concordium.TimeMonad
+  other-modules:
+      Paths_Concordium
+  hs-source-dirs:
+      src
+  ghc-options: -fPIC -Wall -Wcompat -Werror=missing-fields -Wredundant-constraints -fno-ignore-asserts -O2
+  build-depends:
+      acorn
+    , aeson >=1.3
+    , base >=4.7 && <5
+    , base16-bytestring
+    , bytestring >=0.10
+    , cereal >=0.5.7
+    , concordium-crypto
+    , containers >0.5.9.1
+    , globalstate
+    , globalstate-types
+    , hashable >=1.0.1.1
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , pqueue >=1.4.1
+    , random >=1.1
+    , scheduler
+    , text >=1.2
+    , time >=1.8
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+  default-language: Haskell2010
+
+executable Concordium-catchup
+  main-is: Main.hs
+  other-modules:
+      Paths_Concordium
+  hs-source-dirs:
+      catchup
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -fno-ignore-asserts
+  build-depends:
+      Concordium
+    , acorn
+    , aeson >=1.3
+    , base >=4.7 && <5
+    , base16-bytestring
+    , bytestring >=0.10
+    , cereal >=0.5.7
+    , concordium-crypto
+    , containers >0.5.9.1
+    , globalstate
+    , globalstate-types
+    , hashable >=1.0.1.1
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , pqueue >=1.4.1
+    , random >=1.1
+    , scheduler
+    , text >=1.2
+    , time >=1.8
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+  default-language: Haskell2010
+
+executable Concordium-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_Concordium
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -fno-ignore-asserts
+  build-depends:
+      Concordium
+    , acorn
+    , aeson >=1.3
+    , base >=4.7 && <5
+    , base16-bytestring
+    , bytestring >=0.10
+    , cereal >=0.5.7
+    , concordium-crypto
+    , containers >0.5.9.1
+    , globalstate
+    , globalstate-types
+    , hashable >=1.0.1.1
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , pqueue >=1.4.1
+    , random >=1.1
+    , scheduler
+    , text >=1.2
+    , time >=1.8
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+  default-language: Haskell2010
+
+executable Concordium-server
+  main-is: Main.hs
+  other-modules:
+      Paths_Concordium
+  hs-source-dirs:
+      server
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -fno-ignore-asserts
+  build-depends:
+      Concordium
+    , acorn
+    , aeson >=1.3
+    , base >=4.7 && <5
+    , base16-bytestring
+    , bytestring >=0.10
+    , cereal >=0.5.7
+    , concordium-crypto
+    , containers >0.5.9.1
+    , globalstate
+    , globalstate-types
+    , hashable >=1.0.1.1
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , network-simple
+    , pqueue >=1.4.1
+    , random >=1.1
+    , scheduler
+    , text >=1.2
+    , time >=1.8
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+  default-language: Haskell2010
+
+test-suite Concordium-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      ConcordiumTests.Afgjort.ABBA
+      ConcordiumTests.Afgjort.CSS
+      ConcordiumTests.Afgjort.Freeze
+      ConcordiumTests.Afgjort.Lottery
+      ConcordiumTests.Konsensus
+      Paths_Concordium
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -fno-ignore-asserts
+  build-depends:
+      Concordium
+    , QuickCheck >=2.10
+    , acorn
+    , aeson >=1.3
+    , base >=4.7 && <5
+    , base16-bytestring
+    , bytestring >=0.10
+    , cereal >=0.5.7
+    , concordium-crypto
+    , containers >0.5.9.1
+    , globalstate
+    , globalstate-types
+    , hashable >=1.0.1.1
+    , hspec >=2.5
+    , hspec-expectations >=0.8
+    , math-functions >=0.2
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , pqueue >=1.4.1
+    , random >=1.1
+    , scheduler
+    , text >=1.2
+    , time >=1.8
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+  default-language: Haskell2010
+
+benchmark Consensus-bench
+  type: exitcode-stdio-1.0
+  main-is: ConsensusBench.hs
+  other-modules:
+      Paths_Concordium
+  hs-source-dirs:
+      benchmark
+  ghc-options: -rtsopts -Wall -Wcompat -fno-ignore-asserts
+  build-depends:
+      Concordium
+    , acorn
+    , aeson >=1.3
+    , base >=4.7 && <5
+    , base16-bytestring
+    , bytestring >=0.10
+    , cereal >=0.5.7
+    , concordium-crypto
+    , containers >0.5.9.1
+    , criterion >=1.5.5
+    , globalstate
+    , globalstate-types
+    , hashable >=1.0.1.1
+    , math-functions >=0.2
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , pqueue >=1.4.1
+    , random >=1.1
+    , scheduler
+    , text >=1.2
+    , time >=1.8
+    , transformers >=0.5
+    , unordered-containers >=0.2
+    , vector >=0.12
+  default-language: Haskell2010
