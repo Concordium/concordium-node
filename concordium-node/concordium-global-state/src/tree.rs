@@ -158,8 +158,13 @@ impl Skov {
     }
 
     pub fn get_block(&self, hash: HashBytes, delta: Delta) -> SkovResult {
-        if let Some(block) = self.data.get_block(&hash) {
-            SkovResult::SuccessfulQuery(block.serialize())
+        let block_ptr = if delta == 0 {
+            self.data.get_block(&hash)
+        } else {
+            self.data.get_block_descendant(&hash, delta)
+        };
+        if let Some(ptr) = block_ptr {
+            SkovResult::SuccessfulQuery(ptr.block.serialize())
         } else {
             SkovResult::Error(SkovError::MissingBlock(hash, delta))
         }
@@ -279,25 +284,22 @@ impl SkovData {
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify if the pending block's parent block is among tree candidates
         // or already in the tree
-        let parent_block =
-            if let Some(parent_ptr) = self.tree_candidates.get(&pending_block.block.pointer) {
-                parent_ptr
-            } else if let Some(parent_ptr) = self.block_tree.get(&pending_block.block.pointer) {
-                parent_ptr
-            } else {
-                let error = SkovError::MissingParentBlock(
-                    pending_block.block.pointer.clone(),
-                    pending_block.hash.clone(),
-                );
+        let parent_block = if let Some(parent_ptr) = self.get_block(&pending_block.block.pointer) {
+            parent_ptr
+        } else {
+            let error = SkovError::MissingParentBlock(
+                pending_block.block.pointer.clone(),
+                pending_block.hash.clone(),
+            );
 
-                self.queue_pending_block(
-                    AwaitingParentBlock,
-                    pending_block.block.pointer.to_owned(),
-                    pending_block,
-                );
+            self.queue_pending_block(
+                AwaitingParentBlock,
+                pending_block.block.pointer.to_owned(),
+                pending_block,
+            );
 
-                return SkovResult::Error(error);
-            };
+            return SkovResult::Error(error);
+        };
 
         // verify if the pending block's last finalized block is in the tree and
         // that it had already been finalized
@@ -371,16 +373,28 @@ impl SkovData {
         }
     }
 
-    pub fn get_block(&self, hash: &HashBytes) -> Option<&Block> {
-        let block_ptr = if let Some(block_ptr) = self.tree_candidates.get(hash) {
-            block_ptr
-        } else if let Some(block_ptr) = self.block_tree.get(hash) {
-            block_ptr
-        } else {
-            return None;
-        };
+    fn get_block(&self, hash: &HashBytes) -> Option<&Rc<BlockPtr>> {
+        self.tree_candidates
+            .get(hash)
+            .or_else(|| self.block_tree.get(hash))
+    }
 
-        Some(&block_ptr.block)
+    fn get_blocks_at_height(&self, height: BlockHeight) -> impl Iterator<Item = &Rc<BlockPtr>> {
+        self.tree_candidates
+            .values()
+            .filter(move |ptr| ptr.height == height)
+            .chain(
+                self.block_tree
+                    .values()
+                    .filter(move |ptr| ptr.height == height),
+            )
+    }
+
+    fn get_block_descendant(&self, hash: &HashBytes, delta: Delta) -> Option<&Rc<BlockPtr>> {
+        let block = self.get_block(hash)?;
+
+        self.get_blocks_at_height(block.height + delta)
+            .find(|&candidate| block.is_ancestor_of(candidate))
     }
 
     fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {

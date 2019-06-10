@@ -362,10 +362,8 @@ fn setup_process_output(
                     };
 
                     if let Err(e) = handle_pkt_out(
-                        &mut node_ref,
                         &mut baker_clone,
                         pac.peer.id(),
-                        _network_id,
                         pac.message.clone(),
                         &skov_sender,
                         &transactions_cache,

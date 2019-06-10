@@ -370,15 +370,15 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: Bytes) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> i64 {
         wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) -> i64 {
+    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> i64 {
         wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> i64 {
         wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
     }
 
