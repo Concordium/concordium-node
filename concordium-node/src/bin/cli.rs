@@ -98,19 +98,18 @@ fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configurat
 }
 
 fn setup_baker_guards(
-    baker: &mut Option<consensus::ConsensusContainer>,
+    is_baker: bool,
     node: &P2PNode,
     conf: &configuration::Config,
     skov_sender: RelayOrStopSender<SkovReq>,
 ) -> Option<std::thread::JoinHandle<()>> {
-    if let Some(ref mut baker) = baker {
+    if is_baker {
         let network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
 
-        let baker_clone = baker.to_owned();
         let mut node = node.clone();
         let consensus_message_thread = spawn_or_die!("Process consensus messages", {
             loop {
-                match baker_clone.out_queue().recv_message(&skov_sender) {
+                match consensus::CALLBACK_QUEUE.recv_message(&skov_sender) {
                     Ok(RelayOrStopEnvelope::Relay(msg)) => {
                         let mut out_bytes =
                             Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + msg.payload.len());
@@ -590,7 +589,7 @@ fn main() -> Fallible<()> {
     // Create a listener on baker output to forward to P2PNode
     //
     // Thread #5
-    let baker_thread = setup_baker_guards(&mut baker, &node, &conf, skov_sender);
+    let baker_thread = setup_baker_guards(baker.is_some(), &node, &conf, skov_sender);
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
