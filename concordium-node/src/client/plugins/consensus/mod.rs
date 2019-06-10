@@ -27,7 +27,7 @@ use concordium_consensus::{
 use concordium_global_state::{
     block::{BakedBlock, Delta, PendingBlock},
     common::{HashBytes, SerializeToBytes, SHA256},
-    finalization::{FinalizationMessage, FinalizationRecord},
+    finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
     tree::{Skov, SkovReq, SkovReqBody, SkovResult},
 };
 
@@ -156,6 +156,7 @@ fn get_baker_data(
     Ok((given_genesis, given_private_data))
 }
 
+/// Handles packets coming from other peers
 pub fn handle_pkt_out(
     node: &mut P2PNode,
     baker: &mut Option<consensus::ConsensusContainer>,
@@ -176,15 +177,42 @@ pub fn handle_pkt_out(
 
         let consensus_type = msg.read_u16::<NetworkEndian>()?;
         let view = msg.read_all_into_view()?;
-        let content = Box::from(&view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..]);
+        let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
         let packet_type = PacketType::try_from(consensus_type)?;
 
-        let request_body = match packet_type {
-            Block => Some(SkovReqBody::AddBlock(PendingBlock::new(&content)?)),
-            FinalizationRecord => Some(SkovReqBody::AddFinalizationRecord(
-                FinalizationRecord::deserialize(&content)?,
-            )),
-            _ => None, // will be expanded later on
+        let (request_body, consensus_applicable) = match packet_type {
+            Block => {
+                let payload = PendingBlock::new(&content)?;
+                let body = Some(SkovReqBody::AddBlock(payload));
+                (body, true)
+            }
+            FinalizationRecord => {
+                // we save our own finalization records, so there's no need
+                // for duplicates from the rest of the committee
+                return Ok(());
+            }
+            CatchupBlockByHash => {
+                let hash = HashBytes::new(&content[..SHA256 as usize]);
+                let delta =
+                    NetworkEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
+
+                if delta == 0 {
+                    (Some(SkovReqBody::GetBlock(hash, delta)), false)
+                } else {
+                    (None, true)
+                }
+            }
+            CatchupFinalizationRecordByHash => {
+                let payload = HashBytes::new(&content);
+                let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
+                (body, false)
+            }
+            CatchupFinalizationRecordByIndex => {
+                let idx = NetworkEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
+                let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
+                (body, false)
+            }
+            _ => (None, true), // will be expanded later on
         };
 
         if let Some(body) = request_body {
@@ -193,34 +221,57 @@ pub fn handle_pkt_out(
             skov_sender.send(request)?;
         }
 
-        send_msg_to_consensus(node, baker, peer_id, network_id, packet_type, content)
+        if consensus_applicable {
+            send_msg_to_consensus(
+                node,
+                baker,
+                peer_id,
+                network_id,
+                packet_type,
+                Box::from(content),
+            )
+        } else {
+            Ok(())
+        }
     } else {
         Ok(())
     }
 }
 
 pub fn handle_global_state_request(
+    node: &mut P2PNode,
+    network_id: NetworkId,
     baker: &mut Option<consensus::ConsensusContainer>,
     request: SkovReq,
     skov: &mut Skov,
 ) -> Fallible<()> {
     if baker.is_some() {
-        let source = request
-            .source
-            .map(|peer_id| P2PNodeId(peer_id).to_string())
-            .unwrap_or_else(|| "our consensus layer".to_owned());
-
         let packet_type = match request.body {
             SkovReqBody::AddBlock(..) => PacketType::Block,
             SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
-            _ => unreachable!(), // will be expanded in due course
+            SkovReqBody::GetBlock(..) => PacketType::CatchupBlockByHash,
+            SkovReqBody::GetFinalizationRecordByHash(..) => {
+                PacketType::CatchupFinalizationRecordByHash
+            }
+            SkovReqBody::GetFinalizationRecordByIdx(..) => {
+                PacketType::CatchupFinalizationRecordByIndex
+            }
         };
 
         let result = match request.body {
             SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
             SkovReqBody::AddFinalizationRecord(record) => skov.add_finalization(record),
-            _ => unreachable!(), // will be expanded alongside Skov
+            SkovReqBody::GetBlock(hash, delta) => skov.get_block(hash, delta),
+            SkovReqBody::GetFinalizationRecordByHash(hash) => {
+                skov.get_finalization_record_by_hash(hash)
+            }
+            SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
         };
+
+        let source = request
+            .source
+            .map(|peer_id| P2PNodeId(peer_id).to_string())
+            .unwrap_or_else(|| "our consensus layer".to_owned());
 
         match result {
             SkovResult::SuccessfulEntry => {
@@ -230,8 +281,28 @@ pub fn handle_global_state_request(
                     source
                 );
             }
-            SkovResult::SuccessfulQuery(_) => {
-                // not handled yet
+            SkovResult::SuccessfulQuery(result) => {
+                let return_type = match packet_type {
+                    PacketType::CatchupBlockByHash => PacketType::Block,
+                    PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
+                    _ => unreachable!("Impossible packet type in a query result!"),
+                };
+
+                let mut out_bytes = Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + result.len());
+                out_bytes
+                    .write_u16::<NetworkEndian>(return_type as u16)
+                    .expect("Can't write to buffer");
+                out_bytes.extend(&*result);
+
+                let source = request.source.map(P2PNodeId).unwrap();
+
+                match node.send_direct_message(Some(source), network_id, None, out_bytes) {
+                    Ok(_) => info!("Responded to a {} from peer {}", packet_type, source),
+                    Err(_) => error!(
+                        "Couldn't respond to a {} from peer {}!",
+                        packet_type, source
+                    ),
+                }
             }
             SkovResult::DuplicateEntry => {
                 warn!("Skov: got a duplicate {} from {}", packet_type, source);
@@ -279,41 +350,10 @@ fn send_msg_to_consensus(
                 PacketDirection::Inbound,
             )
         }
-        CatchupFinalizationRecordByHash => {
-            ensure!(
-                content.len() == SHA256 as usize,
-                "{} needs {} bytes",
-                CatchupFinalizationRecordByHash,
-                SHA256
-            );
-            send_catchup_request_finalization_record_by_hash_to_consensus(
-                baker,
-                node,
-                peer_id,
-                network_id,
-                &content,
-                PacketDirection::Inbound,
-            )
-        }
-        CatchupFinalizationRecordByIndex => {
-            ensure!(
-                content.len() == 8,
-                "{} needs {} bytes",
-                CatchupFinalizationRecordByIndex,
-                8
-            );
-            send_catchup_request_finalization_record_by_index_to_consensus(
-                baker,
-                node,
-                peer_id,
-                network_id,
-                &content,
-                PacketDirection::Inbound,
-            )
-        }
         CatchupFinalizationMessagesByPoint => {
             send_catchup_finalization_messages_by_point_to_consensus(baker, peer_id, &content)
         }
+        _ => unreachable!("Impossible! A Skov-only request was passed on to consensus"),
     }
 }
 
@@ -481,54 +521,6 @@ macro_rules! send_catchup_request_to_consensus {
     }};
 }
 
-// This function requests the finalization record for a certain finalization
-// index (this function is triggered by consensus on another peer actively asks
-// the p2p layer to request this for it)
-fn send_catchup_request_finalization_record_by_index_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    node: &mut P2PNode,
-    peer_id: P2PNodeId,
-    network_id: NetworkId,
-    content: &[u8],
-    direction: PacketDirection,
-) -> Fallible<()> {
-    send_catchup_request_to_consensus!(
-        ffi::PacketType::CatchupFinalizationRecordByIndex,
-        node,
-        baker,
-        content,
-        peer_id,
-        network_id,
-        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
-            let index = NetworkEndian::read_u64(&content[..8]);
-            baker.get_indexed_finalization(index)
-        },
-        direction,
-    )
-}
-
-fn send_catchup_request_finalization_record_by_hash_to_consensus(
-    baker: &mut consensus::ConsensusContainer,
-    node: &mut P2PNode,
-    peer_id: P2PNodeId,
-    network_id: NetworkId,
-    content: &[u8],
-    direction: PacketDirection,
-) -> Fallible<()> {
-    send_catchup_request_to_consensus!(
-        ffi::PacketType::CatchupFinalizationRecordByHash,
-        node,
-        baker,
-        content,
-        peer_id,
-        network_id,
-        |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
-            baker.get_block_finalization(content)
-        },
-        direction,
-    )
-}
-
 fn send_catchup_request_block_by_hash_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     node: &mut P2PNode,
@@ -540,20 +532,7 @@ fn send_catchup_request_block_by_hash_to_consensus(
     let hash = HashBytes::new(&content[..SHA256 as usize]);
     let delta = NetworkEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
 
-    if delta == 0 {
-        send_catchup_request_to_consensus!(
-            ffi::PacketType::CatchupBlockByHash,
-            node,
-            baker,
-            content,
-            peer_id,
-            network_id,
-            |baker: &consensus::ConsensusContainer, content: &[u8]| -> Fallible<Vec<u8>> {
-                baker.get_block(content)
-            },
-            direction,
-        )
-    } else {
+    if delta != 0 {
         send_catchup_request_to_consensus!(
             ffi::PacketType::CatchupBlockByHash,
             node,
@@ -566,6 +545,8 @@ fn send_catchup_request_block_by_hash_to_consensus(
             },
             direction,
         )
+    } else {
+        unreachable!("Impossible! Zero delta catch-up block requests are handled by Skov");
     }
 }
 

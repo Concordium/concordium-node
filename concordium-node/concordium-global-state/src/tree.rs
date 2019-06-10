@@ -29,9 +29,10 @@ impl SkovReq {
 #[derive(Debug)]
 pub enum SkovReqBody {
     AddBlock(PendingBlock),
-    GetBlock(HashBytes, Delta),
     AddFinalizationRecord(FinalizationRecord),
-    GetFinalizationRecord(HashBytes),
+    GetBlock(HashBytes, Delta),
+    GetFinalizationRecordByHash(HashBytes),
+    GetFinalizationRecordByIdx(FinalizationIndex),
 }
 
 type Bytes = Box<[u8]>;
@@ -71,10 +72,12 @@ pub enum SkovError {
     InvalidLastFinalized(HashBytes, HashBytes),
     // the block pointed to by the finalization record is not in the tree
     MissingBlockToFinalize(HashBytes),
-    // the requested finalization record is not available
-    MissingFinalizationRecord(HashBytes),
     // the requested block is not available
     MissingBlock(HashBytes, Delta),
+    // the requested finalization record for the given block hash is not available
+    MissingFinalizationRecordByHash(HashBytes),
+    // the requested finalization record with the given finalization index is not available
+    MissingFinalizationRecordByIdx(FinalizationIndex),
 }
 
 impl fmt::Display for SkovError {
@@ -98,16 +101,20 @@ impl fmt::Display for SkovError {
                 pending, last_finalized
             ),
             SkovError::MissingBlockToFinalize(ref target) => format!(
-                "finalization record {:?} is pointing to a block that is not in the tree",
-                target
-            ),
-            SkovError::MissingFinalizationRecord(ref target) => format!(
-                "requested finalization record {:?} is not available",
+                "finalization record for block {:?} references a block that is not in the tree",
                 target
             ),
             SkovError::MissingBlock(ref hash, delta) => format!(
                 "requested block {:?} delta {} is not available",
                 hash, delta
+            ),
+            SkovError::MissingFinalizationRecordByHash(ref hash) => format!(
+                "requested finalization record for block {:?} is not available",
+                hash
+            ),
+            SkovError::MissingFinalizationRecordByIdx(index) => format!(
+                "requested finalization record for index {} is not available",
+                index
             ),
         };
 
@@ -124,7 +131,7 @@ impl Skov {
     pub fn new(genesis_data: &[u8]) -> Self {
         Self {
             data:  SkovData::new(genesis_data),
-            stats: SkovStats::new(5),
+            stats: SkovStats::new(16),
         }
     }
 
@@ -158,34 +165,44 @@ impl Skov {
         }
     }
 
-    pub fn get_finalization_record(&self, hash: HashBytes) -> SkovResult {
-        if let Some(record) = self.data.get_finalization_record(&hash) {
+    pub fn get_finalization_record_by_hash(&self, hash: HashBytes) -> SkovResult {
+        if let Some(record) = self.data.get_finalization_record_by_hash(&hash) {
             SkovResult::SuccessfulQuery(record.serialize())
         } else {
-            SkovResult::Error(SkovError::MissingFinalizationRecord(hash))
+            SkovResult::Error(SkovError::MissingFinalizationRecordByHash(hash))
+        }
+    }
+
+    pub fn get_finalization_record_by_idx(&self, idx: FinalizationIndex) -> SkovResult {
+        if let Some(record) = self.data.get_finalization_record_by_idx(idx) {
+            SkovResult::SuccessfulQuery(record.serialize())
+        } else {
+            SkovResult::Error(SkovError::MissingFinalizationRecordByIdx(idx))
         }
     }
 
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
     pub fn display_state(&self) {
+        fn sorted_block_map(map: &HashMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
+            map.values()
+                .collect::<BinaryHeap<_>>()
+                .into_sorted_vec()
+                .into_iter()
+                .collect::<Vec<_>>()
+        }
+
         info!(
             "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree \
              candidates: {:?}{}{}{}",
-            self.data
-                .block_tree
-                .values()
-                .collect::<BinaryHeap<_>>()
-                .into_sorted_vec()
-                .iter()
-                .collect::<Vec<_>>(),
+            sorted_block_map(&self.data.block_tree),
             self.data.last_finalized.hash,
             self.data
                 .finalization_list
                 .iter()
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
-            self.data.tree_candidates,
+            sorted_block_map(&self.data.tree_candidates),
             self.data.print_pending_queue(AwaitingParentBlock),
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
@@ -334,11 +351,18 @@ impl SkovData {
             Utc::now(),
         );
 
+        let housekeeping_hash = block_ptr.hash.clone();
+
         // put the new block pointer in the tree candidate queue where it will await a
         // finalization record
         let insertion_result = self
             .tree_candidates
             .insert(block_ptr.hash.clone(), Rc::new(block_ptr));
+
+        // the block is now in the block tree; run housekeeping that
+        // can possibly move some queued pending blocks to the tree now
+        self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
+        self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
 
         if insertion_result.is_none() {
             SkovResult::SuccessfulEntry
@@ -359,11 +383,21 @@ impl SkovData {
         Some(&block_ptr.block)
     }
 
-    pub fn get_finalization_record(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
+    fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
         self.finalization_list
             .iter()
             .rev() // it's most probable that it's near the end
             .find(|&rec| rec.block_pointer == *hash)
+    }
+
+    fn get_finalization_record_by_idx(
+        &self,
+        idx: FinalizationIndex,
+    ) -> Option<&FinalizationRecord> {
+        self.finalization_list
+            .iter()
+            .rev() // it's most probable that it's near the end
+            .find(|&rec| rec.index == idx)
     }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }
@@ -406,10 +440,8 @@ impl SkovData {
         // now
         self.prune_candidate_list();
 
-        // the block is now in the block tree; run housekeeping that
-        // can possibly move some queued pending blocks to the tree now
-        self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
-        self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
+        // a new finalization record was registered; check for any blocks pending their
+        // last finalized block's finalization
         self.refresh_pending_queue(AwaitingLastFinalizedFinalization, &housekeeping_hash);
 
         SkovResult::SuccessfulEntry
@@ -476,8 +508,9 @@ impl SkovData {
                 output.push_str(&format!("{:?}, ", pending_hash));
             }
             output.truncate(output.len() - 2);
-            output.push_str("]");
+            output.push_str("], ");
         }
+        output.truncate(output.len() - 2);
         output.push_str("]");
 
         output
@@ -557,7 +590,7 @@ impl fmt::Display for SkovStats {
             get_avg_duration(&self.block_times),
             get_avg_duration(&self.finalization_times),
             if !self.errors.is_empty() {
-                format!(", errors: {:?}", self.errors)
+                format!(", {} error(s)", self.errors.len())
             } else {
                 "".to_owned()
             },
