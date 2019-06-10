@@ -6,7 +6,6 @@ stages:
 
 .generic:
   variables:
-    LD_LIBRARY_PATH: "/usr/local/lib"
     GIT_SUBMODULE_STRATEGY: recursive
 
 "cargo:test":
