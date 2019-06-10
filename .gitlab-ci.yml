@@ -12,7 +12,7 @@ stages:
   extends: .generic
   stage: test
   script:
-    - pacman -S numactl # TODO@mkj : This needs to go in base image
+    - pacman -Sy numactl # TODO@mkj : This needs to go in base image
     - rustc --version && cargo --version
     - ( cd concordium-dns && cargo test --all --color=always)
     - ( cd concordium-global-state && cargo test --all --color=always)
