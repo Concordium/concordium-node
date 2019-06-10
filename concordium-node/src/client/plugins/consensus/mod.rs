@@ -32,11 +32,8 @@ use concordium_global_state::{
 };
 
 use crate::{
-    client::plugins::consensus::transactions_cache::TransactionsCache,
-    common::P2PNodeId,
-    configuration,
-    network::NetworkId,
-    p2p::*,
+    client::plugins::consensus::transactions_cache::TransactionsCache, common::P2PNodeId,
+    configuration, network::NetworkId, p2p::*,
 };
 
 pub fn start_baker(
@@ -216,12 +213,7 @@ pub fn handle_pkt_out(
         }
 
         if consensus_applicable {
-            send_msg_to_consensus(
-                baker,
-                peer_id,
-                packet_type,
-                content,
-            )
+            send_msg_to_consensus(baker, peer_id, packet_type, content)
         } else {
             Ok(())
         }
@@ -354,12 +346,15 @@ fn send_finalization_record_to_consensus(
     match baker.send_finalization_record(peer_id.as_raw(), content) {
         0i64 => info!(
             "Peer {}'s {:?} was sent to our consensus layer",
-            peer_id, FinalizationRecord::deserialize(content)?
+            peer_id,
+            FinalizationRecord::deserialize(content)?
         ),
         err_code => error!(
             "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
              #{} (record: {:?})",
-            peer_id, err_code, FinalizationRecord::deserialize(content)?,
+            peer_id,
+            err_code,
+            FinalizationRecord::deserialize(content)?,
         ),
     }
 
@@ -374,7 +369,8 @@ fn send_finalization_message_to_consensus(
     baker.send_finalization(peer_id.as_raw(), content);
     debug!(
         "Peer {}'s {:?} was sent to our consensus layer",
-        peer_id, FinalizationMessage::deserialize(content)?
+        peer_id,
+        FinalizationMessage::deserialize(content)?
     );
 
     Ok(())
@@ -389,12 +385,15 @@ fn send_block_to_consensus(
     match baker.send_block(peer_id.as_raw(), content) {
         0i64 => info!(
             "Peer {}'s {:?} was sent to our consensus layer",
-            peer_id, BakedBlock::deserialize(content)?
+            peer_id,
+            BakedBlock::deserialize(content)?
         ),
         err_code => error!(
             "Peer {}'s block can't be sent to our consensus layer due to error code #{} (block: \
              {:?})",
-            peer_id, err_code, BakedBlock::deserialize(content)?,
+            peer_id,
+            err_code,
+            BakedBlock::deserialize(content)?,
         ),
     }
 

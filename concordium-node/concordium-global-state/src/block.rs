@@ -345,7 +345,7 @@ impl BlockPtr {
                 let next_candidate = if let Some(ref candidate) = candidate.parent {
                     candidate
                 } else {
-                    return false
+                    return false;
                 };
 
                 self.is_ancestor_of(next_candidate)
@@ -361,9 +361,7 @@ impl PartialEq for BlockPtr {
 impl Eq for BlockPtr {}
 
 impl PartialOrd for BlockPtr {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.height.cmp(&other.height))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.height.cmp(&other.height)) }
 }
 
 impl Ord for BlockPtr {

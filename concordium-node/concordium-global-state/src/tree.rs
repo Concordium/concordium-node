@@ -374,7 +374,9 @@ impl SkovData {
     }
 
     fn get_block(&self, hash: &HashBytes) -> Option<&Rc<BlockPtr>> {
-        self.tree_candidates.get(hash).or_else(|| self.block_tree.get(hash))
+        self.tree_candidates
+            .get(hash)
+            .or_else(|| self.block_tree.get(hash))
     }
 
     fn get_blocks_at_height(&self, height: BlockHeight) -> impl Iterator<Item = &Rc<BlockPtr>> {
@@ -384,7 +386,7 @@ impl SkovData {
             .chain(
                 self.block_tree
                     .values()
-                    .filter(move |ptr| ptr.height == height)
+                    .filter(move |ptr| ptr.height == height),
             )
     }
 
