@@ -1,6 +1,9 @@
-use std::{env, path::Path, process::Command, str};
+use std::{env, path::Path};
+#[cfg(not(feature = "static"))]
+use std::{process::Command, str};
 use walkdir;
 
+#[cfg(not(feature = "static"))]
 fn main() {
     // Traverse the directory to link all of the libs in ghc
     // then tell cargo where to get htest for linking
@@ -28,6 +31,25 @@ fn main() {
     }
 }
 
+#[cfg(feature = "static")]
+fn main() {
+    // Haskell libraries
+    link_static_libs().unwrap();
+
+    println!("cargo:rustc-link-search=/usr/lib/x86_64-linux-gnu");
+    println!("cargo:rustc-link-lib=dylib=gmp");
+    println!("cargo:rustc-link-lib=dylib=numa");
+
+    // Static crypto-rust libraries
+    let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    println!(
+        "cargo:rustc-link-search={}/../deps/static-libs/linux/rust/",
+        out_dir
+    );
+    println!("cargo:rustc-link-lib=static=Rcrypto");
+}
+
+#[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
     str::from_utf8(&cmd.output().unwrap().stdout)
         .unwrap()
@@ -35,6 +57,7 @@ fn command_output(cmd: &mut Command) -> String {
         .to_string()
 }
 
+#[cfg(not(feature = "static"))]
 fn exec_ghc(builder: &str, arg: &str) -> String {
     command_output(Command::new(builder).args(&["exec", "--", "ghc", arg]))
 }
@@ -42,16 +65,21 @@ fn exec_ghc(builder: &str, arg: &str) -> String {
 // Each os has a diferent extesion for the Dynamic Libraries. This compiles for
 // the correct ones.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(feature = "static"))]
 const DYLIB_EXTENSION: &'static str = ".so";
 
 #[cfg(target_os = "macos")]
+#[cfg(not(feature = "static"))]
 const DYLIB_EXTENSION: &'static str = ".dylib";
 
 #[cfg(target_os = "windows")]
+#[cfg(not(feature = "static"))]
 const DYLIB_EXTENSION: &'static str = ".dll";
 
+#[cfg(not(feature = "static"))]
 const RTS: &'static str = "libHSrts_thr-";
 
+#[cfg(not(feature = "static"))]
 fn link_ghc_libs() -> std::io::Result<()> {
     // Go to the libdir for ghc then traverse all the entries
     let walker = walkdir::WalkDir::new(Path::new(&exec_ghc("stack", "--print-libdir")))
@@ -91,6 +119,40 @@ fn link_ghc_libs() -> std::io::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+#[cfg(feature = "static")]
+fn link_static_libs() -> std::io::Result<()> {
+    let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    #[cfg(not(feature = "profiling"))]
+    let path = format!("{}/../deps/static-libs/linux/vanilla", out_dir);
+
+    #[cfg(feature = "profiling")]
+    let path = format!("{}/../deps/static-libs/linux/profiling", out_dir);
+
+    ["concordium", "cabal", "ghc"]
+        .into_iter()
+        .for_each(|subdir| {
+            println!("cargo:rustc-link-search=native={}/{}", path, subdir);
+            let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
+                .into_iter()
+                .filter_map(Result::ok);
+            for item in walker {
+                match item.file_name().to_str() {
+                    Some(lib_file) => {
+                        if lib_file.starts_with("lib") && lib_file.ends_with(".a") {
+                            println!(
+                                "cargo:rustc-link-lib=static={}",
+                                &lib_file[3..lib_file.len() - 2]
+                            );
+                        }
+                    }
+                    _ => panic!("Unable to link ghc libs"),
+                }
+            }
+        });
 
     Ok(())
 }

@@ -570,15 +570,19 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    let higer_process_threads = setup_process_output(
-        &node,
-        &db,
-        &conf,
-        &rpc_serv,
-        &mut baker,
-        pkt_out,
-        (skov_receiver, skov_sender.clone()),
-    );
+    let higer_process_threads = if baker.is_some() {
+        setup_process_output(
+            &node,
+            &db,
+            &conf,
+            &rpc_serv,
+            &mut baker,
+            pkt_out,
+            (skov_receiver, skov_sender.clone()),
+        )
+    } else {
+        vec![]
+    };
 
     // Create a listener on baker output to forward to P2PNode
     //

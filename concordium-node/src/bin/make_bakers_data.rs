@@ -54,6 +54,9 @@ pub fn main() -> Fallible<()> {
 
     create_dir_all(output_path)?;
 
+    #[cfg(feature = "profiling")]
+    start_haskell("none", false);
+    #[cfg(not(feature = "profiling"))]
     start_haskell();
 
     let consensus_baked_data =

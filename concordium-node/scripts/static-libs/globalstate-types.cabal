@@ -1,0 +1,101 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: ccae26962fcfdc9e6ce2ad564038fb65f1eefc8aef3dd58b41f5395f1296b9fa
+
+name:           globalstate-types
+version:        0.1.0.0
+description:    See README
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+library
+  exposed-modules:
+      Concordium.Types
+      Concordium.Types.Acorn.Core
+      Concordium.Types.Acorn.Interfaces
+      Concordium.Types.Acorn.NumericTypes
+      Concordium.Types.Execution
+      Concordium.Types.HashableTo
+  other-modules:
+      Paths_globalstate_types
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Werror=missing-fields -Werror=missing-methods -Wredundant-constraints -fno-ignore-asserts
+  build-depends:
+      base >=4.7 && <5
+    , bytestring >=0.10
+    , cereal >=0.5
+    , concordium-crypto
+    , containers >=0.6
+    , hashable >=1.2
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , transformers >=0.5
+    , unordered-containers >=0.2
+  default-language: Haskell2010
+
+executable Perf-test
+  main-is: Perf.hs
+  other-modules:
+      TypesPerf.SerializationPerf
+      Paths_globalstate_types
+  hs-source-dirs:
+      perf
+  ghc-options: -threaded -with-rtsopts=-N -Wall -Wcompat
+  build-depends:
+      base >=4.7 && <5
+    , bytestring >=0.10
+    , cereal >=0.5
+    , concordium-crypto
+    , containers >=0.6
+    , criterion >=1.5.4
+    , globalstate-types
+    , hashable >=1.2
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , transformers >=0.5
+    , unordered-containers >=0.2
+  default-language: Haskell2010
+
+test-suite types-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Types.ArithmeticSpec
+      Types.CoreAllGen
+      Types.NumericTypes
+      Types.PayloadSerializationSpec
+      Types.SerializationSpec
+      Paths_globalstate_types
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -with-rtsopts=-N -Wall
+  build-depends:
+      QuickCheck >=2.12
+    , base >=4.7 && <5
+    , base58string ==0.10.*
+    , bytestring >=0.10
+    , cereal >=0.5
+    , concordium-crypto
+    , containers
+    , globalstate-types
+    , hashable >=1.2
+    , hspec >=2.6
+    , hspec-expectations >=0.8
+    , microlens-platform >=0.3
+    , mtl >=2.2
+    , random
+    , transformers >=0.5
+    , unordered-containers >=0.2
+  default-language: Haskell2010

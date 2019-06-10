@@ -20,6 +20,8 @@ s11n_nom = ["nom"]
 instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json", "gotham", "gotham_derive", "hyper", "mime", "tokio", "num_cpus"]
 benchmark = []
 network_dump = []
+static = ["concordium-consensus/static"]
+profiling = ["concordium-consensus/profiling"]
 
 [dependencies]
 # Internal dependencies

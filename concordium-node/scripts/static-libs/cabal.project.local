@@ -1,0 +1,9 @@
+static: True
+profiling: True
+library-profiling-detail: all-functions
+
+package *
+  ghc-options: -fPIC -threaded -g -optc-fstack-protector-all
+
+program-options
+  ghc-options: -fPIC -threaded -g -optc-fstack-protector-all
