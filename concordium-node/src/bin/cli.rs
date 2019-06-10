@@ -196,7 +196,7 @@ fn instantiate_node(
         None
     };
 
-    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
+    let broadcasting_checks = FilterFunctor::new("Broadcasting_checks");
 
     // Thread #1: Read P2PEvents from P2PNode
     let node = if conf.common.debug {
@@ -213,7 +213,7 @@ fn instantiate_node(
             Some(sender),
             PeerType::Node,
             arc_stats_export_service,
-            Arc::clone(&broadcasting_checks),
+            Arc::new(broadcasting_checks),
         )
     } else {
         P2PNode::new(
@@ -223,7 +223,7 @@ fn instantiate_node(
             None,
             PeerType::Node,
             arc_stats_export_service,
-            Arc::clone(&broadcasting_checks),
+            Arc::new(broadcasting_checks),
         )
     };
     (node, pkt_out)
@@ -239,32 +239,25 @@ fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (fals
 
 fn setup_process_output(
     node: &P2PNode,
-    db: &P2PDB,
+    db: P2PDB,
     conf: &configuration::Config,
-    rpc_serv: &Option<RpcServerImpl>,
-    baker: &mut Option<consensus::ConsensusContainer>,
+    baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
     (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
 ) -> Vec<std::thread::JoinHandle<()>> {
-    let mut _db = db.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
-    let mut _rpc_clone = rpc_serv.clone();
     let _desired_nodes_clone = conf.connection.desired_nodes;
     let _test_runner_url = conf.cli.test_runner_url.clone();
     let mut _stats_engine = StatsEngine::new(&conf.cli);
     let mut _msg_count = 0;
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
     let transactions_cache = TransactionsCache::new();
-    let _network_id = NetworkId::from(conf.common.network_ids[0].to_owned()); // defaulted so there's always first()
-    let mut baker_clone = baker.clone();
+    let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
+
+    let genesis_data = baker.get_genesis_data().unwrap();
     let mut node_clone = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
-        let genesis_data = baker_clone
-            .clone()
-            .map(|baker| baker.get_genesis_data())
-            .unwrap()
-            .unwrap();
         let mut skov = Skov::new(&genesis_data);
         loop {
             match skov_receiver.recv() {
@@ -272,7 +265,7 @@ fn setup_process_output(
                     if let Err(e) = handle_global_state_request(
                         &mut node_clone,
                         _network_id,
-                        &mut baker_clone,
+                        true,
                         request,
                         &mut skov,
                     ) {
@@ -294,13 +287,13 @@ fn setup_process_output(
                     NetworkRequest::BanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::ban_node(&mut node_ref, peer, peer_to_ban, &_db, _no_trust_bans);
+                    utils::ban_node(&mut node_ref, peer, peer_to_ban, &db, _no_trust_bans);
                 }
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::UnbanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::unban_node(&mut node_ref, peer, peer_to_ban, &_db, _no_trust_bans);
+                    utils::unban_node(&mut node_ref, peer, peer_to_ban, &db, _no_trust_bans);
                 }
                 NetworkMessage::NetworkResponse(
                     NetworkResponse::PeerList(ref peer, ref peers),
@@ -572,13 +565,12 @@ fn main() -> Fallible<()> {
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    let higer_process_threads = if baker.is_some() {
+    let higer_process_threads = if let Some(ref mut baker) = baker {
         setup_process_output(
             &node,
-            &db,
+            db,
             &conf,
-            &rpc_serv,
-            &mut baker,
+            baker,
             pkt_out,
             (skov_receiver, skov_sender.clone()),
         )
