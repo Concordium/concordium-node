@@ -213,7 +213,7 @@ impl ConsensusContainer {
 
     pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
-    pub fn send_block(&self, peer_id: PeerId, block: Bytes) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> i64 {
         if let Some(baker) = &*safe_read!(self.baker) {
             // We have a baker to send it to, so we 'll do an early return at this point
             // with the response code from consensus.
@@ -229,7 +229,7 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: Bytes) -> i64 {
+    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> i64 {
         if let Some(baker) = &*safe_read!(self.baker) {
             // Return codes from the Haskell side are as follows:
             // 0 = Everything went okay
@@ -243,7 +243,7 @@ impl ConsensusContainer {
         -1
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: Bytes) -> i64 {
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> i64 {
         if let Some(baker) = &*safe_read!(self.baker) {
             // Return codes from the Haskell side are as follows:
             // 0 = Everything went okay

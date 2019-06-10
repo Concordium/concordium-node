@@ -17,7 +17,7 @@ use std::{
 use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
 
 use concordium_consensus::{
-    consensus::{self, Bytes},
+    consensus,
     ffi::{
         self,
         PacketType::{self, *},
@@ -228,7 +228,7 @@ pub fn handle_pkt_out(
                 peer_id,
                 network_id,
                 packet_type,
-                Box::from(content),
+                content,
             )
         } else {
             Ok(())
@@ -327,7 +327,7 @@ fn send_msg_to_consensus(
     peer_id: P2PNodeId,
     network_id: NetworkId,
     packet_type: PacketType,
-    content: Bytes,
+    content: &[u8],
 ) -> Fallible<()> {
     match packet_type {
         Block => send_block_to_consensus(baker, peer_id, content),
@@ -363,29 +363,29 @@ fn send_transaction_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     baker.send_transaction(content);
+
     info!(
         "Peer {}'s transaction was sent to our consensus layer",
         peer_id
     );
+
     Ok(())
 }
 
 fn send_finalization_record_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
-    content: Bytes,
+    content: &[u8],
 ) -> Fallible<()> {
-    let record = FinalizationRecord::deserialize(&content)?;
-
     match baker.send_finalization_record(peer_id.as_raw(), content) {
         0i64 => info!(
             "Peer {}'s {:?} was sent to our consensus layer",
-            peer_id, record
+            peer_id, FinalizationRecord::deserialize(content)?
         ),
         err_code => error!(
             "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
              #{} (record: {:?})",
-            peer_id, err_code, record,
+            peer_id, err_code, FinalizationRecord::deserialize(content)?,
         ),
     }
 
@@ -395,14 +395,12 @@ fn send_finalization_record_to_consensus(
 fn send_finalization_message_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
-    content: Bytes,
+    content: &[u8],
 ) -> Fallible<()> {
-    let message = FinalizationMessage::deserialize(&content)?;
-
     baker.send_finalization(peer_id.as_raw(), content);
     debug!(
         "Peer {}'s {:?} was sent to our consensus layer",
-        peer_id, message
+        peer_id, FinalizationMessage::deserialize(content)?
     );
 
     Ok(())
@@ -411,20 +409,18 @@ fn send_finalization_message_to_consensus(
 fn send_block_to_consensus(
     baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
-    content: Bytes,
+    content: &[u8],
 ) -> Fallible<()> {
-    let deserialized = BakedBlock::deserialize(&content)?;
-
     // send unique blocks to the consensus layer
     match baker.send_block(peer_id.as_raw(), content) {
         0i64 => info!(
             "Peer {}'s {:?} was sent to our consensus layer",
-            peer_id, deserialized
+            peer_id, BakedBlock::deserialize(content)?
         ),
         err_code => error!(
             "Peer {}'s block can't be sent to our consensus layer due to error code #{} (block: \
              {:?})",
-            peer_id, err_code, deserialized,
+            peer_id, err_code, BakedBlock::deserialize(content)?,
         ),
     }
 
