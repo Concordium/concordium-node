@@ -542,7 +542,7 @@ pub extern "C" fn on_consensus_data_out(block_type: i64, block_data: *const u8, 
 
         let message = ConsensusMessage::new(message_variant, None, data);
 
-        match CALLBACK_QUEUE.clone().send_message(message) {
+        match CALLBACK_QUEUE.send_message(message) {
             Ok(_) => debug!("Queueing a {} of {} bytes", message_variant, data_length),
             _ => error!("Couldn't queue a {} properly", message_variant),
         };
@@ -577,6 +577,7 @@ pub extern "C" fn on_catchup_finalization_record_by_index(
     index: FinalizationIndex,
 ) {
     let payload = unsafe { Box::from(mem::transmute::<FinalizationIndex, [u8; 8]>(index)) };
+
     catchup_enqueue(ConsensusMessage::new(
         PacketType::CatchupFinalizationRecordByIndex,
         Some(peer_id),

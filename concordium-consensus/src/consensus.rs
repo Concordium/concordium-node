@@ -100,12 +100,12 @@ impl Default for ConsensusOutQueue {
 }
 
 impl ConsensusOutQueue {
-    pub fn send_message(self, message: ConsensusMessage) -> Fallible<()> {
+    pub fn send_message(&self, message: ConsensusMessage) -> Fallible<()> {
         into_err!(self.sender_request.send_msg(message))
     }
 
     pub fn recv_message(
-        self,
+        &self,
         skov_sender: &RelayOrStopSender<SkovReq>,
     ) -> Fallible<RelayOrStopEnvelope<ConsensusMessage>> {
         let message = into_err!(safe_lock!(self.receiver_request).recv());
@@ -210,8 +210,6 @@ impl ConsensusContainer {
             error!("The baker can't be stopped!");
         }
     }
-
-    pub fn out_queue(&self) -> ConsensusOutQueue { CALLBACK_QUEUE.clone() }
 
     pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> i64 {
         if let Some(baker) = &*safe_read!(self.baker) {
@@ -389,7 +387,7 @@ impl ConsensusContainer {
 pub fn catchup_enqueue(request: ConsensusMessage) {
     let request_info = format!("{:?}", request.payload);
 
-    match CALLBACK_QUEUE.clone().send_message(request) {
+    match CALLBACK_QUEUE.send_message(request) {
         Ok(_) => debug!("Queueing a catch-up request: {}", request_info),
         _ => error!("Couldn't queue a catch-up request ({})", request_info),
     }
