@@ -46,7 +46,7 @@ stages:
     - ( cd concordium-consensus && cargo fmt -- --color=always)
     - ( cd concordium-common && cargo fmt -- --color=always)
     - ( cd concordium-dns && cargo fmt -- --color=always)
-    - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+    - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
 
 "lint:clippy":
   extends: .generic-lint
