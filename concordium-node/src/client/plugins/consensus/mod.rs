@@ -155,7 +155,7 @@ fn get_baker_data(
 
 /// Handles packets coming from other peers
 pub fn handle_pkt_out(
-    baker: &mut Option<consensus::ConsensusContainer>,
+    baker: &mut consensus::ConsensusContainer,
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<SkovReq>,
@@ -163,60 +163,56 @@ pub fn handle_pkt_out(
                                               * references to the transactions have to be stored
                                               * into this cache */
 ) -> Fallible<()> {
-    if let Some(ref mut baker) = baker {
-        ensure!(
-            msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
-            "Message needs at least {} bytes",
-            PAYLOAD_TYPE_LENGTH
-        );
+    ensure!(
+        msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
+        "Message needs at least {} bytes",
+        PAYLOAD_TYPE_LENGTH
+    );
 
-        let consensus_type = msg.read_u16::<NetworkEndian>()?;
-        let view = msg.read_all_into_view()?;
-        let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
-        let packet_type = PacketType::try_from(consensus_type)?;
+    let consensus_type = msg.read_u16::<NetworkEndian>()?;
+    let view = msg.read_all_into_view()?;
+    let content = &view.as_slice()[PAYLOAD_TYPE_LENGTH as usize..];
+    let packet_type = PacketType::try_from(consensus_type)?;
 
-        let (request_body, consensus_applicable) = match packet_type {
-            Block => {
-                let payload = PendingBlock::new(&content)?;
-                let body = Some(SkovReqBody::AddBlock(payload));
-                (body, true)
-            }
-            FinalizationRecord => {
-                // we save our own finalization records, so there's no need
-                // for duplicates from the rest of the committee
-                return Ok(());
-            }
-            CatchupBlockByHash => {
-                let hash = HashBytes::new(&content[..SHA256 as usize]);
-                let delta =
-                    LittleEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
-
-                (Some(SkovReqBody::GetBlock(hash, delta)), false)
-            }
-            CatchupFinalizationRecordByHash => {
-                let payload = HashBytes::new(&content);
-                let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
-                (body, false)
-            }
-            CatchupFinalizationRecordByIndex => {
-                let idx = NetworkEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
-                let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
-                (body, false)
-            }
-            _ => (None, true), // will be expanded later on
-        };
-
-        if let Some(body) = request_body {
-            let request = RelayOrStopEnvelope::Relay(SkovReq::new(Some(peer_id.0), body));
-
-            skov_sender.send(request)?;
+    let (request_body, consensus_applicable) = match packet_type {
+        Block => {
+            let payload = PendingBlock::new(&content)?;
+            let body = Some(SkovReqBody::AddBlock(payload));
+            (body, true)
         }
-
-        if consensus_applicable {
-            send_msg_to_consensus(baker, peer_id, packet_type, content)
-        } else {
-            Ok(())
+        FinalizationRecord => {
+            // we save our own finalization records, so there's no need
+            // for duplicates from the rest of the committee
+            return Ok(());
         }
+        CatchupBlockByHash => {
+            let hash = HashBytes::new(&content[..SHA256 as usize]);
+            let delta =
+                LittleEndian::read_u64(&content[SHA256 as usize..][..mem::size_of::<Delta>()]);
+
+            (Some(SkovReqBody::GetBlock(hash, delta)), false)
+        }
+        CatchupFinalizationRecordByHash => {
+            let payload = HashBytes::new(&content);
+            let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
+            (body, false)
+        }
+        CatchupFinalizationRecordByIndex => {
+            let idx = NetworkEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
+            let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
+            (body, false)
+        }
+        _ => (None, true), // will be expanded later on
+    };
+
+    if let Some(body) = request_body {
+        let request = RelayOrStopEnvelope::Relay(SkovReq::new(Some(peer_id.0), body));
+
+        skov_sender.send(request)?;
+    }
+
+    if consensus_applicable {
+        send_msg_to_consensus(baker, peer_id, packet_type, content)
     } else {
         Ok(())
     }
@@ -225,11 +221,11 @@ pub fn handle_pkt_out(
 pub fn handle_global_state_request(
     node: &mut P2PNode,
     network_id: NetworkId,
-    baker: &mut Option<consensus::ConsensusContainer>,
+    is_baker: bool,
     request: SkovReq,
     skov: &mut Skov,
 ) -> Fallible<()> {
-    if baker.is_some() {
+    if is_baker {
         let packet_type = match request.body {
             SkovReqBody::AddBlock(..) => PacketType::Block,
             SkovReqBody::AddFinalizationRecord(..) => PacketType::FinalizationRecord,
