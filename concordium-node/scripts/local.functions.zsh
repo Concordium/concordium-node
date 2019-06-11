@@ -2,6 +2,9 @@
 # Define an export for CONCORDIUM_P2P_DIR pointing to
 # the p2p-client checked out dir on your disk, and
 # include this file in your .zshrc or the like.
+# 
+# For overrides such as feature gates et all, use the
+# environment variables CONCORDIUM_P2P_EXTRA_ARGS
 #
 # Then use the functions below to easily startup a
 # local environment of nodes.
@@ -16,12 +19,26 @@
 # When included by zsh this file also exports local
 # LD_LIBRARY_PATH overrides.
 #
+# Notes NixOS : Everything is wrapped in a nix-shell
+# when the functions are used on a NixOS distro.
+#
 #####
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
   CONCORDIUM_GHC_PLATFORM="osx"
 else
   CONCORDIUM_GHC_PLATFORM="linux"
+fi
+
+if (( ${+NIX_PATH} )); then
+  NIXOS=1
+  if (( ${+CONCORDIUM_P2P_EXTRA_ARGS} )); then
+    CONCORDIUM_P2P_EXTRA_ARGS="$CONCORDIUM_P2P_EXTRA_ARGS --features=static"
+  else
+    CONCORDIUM_P2P_EXTRA_ARGS="--features=static"
+  fi
+else
+  NIXOS=0
 fi
 
 export CONCORDIUM_GHC_VERSION=$(stack ghc -- --version --short | awk '{ print $NF }')
@@ -63,7 +80,7 @@ function testnet_bootstrap() {
       binary="./target/debug/p2p_bootstrapper-cli"
     else
       profiling=""
-      binary="cargo run --bin p2p_bootstrapper-cli --"
+      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_bootstrapper-cli --"
   fi
   bootstrap_id=$1; shift
   (
@@ -71,6 +88,9 @@ function testnet_bootstrap() {
        $binary \
       --listen-port $((10900+$bootstrap_id)) \
       --id $((9900000000000000+$bootstrap_id))"
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
     cd $CONCORDIUM_P2P_DIR && eval "$cmd"
   )
 }
@@ -102,7 +122,7 @@ function testnet_node() {
       binary="./target/debug/p2p_client-cli"
     else
       profiling=""
-      binary="cargo run --bin p2p_client-cli --"
+      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli --"
   fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
@@ -116,6 +136,9 @@ function testnet_node() {
       do
         cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
       done
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
     cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
   )
 }
@@ -158,14 +181,17 @@ function c_tps_recv() {
     return 1
   fi
   (
-    cd $CONCORDIUM_P2P_DIR && \
-    cargo run --bin p2p_client-cli -- \
+    cmd="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli -- \
       --bootstrap-node=127.0.0.1:9999 \
       --no-dnssec \
       --listen-port 9990 \
       --id 05c2198f706ebede \
       --tps-message-count $1 \
-      --enable-tps-test-recv
+      --enable-tps-test-recv"
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
+    cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
   )
 }
 
@@ -182,8 +208,7 @@ function c_tps_send() {
     return 1
   fi
   (
-    cd $CONCORDIUM_P2P_DIR && \
-    cargo run --bin p2p_client-cli -- \
+    cmd="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli -- \
       --bootstrap-node=127.0.0.1:9999 \
       --no-dnssec \
       --listen-port 9991 \
@@ -191,7 +216,11 @@ function c_tps_send() {
       --tps-message-count $1 \
       --tps-test-data-dir /tmp/datatest \
       --tps-test-recv-id 05c2198f706ebede \
-      --connect-to 127.0.0.1:9990
+      --connect-to 127.0.0.1:9990"
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
+    cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
   )
 }
 
