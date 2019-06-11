@@ -1323,8 +1323,8 @@ impl P2PNode {
     }
 
     pub fn rpc_subscription_stop(&mut self) -> bool {
-        if let Ok(locked) = safe_lock!(self.rpc_queue) {
-            locked.is_some()
+        if let Ok(mut locked) = safe_lock!(self.rpc_queue) {
+            locked.take().is_some()
         } else {
             false
         }

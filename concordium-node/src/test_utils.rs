@@ -147,7 +147,7 @@ pub fn make_node_and_sync(
     );
 
     let mh = node.message_handler();
-    safe_write!(mh)?.add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
+    safe_write!(mh)?.add_termination_listener(make_atomic_callback!(move |m: &NetworkMessage| {
         // It is safe to ignore error.
         let _ = msg_wait_tx.send(m.clone());
         Ok(())
@@ -240,15 +240,22 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 /// node.
 ///
 /// # Example
-/// ```ignore
-/// let (mut node, waiter) = make_node_and_sync(5555, vec![100], true).unwrap();
-/// let node_id_and_port = format!("{}(port={})", node.id(), 5555);
+/// ```
+/// # use concordium_common::make_atomic_callback;
+/// # use p2p_client::{
+/// #     common::PeerType,
+/// #     connection::MessageManager,
+/// #     network::NetworkMessage,
+/// #     test_utils::{log_any_message_handler, make_node_and_sync},
+/// # };
+/// # use std::sync::{Arc, RwLock};
+/// let (mut node, waiter) = make_node_and_sync(5555, vec![100], true, PeerType::Node).unwrap();
+/// let id = node.id();
 ///
 /// node.message_handler()
 ///     .write()
 ///     .unwrap()
 ///     .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
-///         let id = node_id_and_port.clone();
 ///         log_any_message_handler(id, m);
 ///         Ok(())
 ///     }));

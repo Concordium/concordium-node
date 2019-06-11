@@ -23,6 +23,8 @@ pub struct MessageHandler {
     unknown_handler: Rc<(Fn() -> FuncResult<()>)>,
 
     general_parser: UnitFunctor<NetworkMessage>,
+
+    termination_listeners: UnitFunctor<NetworkMessage>,
 }
 
 impl Default for MessageHandler {
@@ -32,12 +34,13 @@ impl Default for MessageHandler {
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {
-            request_parser:  UnitFunctor::<NetworkRequest>::new("Network::Request"),
-            response_parser: UnitFunctor::<NetworkResponse>::new("Network::Response"),
-            packet_parser:   UnitFunctor::<NetworkPacket>::new("Network::Package"),
-            general_parser:  UnitFunctor::<NetworkMessage>::new("General NetworkMessage"),
-            invalid_handler: Rc::new(|| Ok(())),
-            unknown_handler: Rc::new(|| Ok(())),
+            request_parser:        UnitFunctor::<NetworkRequest>::new("Network::Request"),
+            response_parser:       UnitFunctor::<NetworkResponse>::new("Network::Response"),
+            packet_parser:         UnitFunctor::<NetworkPacket>::new("Network::Package"),
+            general_parser:        UnitFunctor::<NetworkMessage>::new("General NetworkMessage"),
+            invalid_handler:       Rc::new(|| Ok(())),
+            unknown_handler:       Rc::new(|| Ok(())),
+            termination_listeners: UnitFunctor::<NetworkMessage>::new("Termination listeners"),
         }
     }
 
@@ -71,6 +74,11 @@ impl MessageHandler {
         self
     }
 
+    pub fn add_termination_listener(&mut self, callback: NetworkMessageCW) -> &mut Self {
+        self.termination_listeners.add_callback(callback);
+        self
+    }
+
     /// It merges into `this` all parsers from `other` `MessageHandler`.
     pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
         for cb in other.general_parser.callbacks().iter() {
@@ -87,6 +95,10 @@ impl MessageHandler {
 
         for cb in other.request_parser.callbacks().iter() {
             self.add_request_callback(Arc::clone(&cb));
+        }
+
+        for cb in other.termination_listeners.callbacks().iter() {
+            self.add_termination_listener(Arc::clone(&cb));
         }
 
         self
@@ -108,6 +120,8 @@ impl MessageHandler {
                 (self.invalid_handler)().map_err(|x| FunctorError::from(vec![x]))
             }
         };
+
+        self.termination_listeners.run_callbacks(msg)?;
 
         general_status.and(specific_status)
     }
