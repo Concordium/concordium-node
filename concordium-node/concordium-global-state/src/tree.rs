@@ -146,6 +146,18 @@ macro_rules! add_entry {
     };
 }
 
+macro_rules! get_object {
+    ($query_foo:ident($($query_arg:ident: $query_arg_ty:ty),+), $err_kind:ident) => {
+        pub fn $query_foo(&self, $($query_arg: $query_arg_ty),+) -> SkovResult {
+            if let Some(ret) = self.data.$query_foo($($query_arg),+) {
+                SkovResult::SuccessfulQuery(ret.serialize())
+            } else {
+                SkovResult::Error(SkovError::$err_kind($($query_arg.to_owned()),+))
+            }
+        }
+    }
+}
+
 impl Skov {
     pub fn new(genesis_data: &[u8]) -> Self {
         Self {
@@ -158,34 +170,11 @@ impl Skov {
 
     add_entry!(add_finalization, FinalizationRecord, add_finalization_timings, finalization_times);
 
-    pub fn get_block(&self, hash: HashBytes, delta: Delta) -> SkovResult {
-        let block_ptr = if delta == 0 {
-            self.data.get_block(&hash)
-        } else {
-            self.data.get_block_descendant(&hash, delta)
-        };
-        if let Some(ptr) = block_ptr {
-            SkovResult::SuccessfulQuery(ptr.block.serialize())
-        } else {
-            SkovResult::Error(SkovError::MissingBlock(hash, delta))
-        }
-    }
+    get_object!(get_block(hash: &HashBytes, delta: Delta), MissingBlock);
 
-    pub fn get_finalization_record_by_hash(&self, hash: HashBytes) -> SkovResult {
-        if let Some(record) = self.data.get_finalization_record_by_hash(&hash) {
-            SkovResult::SuccessfulQuery(record.serialize())
-        } else {
-            SkovResult::Error(SkovError::MissingFinalizationRecordByHash(hash))
-        }
-    }
+    get_object!(get_finalization_record_by_hash(hash: &HashBytes), MissingFinalizationRecordByHash);
 
-    pub fn get_finalization_record_by_idx(&self, idx: FinalizationIndex) -> SkovResult {
-        if let Some(record) = self.data.get_finalization_record_by_idx(idx) {
-            SkovResult::SuccessfulQuery(record.serialize())
-        } else {
-            SkovResult::Error(SkovError::MissingFinalizationRecordByIdx(idx))
-        }
-    }
+    get_object!(get_finalization_record_by_idx(idx: FinalizationIndex), MissingFinalizationRecordByIdx);
 
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
@@ -281,7 +270,7 @@ impl SkovData {
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify if the pending block's parent block is among tree candidates
         // or already in the tree
-        let parent_block = if let Some(parent_ptr) = self.get_block(&pending_block.block.pointer) {
+        let parent_block = if let Some(parent_ptr) = self.get_block(&pending_block.block.pointer, 0) {
             parent_ptr
         } else {
             let error = SkovError::MissingParentBlock(
@@ -370,10 +359,19 @@ impl SkovData {
         }
     }
 
-    fn get_block(&self, hash: &HashBytes) -> Option<&Rc<BlockPtr>> {
-        self.tree_candidates
+    fn get_block(&self, hash: &HashBytes, delta: Delta) -> Option<&Rc<BlockPtr>> {
+        let target_block = self.tree_candidates
             .get(hash)
-            .or_else(|| self.block_tree.get(hash))
+            .or_else(|| self.block_tree.get(hash));
+
+        if delta == 0 {
+            target_block
+        } else {
+            // obtain the block's descendant
+            let reference_block = target_block?;
+            self.get_blocks_at_height(reference_block.height + delta)
+                .find(|&candidate| reference_block.is_ancestor_of(candidate))
+        }
     }
 
     fn get_blocks_at_height(&self, height: BlockHeight) -> impl Iterator<Item = &Rc<BlockPtr>> {
@@ -385,13 +383,6 @@ impl SkovData {
                     .values()
                     .filter(move |ptr| ptr.height == height),
             )
-    }
-
-    fn get_block_descendant(&self, hash: &HashBytes, delta: Delta) -> Option<&Rc<BlockPtr>> {
-        let block = self.get_block(hash)?;
-
-        self.get_blocks_at_height(block.height + delta)
-            .find(|&candidate| block.is_ancestor_of(candidate))
     }
 
     fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {

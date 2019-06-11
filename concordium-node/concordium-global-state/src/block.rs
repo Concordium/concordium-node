@@ -373,3 +373,13 @@ impl fmt::Debug for BlockPtr {
         write!(f, "{:?} ({:?})", self.hash, self.status.get())
     }
 }
+
+impl<'a, 'b> SerializeToBytes<'a, 'b> for BlockPtr {
+    type Source = &'a [u8];
+
+    fn serialize(&self) -> Box<[u8]> { self.block.serialize() }
+
+    fn deserialize(_source: Self::Source) -> Fallible<Self> {
+        unimplemented!("BlockPtr is not to be deserialized directly")
+    }
+}
