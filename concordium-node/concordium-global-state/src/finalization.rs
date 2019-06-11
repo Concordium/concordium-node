@@ -455,7 +455,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Default)]
-pub struct FinalizationProof(Vec<(Party, Encoded)>);
+pub struct FinalizationProof(Box<[(Party, Encoded)]>);
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
     type Source = &'a [u8];
@@ -474,7 +474,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
             signatures.push((party, signature));
         }
 
-        let proof = FinalizationProof(signatures);
+        let proof = FinalizationProof(signatures.into_boxed_slice());
 
         check_serialization!(proof, cursor);
 
@@ -488,9 +488,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
 
-        // FIXME: determine the use and apply a more informative name
-        for (tbd, signature) in &self.0 {
-            let _ = cursor.write_u32::<NetworkEndian>(*tbd);
+        for (party, signature) in &*self.0 {
+            let _ = cursor.write_u32::<NetworkEndian>(*party);
             let _ = cursor.write_all(signature);
         }
 
