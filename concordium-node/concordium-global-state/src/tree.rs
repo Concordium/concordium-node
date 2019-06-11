@@ -166,22 +166,44 @@ macro_rules! get_object {
 }
 
 impl Skov {
+    add_entry!(
+        add_block,
+        PendingBlock,
+        add_block_timings,
+        block_arrival_times
+    );
+
+    add_entry!(
+        add_finalization,
+        FinalizationRecord,
+        add_finalization_timings,
+        finalization_times
+    );
+
+    get_object!(
+        get_block(hash: &HashBytes, delta: Delta),
+        MissingBlock,
+        query_block_timings
+    );
+
+    get_object!(
+        get_finalization_record_by_hash(hash: &HashBytes),
+        MissingFinalizationRecordByHash,
+        query_finalization_timings
+    );
+
+    get_object!(
+        get_finalization_record_by_idx(idx: FinalizationIndex),
+        MissingFinalizationRecordByIdx,
+        query_finalization_timings
+    );
+
     pub fn new(genesis_data: &[u8]) -> Self {
         Self {
             data:  SkovData::new(genesis_data),
             stats: SkovStats::new(16),
         }
     }
-
-    add_entry!(add_block, PendingBlock, add_block_timings, block_arrival_times);
-
-    add_entry!(add_finalization, FinalizationRecord, add_finalization_timings, finalization_times);
-
-    get_object!(get_block(hash: &HashBytes, delta: Delta), MissingBlock, query_block_timings);
-
-    get_object!(get_finalization_record_by_hash(hash: &HashBytes), MissingFinalizationRecordByHash, query_finalization_timings);
-
-    get_object!(get_finalization_record_by_idx(idx: FinalizationIndex), MissingFinalizationRecordByIdx, query_finalization_timings);
 
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
@@ -277,7 +299,8 @@ impl SkovData {
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify if the pending block's parent block is among tree candidates
         // or already in the tree
-        let parent_block = if let Some(parent_ptr) = self.get_block(&pending_block.block.pointer, 0) {
+        let parent_block = if let Some(parent_ptr) = self.get_block(&pending_block.block.pointer, 0)
+        {
             parent_ptr
         } else {
             let error = SkovError::MissingParentBlock(
@@ -367,7 +390,8 @@ impl SkovData {
     }
 
     fn get_block(&self, hash: &HashBytes, delta: Delta) -> Option<&Rc<BlockPtr>> {
-        let target_block = self.tree_candidates
+        let target_block = self
+            .tree_candidates
             .get(hash)
             .or_else(|| self.block_tree.get(hash));
 
@@ -547,26 +571,27 @@ impl fmt::Display for PendingQueueType {
 
 #[derive(Debug)]
 pub struct SkovStats {
-    block_arrival_times: CircularQueue<DateTime<Utc>>,
-    finalization_times: CircularQueue<DateTime<Utc>>,
-    add_block_timings: CircularQueue<u64>,
-    add_finalization_timings: CircularQueue<u64>,
-    query_block_timings: CircularQueue<u64>,
+    block_arrival_times:        CircularQueue<DateTime<Utc>>,
+    finalization_times:         CircularQueue<DateTime<Utc>>,
+    add_block_timings:          CircularQueue<u64>,
+    add_finalization_timings:   CircularQueue<u64>,
+    query_block_timings:        CircularQueue<u64>,
     query_finalization_timings: CircularQueue<u64>,
-    errors: Vec<SkovError>,
+    errors:                     Vec<SkovError>,
 }
 
 impl SkovStats {
     fn new(timing_queue_len: usize) -> Self {
         Self {
-            block_arrival_times: CircularQueue::with_capacity(timing_queue_len),
-            finalization_times:  CircularQueue::with_capacity(timing_queue_len),
-            add_block_timings:  CircularQueue::with_capacity(timing_queue_len),
-            add_finalization_timings:  CircularQueue::with_capacity(timing_queue_len),
-            query_block_timings: CircularQueue::with_capacity(timing_queue_len),
+            block_arrival_times:        CircularQueue::with_capacity(timing_queue_len),
+            finalization_times:         CircularQueue::with_capacity(timing_queue_len),
+            add_block_timings:          CircularQueue::with_capacity(timing_queue_len),
+            add_finalization_timings:   CircularQueue::with_capacity(timing_queue_len),
+            query_block_timings:        CircularQueue::with_capacity(timing_queue_len),
             query_finalization_timings: CircularQueue::with_capacity(timing_queue_len),
-            errors:              Vec::with_capacity(1), /* usually just one error appears in the
-                                                         * beginning */
+            errors:                     Vec::with_capacity(1), /* usually just one error appears
+                                                                * in the
+                                                                * beginning */
         }
     }
 }
@@ -576,14 +601,12 @@ impl fmt::Display for SkovStats {
         fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
             let mass: u64 = (0..n).sum();
             if mass == 0 {
-                 0
+                0
             } else {
-                let sum = values
-                    .enumerate()
-                    .fold(0, |sum, (i, val)| {
-                        let weight = n - (i as u64);
-                        sum + val * weight
-                    });
+                let sum = values.enumerate().fold(0, |sum, (i, val)| {
+                    let weight = n - (i as u64);
+                    sum + val * weight
+                });
 
                 sum / mass
             }
@@ -601,13 +624,26 @@ impl fmt::Display for SkovStats {
 
         write!(
             f,
-            "block receipt/entry/query: {}s/{}us/{}us; finalization receipt/entry/query: {}s/{}us/{}us{}",
+            "block receipt/entry/query: {}s/{}us/{}us; finalization receipt/entry/query: \
+             {}s/{}us/{}us{}",
             get_avg_duration(&self.block_arrival_times),
-            wma(self.add_block_timings.iter().cloned(), self.add_block_timings.len() as u64),
-            wma(self.query_block_timings.iter().cloned(), self.query_block_timings.len() as u64),
+            wma(
+                self.add_block_timings.iter().cloned(),
+                self.add_block_timings.len() as u64
+            ),
+            wma(
+                self.query_block_timings.iter().cloned(),
+                self.query_block_timings.len() as u64
+            ),
             get_avg_duration(&self.finalization_times),
-            wma(self.add_finalization_timings.iter().cloned(), self.add_finalization_timings.len() as u64),
-            wma(self.query_finalization_timings.iter().cloned(), self.query_finalization_timings.len() as u64),
+            wma(
+                self.add_finalization_timings.iter().cloned(),
+                self.add_finalization_timings.len() as u64
+            ),
+            wma(
+                self.query_finalization_timings.iter().cloned(),
+                self.query_finalization_timings.len() as u64
+            ),
             if !self.errors.is_empty() {
                 format!(", {} error(s)", self.errors.len())
             } else {
