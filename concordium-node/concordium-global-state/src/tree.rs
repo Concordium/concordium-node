@@ -19,7 +19,8 @@ use self::PendingQueueType::*;
 #[derive(Debug)]
 /// The type of messages passed in the Skov request channel.
 ///
-/// It contains an optional identifier of the source peer if it is not our own consensus layer.
+/// It contains an optional identifier of the source peer if it is not our own
+/// consensus layer.
 pub struct SkovReq {
     pub source: Option<u64>, // PeerId
     pub body:   SkovReqBody,
@@ -32,8 +33,8 @@ impl SkovReq {
 #[derive(Debug)]
 /// Carries a specific Skov request.
 ///
-/// Each variant has a corresponding handler function that either introduces a new object
-/// to Skov or queries the global state for it.
+/// Each variant has a corresponding handler function that either introduces a
+/// new object to Skov or queries the global state for it.
 pub enum SkovReqBody {
     AddBlock(PendingBlock),
     AddFinalizationRecord(FinalizationRecord),
@@ -45,8 +46,8 @@ pub enum SkovReqBody {
 #[derive(Debug)]
 /// Holds a response for a request to Skov.
 ///
-/// Depending on the request, the result can either be just a status or contain the requested
-/// data.
+/// Depending on the request, the result can either be just a status or contain
+/// the requested data.
 pub enum SkovResult {
     SuccessfulEntry,
     SuccessfulQuery(Box<[u8]>),
@@ -146,7 +147,12 @@ macro_rules! timed {
         let result = $operation;
         let timestamp_end = Utc::now();
 
-        (result, (timestamp_end - timestamp_start).num_microseconds().unwrap_or(0))
+        (
+            result,
+            (timestamp_end - timestamp_start)
+                .num_microseconds()
+                .unwrap_or(0),
+        )
     }};
 }
 
@@ -189,10 +195,12 @@ macro_rules! get_object {
 
 impl Skov {
     add_entry!(
-        #[doc="Attempts to include a `PendingBlock` in the block tree candidate queue.\n\n\
-            This operation can succeed only if the parent block and last finalized block \
-            of the candidate entry are already in the tree. Successful inclusion can result \
-            in existing pending blocks being promoted to the candidate queue as well."]
+        /// Attempts to include a `PendingBlock` in the block tree candidate
+        /// queue.
+        // This operation can succeed only if the parent block and last
+        // finalized block of the candidate entry are already in the tree.
+        // Successful inclusion can result in existing pending blocks being
+        // promoted to the candidate queue as well.
         add_block,
         PendingBlock,
         add_block_timings,
@@ -200,11 +208,13 @@ impl Skov {
     );
 
     add_entry!(
-        #[doc="Attempts to finalize a block referenced by the given `FinalizationRecord`.\n\n\
-            A successful finalization results in the target block being moved from the tree \
-            candidate queue to the block tree; it is also followed by a housekeeping operation \
-            that involves checking whether any existing tree candidates are not waiting \
-            for that block to be finalized."]
+        /// Attempts to finalize a block referenced by the given
+        /// `FinalizationRecord`.
+        // A successful finalization results in the target block being moved
+        // from the tree candidate queue to the block tree; it is also followed
+        // by a housekeeping operation that involves checking whether any
+        // existing tree candidates are not waiting for that block to be
+        // finalized.
         add_finalization,
         FinalizationRecord,
         add_finalization_timings,
@@ -212,22 +222,25 @@ impl Skov {
     );
 
     get_object!(
-        #[doc="Queries Skov for a block with the given hash or, if the given `Delta` is \
-            greater than zero, for its descendant that is `delta` generations below it."]
+        /// Queries Skov for a block with the given hash or, if the given
+        /// `Delta` is greater than zero, for its descendant that is `delta`
+        /// generations below it.
         get_block(hash: &HashBytes, delta: Delta),
         MissingBlock,
         query_block_timings
     );
 
     get_object!(
-        #[doc="Queries Skov for the finalization record of a block with the given hash."]
+        /// Queries Skov for the finalization record of a block with the given
+        /// hash.
         get_finalization_record_by_hash(hash: &HashBytes),
         MissingFinalizationRecordByHash,
         query_finalization_timings
     );
 
     get_object!(
-        #[doc="Queries Skov for the finalization record of the given finalization round index."]
+        /// Queries Skov for the finalization record of the given finalization
+        /// round index.
         get_finalization_record_by_idx(idx: FinalizationIndex),
         MissingFinalizationRecordByIdx,
         query_finalization_timings
@@ -274,9 +287,11 @@ impl Skov {
     }
 }
 
-/// An alias used to represent queues for blocks that are not yet applicable to the tree.
+/// An alias used to represent queues for blocks that are not yet applicable to
+/// the tree.
 ///
-/// The key is the missing block's hash and the values are affected pending blocks.
+/// The key is the missing block's hash and the values are affected pending
+/// blocks.
 type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
 
 #[derive(Debug)]
@@ -290,7 +305,8 @@ pub struct SkovData {
     genesis_block_ptr: Rc<BlockPtr>,
     /// the last finalized block
     last_finalized: Rc<BlockPtr>,
-    /// valid blocks (parent and last finalized blocks are already in Skov) pending finalization
+    /// valid blocks (parent and last finalized blocks are already in Skov)
+    /// pending finalization
     tree_candidates: HashMap<BlockHash, Rc<BlockPtr>>,
     /// blocks waiting for their parent to be added to the tree
     awaiting_parent_block: PendingQueue,
@@ -360,10 +376,19 @@ impl SkovData {
         };
 
         // verify that the pending block's last finalized block is in the block tree
-        // (which entails that it had been finalized); if not, check the tree candidate queue
-        if self.block_tree.get(&pending_block.block.last_finalized).is_some() {
+        // (which entails that it had been finalized); if not, check the tree candidate
+        // queue
+        if self
+            .block_tree
+            .get(&pending_block.block.last_finalized)
+            .is_some()
+        {
             // nothing to do here
-        } else if self.tree_candidates.get(&pending_block.block.last_finalized).is_some() {
+        } else if self
+            .tree_candidates
+            .get(&pending_block.block.last_finalized)
+            .is_some()
+        {
             let error = SkovError::LastFinalizedNotFinalized(
                 pending_block.block.last_finalized.clone(),
                 pending_block.hash.clone(),
