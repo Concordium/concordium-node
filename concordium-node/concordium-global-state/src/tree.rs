@@ -147,9 +147,16 @@ macro_rules! add_entry {
 }
 
 macro_rules! get_object {
-    ($query_foo:ident($($query_arg:ident: $query_arg_ty:ty),+), $err_kind:ident) => {
-        pub fn $query_foo(&self, $($query_arg: $query_arg_ty),+) -> SkovResult {
-            if let Some(ret) = self.data.$query_foo($($query_arg),+) {
+    ($query_foo:ident($($query_arg:ident: $query_arg_ty:ty),+), $err_kind:ident, $query_stat:ident) => {
+        pub fn $query_foo(&mut self, $($query_arg: $query_arg_ty),+) -> SkovResult {
+            let timestamp_start = Utc::now();
+            let ret = self.data.$query_foo($($query_arg),+);
+            let timestamp_end = Utc::now();
+            let query_duration = (timestamp_end - timestamp_start).num_microseconds().unwrap_or(0);
+
+            self.stats.$query_stat.push(query_duration as u64);
+
+            if let Some(ret) = ret {
                 SkovResult::SuccessfulQuery(ret.serialize())
             } else {
                 SkovResult::Error(SkovError::$err_kind($($query_arg.to_owned()),+))
@@ -170,11 +177,11 @@ impl Skov {
 
     add_entry!(add_finalization, FinalizationRecord, add_finalization_timings, finalization_times);
 
-    get_object!(get_block(hash: &HashBytes, delta: Delta), MissingBlock);
+    get_object!(get_block(hash: &HashBytes, delta: Delta), MissingBlock, query_block_timings);
 
-    get_object!(get_finalization_record_by_hash(hash: &HashBytes), MissingFinalizationRecordByHash);
+    get_object!(get_finalization_record_by_hash(hash: &HashBytes), MissingFinalizationRecordByHash, query_finalization_timings);
 
-    get_object!(get_finalization_record_by_idx(idx: FinalizationIndex), MissingFinalizationRecordByIdx);
+    get_object!(get_finalization_record_by_idx(idx: FinalizationIndex), MissingFinalizationRecordByIdx, query_finalization_timings);
 
     pub fn register_error(&mut self, err: SkovError) { self.stats.errors.push(err) }
 
@@ -544,6 +551,8 @@ pub struct SkovStats {
     finalization_times: CircularQueue<DateTime<Utc>>,
     add_block_timings: CircularQueue<u64>,
     add_finalization_timings: CircularQueue<u64>,
+    query_block_timings: CircularQueue<u64>,
+    query_finalization_timings: CircularQueue<u64>,
     errors: Vec<SkovError>,
 }
 
@@ -554,6 +563,8 @@ impl SkovStats {
             finalization_times:  CircularQueue::with_capacity(timing_queue_len),
             add_block_timings:  CircularQueue::with_capacity(timing_queue_len),
             add_finalization_timings:  CircularQueue::with_capacity(timing_queue_len),
+            query_block_timings: CircularQueue::with_capacity(timing_queue_len),
+            query_finalization_timings: CircularQueue::with_capacity(timing_queue_len),
             errors:              Vec::with_capacity(1), /* usually just one error appears in the
                                                          * beginning */
         }
@@ -590,11 +601,13 @@ impl fmt::Display for SkovStats {
 
         write!(
             f,
-            "block time: {}s; finalization time: {}s; block entry: {}us; finalization entry: {}us{}",
+            "block receipt/entry/query: {}s/{}us/{}us; finalization receipt/entry/query: {}s/{}us/{}us{}",
             get_avg_duration(&self.block_arrival_times),
-            get_avg_duration(&self.finalization_times),
             wma(self.add_block_timings.iter().cloned(), self.add_block_timings.len() as u64),
+            wma(self.query_block_timings.iter().cloned(), self.query_block_timings.len() as u64),
+            get_avg_duration(&self.finalization_times),
             wma(self.add_finalization_timings.iter().cloned(), self.add_finalization_timings.len() as u64),
+            wma(self.query_finalization_timings.iter().cloned(), self.query_finalization_timings.len() as u64),
             if !self.errors.is_empty() {
                 format!(", {} error(s)", self.errors.len())
             } else {
