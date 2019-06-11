@@ -122,7 +122,7 @@ function testnet_node() {
       binary="./target/debug/p2p_client-cli"
     else
       profiling=""
-      binary="cargo run CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli --"
+      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli --"
   fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
