@@ -190,11 +190,7 @@ impl Skov {
 
     pub fn display_state(&self) {
         fn sorted_block_map(map: &HashMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
-            map.values()
-                .collect::<BinaryHeap<_>>()
-                .into_sorted_vec()
-                .into_iter()
-                .collect::<Vec<_>>()
+            map.values().collect::<BinaryHeap<_>>().into_sorted_vec()
         }
 
         info!(
@@ -552,13 +548,15 @@ impl fmt::Display for PendingQueueType {
 
 #[derive(Debug)]
 pub struct SkovStats {
-    block_times:        CircularQueue<DateTime<Utc>>,
-    finalization_times: CircularQueue<DateTime<Utc>>,
-    errors:             Vec<SkovError>,
+    block_arrival_times: CircularQueue<DateTime<Utc>>,
+    finalization_times:  CircularQueue<DateTime<Utc>>,
+    errors:              Vec<SkovError>,
 }
 
 impl SkovStats {
-    fn register_block(&mut self, timestamp: DateTime<Utc>) { self.block_times.push(timestamp) }
+    fn register_block(&mut self, timestamp: DateTime<Utc>) {
+        self.block_arrival_times.push(timestamp)
+    }
 
     fn register_finalization(&mut self, timestamp: DateTime<Utc>) {
         self.finalization_times.push(timestamp)
@@ -566,42 +564,46 @@ impl SkovStats {
 
     fn new(time_sizes: usize) -> Self {
         Self {
-            block_times:        CircularQueue::with_capacity(time_sizes),
-            finalization_times: CircularQueue::with_capacity(time_sizes),
-            errors:             Vec::with_capacity(1), /* usually just one error appears in the
-                                                        * beginning */
+            block_arrival_times: CircularQueue::with_capacity(time_sizes),
+            finalization_times:  CircularQueue::with_capacity(time_sizes),
+            errors:              Vec::with_capacity(1), /* usually just one error appears in the
+                                                         * beginning */
         }
     }
 }
 
 impl fmt::Display for SkovStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> i64 {
-            let mass = (0..times.len() as i64).sum::<i64>();
+        fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
+            let mass: u64 = (0..n).sum();
             if mass == 0 {
-                return 0;
-            }
+                 0
+            } else {
+                let sum = values
+                    .enumerate()
+                    .fold(0, |sum, (i, val)| {
+                        let weight = n - (i as u64);
+                        sum + val * weight
+                    });
 
+                sum / mass
+            }
+        }
+
+        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
             let diffs = times
                 .iter()
                 .zip(times.iter().skip(1))
-                .map(|(&t1, &t2)| t1 - t2);
-            let sum = diffs
-                .enumerate()
-                .fold(chrono::Duration::zero(), |sum, (i, diff)| {
-                    let weight = (times.len() - i) as i32;
-                    sum + diff * weight
-                })
-                .num_milliseconds()
-                / 1000;
+                .map(|(&t1, &t2)| t1 - t2)
+                .map(|diff| diff.num_milliseconds() as u64);
 
-            sum / mass
+            wma(diffs, times.len() as u64) / 1000 // get the result in seconds
         }
 
         write!(
             f,
             "avg. block time: {}s; avg. finalization time: {}s{}",
-            get_avg_duration(&self.block_times),
+            get_avg_duration(&self.block_arrival_times),
             get_avg_duration(&self.finalization_times),
             if !self.errors.is_empty() {
                 format!(", {} error(s)", self.errors.len())
