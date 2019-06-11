@@ -49,13 +49,13 @@ impl ConnectionBuilder {
 
             let priv_conn = self
                 .priv_conn_builder
+                .set_token(token)
                 .set_as_initiator(self.is_initiator)
                 .set_key_pair(key_pair)
                 .set_log_dumper(self.log_dumper)
                 .build()?;
 
             let mut lself = Connection {
-                token,
                 messages_received: 0,
                 messages_sent: 0,
                 last_ping_sent: curr_stamp,

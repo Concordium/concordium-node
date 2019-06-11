@@ -43,7 +43,11 @@ pub fn process_network_requests(
                         .borrow_mut()
                         .async_send_from_poll_loop(network_request.data)
                     {
-                        error!("Network raw request error: {}", err);
+                        error!(
+                            "Network raw request error on connection {}: {}",
+                            usize::from(network_request.token),
+                            err
+                        );
                     }
                 }
                 None => error!(

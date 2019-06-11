@@ -145,13 +145,18 @@ pub fn make_node_and_sync(
         Some(export_service),
         Arc::new(FilterFunctor::new("Broadcasting_checks")),
     );
+    let node_id = port;
 
     let mh = node.message_handler();
-    safe_write!(mh)?.add_termination_listener(make_atomic_callback!(move |m: &NetworkMessage| {
-        // It is safe to ignore error.
-        let _ = msg_wait_tx.send(m.clone());
-        Ok(())
-    }));
+    safe_write!(mh)?
+        .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
+            log_any_message_handler(node_id, m)
+        }))
+        .add_termination_listener(make_atomic_callback!(move |m: &NetworkMessage| {
+            // It is safe to ignore error.
+            let _ = msg_wait_tx.send(m.clone());
+            Ok(())
+        }));
 
     node.spawn();
     Ok((node, msg_wait_rx))
@@ -238,6 +243,13 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 
 /// Helper handler to log as `info` the secuence of packets received by
 /// node.
+///
+/// It requires two steps in order to print messages when tests are running:
+///  - Enable logger, using function `setup_logger()`.
+///  - Enable `RUST_LOG` using:
+///  ```ignore
+///  $> export RUST_LOG "p2p_client::test_utils=trace"
+///  ```
 ///
 /// # Example
 /// ```

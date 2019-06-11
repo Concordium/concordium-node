@@ -23,9 +23,11 @@ mod tests {
         },
     };
 
-    use rand::Rng;
+    use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
+        collections::hash_map::DefaultHasher,
+        hash::Hasher,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, RwLock,
@@ -787,5 +789,62 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    pub fn e2e_009_network_direct_128k() { p2p_net(128 * 1024); }
+
+    #[test]
+    pub fn e2e_009_network_direct_8m() { p2p_net(8 * 1024 * 1024); }
+
+    #[test]
+    pub fn e2e_009_network_direct_32m() { p2p_net(32 * 1024 * 1024); }
+
+    #[test]
+    pub fn e2e_009_network_direct_128m() { p2p_net(128 * 1024 * 1024); }
+
+    #[test]
+    #[ignore]
+    pub fn e2e_009_network_direct_256m() { p2p_net(256 * 1024 * 1024); }
+
+    fn p2p_net(size: usize) {
+        setup_logger();
+
+        // Create nodes and connect them.
+        let (mut node_1, msg_waiter_1) =
+            make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+        let (node_2, msg_waiter_2) =
+            make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+        connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
+
+        // let mut msg = make_direct_message_into_disk().unwrap();
+        let msg = thread_rng()
+            .sample_iter(&Standard)
+            .take(size)
+            .collect::<Vec<u8>>();
+        let mut uc = UCursor::from(msg);
+        let net_id = NetworkId::from(100);
+
+        // Send.
+        node_1
+            .send_message_from_cursor(Some(node_2.id()), net_id, None, uc.clone(), false)
+            .unwrap();
+        let mut msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
+        assert_eq!(uc.len(), msg_recv.len());
+
+        // Get content hash.
+        let content_hash_list = [
+            uc.read_all_into_view().unwrap(),
+            msg_recv.read_all_into_view().unwrap(),
+        ]
+        .into_iter()
+        .map(|view| {
+            let mut hasher = DefaultHasher::new();
+            hasher.write(view.as_slice());
+            hasher.finish()
+        })
+        .collect::<Vec<u64>>();
+
+        assert_eq!(content_hash_list[0], content_hash_list[1]);
     }
 }
