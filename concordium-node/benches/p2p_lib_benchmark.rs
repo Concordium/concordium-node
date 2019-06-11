@@ -261,6 +261,72 @@ mod network {
             });
         }
     }
+
+    pub mod connection {
+        use concordium_common::UCursor;
+        use criterion::Criterion;
+        use p2p_client::{
+            common::PeerType,
+            network::NetworkId,
+            test_utils::{
+                connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
+                wait_direct_message,
+            },
+        };
+        use rand::{distributions::Standard, thread_rng, Rng};
+
+        pub fn bench_config(sample_size: usize) -> Criterion {
+            Criterion::default().sample_size(sample_size)
+        }
+
+        // P2P Communication Benchmark
+        // ============================
+        pub fn p2p_net_64b(c: &mut Criterion) { p2p_net(c, 64); }
+        pub fn p2p_net_4k(c: &mut Criterion) { p2p_net(c, 4 * 1024); }
+        pub fn p2p_net_64k(c: &mut Criterion) { p2p_net(c, 64 * 1024); }
+        pub fn p2p_net_8m(c: &mut Criterion) { p2p_net(c, 8 * 1024 * 1024); }
+        pub fn p2p_net_32m(c: &mut Criterion) { p2p_net(c, 32 * 1024 * 1024); }
+        pub fn p2p_net_128m(c: &mut Criterion) { p2p_net(c, 128 * 1024 * 1024); }
+
+        fn p2p_net(c: &mut Criterion, size: usize) {
+            setup_logger();
+
+            // Create nodes and connect them.
+            let (mut node_1, msg_waiter_1) =
+                make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+            let (node_2, msg_waiter_2) =
+                make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+            connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
+
+            // let mut msg = make_direct_message_into_disk().unwrap();
+            let msg = thread_rng()
+                .sample_iter(&Standard)
+                .take(size)
+                .collect::<Vec<u8>>();
+            let uc = UCursor::from(msg);
+            let bench_id = format!("Benchmark P2P network using messages of {} bytes", size);
+
+            c.bench_function(&bench_id, move |b| {
+                let cursor = uc.clone();
+                let net_id = NetworkId::from(100);
+
+                b.iter(|| {
+                    // Send.
+                    node_1
+                        .send_message_from_cursor(
+                            Some(node_2.id()),
+                            net_id,
+                            None,
+                            cursor.clone(),
+                            false,
+                        )
+                        .unwrap();
+                    let msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
+                    assert_eq!(uc.len(), msg_recv.len());
+                });
+            });
+        }
+    }
 }
 
 mod serialization {
@@ -651,7 +717,23 @@ criterion_group!(
 #[cfg(not(feature = "s11n_capnp"))]
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
+criterion_group!(
+    name = p2p_net_small_benches;
+    config = network::connection::bench_config(10);
+    targets = network::connection::p2p_net_64b, network::connection::p2p_net_4k,
+    network::connection::p2p_net_64k );
+
+criterion_group!(
+    name = p2p_net_big_benches;
+    config = network::connection::bench_config(2);
+    targets = network::connection::p2p_net_8m,
+    network::connection::p2p_net_32m,
+    network::connection::p2p_net_128m
+);
+
 criterion_main!(
+    p2p_net_big_benches,
+    p2p_net_small_benches,
     s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,

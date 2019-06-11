@@ -1,14 +1,13 @@
-use crate::connection::async_adapter::MAX_ENCRYPTED_CHUNK;
+use crate::connection::async_adapter::{
+    MAX_NOISE_PROTOCOL_MESSAGE_LEN, SNOW_MAXMSGLEN, SNOW_TAGLEN,
+};
 use concordium_common::UCursor;
 
 use failure::Fallible;
 use snow::Session;
 
 use byteorder::{NetworkEndian, ReadBytesExt};
-use std::{
-    convert::From,
-    sync::{Arc, Mutex},
-};
+use std::{cell::RefCell, convert::From, rc::Rc};
 
 /// It is a `stream` that decrypts data using `snow` session.
 ///
@@ -22,39 +21,80 @@ use std::{
 ///     - List of the size of each chunk: as `unsigned of 32 bit` in
 ///       `NetworkEndian`. It is omitted if there is only one chunk.
 pub struct DecryptStream {
-    session: Arc<Mutex<Session>>,
+    session: Rc<RefCell<Session>>,
 }
 
 impl DecryptStream {
     /// Session HAS to be shared by `decrypt` stream and `encrypt` sink.
-    pub fn new(session: Arc<Mutex<Session>>) -> Self { DecryptStream { session } }
+    pub fn new(session: Rc<RefCell<Session>>) -> Self { DecryptStream { session } }
+
+    fn decrypt_chunk(
+        &self,
+        chunk_idx: usize,
+        chunk_size: usize,
+        nonce: u64,
+        input: &mut UCursor,
+        clear_message: &mut Vec<u8>,
+    ) -> Fallible<()> {
+        let mut clear_chunk_buffer: [u8; SNOW_MAXMSGLEN] = unsafe { std::mem::uninitialized() };
+        debug_assert!(chunk_size <= SNOW_MAXMSGLEN);
+
+        let encrypted_chunk_view = input.read_into_view(chunk_size)?;
+        let input_slice = encrypted_chunk_view.as_slice();
+        let mut output_slice = &mut clear_chunk_buffer[..(chunk_size - SNOW_TAGLEN)];
+
+        match self.session.borrow_mut().read_message_with_nonce(
+            nonce,
+            input_slice,
+            &mut output_slice,
+        ) {
+            Ok(bytes) => {
+                debug_assert!(
+                    bytes <= chunk_size,
+                    "Chunk {} bytes {} <= size {} fails",
+                    chunk_idx,
+                    bytes,
+                    chunk_size
+                );
+                debug_assert!(bytes <= MAX_NOISE_PROTOCOL_MESSAGE_LEN);
+
+                clear_message.extend_from_slice(&clear_chunk_buffer[..bytes]);
+                Ok(())
+            }
+            Err(err) => {
+                error!("Decrypt error at chunk {} fails: {}", chunk_idx, err);
+                Err(failure::Error::from(err))
+            }
+        }
+    }
 
     /// It reads the chunk table and decodes each of them.
     ///
     /// # Return
     /// The decrypted message.
     fn decrypt(&self, mut input: UCursor) -> Fallible<UCursor> {
+        // 0. Read NONCE.
+        let nonce = input.read_u64::<NetworkEndian>()?;
+
         // 1. Read the chunk table.
-        let num_chunks = input.read_u32::<NetworkEndian>()?;
-        let chunk_sizes = if num_chunks > 1 {
-            // 1.1. Read each chunk size.
-            (0..num_chunks)
-                .map(|_| input.read_u32::<NetworkEndian>())
-                .collect::<Result<Vec<u32>, _>>()?
-        } else {
-            // 1.2. Only one chunk, so list is omitted.
-            vec![(input.len() - input.position()) as u32]
-        };
+        let num_full_chunks = input.read_u32::<NetworkEndian>()? as usize;
+        let last_chunk_size = input.read_u32::<NetworkEndian>()? as usize;
 
         // 2. Load and decrypt each chunk.
         let mut clear_message = Vec::with_capacity(input.len() as usize);
-        let mut clear_output: [u8; MAX_ENCRYPTED_CHUNK] = unsafe { std::mem::uninitialized() };
 
-        for size in chunk_sizes.into_iter() {
-            let encrypted_chunk_view = input.read_into_view(size as usize)?;
-            let bytes = safe_lock!(self.session)?
-                .read_message(encrypted_chunk_view.as_slice(), &mut clear_output)?;
-            clear_message.extend_from_slice(&clear_output[..bytes]);
+        for idx in 0..num_full_chunks {
+            self.decrypt_chunk(idx, SNOW_MAXMSGLEN, nonce, &mut input, &mut clear_message)?;
+        }
+
+        if last_chunk_size > 0 {
+            self.decrypt_chunk(
+                num_full_chunks,
+                last_chunk_size,
+                nonce,
+                &mut input,
+                &mut clear_message,
+            )?;
         }
 
         Ok(UCursor::from(clear_message))

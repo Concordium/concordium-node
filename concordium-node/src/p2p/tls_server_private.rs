@@ -18,7 +18,7 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         PeerType, RemotePeer,
     },
-    connection::{Connection, ConnectionStatus},
+    connection::Connection,
     dumper::DumpItem,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -246,12 +246,14 @@ impl TlsServerPrivate {
         max_peers_number: u16,
         poll: &mut Poll,
     ) -> Fallible<()> {
-        trace!("Cleaning up connections");
         let curr_stamp = get_current_stamp();
 
-        trace!("Disconnecting already marked as going down");
         self.to_disconnect.borrow_mut().drain(..).for_each(|x| {
             if let Some(conn) = self.find_connection_by_id(x) {
+                trace!(
+                    "Disconnecting connection {} already marked as going down",
+                    usize::from(conn.borrow().token())
+                );
                 conn.borrow_mut().close();
             }
         });
@@ -286,7 +288,6 @@ impl TlsServerPrivate {
             });
         }
 
-        trace!("Filtering by non-fatal gone connections");
         let wrap_connection_already_gone_as_non_fatal =
             |token, res: Fallible<()>| -> Fallible<Token> {
                 use std::io::ErrorKind;
@@ -320,17 +321,13 @@ impl TlsServerPrivate {
                     && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
         };
 
-        trace!(
-            "Killing nodes who are marked for closing, didn't complete handshake fast enough, or \
-             lingered without sending us packets for too long"
-        );
         // Kill nodes which are no longer seen and also closing connections
         let (closing_conns, err_conns): (Vec<Fallible<Token>>, Vec<Fallible<Token>>) = self.connections
             .iter()
             // Get only connections that have been inactive for more time than allowed or closing connections
             .filter(|rc_conn| {
                 let rc_conn_borrowed = rc_conn.borrow();
-                rc_conn_borrowed.status() == ConnectionStatus::Closing ||
+                rc_conn_borrowed.is_closed() ||
                     filter_predicate_stable_conn_and_no_handshake(&rc_conn_borrowed) ||
                     filter_predicate_bootstrapper_no_activity_allowed_period(&rc_conn_borrowed) ||
                     filter_predicate_node_no_activity_allowed_period(&rc_conn_borrowed)
@@ -338,7 +335,7 @@ impl TlsServerPrivate {
             .map(|rc_conn| {
                 // Deregister connection from the poll and shut down the socket
                 let mut conn = rc_conn.borrow_mut();
-                trace!("Going to kill {}:{}", conn.remote_addr().ip(), conn.remote_addr().port());
+                trace!("Kill connection {} {}:{}", usize::from(conn.token()), conn.remote_addr().ip(), conn.remote_addr().port());
                 wrap_connection_already_gone_as_non_fatal(conn.token(), conn.deregister(poll))?;
                 wrap_connection_already_gone_as_non_fatal(conn.token(), conn.shutdown())?;
                 // Report number of peers to stats export engine
@@ -353,9 +350,10 @@ impl TlsServerPrivate {
             }).partition(Result::is_ok);
 
         // Remove the connection from the list of connections
-        for conn in closing_conns {
+        for conn in closing_conns.into_iter().map(Result::unwrap) {
             // safe unwrapping since we are iterating over the list that only contains `Ok`s
-            self.remove_connection(conn.unwrap());
+            trace!("Remove connection {} from TLS Server", usize::from(conn));
+            self.remove_connection(conn);
         }
 
         if peer_type != PeerType::Bootstrapper {
@@ -391,7 +389,6 @@ impl TlsServerPrivate {
     }
 
     pub fn liveness_check(&mut self) -> Fallible<()> {
-        trace!("Completing liveness check of peers");
         let curr_stamp = get_current_stamp();
 
         self.connections

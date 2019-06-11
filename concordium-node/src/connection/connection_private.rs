@@ -1,10 +1,12 @@
 use std::{
+    cell::RefCell,
     collections::HashSet,
     net::{Shutdown, SocketAddr},
+    rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::Sender,
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
 };
 
@@ -30,6 +32,7 @@ use concordium_common::UCursor;
 ///     - This structure as a shared object, like `Rc< RefCell<...>>`
 ///     - The input message.
 pub struct ConnectionPrivate {
+    pub token:               Token,
     pub local_peer:          P2PPeer,
     pub remote_peer:         RemotePeer,
     pub remote_end_networks: HashSet<NetworkId>,
@@ -94,14 +97,14 @@ impl ConnectionPrivate {
     #[allow(unused)]
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
-    /// It registers `token` into `poll`.
+    /// It registers this connection into `poll`.
     /// This allows us to receive notifications once `socket` is able to read
     /// or/and write.
     #[inline]
-    pub fn register(&self, token: Token, poll: &mut Poll) -> Fallible<()> {
+    pub fn register(&self, poll: &mut Poll) -> Fallible<()> {
         into_err!(poll.register(
             &self.socket,
-            token,
+            self.token,
             Ready::readable() | Ready::writable(),
             PollOpt::edge()
         ))
@@ -139,18 +142,22 @@ impl ConnectionPrivate {
                         Readiness::NotReady => break,
                     },
                     Err(err) => {
-                        if err.downcast_ref::<fails::UnwantedMessageError>().is_some()
-                            || err.downcast_ref::<fails::MessageTooBigError>().is_some()
-                            || err.downcast_ref::<fails::StreamConnectionReset>().is_some()
+                        let token_id = usize::from(self.token);
+
+                        if err.downcast_ref::<fails::UnwantedMessageError>().is_none()
+                            && err.downcast_ref::<fails::MessageTooBigError>().is_none()
                         {
-                            // In this case, we have to drop this connection, so we can avoid to
-                            // write any data.
-                            self.status = ConnectionStatus::Closing;
+                            warn!(
+                                "Protocol error, connection {} is dropped: {}",
+                                token_id, err
+                            );
                         } else {
-                            error!("Message stream error: {:?}", err);
-                            return Err(err);
+                            error!("Message stream error on connection {}: {:?}", token_id, err);
                         }
 
+                        // In this case, we have to drop this connection, so we can avoid to
+                        // write any data.
+                        self.status = ConnectionStatus::Closing;
                         break;
                     }
                 }
@@ -158,7 +165,7 @@ impl ConnectionPrivate {
         }
 
         // 2. Write pending data into `socket`.
-        if self.status != ConnectionStatus::Closing && ev_readiness.is_writable() {
+        if self.status != ConnectionStatus::Closing {
             self.message_sink.flush(&mut self.socket)?;
         }
 
@@ -207,6 +214,7 @@ impl ConnectionPrivate {
 
 #[derive(Default)]
 pub struct ConnectionPrivateBuilder {
+    pub token:              Option<Token>,
     pub local_peer:         Option<P2PPeer>,
     pub remote_peer:        Option<RemotePeer>,
     pub local_end_networks: Option<Arc<RwLock<HashSet<NetworkId>>>>,
@@ -230,6 +238,7 @@ impl ConnectionPrivateBuilder {
         let u64_max_value: u64 = u64::max_value();
 
         if let (
+            Some(token),
             Some(local_peer),
             Some(remote_peer),
             Some(local_end_networks),
@@ -238,6 +247,7 @@ impl ConnectionPrivateBuilder {
             Some(key_pair),
             Some(blind_trusted_broadcast),
         ) = (
+            self.token,
             self.local_peer,
             self.remote_peer,
             self.local_end_networks,
@@ -247,19 +257,20 @@ impl ConnectionPrivateBuilder {
             self.blind_trusted_broadcast,
         ) {
             let peer_type = local_peer.peer_type();
-            let handshaker = Arc::new(Mutex::new(HandshakeStreamSink::new(
+            let handshaker = Rc::new(RefCell::new(HandshakeStreamSink::new(
                 key_pair,
                 self.is_initiator,
             )));
 
             Ok(ConnectionPrivate {
+                token,
                 local_peer,
                 remote_peer,
                 remote_end_networks: HashSet::new(),
                 local_end_networks,
                 buckets,
                 socket,
-                message_sink: FrameSink::new(Arc::clone(&handshaker)),
+                message_sink: FrameSink::new(Rc::clone(&handshaker)),
                 message_stream: FrameStream::new(peer_type, handshaker),
                 status: ConnectionStatus::PreHandshake,
                 last_seen: AtomicU64::new(get_current_stamp()),
@@ -275,6 +286,11 @@ impl ConnectionPrivateBuilder {
         } else {
             Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))
         }
+    }
+
+    pub fn set_token(mut self, token: Token) -> Self {
+        self.token = Some(token);
+        self
     }
 
     pub fn set_as_initiator(mut self, value: bool) -> Self {

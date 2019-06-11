@@ -72,8 +72,6 @@ macro_rules! handle_by_private {
 }
 
 pub struct Connection {
-    token: Token,
-
     // Counters
     messages_sent:     u64,
     messages_received: u64,
@@ -274,9 +272,7 @@ impl Connection {
     /// It registers the connection socket, for read and write ops using *edge*
     /// notifications.
     #[inline]
-    pub fn register(&self, poll: &mut Poll) -> Fallible<()> {
-        self.dptr.borrow().register(self.token, poll)
-    }
+    pub fn register(&self, poll: &mut Poll) -> Fallible<()> { self.dptr.borrow().register(poll) }
 
     #[inline]
     pub fn deregister(&self, poll: &mut Poll) -> Fallible<()> {
@@ -286,7 +282,10 @@ impl Connection {
     pub fn blind_trusted_broadcast(&self) -> bool { self.blind_trusted_broadcast }
 
     #[inline]
-    pub fn is_closed(&self) -> bool { self.dptr.borrow().status == ConnectionStatus::Closed }
+    pub fn is_closed(&self) -> bool {
+        let status = self.dptr.borrow().status;
+        status == ConnectionStatus::Closed || status == ConnectionStatus::Closing
+    }
 
     #[inline]
     pub fn close(&mut self) { self.dptr.borrow_mut().status = ConnectionStatus::Closing; }
@@ -365,13 +364,14 @@ impl Connection {
         Arc::clone(&self.dptr.borrow().local_end_networks)
     }
 
-    pub fn token(&self) -> Token { self.token }
+    #[inline]
+    pub fn token(&self) -> Token { self.dptr.borrow().token }
 
     /// It queues network request
     #[inline]
     pub fn async_send(&self, input: UCursor) -> Fallible<()> {
         let request = NetworkRawRequest {
-            token: self.token,
+            token: self.token(),
             data:  input,
         };
         into_err!(self.network_request_sender.send(request))

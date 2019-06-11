@@ -4,11 +4,7 @@ use concordium_common::UCursor;
 
 use failure::Fallible;
 
-use std::{
-    collections::VecDeque,
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use std::{cell::RefCell, collections::VecDeque, io::Write, rc::Rc};
 
 /// A sink to send and encrypt messages over an asynchronous `Write`.
 ///
@@ -35,12 +31,12 @@ use std::{
 /// sending any data.
 pub struct FrameSink {
     frame_queue: VecDeque<UCursor>,
-    handshaker:  Option<Arc<Mutex<HandshakeStreamSink>>>,
+    handshaker:  Option<Rc<RefCell<HandshakeStreamSink>>>,
     encryptor:   Option<EncryptSink>,
 }
 
 impl FrameSink {
-    pub fn new(handshaker: Arc<Mutex<HandshakeStreamSink>>) -> Self {
+    pub fn new(handshaker: Rc<RefCell<HandshakeStreamSink>>) -> Self {
         FrameSink {
             frame_queue: VecDeque::new(),
             handshaker:  Some(handshaker),
@@ -73,7 +69,7 @@ impl FrameSink {
         if let Some(handshaker) = self.handshaker.take() {
             let session_opt = {
                 // Ensure that handshake `send` queue is empty, before move on
-                let mut handshaker_locker = safe_lock!(handshaker)?;
+                let mut handshaker_locker = handshaker.borrow_mut();
                 match handshaker_locker.flush(output)? {
                     Readiness::Ready(0) => handshaker_locker.transport_session(),
                     _ => None,

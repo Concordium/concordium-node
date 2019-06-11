@@ -32,23 +32,42 @@ impl<T> Readiness<T> {
 type PayloadSize = u32;
 
 const CHUNK_SIZE: usize = 8_192; // 8KB
+const SNOW_MAXMSGLEN: usize = 65_535;
+const SNOW_TAGLEN: usize = 16;
 
-pub const MAX_NOISE_PROTOCOL_MESSAGE_LEN: usize = 65_535; // 65 kb
-pub const MAX_ENCRYPTED_CHUNK: usize = MAX_NOISE_PROTOCOL_MESSAGE_LEN + 4_096;
+pub const MAX_NOISE_PROTOCOL_MESSAGE_LEN: usize = SNOW_MAXMSGLEN - SNOW_TAGLEN;
 
-/// It tries to copy as much as possible (or `CHUNK_SIZE`) from `input` to
-/// `output`. It is used with `socket` that blocks them when their output
-/// buffers are full. Written bytes are consumed from `input`.
+/// It tries to copy as much as possible from `input` to `output`, using chunks
+/// of maximum `CHUNK_SIZE`. It is used with `socket` that blocks them when
+/// their output buffers are full. Written bytes are consumed from `input`.
 pub fn partial_copy(input: &mut UCursor, output: &mut impl Write) -> Fallible<usize> {
-    let chunk_size = std::cmp::min(CHUNK_SIZE, (input.len() - input.position()) as usize);
+    let mut total_written_bytes = 0;
+    let mut is_would_block = false;
 
-    let chunk = input.read_into_view(chunk_size)?;
-    let written_bytes = output.write(chunk.as_slice())?;
+    while !is_would_block && !input.is_eof() {
+        let chunk_size = std::cmp::min(CHUNK_SIZE, (input.len() - input.position()) as usize);
 
-    let offset = chunk.len() as i64 - written_bytes as i64;
-    input.seek(SeekFrom::Current(offset))?;
+        let offset = input.seek(SeekFrom::Current(0))?;
+        let chunk = input.read_into_view(chunk_size)?;
+        match output.write(chunk.as_slice()) {
+            Ok(written_bytes) => {
+                total_written_bytes += written_bytes;
+                if written_bytes != chunk_size {
+                    // Fix the offset because read data was not written completely.
+                    input.seek(SeekFrom::Start(offset + written_bytes as u64))?;
+                }
+            }
+            Err(io_err) => {
+                input.seek(SeekFrom::Start(offset))?;
+                is_would_block = io_err.kind() == std::io::ErrorKind::WouldBlock;
+                if !is_would_block {
+                    return Err(failure::Error::from_boxed_compat(Box::new(io_err)));
+                }
+            }
+        }
+    }
 
-    Ok(written_bytes)
+    Ok(total_written_bytes)
 }
 
 /// It defines the default Noise parameters.
