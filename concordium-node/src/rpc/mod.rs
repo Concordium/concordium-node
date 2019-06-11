@@ -1561,10 +1561,13 @@ mod tests {
             None,
             b"Hey".to_vec(),
         )?;
-        wait_broadcast_message(&wt1).unwrap();
+        wait_broadcast_message(&wt1).expect("Message sender disconnected");
         let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;
         if let crate::proto::P2PNetworkMessage_oneof_payload::message_broadcast(b) =
-            ans.payload.unwrap()
+            ans.payload.expect(
+                "Received empty message from the rpc subscription when expecting a broadcast \
+                 message",
+            )
         {
             assert_eq!(b.data, b"Hey");
         } else {
