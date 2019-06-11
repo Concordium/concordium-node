@@ -241,9 +241,9 @@ pub fn handle_global_state_request(
         let result = match request.body {
             SkovReqBody::AddBlock(pending_block) => skov.add_block(pending_block),
             SkovReqBody::AddFinalizationRecord(record) => skov.add_finalization(record),
-            SkovReqBody::GetBlock(hash, delta) => skov.get_block(hash, delta),
+            SkovReqBody::GetBlock(hash, delta) => skov.get_block(&hash, delta),
             SkovReqBody::GetFinalizationRecordByHash(hash) => {
-                skov.get_finalization_record_by_hash(hash)
+                skov.get_finalization_record_by_hash(&hash)
             }
             SkovReqBody::GetFinalizationRecordByIdx(i) => skov.get_finalization_record_by_idx(i),
         };
