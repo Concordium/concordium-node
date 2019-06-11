@@ -248,9 +248,11 @@ impl Skov {
 
     #[doc(hidden)]
     pub fn new(genesis_data: &[u8]) -> Self {
+        const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
+
         Self {
             data:  SkovData::new(genesis_data),
-            stats: SkovStats::new(16),
+            stats: SkovStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }
 
@@ -659,17 +661,17 @@ impl SkovStats {
 impl fmt::Display for SkovStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
-            let mass: u64 = (0..n).sum();
-            if mass == 0 {
-                0
-            } else {
-                let sum = values.enumerate().fold(0, |sum, (i, val)| {
-                    let weight = n - (i as u64);
-                    sum + val * weight
-                });
-
-                sum / mass
+            if n == 0 {
+                return 0;
             }
+
+            let mass: u64 = (0..n).sum();
+            let sum = values.enumerate().fold(0, |sum, (i, val)| {
+                let weight = n - (i as u64);
+                sum + val * weight
+            });
+
+            sum / mass
         }
 
         fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
@@ -679,7 +681,7 @@ impl fmt::Display for SkovStats {
                 .map(|(&t1, &t2)| t1 - t2)
                 .map(|diff| diff.num_milliseconds() as u64);
 
-            wma(diffs, times.len() as u64) / 1000 // get the result in seconds
+            wma(diffs, times.len() as u64) / 1000 // milliseconds to seconds
         }
 
         write!(
