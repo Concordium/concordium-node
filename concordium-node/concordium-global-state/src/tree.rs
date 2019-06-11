@@ -127,6 +127,25 @@ pub struct Skov {
     pub stats: SkovStats,
 }
 
+macro_rules! add_entry {
+    ($entry_foo:ident, $entry_type:ty, $addition_stat:ident, $timestamp_stat:ident) => {
+        pub fn $entry_foo(&mut self, entry: $entry_type) -> SkovResult {
+            let timestamp_entry = Utc::now();
+            let result = self.data.$entry_foo(entry);
+            let timestamp_addition = Utc::now();
+            let addition_duration = (timestamp_addition - timestamp_entry).num_microseconds().unwrap_or(0);
+
+            self.stats.$addition_stat.push(addition_duration as u64);
+
+            if let SkovResult::SuccessfulEntry = result {
+                self.stats.$timestamp_stat.push(timestamp_entry);
+            };
+
+            result
+        }
+    };
+}
+
 impl Skov {
     pub fn new(genesis_data: &[u8]) -> Self {
         Self {
@@ -135,27 +154,9 @@ impl Skov {
         }
     }
 
-    pub fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
-        let timestamp = Utc::now();
-        let result = self.data.add_block(pending_block);
+    add_entry!(add_block, PendingBlock, add_block_timings, block_arrival_times);
 
-        if let SkovResult::SuccessfulEntry = result {
-            self.stats.register_block(timestamp);
-        };
-
-        result
-    }
-
-    pub fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        let timestamp = Utc::now();
-        let result = self.data.add_finalization(record);
-
-        if let SkovResult::SuccessfulEntry = result {
-            self.stats.register_finalization(timestamp);
-        };
-
-        result
-    }
+    add_entry!(add_finalization, FinalizationRecord, add_finalization_timings, finalization_times);
 
     pub fn get_block(&self, hash: HashBytes, delta: Delta) -> SkovResult {
         let block_ptr = if delta == 0 {
@@ -549,23 +550,19 @@ impl fmt::Display for PendingQueueType {
 #[derive(Debug)]
 pub struct SkovStats {
     block_arrival_times: CircularQueue<DateTime<Utc>>,
-    finalization_times:  CircularQueue<DateTime<Utc>>,
-    errors:              Vec<SkovError>,
+    finalization_times: CircularQueue<DateTime<Utc>>,
+    add_block_timings: CircularQueue<u64>,
+    add_finalization_timings: CircularQueue<u64>,
+    errors: Vec<SkovError>,
 }
 
 impl SkovStats {
-    fn register_block(&mut self, timestamp: DateTime<Utc>) {
-        self.block_arrival_times.push(timestamp)
-    }
-
-    fn register_finalization(&mut self, timestamp: DateTime<Utc>) {
-        self.finalization_times.push(timestamp)
-    }
-
-    fn new(time_sizes: usize) -> Self {
+    fn new(timing_queue_len: usize) -> Self {
         Self {
-            block_arrival_times: CircularQueue::with_capacity(time_sizes),
-            finalization_times:  CircularQueue::with_capacity(time_sizes),
+            block_arrival_times: CircularQueue::with_capacity(timing_queue_len),
+            finalization_times:  CircularQueue::with_capacity(timing_queue_len),
+            add_block_timings:  CircularQueue::with_capacity(timing_queue_len),
+            add_finalization_timings:  CircularQueue::with_capacity(timing_queue_len),
             errors:              Vec::with_capacity(1), /* usually just one error appears in the
                                                          * beginning */
         }
@@ -602,9 +599,11 @@ impl fmt::Display for SkovStats {
 
         write!(
             f,
-            "avg. block time: {}s; avg. finalization time: {}s{}",
+            "block time: {}s; finalization time: {}s; block entry: {}us; finalization entry: {}us{}",
             get_avg_duration(&self.block_arrival_times),
             get_avg_duration(&self.finalization_times),
+            wma(self.add_block_timings.iter().cloned(), self.add_block_timings.len() as u64),
+            wma(self.add_finalization_timings.iter().cloned(), self.add_finalization_timings.len() as u64),
             if !self.errors.is_empty() {
                 format!(", {} error(s)", self.errors.len())
             } else {
