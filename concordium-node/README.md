@@ -23,9 +23,13 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * benchmark - enables the TPS testing
 * network_dump - makes the network dumping capabilites available.
+* static - build against static haskell libraries in GIT LFS (Linux only)
+* profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/init.build.env.sh#L16) for details).
+
+Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux).
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
