@@ -392,7 +392,6 @@ mod tests {
             connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
         },
     };
-    use bytes::BytesMut;
     use failure::Fallible;
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{iter, sync::Arc};
@@ -401,7 +400,7 @@ mod tests {
     const PACKAGE_MAX_BUFFER_SZ: usize = 4096;
 
     pub struct BytesMutConn {
-        pkt_buffer: BytesMut,
+        pkt_buffer: Vec<u8>,
     }
 
     /// Simulate allocation/deallocation of `Connection.pkt_buffer`.
@@ -410,7 +409,7 @@ mod tests {
 
         // 1. Allocate buffer with initial capacity.
         let mut a1 = BytesMutConn {
-            pkt_buffer: BytesMut::with_capacity(PACKAGE_INITIAL_BUFFER_SZ),
+            pkt_buffer: Vec::with_capacity(PACKAGE_INITIAL_BUFFER_SZ),
         };
 
         // 2. Simulate reception of X bytes.
@@ -423,7 +422,7 @@ mod tests {
         assert!(a1.pkt_buffer.capacity() >= pkt_size);
 
         // 3. Reset
-        a1.pkt_buffer = BytesMut::with_capacity(PACKAGE_INITIAL_BUFFER_SZ);
+        a1.pkt_buffer = Vec::with_capacity(PACKAGE_INITIAL_BUFFER_SZ);
         assert_eq!(PACKAGE_INITIAL_BUFFER_SZ, a1.pkt_buffer.capacity());
         assert_eq!(0, a1.pkt_buffer.len());
     }

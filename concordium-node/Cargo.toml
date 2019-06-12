@@ -37,12 +37,10 @@ concordium_dodis_yampolskiy_prf = { package = "dodis-yampolskiy-prf", path = "de
 # concordium_curve_arithmetic = { package = "curve_arithmetic", path = "deps/internal/crypto/rust-src/curve_arithmetic" }
 concordium-common = { path = "concordium-common" }
 # External dependencies
-libc = "0.2"
 structopt = "0.2"
 rand = "^0.6"
 hacl-star = "^0.0.14"
 mio = "0.6"
-bytes = "0.4"
 log = "0.4"
 env_logger = "0.6"
 byteorder = "1"
@@ -54,7 +52,6 @@ lazy_static = "1.2"
 human-panic = "1.0"
 cfg-if = "0.1"
 semver = "0.9"
-vecio = "0.1"
 derive_builder = "0.7.1"
 tempfile = "^3.0.7"
 base64 = "0.10.1"
