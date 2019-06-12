@@ -90,6 +90,8 @@ pub enum SkovError {
     MissingFinalizationRecordByHash(HashBytes),
     // the requested finalization record with the given finalization index is not available
     MissingFinalizationRecordByIdx(FinalizationIndex),
+    // the finalization record's index is in the future
+    FutureFinalizationRecord(FinalizationIndex),
 }
 
 impl fmt::Display for SkovError {
@@ -126,6 +128,10 @@ impl fmt::Display for SkovError {
             ),
             SkovError::MissingFinalizationRecordByIdx(index) => format!(
                 "requested finalization record for index {} is not available",
+                index
+            ),
+            SkovError::FutureFinalizationRecord(index) => format!(
+                "the finalization record's index {} is in the future",
                 index
             ),
         };
@@ -511,8 +517,16 @@ impl SkovData {
     }
 
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        let housekeeping_hash = record.block_pointer.clone();
+        // check if the record's index is in the future; if it is, keep the record
+        // for later and await further blocks
+        if record.index > self.finalization_list.last().unwrap().index + 1 {
+            let error = SkovError::FutureFinalizationRecord(record.index);
+            self.inapplicable_finalization_records.push(record);
+            return SkovResult::Error(error);
+        }
 
+        let housekeeping_hash = record.block_pointer.clone();
+        // check the index: drop past, keep and later re-check future ones
         let mut target_block = self.tree_candidates.remove_entry(&record.block_pointer);
 
         if let Some((_, ref mut block)) = target_block {
