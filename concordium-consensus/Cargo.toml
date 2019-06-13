@@ -15,7 +15,6 @@ static = []
 profiling = ["static"]
 
 [dependencies]
-chrono = "0.4.0"
 concordium-common = { path = "../concordium-common" }
 concordium-global-state = { path = "../concordium-global-state" }
 # curve_arithmetic = { path = "../deps/internal/crypto/rust-src/curve_arithmetic" }
@@ -28,14 +27,11 @@ ps_sig = { path = "../deps/internal/crypto/rust-src/ps_sig" }
 sha_2 = { path = "../deps/internal/crypto/rust-src/sha_2" }
 libc = "0.2"
 log = "0.4"
-lazy_static = "1.1.0"
-byteorder = "1"
-env_logger = "0.6"
-failure = "0.1.5"
-digest = "0.8.0"
+lazy_static = "^1.2"
+byteorder = "^1.3.2"
+failure = "^0.1.5"
 
 [build-dependencies]
-bindgen = "0.49"
 walkdir = "2"
 
 [lib]

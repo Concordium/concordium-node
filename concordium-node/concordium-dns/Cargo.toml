@@ -16,7 +16,7 @@ valgrind = []
 log = "0.4"
 openssl = "0.10"
 libc = "0.2"
-failure = "0.1.5"
+failure = "^0.1.5"
 
 [build-dependencies]
 tempdir = "0.3.7"
