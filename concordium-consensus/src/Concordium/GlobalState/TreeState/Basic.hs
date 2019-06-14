@@ -341,8 +341,17 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     bsoSetInflation bs amnt = return $
         bs & blockBank . Rewards.mintedGTUPerSlot .~ amnt
 
+    -- mint currency in the central bank, and also update the total gtu amount to maintain the invariant
+    -- that the total gtu amount is indeed the total gtu amount
     bsoMint bs amount = return $
-        bs & (blockBank . Rewards.totalGTU) +~ amount
+        let updated = bs & ((blockBank . Rewards.totalGTU) +~ amount) .
+                           ((blockBank . Rewards.centralBankGTU) +~ amount)
+        in (updated ^. blockBank . Rewards.centralBankGTU, updated)
+
+    bsoDecrementCentralBankGTU bs amount = return $
+        let updated = bs & ((blockBank . Rewards.centralBankGTU) -~ amount)
+        in (updated ^. blockBank . Rewards.centralBankGTU, updated)
+
 
 type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
 

@@ -269,8 +269,13 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Set the amount of minted GTU per slot.
   bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
-  -- |Mint currency in the central bank.
-  bsoMint :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+  -- |Mint currency in the central bank. Return the new amount
+  bsoMint :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
+
+  -- |Subtract the amount from the central bank. Return the new amount. The
+  -- precondition of this method is that the amount on the account is
+  -- sufficient.
+  bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -494,6 +499,7 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoSetInflation s = lift . bsoSetInflation s
 
   bsoMint s = lift . bsoMint s
+  bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
 
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
@@ -580,6 +586,7 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoSetInflation s = lift . bsoSetInflation s
 
   bsoMint s = lift . bsoMint s
+  bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
 
 type instance BlockPointer (RWST r w s m) = BlockPointer m
 
