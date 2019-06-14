@@ -693,7 +693,7 @@ impl fmt::Display for SkovStats {
                 return 0;
             }
 
-            let mass: u64 = (0..n).sum();
+            let mass: u64 = (1..=n).sum();
             let sum = values.enumerate().fold(0, |sum, (i, val)| {
                 let weight = n - (i as u64);
                 sum + val * weight
