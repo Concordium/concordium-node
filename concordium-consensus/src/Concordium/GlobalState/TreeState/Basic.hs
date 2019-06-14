@@ -263,6 +263,10 @@ instance (Monad m, MonadState s m) => TS.BlockStateQuery (SkovTreeState s m) whe
     {-# INLINE getInflationRate #-}
     getInflationRate = return . Rewards._mintedGTUPerSlot . _blockBank
 
+    {-# INLINE getCentralBankGTU #-}
+    getCentralBankGTU = return . Rewards._centralBankGTU . _blockBank
+
+
 type instance TS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
 instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m) where
@@ -336,6 +340,9 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
 
     bsoSetInflation bs amnt = return $
         bs & blockBank . Rewards.mintedGTUPerSlot .~ amnt
+
+    bsoMint bs amount = return $
+        bs & (blockBank . Rewards.totalGTU) +~ amount
 
 type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
 

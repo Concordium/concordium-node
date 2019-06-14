@@ -153,6 +153,10 @@ class Monad m => BlockStateQuery m where
     -- slot).
     getInflationRate :: BlockState m -> m Amount
 
+    -- |Get the amount of GTU in the central bank.
+    getCentralBankGTU :: BlockState m -> m Amount
+
+
 type family UpdatableBlockState (m :: * -> *) :: *
 
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
@@ -264,6 +268,9 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Set the amount of minted GTU per slot.
   bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
+  -- |Mint currency in the central bank.
+  bsoMint :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -459,6 +466,9 @@ instance BlockStateQuery m => BlockStateQuery (MaybeT m) where
   getBirkParameters = lift . getBirkParameters
   getInflationRate = lift . getInflationRate
 
+  getCentralBankGTU = lift . getCentralBankGTU
+
+
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
 
 instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
@@ -482,6 +492,8 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoSetInflation s = lift . bsoSetInflation s
+
+  bsoMint s = lift . bsoMint s
 
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
@@ -540,6 +552,8 @@ instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
   getBirkParameters = lift . getBirkParameters
   getInflationRate = lift . getInflationRate
 
+  getCentralBankGTU = lift . getCentralBankGTU
+
 type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
 
 instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m) where
@@ -562,7 +576,10 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
   bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
   bsoRemoveBaker s = lift . bsoRemoveBaker s
+
   bsoSetInflation s = lift . bsoSetInflation s
+
+  bsoMint s = lift . bsoMint s
 
 type instance BlockPointer (RWST r w s m) = BlockPointer m
 
