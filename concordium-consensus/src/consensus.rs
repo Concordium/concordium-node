@@ -211,61 +211,36 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
         if let Some(baker) = &*safe_read!(self.baker) {
-            // We have a baker to send it to, so we 'll do an early return at this point
-            // with the response code from consensus.
-            // Return codes from the Haskell side are as follows:
-            // 0 = Everything went okay
-            // 1 = Message couldn't get deserialized properly
-            // 2 = Message was a duplicate
-            return baker.send_block(peer_id, block);
+            baker.send_block(peer_id, block)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
         }
-        // If we didn't do an early return with the response code from consensus, we
-        // emit a -1 to signal we didn't find any baker we could pass this
-        // request on to.
-        -1
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> i64 {
+    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
         if let Some(baker) = &*safe_read!(self.baker) {
-            // Return codes from the Haskell side are as follows:
-            // 0 = Everything went okay
-            // 1 = Message couldn't get deserialized properly
-            // 2 = Message was a duplicate
-            return baker.send_finalization(peer_id, msg);
+            baker.send_finalization(peer_id, msg)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
         }
-        // If we didn't do an early return with the response code from consensus, we
-        // emit a -1 to signal we didn't find any baker we could pass this
-        // request on to.
-        -1
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> i64 {
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
         if let Some(baker) = &*safe_read!(self.baker) {
-            // Return codes from the Haskell side are as follows:
-            // 0 = Everything went okay
-            // 1 = Message couldn't get deserialized properly
-            // 2 = Message was a duplicate
-            return baker.send_finalization_record(peer_id, rec);
+            baker.send_finalization_record(peer_id, rec)
+        } else {
+            ConsensusFfiResponse::BakerNotFound
         }
-        // If we didn't do an early return with the response code from consensus, we
-        // emit a -1 to signal we didn't find any baker we could pass this
-        // request on to.
-        -1
     }
 
-    pub fn send_transaction(&self, tx: &[u8]) -> i64 {
+    pub fn send_transaction(&self, tx: &[u8]) -> ConsensusFfiResponse {
         if let Some(baker) = &*safe_read!(self.baker) {
-            // Return codes from the Haskell side are as follows:
-            // 0 = Everything went okay
-            // 1 = Message couldn't get deserialized properly
-            return baker.send_transaction(tx.to_vec());
+            baker.send_transaction(tx.to_vec())
+        } else {
+            ConsensusFfiResponse::BakerNotFound
         }
-        // If we didn't do an early return with the response code from consensus, we
-        // emit a -1 to signal we didn't find any baker we could pass this
-        // request on to.
-        -1
     }
 
     pub fn generate_data(genesis_time: u64, num_bakers: u64) -> Fallible<(Vec<u8>, PrivateData)> {
@@ -372,7 +347,7 @@ impl ConsensusContainer {
             .get_finalization_point())
     }
 
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> Fallible<i64> {
+    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> Fallible<ConsensusFfiResponse> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_finalization_messages(request, peer_id))
     }

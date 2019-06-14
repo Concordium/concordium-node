@@ -21,14 +21,19 @@ macro_rules! wrap_send_data_to_c {
     ($self:ident, $peer_id:ident, $data:expr, $c_call:expr) => {{
         let baker = $self.runner.load(Ordering::SeqCst);
         let len = $data.len();
-        unsafe {
-            return $c_call(
+
+        let result = unsafe {
+            $c_call(
                 baker,
                 $peer_id,
                 CString::from_vec_unchecked($data.to_vec()).as_ptr() as *const u8,
                 len as i64,
-            );
+            )
         };
+
+        ConsensusFfiResponse::try_from(result).unwrap_or_else(|code|
+            panic!("Unknown FFI return code: {}", code)
+        )
     }};
 }
 
@@ -52,7 +57,11 @@ macro_rules! wrap_c_call_bytes {
 macro_rules! wrap_c_call {
     ($self:ident, $c_call:expr) => {{
         let baker = $self.runner.load(Ordering::SeqCst);
-        unsafe { $c_call(baker) }
+        let result = unsafe { $c_call(baker) };
+
+        ConsensusFfiResponse::try_from(result).unwrap_or_else(|code|
+            panic!("Unknown FFI return code: {}", code)
+        )
     }};
 }
 

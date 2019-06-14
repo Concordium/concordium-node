@@ -19,6 +19,7 @@ use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
 use concordium_consensus::{
     consensus,
     ffi::{
+        ConsensusFfiResponse,
         self,
         PacketType::{self, *},
     },
@@ -340,7 +341,7 @@ fn send_finalization_record_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     match baker.send_finalization_record(peer_id.as_raw(), content) {
-        0i64 => info!(
+        ConsensusFfiResponse::Success => info!(
             "Peer {}'s {:?} was sent to our consensus layer",
             peer_id,
             FinalizationRecord::deserialize(content)?
@@ -349,7 +350,7 @@ fn send_finalization_record_to_consensus(
             "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
              #{} (record: {:?})",
             peer_id,
-            err_code,
+            err_code as i64,
             FinalizationRecord::deserialize(content)?,
         ),
     }
@@ -379,7 +380,7 @@ fn send_block_to_consensus(
 ) -> Fallible<()> {
     // send unique blocks to the consensus layer
     match baker.send_block(peer_id.as_raw(), content) {
-        0i64 => info!(
+        ConsensusFfiResponse::Success => info!(
             "Peer {}'s {:?} was sent to our consensus layer",
             peer_id,
             BakedBlock::deserialize(content)?
@@ -388,7 +389,7 @@ fn send_block_to_consensus(
             "Peer {}'s block can't be sent to our consensus layer due to error code #{} (block: \
              {:?})",
             peer_id,
-            err_code,
+            err_code as i64,
             BakedBlock::deserialize(content)?,
         ),
     }
@@ -405,7 +406,7 @@ fn send_catchup_finalization_messages_by_point_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     match baker.get_finalization_messages(content, peer_id.as_raw())? {
-        0i64 => info!(
+        ConsensusFfiResponse::Success => info!(
             "Peer {} requested finalization messages by point from our consensus layer",
             peer_id
         ),
@@ -413,7 +414,7 @@ fn send_catchup_finalization_messages_by_point_to_consensus(
             "Peer {} couldn't obtain finalization messages by point from our consensus layer due \
              to error code {} (bytes: {:?}, length: {})",
             peer_id,
-            err_code,
+            err_code as i64,
             content,
             content.len(),
         ),

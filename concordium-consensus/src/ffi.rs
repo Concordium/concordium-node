@@ -222,6 +222,31 @@ impl fmt::Display for PacketType {
     }
 }
 
+#[derive(Debug)]
+pub enum ConsensusFfiResponse {
+    BakerNotFound = -1,
+    Success,
+    DeserializationError,
+    DuplicateEntry,
+}
+
+impl TryFrom<i64> for ConsensusFfiResponse {
+    type Error = failure::Error;
+
+    #[inline]
+    fn try_from(value: i64) -> Fallible<ConsensusFfiResponse> {
+        use ConsensusFfiResponse::*;
+
+        match value {
+            -1 => Ok(BakerNotFound),
+            0  => Ok(Success),
+            1  => Ok(DeserializationError),
+            2  => Ok(DuplicateEntry),
+            _  => Err(format_err!("Unsupported FFI return code ({})", value))
+        }
+    }
+}
+
 #[repr(C)]
 pub struct baker_runner {
     private: [u8; 0],
@@ -370,29 +395,33 @@ impl ConsensusBaker {
         }
     }
 
-    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> i64 {
+    pub fn send_block(&self, peer_id: PeerId, block: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, peer_id, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> i64 {
+    pub fn send_finalization(&self, peer_id: PeerId, msg: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, peer_id, msg, receiveFinalization)
     }
 
-    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> i64 {
+    pub fn send_finalization_record(&self, peer_id: PeerId, rec: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, peer_id, rec, receiveFinalizationRecord)
     }
 
-    pub fn send_transaction(&self, data: Vec<u8>) -> i64 {
+    pub fn send_transaction(&self, data: Vec<u8>) -> ConsensusFfiResponse {
         let baker = self.runner.load(Ordering::SeqCst);
         let len = data.len();
 
-        unsafe {
+        let result = unsafe {
             receiveTransaction(
                 baker,
                 CString::from_vec_unchecked(data).as_ptr() as *const u8,
                 len as i64,
             )
-        }
+        };
+
+        ConsensusFfiResponse::try_from(result).unwrap_or_else(|code|
+            panic!("Unknown FFI return code: {}", code)
+        )
     }
 
     pub fn get_finalization_point(&self) -> Vec<u8> {
@@ -469,7 +498,7 @@ impl ConsensusBaker {
         wrap_c_call_bytes!(self, |baker| getIndexedFinalization(baker, index))
     }
 
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> i64 {
+    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> ConsensusFfiResponse {
         wrap_c_call!(self, |baker| getFinalizationMessages(
             baker,
             peer_id,
