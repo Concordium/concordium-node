@@ -238,9 +238,9 @@ handleCoreSet phase cs = do
                         (True, 1)
                     else if botWeight >= totalWeight - corruptWeight then
                         (False, 1)
-                    else if botWeight <= corruptWeight then
+                    else if botWeight <= corruptWeight then -- In this case, topWeight > corruptWeight
                         (True, 0)
-                    else if topWeight <= corruptWeight then
+                    else if topWeight <= corruptWeight then -- In this case, botWeight > corruptWeight
                         (False, 0)
                     else case catMaybes $ (\((_,party), _) -> csRes party) <$> tkts of
                         (res:_) -> (res, 0)
