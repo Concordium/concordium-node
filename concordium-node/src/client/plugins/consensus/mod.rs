@@ -19,8 +19,7 @@ use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
 use concordium_consensus::{
     consensus,
     ffi::{
-        ConsensusFfiResponse,
-        self,
+        self, ConsensusFfiResponse,
         PacketType::{self, *},
     },
 };

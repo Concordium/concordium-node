@@ -31,9 +31,8 @@ macro_rules! wrap_send_data_to_c {
             )
         };
 
-        ConsensusFfiResponse::try_from(result).unwrap_or_else(|code|
-            panic!("Unknown FFI return code: {}", code)
-        )
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }};
 }
 
@@ -59,9 +58,8 @@ macro_rules! wrap_c_call {
         let baker = $self.runner.load(Ordering::SeqCst);
         let result = unsafe { $c_call(baker) };
 
-        ConsensusFfiResponse::try_from(result).unwrap_or_else(|code|
-            panic!("Unknown FFI return code: {}", code)
-        )
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }};
 }
 

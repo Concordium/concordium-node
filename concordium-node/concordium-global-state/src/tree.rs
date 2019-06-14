@@ -132,8 +132,7 @@ impl fmt::Display for SkovError {
             ),
             SkovError::FutureFinalizationRecord(future_idx, curr_idx) => format!(
                 "the finalization record's index ({}) is in the future (current index: {})",
-                future_idx,
-                curr_idx
+                future_idx, curr_idx
             ),
         };
 
@@ -525,7 +524,8 @@ impl SkovData {
         let last_finalized_idx = self.finalization_list.last().unwrap().index; // safe, always there
         if record.index > last_finalized_idx + 1 {
             let error = SkovError::FutureFinalizationRecord(record.index, last_finalized_idx);
-            self.inapplicable_finalization_records.insert(record.block_pointer.clone(), record);
+            self.inapplicable_finalization_records
+                .insert(record.block_pointer.clone(), record);
             return SkovResult::Error(error);
         }
 
@@ -538,13 +538,15 @@ impl SkovData {
         } else {
             let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
 
-            self.inapplicable_finalization_records.insert(record.block_pointer.clone(), record);
+            self.inapplicable_finalization_records
+                .insert(record.block_pointer.clone(), record);
 
             return SkovResult::Error(error);
         }
 
         // drop the now-redundant old pending finalization records
-        self.inapplicable_finalization_records.retain(|_, rec| rec.index > record.index);
+        self.inapplicable_finalization_records
+            .retain(|_, rec| rec.index > record.index);
 
         let (target_hash, target_block) = target_block.unwrap(); // safe - we've already checked
 
@@ -604,8 +606,12 @@ impl SkovData {
     }
 
     fn refresh_finalization_record_queue(&mut self, target_hash: &HashBytes) {
-        if let Some(applicable_record) = self.inapplicable_finalization_records.remove(target_hash) {
-            debug!("Reattempted to apply finalization record for block {:?}", target_hash);
+        if let Some(applicable_record) = self.inapplicable_finalization_records.remove(target_hash)
+        {
+            debug!(
+                "Reattempted to apply finalization record for block {:?}",
+                target_hash
+            );
             // silence errors here, as it is a housekeeping operation
             let _ = self.add_finalization(applicable_record);
         }
@@ -620,7 +626,10 @@ impl SkovData {
 
     fn print_inapplicable_finalizations(&self) -> String {
         if !self.inapplicable_finalization_records.is_empty() {
-            format!("\ninapplicable finalization records: {:?}", self.inapplicable_finalization_records)
+            format!(
+                "\ninapplicable finalization records: {:?}",
+                self.inapplicable_finalization_records
+            )
         } else {
             String::new()
         }

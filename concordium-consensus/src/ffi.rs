@@ -239,10 +239,10 @@ impl TryFrom<i64> for ConsensusFfiResponse {
 
         match value {
             -1 => Ok(BakerNotFound),
-            0  => Ok(Success),
-            1  => Ok(DeserializationError),
-            2  => Ok(DuplicateEntry),
-            _  => Err(format_err!("Unsupported FFI return code ({})", value))
+            0 => Ok(Success),
+            1 => Ok(DeserializationError),
+            2 => Ok(DuplicateEntry),
+            _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }
 }
@@ -419,9 +419,8 @@ impl ConsensusBaker {
             )
         };
 
-        ConsensusFfiResponse::try_from(result).unwrap_or_else(|code|
-            panic!("Unknown FFI return code: {}", code)
-        )
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     pub fn get_finalization_point(&self) -> Vec<u8> {
@@ -498,7 +497,11 @@ impl ConsensusBaker {
         wrap_c_call_bytes!(self, |baker| getIndexedFinalization(baker, index))
     }
 
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> ConsensusFfiResponse {
+    pub fn get_finalization_messages(
+        &self,
+        request: &[u8],
+        peer_id: PeerId,
+    ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |baker| getFinalizationMessages(
             baker,
             peer_id,

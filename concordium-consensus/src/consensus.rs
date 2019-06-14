@@ -347,7 +347,11 @@ impl ConsensusContainer {
             .get_finalization_point())
     }
 
-    pub fn get_finalization_messages(&self, request: &[u8], peer_id: PeerId) -> Fallible<ConsensusFfiResponse> {
+    pub fn get_finalization_messages(
+        &self,
+        request: &[u8],
+        peer_id: PeerId,
+    ) -> Fallible<ConsensusFfiResponse> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_finalization_messages(request, peer_id))
     }
