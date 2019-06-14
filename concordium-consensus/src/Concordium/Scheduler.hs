@@ -247,7 +247,7 @@ handleModule meta msize mod = do
   imod <- pure (runExcept (Core.makeInternal mod)) `rejectingWith'` MissingImports
   iface <- runExceptT (TC.typeModule imod) `rejectingWith'` ModuleNotWF
   let mhash = Core.imRef imod
-  viface <- runMaybeT (I.evalModule imod mhash) `rejectingWith` EvaluationError
+  viface <- runMaybeT (I.evalModule imod) `rejectingWith` EvaluationError
   return (mhash, iface, viface)
 
 handleInit
@@ -466,10 +466,13 @@ runInterpreter f = do
 -- |Make a valid block out of a list of transactions. The list is traversed from
 -- left to right and any invalid transactions are not included in the block. The
 -- return value is a pair of lists of transactions @(valid, invalid)@ where
---    * @valid@ transactions is the list of transactions that should appear on the block in the order they should appear
+--    * @valid@ transactions is the list of transactions that should appear
+--      on the block in the order they should appear
 --    * @invalid@ is a list of invalid transactions.
---    The order these transactions appear is arbitrary (i.e., they do not necessarily appear in the same order as in the input).
-filterTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
+--    The order these transactions appear is arbitrary
+--    (i.e., they do not necessarily appear in the same order as in the input).
+filterTransactions :: (TransactionData msg, SchedulerMonad m)
+                      => [msg] -> m ([(msg, ValidResult)], [(msg, FailureKind)])
 filterTransactions = go [] []
   where go valid invalid (t:ts) = do
           dispatch t >>= \case
@@ -479,7 +482,8 @@ filterTransactions = go [] []
 
 -- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
 -- fails, and otherwise return a list of transactions with their outcomes.
-runTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Maybe [(msg, ValidResult)])
+runTransactions :: (TransactionData msg, SchedulerMonad m)
+                   => [msg] -> m (Maybe [(msg, ValidResult)])
 runTransactions = go []
   where go valid (t:ts) = do
           dispatch t >>= \case
@@ -488,7 +492,7 @@ runTransactions = go []
         go valid [] = return (Just (reverse valid))
 
 -- |Execute transactions in sequence only for sideffects on global state.
--- Returns @Right ()@ if block executed successfully, and @Left@ @FailureKind@ at
+-- Returns 'Right' '()' if block executed successfully, and 'Left' 'FailureKind' at
 -- first failed transaction. This is more efficient than 'runTransactions' since it
 -- does not have to build a list of results.
 execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind ())

@@ -110,7 +110,7 @@ initialState birkParams bakerAccounts n =
         gs = BlockState.emptyBlockState birkParams &
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
-               (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10)
+               (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
         gs' = Types.execSI (execTransactions (initialTrans n)) Types.dummyChainMeta gs
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.

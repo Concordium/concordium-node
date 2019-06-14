@@ -13,6 +13,7 @@ import Control.Monad
 import Concordium.Types
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import qualified Concordium.GlobalState.Modules as Modules
@@ -110,14 +111,31 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
 
 -- |Reward the baker, identity providers, ...
 -- TODO: At the moment only execution cost goes to the baker.
-rewardEveryone :: TreeStateMonad m => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
-rewardEveryone bshandle bid = do
-  amnt <- bsoGetExecutionCost bshandle
-  macc <- bsoGetBakerAccount bshandle bid
+-- TODO: Currently the finalized pointer is not used. But the finalization committee
+-- of that block might need to be rewarded if they have not been already.
+-- Thus the argument is here for future use
+mintAndReward :: TreeStateMonad m => UpdatableBlockState m -> BlockPointer m -> BlockPointer m -> Slot -> BakerId -> m (UpdatableBlockState m)
+mintAndReward bshandle blockParent lfPointer slotNumber bid = do
+
+  -- First we mint new currency. This can be used in rewarding bakers. First get
+  -- the inflation rate of the parent block (this might have changed in the
+  -- current block), and compute how much to mint based on elapsed time.
+  inflationRate <- getInflationRate (bpState blockParent)
+  let mintedAmount = fromIntegral (slotNumber - blockSlot (bpBlock blockParent)) * inflationRate
+  (cbamount, bshandleMinted) <- bsoMint bshandle mintedAmount
+
+  -- and now we can reward everybody
+  -- first take half of the amount on the central bank and use it to reward the baker
+  -- TODO: This is temporary POC. We need this fraction to be flexible.
+  let bakingReward = cbamount `div` 2
+  (_, bshandle') <- bsoDecrementCentralBankGTU bshandleMinted bakingReward
+
+  executionReward <- bsoGetExecutionCost bshandle'
+  macc <- bsoGetBakerAccount bshandle' bid
   case macc of
     Nothing -> error "Precondition violated. Baker account does not exist."
     Just acc -> let balance = acc ^. accountAmount
-                in bsoModifyAccount bshandle (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (balance + amnt))
+                in bsoModifyAccount bshandle' (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (balance + executionReward + bakingReward))
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState'.
@@ -137,10 +155,9 @@ executeFrom slotNumber blockParent lfPointer blockBaker txs =
     bshandle <- thawBlockState (bpState blockParent)
     (res, bshandle') <- runBSM (Sch.execTransactions txs) cm bshandle
 
-    -- the main execution is now done. At this point we must reward the baker
-    -- and other parties.
-
-    bshandle'' <- rewardEveryone bshandle' blockBaker
+    -- the main execution is now done. At this point we must mint new currencty
+    -- and reward the baker and other parties.
+    bshandle'' <- mintAndReward bshandle' blockParent lfPointer slotNumber blockBaker
 
     finalbsHandle <- freezeBlockState bshandle''
     case res of
@@ -175,7 +192,7 @@ constructBlock slotNumber blockParent lfPointer blockBaker =
     ((valid, invalid), bshandle') <- runBSM (Sch.filterTransactions txs) cm bshandle
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle'' <- rewardEveryone bshandle' blockBaker
+    bshandle'' <- mintAndReward bshandle' blockParent lfPointer slotNumber blockBaker
 
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     -- At the same time we construct the return blockTransactions to avoid an additional traversal
