@@ -2,7 +2,7 @@ use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
 
 use std::{
-    collections::{BinaryHeap, HashMap},
+    collections::{BinaryHeap, HashMap, HashSet},
     fmt,
     rc::Rc,
 };
@@ -274,7 +274,7 @@ impl Skov {
 
         info!(
             "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree \
-             candidates: {:?}{}{}{}",
+             candidates: {:?}{}{}{}{}",
             sorted_block_map(&self.data.block_tree),
             self.data.last_finalized.hash,
             self.data
@@ -283,6 +283,7 @@ impl Skov {
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
             sorted_block_map(&self.data.tree_candidates),
+            self.data.print_inapplicable_finalizations(),
             self.data.print_pending_queue(AwaitingParentBlock),
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
@@ -301,7 +302,7 @@ impl Skov {
 ///
 /// The key is the missing block's hash and the values are affected pending
 /// blocks.
-type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
+type PendingQueue = HashMap<BlockHash, HashSet<PendingBlock>>;
 
 #[derive(Debug)]
 /// Holds the global state objects.
@@ -589,7 +590,7 @@ impl SkovData {
             .entry(missing_entry)
             .or_default();
 
-        queued.push(pending_block);
+        queued.insert(pending_block);
     }
 
     fn refresh_pending_queue(&mut self, queue: PendingQueueType, target_hash: &HashBytes) {
@@ -615,6 +616,14 @@ impl SkovData {
 
         self.tree_candidates
             .retain(|_, candidate| candidate.height >= current_height)
+    }
+
+    fn print_inapplicable_finalizations(&self) -> String {
+        if !self.inapplicable_finalization_records.is_empty() {
+            format!("\ninapplicable finalization records: {:?}", self.inapplicable_finalization_records)
+        } else {
+            String::new()
+        }
     }
 
     fn print_pending_queue(&self, queue: PendingQueueType) -> String {
