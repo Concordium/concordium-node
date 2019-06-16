@@ -109,12 +109,12 @@ instance S.Serialize WMVBAMessage where
         10 -> WMVBAWitnessCreatorMessage <$> getVal
         _ -> fail "Incorrect message type"
 
-data OutcomeState val = OSAwaiting | OSFrozen val | OSABBASuccess | OSDone deriving (Show)
+data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone deriving (Show)
 
 data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState,
     _abbaState :: ABBAState,
-    _justifiedDecision :: OutcomeState Val,
+    _justifiedDecision :: OutcomeState,
     _justifications :: Map Val (Int, Map Party sig)
 } deriving (Show)
 makeLenses ''WMVBAState
