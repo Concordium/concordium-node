@@ -12,6 +12,7 @@ import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
@@ -120,7 +121,8 @@ mintAndReward bshandle blockParent lfPointer slotNumber bid = do
   -- First we mint new currency. This can be used in rewarding bakers. First get
   -- the inflation rate of the parent block (this might have changed in the
   -- current block), and compute how much to mint based on elapsed time.
-  inflationRate <- getInflationRate (bpState blockParent)
+  rewardStatus <- getRewardStatus (bpState blockParent)
+  let inflationRate = rewardStatus ^. mintedGTUPerSlot
   let mintedAmount = fromIntegral (slotNumber - blockSlot (bpBlock blockParent)) * inflationRate
   (cbamount, bshandleMinted) <- bsoMint bshandle mintedAmount
 

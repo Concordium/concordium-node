@@ -14,6 +14,7 @@ import Control.Monad
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
+import Data.Aeson(Value(Null))
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
@@ -23,24 +24,32 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization(FinalizationIndex(..))
+import Concordium.GlobalState.TreeState.Basic(BlockState)
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
 import Concordium.Birk.Bake
 import Concordium.Runner
 import Concordium.Show
-import Concordium.Skov (SkovFinalizationEvent(..), UpdateResult(..))
+import Concordium.Skov (SkovFinalizationState, SimpleSkovMonad, SkovFinalizationEvent(..), UpdateResult(..))
 import Concordium.Afgjort.Finalize (FinalizationOutputEvent(..))
 import Concordium.Logger
 
 import qualified Concordium.Getters as Get
 import qualified Concordium.Startup as S
 
+-- |Block state computations to get either the best block state or the last
+-- finalized block state.
+type BlockStateM = SimpleSkovMonad SkovFinalizationState IO BlockState
+
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
 
 -- |A 'BlockReference' is a pointer to a block hash as a sequence of 32 bytes.
 type BlockReference = Ptr Word8
+
+jsonValueToCString :: Value -> IO CString
+jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
 
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
@@ -390,7 +399,7 @@ getConsensusStatus :: StablePtr BakerRunner -> IO CString
 getConsensusStatus bptr = do
     sfsRef <- bakerSyncRunner <$> deRefStablePtr bptr
     status <- Get.getConsensusStatus sfsRef
-    newCString $ LT.unpack $ AET.encodeToLazyText status
+    jsonValueToCString status
 
 -- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
 -- string containing a JSON representation of the block.
@@ -399,7 +408,7 @@ getBlockInfo bptr blockcstr = do
     sfsRef <- bakerSyncRunner <$> deRefStablePtr bptr
     block <- peekCString blockcstr
     blockInfo <- Get.getBlockInfo sfsRef block
-    newCString $ LT.unpack $ AET.encodeToLazyText blockInfo
+    jsonValueToCString blockInfo
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
@@ -409,7 +418,7 @@ getAncestors bptr blockcstr depth = do
     sfsRef <- bakerSyncRunner <$> deRefStablePtr bptr
     block <- peekCString blockcstr
     ancestors <- Get.getAncestors sfsRef block (fromIntegral depth)
-    newCString $ LT.unpack $ AET.encodeToLazyText ancestors
+    jsonValueToCString ancestors
 
 -- |Returns a null-terminated string with a JSON representation of the current branches from the
 -- last finalized block (inclusive).
@@ -417,7 +426,7 @@ getBranches :: StablePtr BakerRunner -> IO CString
 getBranches bptr = do
     sfsRef <- bakerSyncRunner <$> deRefStablePtr bptr
     branches <- Get.getBranches sfsRef
-    newCString $ LT.unpack $ AET.encodeToLazyText branches
+    jsonValueToCString branches
 
 
 
@@ -428,28 +437,39 @@ byteStringToCString bs = do
                                                     copyBytes dest cstr len
                                                     return dest
 
-getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
-getLastFinalAccountList bptr = do
+getAccountList :: BlockStateM -> StablePtr BakerRunner -> IO CString
+getAccountList state bptr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account list request."
-    alist <- Get.getLastFinalAccountList bakerSyncRunner
+    alist <- Get.getAccountList state bakerSyncRunner
     logm External LLInfo $ "Replying with the list: " ++ show alist
-    let s = encode alist
-    byteStringToCString s
+    jsonValueToCString alist
 
-getLastFinalInstances :: StablePtr BakerRunner -> IO CString
-getLastFinalInstances bptr = do
+getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
+getLastFinalAccountList = getAccountList Get.getLastFinalState
+
+getBestBlockAccountList :: StablePtr BakerRunner -> IO CString
+getBestBlockAccountList = getAccountList Get.getBestBlockState
+
+
+getInstances :: BlockStateM -> StablePtr BakerRunner -> IO CString
+getInstances state bptr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received instance list request."
-    alist <- Get.getLastFinalInstances bakerSyncRunner
-    logm External LLInfo $ "Replying with the list: " ++ (show alist)
-    let s = encode alist
-    byteStringToCString s
+    istances <- Get.getInstances state bakerSyncRunner
+    logm External LLInfo $ "Replying with the list: " ++ (show istances)
+    jsonValueToCString istances
+
+getLastFinalInstances :: StablePtr BakerRunner -> IO CString
+getLastFinalInstances = getInstances Get.getLastFinalState
+
+getBestBlockInstances :: StablePtr BakerRunner -> IO CString
+getBestBlockInstances = getInstances Get.getBestBlockState
   
-getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
-getLastFinalAccountInfo bptr cstr = do
+getAccountInfo :: BlockStateM -> StablePtr BakerRunner -> Ptr CChar -> IO CString
+getAccountInfo state bptr cstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account info request."
@@ -457,15 +477,54 @@ getLastFinalAccountInfo bptr cstr = do
     case decode bs of
         Left _ -> do
                 logm External LLInfo "Could not decode address."
-                byteStringToCString BS.empty
+                jsonValueToCString Null
         Right acc -> do
                 logm External LLInfo $ "Decoded address to: " ++ show acc
-                ainfo <- Get.getLastFinalAccountInfo bakerSyncRunner acc
+                ainfo <- Get.getAccountInfo state bakerSyncRunner acc
                 logm External LLInfo $ "Replying with: " ++ show ainfo
-                byteStringToCString (encode ainfo)
+                jsonValueToCString ainfo
 
-getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-getLastFinalInstanceInfo bptr cstr = do
+
+getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
+getLastFinalAccountInfo = getAccountInfo Get.getLastFinalState
+
+getBestBlockAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
+getBestBlockAccountInfo = getAccountInfo Get.getBestBlockState
+
+getRewardStatus :: BlockStateM -> StablePtr BakerRunner -> IO CString
+getRewardStatus state bptr = do
+    BakerRunner{..} <- deRefStablePtr bptr
+    let logm = syncLogMethod bakerSyncRunner
+    logm External LLInfo "Received request for bank status."
+    reward <- Get.getRewardStatus state bakerSyncRunner
+    logm External LLInfo $ "Replying with" ++ show reward
+    jsonValueToCString reward
+
+getLastFinalRewardStatus :: StablePtr BakerRunner -> IO CString
+getLastFinalRewardStatus = getRewardStatus Get.getLastFinalState
+
+getBestBlockRewardStatus :: StablePtr BakerRunner -> IO CString
+getBestBlockRewardStatus = getRewardStatus Get.getBestBlockState
+
+getBirkParameters :: BlockStateM -> StablePtr BakerRunner -> IO CString
+getBirkParameters state bptr = do
+    BakerRunner{..} <- deRefStablePtr bptr
+    let logm = syncLogMethod bakerSyncRunner
+    logm External LLInfo "Received request Birk parameters."
+    bps <- Get.getBirkParameters state bakerSyncRunner
+    logm External LLInfo $ "Replying with" ++ show bps
+    jsonValueToCString bps
+
+getLastFinalBirkParameters :: StablePtr BakerRunner -> IO CString
+getLastFinalBirkParameters = getBirkParameters Get.getLastFinalState
+
+getBestBlockBirkParameters :: StablePtr BakerRunner -> IO CString
+getBestBlockBirkParameters = getBirkParameters Get.getBestBlockState
+
+-- TODO: Addresses are not json encoded, but returns are, this should probably be fixed to avoid
+-- silly issues
+getInstanceInfo :: BlockStateM -> StablePtr BakerRunner -> Ptr CChar -> IO CString
+getInstanceInfo state bptr cstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account info request."
@@ -473,16 +532,21 @@ getLastFinalInstanceInfo bptr cstr = do
     case decode bs of
         Left _ -> do
                 logm External LLInfo "Could not decode address."
-                byteStringToCString BS.empty
+                jsonValueToCString Null
         Right ii -> do
                 logm External LLInfo $ "Decoded address to: " ++ show ii
-                iinfo <- Get.getLastFinalContractInfo bakerSyncRunner ii
+                iinfo <- Get.getContractInfo state bakerSyncRunner ii
                 logm External LLInfo $ "Replying with: " ++ show ii
-                byteStringToCString (encode iinfo)
+                jsonValueToCString iinfo
+
+getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
+getLastFinalInstanceInfo = getInstanceInfo Get.getLastFinalState
+
+getBestBlockInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
+getBestBlockInstanceInfo = getInstanceInfo Get.getBestBlockState
 
 freeCStr :: CString -> IO ()
 freeCStr = free
-
 
 -- |Get a block for the given block hash.
 -- The block hash is passed as a pointer to a fixed length (32 byte) string.
@@ -640,3 +704,12 @@ foreign export ccall getLastFinalAccountList :: StablePtr BakerRunner -> IO CStr
 foreign export ccall getLastFinalInstances :: StablePtr BakerRunner -> IO CString
 foreign export ccall getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
 foreign export ccall getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getLastFinalRewardStatus :: StablePtr BakerRunner -> IO CString
+foreign export ccall getLastFinalBirkParameters :: StablePtr BakerRunner -> IO CString
+
+foreign export ccall getBestBlockAccountList :: StablePtr BakerRunner -> IO CString
+foreign export ccall getBestBlockInstances :: StablePtr BakerRunner -> IO CString
+foreign export ccall getBestBlockAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getBestBlockInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getBestBlockRewardStatus :: StablePtr BakerRunner -> IO CString
+foreign export ccall getBestBlockBirkParameters :: StablePtr BakerRunner -> IO CString
