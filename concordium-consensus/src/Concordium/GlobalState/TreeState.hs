@@ -25,6 +25,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules
@@ -149,12 +150,8 @@ class Monad m => BlockStateQuery m where
     -- still block dependent.
     getBirkParameters :: BlockState m -> m BirkParameters
 
-    -- |Get the inflation rate for the current state (amount of GTU created per
-    -- slot).
-    getInflationRate :: BlockState m -> m Amount
-
-    -- |Get the amount of GTU in the central bank.
-    getCentralBankGTU :: BlockState m -> m Amount
+    -- |Get reward summary for this block.
+    getRewardStatus :: BlockState m -> m BankStatus
 
 
 type family UpdatableBlockState (m :: * -> *) :: *
@@ -469,9 +466,8 @@ instance BlockStateQuery m => BlockStateQuery (MaybeT m) where
   getContractInstanceList = lift . getContractInstanceList
 
   getBirkParameters = lift . getBirkParameters
-  getInflationRate = lift . getInflationRate
 
-  getCentralBankGTU = lift . getCentralBankGTU
+  getRewardStatus = lift . getRewardStatus
 
 
 type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
@@ -556,9 +552,9 @@ instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
   getContractInstanceList = lift . getContractInstanceList
 
   getBirkParameters = lift . getBirkParameters
-  getInflationRate = lift . getInflationRate
 
-  getCentralBankGTU = lift . getCentralBankGTU
+  getRewardStatus = lift . getRewardStatus
+
 
 type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
 
