@@ -20,6 +20,9 @@ import Lens.Micro.Platform
 --
 --  * Identites of accounts which have deployed the code of smart contracts
 --    which was involved in contract execution.
+--
+--  * This record should likely be split into two. One for info about the status of all amounts.
+--    and another one for the specific rewards (identity issuers, finalization, ...)
 data BankStatus = BankStatus {
   -- |Total amount of GTU in existence.
   _totalGTU :: Amount,
