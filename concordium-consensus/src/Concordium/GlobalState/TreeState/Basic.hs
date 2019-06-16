@@ -260,12 +260,8 @@ instance (Monad m, MonadState s m) => TS.BlockStateQuery (SkovTreeState s m) whe
     {-# INLINE getBirkParameters #-}
     getBirkParameters = return . _blockBirkParameters
 
-    {-# INLINE getInflationRate #-}
-    getInflationRate = return . Rewards._mintedGTUPerSlot . _blockBank
-
-    {-# INLINE getCentralBankGTU #-}
-    getCentralBankGTU = return . Rewards._centralBankGTU . _blockBank
-
+    {-# INLINE getRewardStatus #-}
+    getRewardStatus = return . _blockBank
 
 type instance TS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
