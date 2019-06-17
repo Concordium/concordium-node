@@ -443,7 +443,7 @@ getAccountList state bptr = do
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account list request."
     alist <- Get.getAccountList state bakerSyncRunner
-    logm External LLInfo $ "Replying with the list: " ++ show alist
+    logm External LLDebug $ "Replying with the list: " ++ show alist
     jsonValueToCString alist
 
 getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
@@ -459,7 +459,7 @@ getInstances state bptr = do
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received instance list request."
     istances <- Get.getInstances state bakerSyncRunner
-    logm External LLInfo $ "Replying with the list: " ++ (show istances)
+    logm External LLDebug $ "Replying with the list: " ++ (show istances)
     jsonValueToCString istances
 
 getLastFinalInstances :: StablePtr BakerRunner -> IO CString
@@ -481,7 +481,7 @@ getAccountInfo state bptr cstr = do
         Right acc -> do
                 logm External LLInfo $ "Decoded address to: " ++ show acc
                 ainfo <- Get.getAccountInfo state bakerSyncRunner acc
-                logm External LLInfo $ "Replying with: " ++ show ainfo
+                logm External LLDebug $ "Replying with: " ++ show ainfo
                 jsonValueToCString ainfo
 
 
@@ -497,7 +497,7 @@ getRewardStatus state bptr = do
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received request for bank status."
     reward <- Get.getRewardStatus state bakerSyncRunner
-    logm External LLInfo $ "Replying with" ++ show reward
+    logm External LLDebug $ "Replying with" ++ show reward
     jsonValueToCString reward
 
 
@@ -505,10 +505,10 @@ getModuleList :: BlockStateM -> StablePtr BakerRunner -> IO CString
 getModuleList state bptr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
-    logm External LLInfo "Received request for bank status."
-    reward <- Get.getModuleList state bakerSyncRunner
-    logm External LLInfo $ "Replying with" ++ show reward
-    jsonValueToCString reward
+    logm External LLInfo "Received request for list of modules."
+    mods <- Get.getModuleList state bakerSyncRunner
+    logm External LLDebug $ "Replying with" ++ show mods
+    jsonValueToCString mods
 
 getLastFinalModuleList :: StablePtr BakerRunner -> IO CString
 getLastFinalModuleList = getModuleList Get.getLastFinalState
@@ -528,7 +528,7 @@ getBirkParameters state bptr = do
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received request Birk parameters."
     bps <- Get.getBirkParameters state bakerSyncRunner
-    logm External LLInfo $ "Replying with" ++ show bps
+    logm External LLDebug $ "Replying with" ++ show bps
     jsonValueToCString bps
 
 getLastFinalBirkParameters :: StablePtr BakerRunner -> IO CString
@@ -552,7 +552,7 @@ getInstanceInfo state bptr cstr = do
         Right ii -> do
                 logm External LLInfo $ "Decoded address to: " ++ show ii
                 iinfo <- Get.getContractInfo state bakerSyncRunner ii
-                logm External LLInfo $ "Replying with: " ++ show ii
+                logm External LLDebug $ "Replying with: " ++ show ii
                 jsonValueToCString iinfo
 
 getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
