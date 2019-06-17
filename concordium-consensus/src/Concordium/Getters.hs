@@ -105,6 +105,12 @@ getBirkParameters blockstate sfsRef = runStateQuery sfsRef $ do
                        Map.toList $ birkBakers)
     ]
 
+getModuleList :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> IO Value
+getModuleList blockstate sfsRef = runStateQuery sfsRef $ do
+  st <- blockstate
+  mlist <- TS.getModuleList st
+  return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
+
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock

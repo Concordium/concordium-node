@@ -500,6 +500,22 @@ getRewardStatus state bptr = do
     logm External LLInfo $ "Replying with" ++ show reward
     jsonValueToCString reward
 
+
+getModuleList :: BlockStateM -> StablePtr BakerRunner -> IO CString
+getModuleList state bptr = do
+    BakerRunner{..} <- deRefStablePtr bptr
+    let logm = syncLogMethod bakerSyncRunner
+    logm External LLInfo "Received request for bank status."
+    reward <- Get.getModuleList state bakerSyncRunner
+    logm External LLInfo $ "Replying with" ++ show reward
+    jsonValueToCString reward
+
+getLastFinalModuleList :: StablePtr BakerRunner -> IO CString
+getLastFinalModuleList = getModuleList Get.getLastFinalState
+
+getBestBlockModuleList :: StablePtr BakerRunner -> IO CString
+getBestBlockModuleList = getModuleList Get.getBestBlockState
+
 getLastFinalRewardStatus :: StablePtr BakerRunner -> IO CString
 getLastFinalRewardStatus = getRewardStatus Get.getLastFinalState
 
