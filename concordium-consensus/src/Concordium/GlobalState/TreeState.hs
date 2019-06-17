@@ -20,6 +20,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
 
 import Concordium.Types.Acorn.Core(ModuleRef)
+import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
@@ -222,7 +223,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m -> ModuleRef -> Interface -> ValueInterface -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: UpdatableBlockState m -> ModuleRef -> Interface -> ValueInterface -> Core.Module -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -481,7 +482,7 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
 
   bsoPutNewAccount s = bsoPutNewAccount s
   bsoPutNewInstance s = bsoPutNewInstance s
-  bsoPutNewModule s mref iface viface = lift (bsoPutNewModule s mref iface viface)
+  bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
 
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
@@ -567,7 +568,7 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
 
   bsoPutNewAccount s = bsoPutNewAccount s
   bsoPutNewInstance s = bsoPutNewInstance s
-  bsoPutNewModule s mref iface viface = lift (bsoPutNewModule s mref iface viface)
+  bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
 
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model

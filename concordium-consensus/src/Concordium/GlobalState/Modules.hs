@@ -23,7 +23,8 @@ type ModuleIndex = Word64
 data Module = Module {
     moduleInterface :: !Interface,
     moduleValueInterface :: !ValueInterface,
-    moduleIndex :: !ModuleIndex
+    moduleIndex :: !ModuleIndex,
+    moduleSource :: Core.Module
 }
 
 -- |A collection of modules.
@@ -41,10 +42,10 @@ emptyModules :: Modules
 emptyModules = Modules Map.empty 0 (H.hash "")
 
 -- |Create a collection of modules from a list in reverse order of creation.
-fromModuleList :: [(Core.ModuleRef, Interface, ValueInterface)] -> Modules
+fromModuleList :: [(Core.ModuleRef, Interface, ValueInterface, Core.Module)] -> Modules
 fromModuleList = foldr safePut emptyModules
     where
-        safePut (mref, iface, viface) m = fromMaybe m $ putInterfaces mref iface viface m
+        safePut (mref, iface, viface, source) m = fromMaybe m $ putInterfaces mref iface viface source m
 
 -- |Get the interfaces for a given module by 'Core.ModuleRef'.
 getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface, ValueInterface)
@@ -55,11 +56,11 @@ getInterfaces mref m = do
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Modules -> Maybe Modules
-putInterfaces mref iface viface m =
+putInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Core.Module -> Modules -> Maybe Modules
+putInterfaces mref iface viface source m =
   if Map.member mref (_modules m) then Nothing
   else Just (Modules {
-                _modules = Map.insert mref (Module iface viface (_nextModuleIndex m)) (_modules m),
+                _modules = Map.insert mref (Module iface viface (_nextModuleIndex m) source) (_modules m),
                 _nextModuleIndex = 1 + _nextModuleIndex m,
                 _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
             })
@@ -68,10 +69,10 @@ putInterfaces mref iface viface m =
 -- |Same as 'putInterfaces', but do not check for existence of a module. Hence
 -- the precondition of this method is that a module with the same hash is not in
 -- the table already
-unsafePutInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Modules -> Modules
-unsafePutInterfaces mref iface viface m =
+unsafePutInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Core.Module -> Modules -> Modules
+unsafePutInterfaces mref iface viface source m =
     Modules {
-             _modules = Map.insert mref (Module iface viface (_nextModuleIndex m)) (_modules m),
+             _modules = Map.insert mref (Module iface viface (_nextModuleIndex m) source) (_modules m),
              _nextModuleIndex = 1 + _nextModuleIndex m,
              _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
             }
