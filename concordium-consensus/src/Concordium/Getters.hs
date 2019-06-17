@@ -19,7 +19,9 @@ import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
+import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instances
+import Concordium.GlobalState.Modules(moduleSource)
 import Concordium.GlobalState.Finalization
 
 import Concordium.Afgjort.Finalize
@@ -110,6 +112,13 @@ getModuleList blockstate sfsRef = runStateQuery sfsRef $ do
   st <- blockstate
   mlist <- TS.getModuleList st
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
+
+
+getModuleSource :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> ModuleRef -> IO (Maybe Core.Module)
+getModuleSource blockstate sfsRef mhash = runStateQuery sfsRef $ do
+  st <- blockstate
+  mmodul <- TS.getModule st mhash
+  return $ (moduleSource <$> mmodul)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do

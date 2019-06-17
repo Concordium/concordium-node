@@ -20,6 +20,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
+import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
@@ -560,6 +561,29 @@ getLastFinalInstanceInfo = getInstanceInfo Get.getLastFinalState
 
 getBestBlockInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
 getBestBlockInstanceInfo = getInstanceInfo Get.getBestBlockState
+
+
+-- |NB: The return value is not JSON encoded but rather it is a binary
+-- serialization The first 4 bytes are the length of the rest of the string, and
+-- the string is __NOT__ null terminated.
+getModuleSource :: BlockStateM -> StablePtr BakerRunner -> Ptr CChar -> IO CString
+getModuleSource state bptr cstr = do
+    BakerRunner{..} <- deRefStablePtr bptr
+    let logm = syncLogMethod bakerSyncRunner
+    logm External LLInfo "Received request for a module."
+    bs <- BS.packCStringLen (cstr, 32) -- module hash is 32 bytes
+    let mref = ModuleRef (Hash.Hash (FBS.fromByteString bs))
+    logm External LLInfo $ "Decoded module hash to : " ++ show mref -- base 16
+    mmodul <- Get.getModuleSource state bakerSyncRunner mref
+    case mmodul of
+      Nothing -> do
+        logm External LLInfo "Module not available."
+        byteStringToCString BS.empty
+      Just modul ->
+        let reply = P.runPut (Core.putModule modul)
+        in do
+          logm External LLDebug $ "Replying with data size = " ++ show (BS.length reply)
+          byteStringToCString reply
 
 freeCStr :: CString -> IO ()
 freeCStr = free

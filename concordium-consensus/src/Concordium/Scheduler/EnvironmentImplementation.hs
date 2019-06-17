@@ -68,9 +68,9 @@ instance SchedulerMonad SchedulerImplementation where
     blockAccounts .= accounts'
 
   {-# INLINE commitModule #-}
-  commitModule mhash iface viface = do
+  commitModule mhash iface viface source = do
     mods <- use blockModules
-    let mod' = Mod.putInterfaces mhash iface viface mods
+    let mod' = Mod.putInterfaces mhash iface viface source mods
     case mod' of
       Nothing -> return False
       Just modules -> True <$ (blockModules .= modules)

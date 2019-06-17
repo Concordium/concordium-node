@@ -51,8 +51,8 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
 
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
-  -- existed.
-  commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> m Bool
+  -- existed. Also store the code of the module for archival purposes.
+  commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Core.Module -> m Bool
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the

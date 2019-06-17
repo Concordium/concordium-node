@@ -125,7 +125,7 @@ dispatch msg = do
                   let execCost = thGasAmount meta - energy'
                   energyToGtu execCost >>= notifyExecutionCost
                   commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
-                  b <- commitModule mhash iface viface
+                  b <- commitModule mhash iface viface mod
                   if b then do
                     return $ (TxValid $ TxSuccess [ModuleDeployed mhash])
                   else do
