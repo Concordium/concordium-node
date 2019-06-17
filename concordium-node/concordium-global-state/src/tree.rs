@@ -519,6 +519,11 @@ impl SkovData {
     }
 
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+        if Some(&record) == self.finalization_list.last() {
+            // we always get N-1 duplicate finalization records from the last round
+            return SkovResult::SuccessfulEntry;
+        }
+
         // check if the record's index is in the future; if it is, keep the record
         // for later and await further blocks
         let last_finalized_idx = self.finalization_list.last().unwrap().index; // safe, always there

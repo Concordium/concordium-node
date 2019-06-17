@@ -176,14 +176,14 @@ pub fn handle_pkt_out(
 
     let (request_body, consensus_applicable) = match packet_type {
         Block => {
-            let payload = PendingBlock::new(&content)?;
+            let payload = PendingBlock::new(content)?;
             let body = Some(SkovReqBody::AddBlock(payload));
             (body, true)
         }
         FinalizationRecord => {
-            // we save our own finalization records, so there's no need
-            // for duplicates from the rest of the committee
-            return Ok(());
+            let payload = FinalizationRecord::deserialize(content)?;
+            let body = Some(SkovReqBody::AddFinalizationRecord(payload));
+            (body, true)
         }
         CatchupBlockByHash => {
             let hash = HashBytes::new(&content[..SHA256 as usize]);
@@ -193,7 +193,7 @@ pub fn handle_pkt_out(
             (Some(SkovReqBody::GetBlock(hash, delta)), false)
         }
         CatchupFinalizationRecordByHash => {
-            let payload = HashBytes::new(&content);
+            let payload = HashBytes::new(content);
             let body = Some(SkovReqBody::GetFinalizationRecordByHash(payload));
             (body, false)
         }
@@ -363,7 +363,7 @@ fn send_finalization_message_to_consensus(
     content: &[u8],
 ) -> Fallible<()> {
     baker.send_finalization(peer_id.as_raw(), content);
-    debug!(
+    info!(
         "Peer {}'s {:?} was sent to our consensus layer",
         peer_id,
         FinalizationMessage::deserialize(content)?

@@ -128,11 +128,6 @@ fn setup_baker_guards(
                                     node.send_broadcast_message(None, network_id, None, out_bytes)
                                 };
 
-                                // temporarily silence the most spammy messages
-                                if msg.variant == ffi::PacketType::FinalizationMessage {
-                                    continue;
-                                }
-
                                 let msg_metadata = if let Some(tgt) = msg.producer {
                                     format!("direct message to peer {}", P2PNodeId(tgt))
                                 } else {
