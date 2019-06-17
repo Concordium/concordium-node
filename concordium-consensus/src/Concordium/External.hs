@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards #-}
+{-# LANGUAGE ForeignFunctionInterface, LambdaCase, RecordWildCards, OverloadedStrings #-}
 module Concordium.External where
 
 import Foreign
@@ -8,9 +8,12 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
 import Data.Serialize.Put as P
+import qualified Data.Aeson as AE
 import Data.Foldable(forM_)
+import Text.Read(readMaybe)
 import Control.Exception
 import Control.Monad
+
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
@@ -20,6 +23,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
+import Concordium.ID.Types(safeDecodeBase58Address)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
@@ -438,152 +442,161 @@ byteStringToCString bs = do
                                                     copyBytes dest cstr len
                                                     return dest
 
-getAccountList :: BlockStateM -> StablePtr BakerRunner -> IO CString
-getAccountList state bptr = do
+withBlockHash :: CString -> (String -> IO ()) -> (BlockHash -> IO CString) -> IO CString
+withBlockHash blockcstr logm f = 
+  readMaybe <$> (peekCString blockcstr) >>=
+    \case Nothing -> do
+            logm "Block hash invalid. Returning empty string."
+            newCString ""
+          Just hash -> f hash
+
+-- |Get the list of account addresses in the given block. The block must be
+-- given as a null-terminated base16 encoding of the block hash. The return
+-- value is a null-terminated JSON-encoded list of addresses.
+-- The returned string should be freed by calling 'freeCStr'.
+getAccountList :: StablePtr BakerRunner -> CString -> IO CString
+getAccountList bptr blockcstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account list request."
-    alist <- Get.getAccountList state bakerSyncRunner
-    logm External LLDebug $ "Replying with the list: " ++ show alist
-    jsonValueToCString alist
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      alist <- Get.getAccountList hash bakerSyncRunner
+      logm External LLDebug $ "Replying with the list: " ++ show alist
+      jsonValueToCString alist
 
-getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
-getLastFinalAccountList = getAccountList Get.getLastFinalState
-
-getBestBlockAccountList :: StablePtr BakerRunner -> IO CString
-getBestBlockAccountList = getAccountList Get.getBestBlockState
-
-
-getInstances :: BlockStateM -> StablePtr BakerRunner -> IO CString
-getInstances state bptr = do
+-- |Get the list of contract instances (their addresses) in the given block. The
+-- block must be given as a null-terminated base16 encoding of the block hash.
+-- The return value is a null-terminated JSON-encoded list of addresses.
+-- The returned string should be freed by calling 'freeCStr'.
+getInstances :: StablePtr BakerRunner -> CString -> IO CString
+getInstances bptr blockcstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received instance list request."
-    istances <- Get.getInstances state bakerSyncRunner
-    logm External LLDebug $ "Replying with the list: " ++ (show istances)
-    jsonValueToCString istances
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      istances <- Get.getInstances hash bakerSyncRunner
+      logm External LLDebug $ "Replying with the list: " ++ (show istances)
+      jsonValueToCString istances
 
-getLastFinalInstances :: StablePtr BakerRunner -> IO CString
-getLastFinalInstances = getInstances Get.getLastFinalState
 
-getBestBlockInstances :: StablePtr BakerRunner -> IO CString
-getBestBlockInstances = getInstances Get.getBestBlockState
-  
-getAccountInfo :: BlockStateM -> StablePtr BakerRunner -> Ptr CChar -> IO CString
-getAccountInfo state bptr cstr = do
+-- |Get account information for the given block and instance. The block must be
+-- given as a null-terminated base16 encoding of the block hash and the account
+-- address (second CString) must be given as a null-terminated string in Base58
+-- encoding (same format as returned by 'getAccountList'). The return value is a
+-- null-terminated, json encoded information.
+-- The returned string should be freed by calling 'freeCStr'.
+getAccountInfo :: StablePtr BakerRunner -> CString -> CString -> IO CString
+getAccountInfo bptr blockcstr cstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account info request."
-    bs <- BS.packCStringLen (cstr, 21)
-    case decode bs of
-        Left _ -> do
-                logm External LLInfo "Could not decode address."
-                jsonValueToCString Null
-        Right acc -> do
-                logm External LLInfo $ "Decoded address to: " ++ show acc
-                ainfo <- Get.getAccountInfo state bakerSyncRunner acc
-                logm External LLDebug $ "Replying with: " ++ show ainfo
-                jsonValueToCString ainfo
+    bs <- BS.packCString cstr
+    safeDecodeBase58Address bs >>= \case
+      Nothing -> do
+        logm External LLInfo "Could not decode address."
+        jsonValueToCString Null
+      Just acc -> do
+        logm External LLInfo $ "Decoded address to: " ++ show acc
+        withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+          ainfo <- Get.getAccountInfo hash bakerSyncRunner acc
+          logm External LLDebug $ "Replying with: " ++ show ainfo
+          jsonValueToCString ainfo
 
-
-getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
-getLastFinalAccountInfo = getAccountInfo Get.getLastFinalState
-
-getBestBlockAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
-getBestBlockAccountInfo = getAccountInfo Get.getBestBlockState
-
-getRewardStatus :: BlockStateM -> StablePtr BakerRunner -> IO CString
-getRewardStatus state bptr = do
+-- |Get the status of the rewards parameters for the given block. The block must
+-- be given as a null-terminated base16 encoding of the block hash.
+-- The return value is a null-terminated, JSON encoded value.
+-- The returned string should be freed by calling 'freeCStr'.
+getRewardStatus :: StablePtr BakerRunner -> CString -> IO CString
+getRewardStatus bptr blockcstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received request for bank status."
-    reward <- Get.getRewardStatus state bakerSyncRunner
-    logm External LLDebug $ "Replying with" ++ show reward
-    jsonValueToCString reward
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      reward <- Get.getRewardStatus hash bakerSyncRunner
+      logm External LLDebug $ "Replying with" ++ show reward
+      jsonValueToCString reward
 
 
-getModuleList :: BlockStateM -> StablePtr BakerRunner -> IO CString
-getModuleList state bptr = do
+-- |Get the list of modules in the given block. The block must be given as a
+-- null-terminated base16 encoding of the block hash.
+-- The return value is a null-terminated JSON-encoded list.
+-- The returned string should be freed by calling 'freeCStr'.
+getModuleList :: StablePtr BakerRunner -> CString -> IO CString
+getModuleList bptr blockcstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received request for list of modules."
-    mods <- Get.getModuleList state bakerSyncRunner
-    logm External LLDebug $ "Replying with" ++ show mods
-    jsonValueToCString mods
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      mods <- Get.getModuleList hash bakerSyncRunner
+      logm External LLDebug $ "Replying with" ++ show mods
+      jsonValueToCString mods
 
-getLastFinalModuleList :: StablePtr BakerRunner -> IO CString
-getLastFinalModuleList = getModuleList Get.getLastFinalState
-
-getBestBlockModuleList :: StablePtr BakerRunner -> IO CString
-getBestBlockModuleList = getModuleList Get.getBestBlockState
-
-getLastFinalRewardStatus :: StablePtr BakerRunner -> IO CString
-getLastFinalRewardStatus = getRewardStatus Get.getLastFinalState
-
-getBestBlockRewardStatus :: StablePtr BakerRunner -> IO CString
-getBestBlockRewardStatus = getRewardStatus Get.getBestBlockState
-
-getBirkParameters :: BlockStateM -> StablePtr BakerRunner -> IO CString
-getBirkParameters state bptr = do
+-- |Get birk parameters for the given block. The block must be given as a
+-- null-terminated base16 encoding of the block hash.
+-- The return value is a null-terminated JSON-encoded value.
+-- The returned string should be freed by calling 'freeCStr'.
+getBirkParameters :: StablePtr BakerRunner -> CString -> IO CString
+getBirkParameters bptr blockcstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received request Birk parameters."
-    bps <- Get.getBirkParameters state bakerSyncRunner
-    logm External LLDebug $ "Replying with" ++ show bps
-    jsonValueToCString bps
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      bps <- Get.getBirkParameters hash bakerSyncRunner
+      logm External LLDebug $ "Replying with" ++ show bps
+      jsonValueToCString bps
 
-getLastFinalBirkParameters :: StablePtr BakerRunner -> IO CString
-getLastFinalBirkParameters = getBirkParameters Get.getLastFinalState
 
-getBestBlockBirkParameters :: StablePtr BakerRunner -> IO CString
-getBestBlockBirkParameters = getBirkParameters Get.getBestBlockState
-
--- TODO: Addresses are not json encoded, but returns are, this should probably be fixed to avoid
--- silly issues
-getInstanceInfo :: BlockStateM -> StablePtr BakerRunner -> Ptr CChar -> IO CString
-getInstanceInfo state bptr cstr = do
+-- |Get instance information the given block and instance. The block must be
+-- given as a null-terminated base16 encoding of the block hash and the address
+-- (second CString) must be given as a null-terminated JSON-encoded value.
+-- The return value is a null-terminated, json encoded information.
+-- The returned string should be freed by calling 'freeCStr'.
+getInstanceInfo :: StablePtr BakerRunner -> CString -> CString -> IO CString
+getInstanceInfo bptr blockcstr cstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received account info request."
-    bs <- BS.packCStringLen (cstr, 16)
-    case decode bs of
-        Left _ -> do
-                logm External LLInfo "Could not decode address."
-                jsonValueToCString Null
-        Right ii -> do
-                logm External LLInfo $ "Decoded address to: " ++ show ii
-                iinfo <- Get.getContractInfo state bakerSyncRunner ii
-                logm External LLDebug $ "Replying with: " ++ show ii
-                jsonValueToCString iinfo
-
-getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-getLastFinalInstanceInfo = getInstanceInfo Get.getLastFinalState
-
-getBestBlockInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-getBestBlockInstanceInfo = getInstanceInfo Get.getBestBlockState
+    bs <- BS.packCString cstr
+    case AE.decodeStrict bs of
+      Nothing -> do
+        logm External LLDebug "Could not decode address."
+        jsonValueToCString Null
+      Just ii -> do
+        logm External LLDebug $ "Decoded address to: " ++ show ii
+        withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+          iinfo <- Get.getContractInfo hash bakerSyncRunner ii
+          logm External LLDebug $ "Replying with: " ++ show ii
+          jsonValueToCString iinfo
 
 
--- |NB: The return value is not JSON encoded but rather it is a binary
--- serialization The first 4 bytes are the length of the rest of the string, and
--- the string is __NOT__ null terminated.
-getModuleSource :: BlockStateM -> StablePtr BakerRunner -> Ptr CChar -> IO CString
-getModuleSource state bptr cstr = do
+-- |NB: The return value is __NOT__ JSON encoded but rather it is a binary
+-- serialization. The first 4 bytes are the length of the rest of the string, and
+-- the string is __NOT__ null terminated and can contain null characters.
+-- The returned string should be freed by calling 'freeCStr'.
+getModuleSource :: StablePtr BakerRunner -> CString -> CString -> IO CString
+getModuleSource bptr blockcstr cstr = do
     BakerRunner{..} <- deRefStablePtr bptr
     let logm = syncLogMethod bakerSyncRunner
     logm External LLInfo "Received request for a module."
-    bs <- BS.packCStringLen (cstr, 32) -- module hash is 32 bytes
-    let mref = ModuleRef (Hash.Hash (FBS.fromByteString bs))
-    logm External LLInfo $ "Decoded module hash to : " ++ show mref -- base 16
-    mmodul <- Get.getModuleSource state bakerSyncRunner mref
-    case mmodul of
+    bs <- peekCString cstr -- null terminated
+    case readMaybe bs of
       Nothing -> do
-        logm External LLInfo "Module not available."
+        logm External LLInfo "Cannot decode module reference."
         byteStringToCString BS.empty
-      Just modul ->
-        let reply = P.runPut (Core.putModule modul)
-        in do
-          logm External LLDebug $ "Replying with data size = " ++ show (BS.length reply)
-          byteStringToCString reply
+      Just mrefhash -> do
+        let mref = ModuleRef mrefhash
+        logm External LLInfo $ "Decoded module hash to : " ++ show mref -- base 16
+        withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+          mmodul <- Get.getModuleSource hash bakerSyncRunner mref
+          case mmodul of
+            Nothing -> do
+              logm External LLDebug "Module not available."
+              byteStringToCString BS.empty
+            Just modul ->
+              let reply = P.runPut (Core.putModule modul)
+              in do
+                logm External LLDebug $ "Replying with data size = " ++ show (BS.length reply)
+                byteStringToCString reply
 
 freeCStr :: CString -> IO ()
 freeCStr = free
@@ -740,16 +753,11 @@ foreign export ccall getFinalizationPoint :: StablePtr BakerRunner -> IO CString
 
 -- report global state information will be removed in the future when global
 -- state is handled better
-foreign export ccall getLastFinalAccountList :: StablePtr BakerRunner -> IO CString
-foreign export ccall getLastFinalInstances :: StablePtr BakerRunner -> IO CString
-foreign export ccall getLastFinalAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
-foreign export ccall getLastFinalInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-foreign export ccall getLastFinalRewardStatus :: StablePtr BakerRunner -> IO CString
-foreign export ccall getLastFinalBirkParameters :: StablePtr BakerRunner -> IO CString
-
-foreign export ccall getBestBlockAccountList :: StablePtr BakerRunner -> IO CString
-foreign export ccall getBestBlockInstances :: StablePtr BakerRunner -> IO CString
-foreign export ccall getBestBlockAccountInfo :: StablePtr BakerRunner -> CString -> IO CString
-foreign export ccall getBestBlockInstanceInfo :: StablePtr BakerRunner -> CString -> IO CString
-foreign export ccall getBestBlockRewardStatus :: StablePtr BakerRunner -> IO CString
-foreign export ccall getBestBlockBirkParameters :: StablePtr BakerRunner -> IO CString
+foreign export ccall getAccountList :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getInstances :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getAccountInfo :: StablePtr BakerRunner -> CString -> CString -> IO CString
+foreign export ccall getInstanceInfo :: StablePtr BakerRunner -> CString -> CString -> IO CString
+foreign export ccall getRewardStatus :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getBirkParameters :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getModuleList :: StablePtr BakerRunner -> CString -> IO CString
+foreign export ccall getModuleSource :: StablePtr BakerRunner -> CString -> CString -> IO CString

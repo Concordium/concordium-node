@@ -14,13 +14,17 @@ EXPORTS
  getAncestors
  getBranches
  freeCStr
- getLastFinalAccountList
- getLastFinalInstances
- getLastFinalAccountInfo
- getLastFinalInstanceInfo
  getBlock
  getBlockDelta
  getBlockFinalization
  getIndexedFinalization
  getFinalizationMessages
  getFinalizationPoint
+ getAccountList
+ getInstances
+ getAccountInfo
+ getInstanceInfo
+ getRewardStatus
+ getBirkParameters
+ getModuleList
+ getModuleSource

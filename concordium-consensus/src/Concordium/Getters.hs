@@ -53,29 +53,36 @@ getBestBlockState = bpState <$> bestBlock
 getLastFinalState :: SkovQueryMonad m => m (TS.BlockState m)
 getLastFinalState = bpState <$> lastFinalizedBlock
 
-getAccountList :: SkovStateQueryable z m => m (TS.BlockState m) -> z -> IO Value
-getAccountList blockstate sfsRef = runStateQuery sfsRef $ do
-  st <- blockstate
+withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (TS.BlockState m -> m Value) -> m Value
+withBlockStateJSON hash f =
+  resolveBlock hash >>=
+    \case Nothing -> return Null
+          Just bp -> f (bpState bp)
+
+getAccountList :: SkovStateQueryable z m => BlockHash -> z -> IO Value
+getAccountList hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> do
   alist <- TS.getAccountList st
   return . toJSON . map show $ alist  -- show instance for account addresses is based on Base58 encoding
 
-getInstances :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> IO Value
-getInstances blockstate sfsRef = runStateQuery sfsRef $ do
-  ilist <- TS.getContractInstanceList =<< blockstate
-  return $ toJSON [object ["index" .= toInteger contractIndex, "subindex" .= toInteger contractSubindex] | ContractAddress{..} <- map iaddress ilist]
+getInstances :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getInstances hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> do
+  ilist <- TS.getContractInstanceList st
+  return $ toJSON (map iaddress ilist)
 
-getAccountInfo :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> AccountAddress -> IO Value
-getAccountInfo blockstate sfsRef addr = runStateQuery sfsRef $ do
-  st <- blockstate
+getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
+getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st ->
   TS.getAccount st addr >>=
       \case Nothing -> return Null
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
                                         ]
 
-getContractInfo :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> AT.ContractAddress -> IO Value
-getContractInfo blockstate sfsRef addr = runStateQuery sfsRef $ do
-  st <- blockstate
+getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
+getContractInfo hash sfsRef addr = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st ->
   TS.getContractInstance st addr >>=
       \case Nothing -> return Null
             Just istance -> let params = instanceParameters istance
@@ -83,9 +90,10 @@ getContractInfo blockstate sfsRef addr = runStateQuery sfsRef $ do
                                                ,"owner" .= String (T.pack (show (instanceOwner params))) -- account address show instance is base58
                                                ,"amount" .= toInteger (instanceAmount istance)]
 
-getRewardStatus :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> IO Value
-getRewardStatus blockstate sfsRef = runStateQuery sfsRef $ do
-  reward <- TS.getRewardStatus =<< blockstate
+getRewardStatus :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getRewardStatus hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> do
+  reward <- TS.getRewardStatus st
   return $ object [
     "totalAmount" .= (fromIntegral (reward ^. AT.totalGTU) :: Integer),
     "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
@@ -93,9 +101,10 @@ getRewardStatus blockstate sfsRef = runStateQuery sfsRef $ do
     "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer)
     ]
 
-getBirkParameters :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> IO Value
-getBirkParameters blockstate sfsRef = runStateQuery sfsRef $ do
-  BirkParameters{..} <- TS.getBirkParameters =<< blockstate
+getBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getBirkParameters hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> do
+  BirkParameters{..} <- TS.getBirkParameters st
   return $ object [
     "electionDifficulty" .= birkElectionDifficulty,
     "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ birkLeadershipElectionNonce),
@@ -107,18 +116,20 @@ getBirkParameters blockstate sfsRef = runStateQuery sfsRef $ do
                        Map.toList $ birkBakers)
     ]
 
-getModuleList :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> IO Value
-getModuleList blockstate sfsRef = runStateQuery sfsRef $ do
-  st <- blockstate
+getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getModuleList hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> do
   mlist <- TS.getModuleList st
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
 
 
-getModuleSource :: (SkovStateQueryable z m) => m (TS.BlockState m) -> z -> ModuleRef -> IO (Maybe Core.Module)
-getModuleSource blockstate sfsRef mhash = runStateQuery sfsRef $ do
-  st <- blockstate
-  mmodul <- TS.getModule st mhash
-  return $ (moduleSource <$> mmodul)
+getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe Core.Module)
+getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
+  resolveBlock hash >>=
+    \case Nothing -> return Nothing
+          Just bp -> do
+            mmodul <- TS.getModule (bpState bp) mhash
+            return $ (moduleSource <$> mmodul)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
