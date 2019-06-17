@@ -14,7 +14,7 @@ use crate::{
     p2p::{banned_nodes::BannedNode, P2PNode},
     proto::*,
 };
-use concordium_consensus::consensus::ConsensusContainer;
+use concordium_consensus::{consensus::ConsensusContainer, ffi::ConsensusFfiResponse};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
 use std::{
@@ -380,7 +380,7 @@ impl P2P for RpcServerImpl {
         authenticate!(ctx, req, sink, self.access_token, {
             match self.consensus {
                 Some(ref res) => match res.send_transaction(req.get_payload()) {
-                    0 => {
+                    ConsensusFfiResponse::Success => {
                         let mut r: SuccessResponse = SuccessResponse::new();
                         r.set_value(true);
                         let f = sink

@@ -2,7 +2,7 @@ use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
 
 use std::{
-    collections::{BinaryHeap, HashMap},
+    collections::{BinaryHeap, HashMap, HashSet},
     fmt,
     rc::Rc,
 };
@@ -90,6 +90,8 @@ pub enum SkovError {
     MissingFinalizationRecordByHash(HashBytes),
     // the requested finalization record with the given finalization index is not available
     MissingFinalizationRecordByIdx(FinalizationIndex),
+    // the finalization record's index is in the future
+    FutureFinalizationRecord(FinalizationIndex, FinalizationIndex),
 }
 
 impl fmt::Display for SkovError {
@@ -127,6 +129,10 @@ impl fmt::Display for SkovError {
             SkovError::MissingFinalizationRecordByIdx(index) => format!(
                 "requested finalization record for index {} is not available",
                 index
+            ),
+            SkovError::FutureFinalizationRecord(future_idx, curr_idx) => format!(
+                "the finalization record's index ({}) is in the future (current index: {})",
+                future_idx, curr_idx
             ),
         };
 
@@ -267,7 +273,7 @@ impl Skov {
 
         info!(
             "Skov data:\nblock tree: {:?}\nlast finalized: {:?}\nfinalization list: {:?}\ntree \
-             candidates: {:?}{}{}{}",
+             candidates: {:?}{}{}{}{}",
             sorted_block_map(&self.data.block_tree),
             self.data.last_finalized.hash,
             self.data
@@ -276,6 +282,7 @@ impl Skov {
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
             sorted_block_map(&self.data.tree_candidates),
+            self.data.print_inapplicable_finalizations(),
             self.data.print_pending_queue(AwaitingParentBlock),
             self.data.print_pending_queue(AwaitingLastFinalizedBlock),
             self.data
@@ -294,7 +301,7 @@ impl Skov {
 ///
 /// The key is the missing block's hash and the values are affected pending
 /// blocks.
-type PendingQueue = HashMap<BlockHash, Vec<PendingBlock>>;
+type PendingQueue = HashMap<BlockHash, HashSet<PendingBlock>>;
 
 #[derive(Debug)]
 /// Holds the global state objects.
@@ -317,7 +324,7 @@ pub struct SkovData {
     /// blocks waiting for their last finalized block to be included in the tree
     awaiting_last_finalized_block: PendingQueue,
     /// finalization records that point to blocks not present in the tree
-    inapplicable_finalization_records: Vec<FinalizationRecord>,
+    inapplicable_finalization_records: HashMap<BlockHash, FinalizationRecord>,
     /// contains transactions
     transaction_table: TransactionTable,
 }
@@ -351,7 +358,7 @@ impl SkovData {
                 SKOV_ERR_PREALLOCATION_SIZE,
             ),
             awaiting_last_finalized_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
-            inapplicable_finalization_records: Vec::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            inapplicable_finalization_records: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
         }
     }
@@ -450,6 +457,7 @@ impl SkovData {
         // can possibly promote some other queued pending blocks
         self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
+        self.refresh_finalization_record_queue(&housekeeping_hash);
 
         if insertion_result.is_none() {
             SkovResult::SuccessfulEntry
@@ -511,6 +519,16 @@ impl SkovData {
     }
 
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
+        // check if the record's index is in the future; if it is, keep the record
+        // for later and await further blocks
+        let last_finalized_idx = self.finalization_list.last().unwrap().index; // safe, always there
+        if record.index > last_finalized_idx + 1 {
+            let error = SkovError::FutureFinalizationRecord(record.index, last_finalized_idx);
+            self.inapplicable_finalization_records
+                .insert(record.block_pointer.clone(), record);
+            return SkovResult::Error(error);
+        }
+
         let housekeeping_hash = record.block_pointer.clone();
 
         let mut target_block = self.tree_candidates.remove_entry(&record.block_pointer);
@@ -520,10 +538,15 @@ impl SkovData {
         } else {
             let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
 
-            self.inapplicable_finalization_records.push(record);
+            self.inapplicable_finalization_records
+                .insert(record.block_pointer.clone(), record);
 
             return SkovResult::Error(error);
         }
+
+        // drop the now-redundant old pending finalization records
+        self.inapplicable_finalization_records
+            .retain(|_, rec| rec.index > record.index);
 
         let (target_hash, target_block) = target_block.unwrap(); // safe - we've already checked
 
@@ -569,7 +592,7 @@ impl SkovData {
             .entry(missing_entry)
             .or_default();
 
-        queued.push(pending_block);
+        queued.insert(pending_block);
     }
 
     fn refresh_pending_queue(&mut self, queue: PendingQueueType, target_hash: &HashBytes) {
@@ -582,11 +605,34 @@ impl SkovData {
         }
     }
 
+    fn refresh_finalization_record_queue(&mut self, target_hash: &HashBytes) {
+        if let Some(applicable_record) = self.inapplicable_finalization_records.remove(target_hash)
+        {
+            debug!(
+                "Reattempted to apply finalization record for block {:?}",
+                target_hash
+            );
+            // silence errors here, as it is a housekeeping operation
+            let _ = self.add_finalization(applicable_record);
+        }
+    }
+
     fn prune_candidate_list(&mut self) {
         let current_height = self.last_finalized.height;
 
         self.tree_candidates
             .retain(|_, candidate| candidate.height >= current_height)
+    }
+
+    fn print_inapplicable_finalizations(&self) -> String {
+        if !self.inapplicable_finalization_records.is_empty() {
+            format!(
+                "\ninapplicable finalization records: {:?}",
+                self.inapplicable_finalization_records
+            )
+        } else {
+            String::new()
+        }
     }
 
     fn print_pending_queue(&self, queue: PendingQueueType) -> String {
@@ -665,7 +711,7 @@ impl fmt::Display for SkovStats {
                 return 0;
             }
 
-            let mass: u64 = (0..n).sum();
+            let mass: u64 = (1..=n).sum();
             let sum = values.enumerate().fold(0, |sum, (i, val)| {
                 let weight = n - (i as u64);
                 sum + val * weight

@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate log;
 
-// pub use concordium_consensus::consensus as consensus;
-
 // (de)serialization macros
 
 macro_rules! check_serialization {
