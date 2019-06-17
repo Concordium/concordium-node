@@ -411,8 +411,9 @@ fn attain_post_handshake_catch_up(
             if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
                 if remote_peer.peer_type() == PeerType::Node {
                     if let Some(net) = nets.iter().next() {
+                        let response = baker_clone.get_finalization_point();
                         let mut locked_cloned_node = write_or_die!(cloned_handshake_response_node);
-                        if let Ok(bytes) = baker_clone.get_finalization_point() {
+                        if let Ok(bytes) = response {
                             let mut out_bytes =
                                 Vec::with_capacity(PAYLOAD_TYPE_LENGTH as usize + bytes.len());
                             match out_bytes.write_u16::<NetworkEndian>(
