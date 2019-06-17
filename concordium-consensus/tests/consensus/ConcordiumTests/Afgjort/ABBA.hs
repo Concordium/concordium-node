@@ -19,13 +19,14 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.Lottery
+import Concordium.Afgjort.CSS.NominationSet
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
 invariantABBAState :: ABBAInstance -> ABBAState -> Either String ()
-invariantABBAState (ABBAInstance _ tw cw pw _ _ _) ABBAState{..} = do
+invariantABBAState (ABBAInstance _ tw cw pw _ _ _ _) ABBAState{..} = do
         unless (_currentGrade <= 2) $ Left $ "Invalid grade" ++ show _currentGrade
         checkBinary (==) _topWeAreDoneWeight (sum $ fmap pw $ Set.toList $ _topWeAreDone) "==" "weight of WeAreDone for Top" "calculated value"
         checkBinary (<=) _topWeAreDoneWeight tw "<=" "weight of WeAreDone for Top" "total weight"
@@ -63,7 +64,7 @@ runABBATest baid nparties allparties vrfkeys = go iStates iResults
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
-        inst i = ABBAInstance baid allparties corruptWeight (const 1) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
         go sts ress msgs
             | null msgs = return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
             | otherwise = do
@@ -90,7 +91,7 @@ runABBATest2 baid nparties allparties vrfkeys = go iStates iResults
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
-        inst i = ABBAInstance baid allparties corruptWeight (const 1) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
         go sts ress msgs lowmsgs
             | null msgs = if null lowmsgs then
                             return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
@@ -166,6 +167,10 @@ multiWithCorrupt active corrupt = property $ do
         keys <- makeKeys (active + corrupt)
         return $ multiWithCorruptKeys keys active corrupt
 
+singletonNominationSet :: Party -> Choice -> NominationSet
+singletonNominationSet p True = NominationSet p (Just $ Set.singleton p) Nothing
+singletonNominationSet p False = NominationSet p Nothing (Just $ Set.singleton p)
+
 multiWithCorruptKeys :: Vec.Vector VRF.KeyPair -> Int -> Int -> Property
 multiWithCorruptKeys keys active corrupt = monadicIO $ do
     begins <- pick $ makeBegins active
@@ -174,7 +179,7 @@ multiWithCorruptKeys keys active corrupt = monadicIO $ do
     jmsgs <- liftIO $ sequence [(makeTicketProof (lotteryId phase) (keys Vec.! src)) <&> \tkt -> (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase c tkt) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], c <- [False, True]]
     let corruptMsgs = Seq.fromList $
             jmsgs ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase (fromIntegral p) c) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1], c <- [False, True]] ++
+            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) c) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1], c <- [False, True]] ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone c ) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], c <- [False, True]]
     runABBATest baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs)
 
@@ -188,12 +193,12 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
     jmsgs <- liftIO $ sequence [(makeTicketProof (lotteryId phase) (keys Vec.! src)) <&> \tkt -> (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 == 0) tkt) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5]]
     let corruptMsgs = Seq.fromList $ 
             jmsgs ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase (fromIntegral p) (a `mod` 2 == 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
+            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 == 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 == 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
     jmsgs2 <- liftIO $ sequence [(makeTicketProof (lotteryId phase) (keys Vec.! src)) <&> \tkt -> (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 /= 0) tkt) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5]]
     let corruptMsgs2 = Seq.fromList $
             jmsgs2 ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase (fromIntegral p) (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
+            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
     runABBATest2 baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs) corruptMsgs2
 
@@ -202,8 +207,8 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
 tests :: Spec
 tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
     it "3 parties + 1 super inactive" $ withMaxSuccess 1000 $ multiWithInactiveKeys (superCorruptKeys 3 1 6 22636) 3 1
-    it "3 parties + 1 super corrupt" $ withMaxSuccess 50000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
-    it "3 parties + 1 super corrupt evil" $ withMaxSuccess 50000 $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 22636) 3 1
+    it "3 parties + 1 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
+    it "3 parties + 1 super corrupt evil" $ withMaxSuccess 5000 $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 22636) 3 1
     it "5 parties + 2 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 5 2 6 4602) 5 2
     it "5 parties + 2 super corrupt evil" $ withMaxSuccess 5000 $ multiWithCorruptKeysEvil (superCorruptKeys 5 2 6 4602) 5 2
     it "3 parties + 1 corrupt" $ withMaxSuccess 500 $ multiWithCorrupt 3 1

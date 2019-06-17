@@ -340,7 +340,8 @@ liftWMVBA a = do
                 baid = runPut $ S.put _finsSessionId >> S.put _finsIndex >> S.put roundDelta
                 pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
                 pVRFKey party = partyVRFKey (parties _finsCommittee Vec.! fromIntegral party)
-                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight pVRFKey roundMe finMyVRFKey
+                maxParty = fromIntegral $ Vec.length (parties _finsCommittee) - 1
+                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight maxParty pVRFKey roundMe finMyVRFKey
             (r, newState, evs) <- liftIO $ runWMVBA a inst roundWMVBA
             finCurrentRound ?= fr {roundWMVBA = newState}
             -- logEvent Afgjort LLTrace $ "New WMVBA state: " ++ show newState
