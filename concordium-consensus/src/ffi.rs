@@ -623,7 +623,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
         let payload = Box::from(slice::from_raw_parts(data as *const u8, len as usize));
 
         catchup_enqueue(ConsensusMessage::new(
-            PacketType::CatchupFinalizationMessagesByPoint,
+            PacketType::FinalizationMessage,
             Some(peer_id),
             payload,
         ))
