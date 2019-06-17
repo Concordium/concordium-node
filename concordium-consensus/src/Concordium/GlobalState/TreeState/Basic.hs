@@ -295,8 +295,8 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
         let (caddr, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
         in (caddr, bs & blockInstances .~ instances')
 
-    bsoPutNewModule bs mref iface viface = return $
-        case Modules.putInterfaces mref iface viface (bs ^. blockModules) of
+    bsoPutNewModule bs mref iface viface source = return $
+        case Modules.putInterfaces mref iface viface source (bs ^. blockModules) of
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
 
