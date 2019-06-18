@@ -14,6 +14,7 @@ import Data.List
 
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS
+import Concordium.Afgjort.CSS.NominationSet
 
 
 import Test.QuickCheck
@@ -23,11 +24,12 @@ invariantCSSState :: Int -> Int -> (Party -> Int) -> CSSState -> Either String (
 invariantCSSState totalWeight corruptWeight partyWeight s = do
         checkBinary (==) computedManySawWeight (s ^. manySawWeight) "==" "computed manySaw weight" "given manySaw weight"
         when (s ^. report) $ do
-            when (s ^. topJustified) $ checkBinary (\m1 m2 -> Map.null (m1 Map.\\ m2)) (Map.fromSet (const True) $ s ^. inputTop) (s ^. iSaw) "subsumed by" "[justified] top inputs" "iSaw"
-            when (s ^. botJustified) $ checkBinary (\m1 m2 -> Map.null (m1 Map.\\ m2)) (Map.fromSet (const False) $ s ^. inputBot) (s ^. iSaw) "subsumed by" "[justified] bottom inputs" "iSaw"
+            let iSawSet = (fromMaybe Set.empty $ nomTop $ s ^. iSaw) `Set.union` (fromMaybe Set.empty $ nomBot $ s ^. iSaw)
+            when (s ^. topJustified) $ checkBinary Set.isSubsetOf (s ^. inputTop) iSawSet "subsumed by" "[justified] top inputs" "iSaw"
+            when (s ^. botJustified) $ checkBinary Set.isSubsetOf (s ^. inputBot) iSawSet "subsumed by" "[justified] bottom inputs" "iSaw"
         forM_ (Map.toList $ s ^. sawTop) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", top)") "given weight"
         forM_ (Map.toList $ s ^. sawBot) $ \(src, (tot, m)) -> checkBinary (==) (sumPartyWeights m) tot "==" ("computed weight of parties seeing (" ++ show src ++ ", bottom)") "given weight"
-        forM_ (Map.toList (s ^. iSaw)) $ \(p,c) -> do
+        forM_ (nominationSetToList (s ^. iSaw)) $ \(p,c) -> do
             unless (s ^. justified c) $ Left $ "iSaw contains " ++ show (p,c) ++ " but the choice is not justified"
             unless (p `Set.member` (s ^. input c)) $ Left $ "iSaw contains " ++ show (p,c) ++ ", which is not in the input"
         checkBinary (==) computedManySaw (s ^. manySaw) "==" "computed manySaw" "given manySaw"
@@ -60,7 +62,7 @@ checkUpdateHistory s inp _outp hist0 = do
         return hist
     where
         hist = case inp of
-                ReceiveCSSMessage p (DoneReporting m) -> hist0 & receivedDoneReporting . at p %~ Just . (Map.toDescList m:) . fromMaybe []
+                ReceiveCSSMessage p (DoneReporting m) -> hist0 & receivedDoneReporting . at p %~ Just . (reverse (nominationSetToList m):) . fromMaybe []
                 _ -> hist0
         justifiedAfterPrefix seer l rdr = isJust $ sawAllJustified seer <$> stripPrefix l rdr
         sawAllJustified seer = all (\(seen, c) -> s ^. sawJustified seer c seen)
@@ -128,7 +130,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                             go hist' (msgs'' <> msgs') sts' (cores & atParty rcpt %~ (<> core'))
         fromOut src (SendCSSMessage msg) = (Seq.fromList [(i,ReceiveCSSMessage src msg)|i <- parties], mempty)
         fromOut _ (SelectCoreSet theCore) = (mempty, First (Just theCore))
-        cssInst = CSSInstance allparties corruptWeight (const 1)
+        cssInst = CSSInstance allparties corruptWeight (const 1) (fromIntegral nparties)
         parties = [0..fromIntegral nparties-1]
 
 multiCSSTest :: Int -> Gen Property
@@ -156,6 +158,10 @@ multiCSSTestWithSilentCorrupt allparties = do
         iStates = Vec.replicate nparties initialCSSState
         iCores = Vec.replicate nparties (First Nothing)
 
+singletonNominationSet :: Party -> Choice -> NominationSet
+singletonNominationSet p True = NominationSet p (Just $ Set.singleton p) Nothing
+singletonNominationSet p False = NominationSet p Nothing (Just $ Set.singleton p)
+
 multiCSSTestWithActiveCorrupt :: Int -> Gen Property
 multiCSSTestWithActiveCorrupt allparties = do
         let justs = Seq.fromList [(r, JustifyChoice c) | r <- parties, c <- [True,False]]
@@ -163,8 +169,8 @@ multiCSSTestWithActiveCorrupt allparties = do
         choices <- forM parties $ \p -> cmsgs (fromIntegral p) <$> arbitrary
         let corruptMsgs = Seq.fromList $
                             [(r, ReceiveCSSMessage cp (Input c)) | r <- parties, cp <- corruptParties, c <- [True,False]]
-                            ++ [(r, ReceiveCSSMessage cp (Seen p c)) | r <- parties, cp <- corruptParties, p <- parties ++ corruptParties, c <- [True,False]]
-                            ++ [(r, ReceiveCSSMessage cp (DoneReporting Map.empty)) | r <- parties, cp <- corruptParties]
+                            ++ [(r, ReceiveCSSMessage cp (Seen $ singletonNominationSet p c)) | r <- parties, cp <- corruptParties, p <- parties ++ corruptParties, c <- [True,False]]
+                            ++ [(r, ReceiveCSSMessage cp (DoneReporting emptyNominationSet)) | r <- parties, cp <- corruptParties]
         runCSSTest allparties nparties corruptWeight (justs <> mconcat choices <> corruptMsgs) iStates iCores
     where
         nparties = allparties - corruptWeight
@@ -181,8 +187,8 @@ singleCSSWithBadEnv allparties = do
         choices <- cmsgs <$> arbitrary
         let corruptMsgs = Seq.fromList $
                             [(0, ReceiveCSSMessage cp (Input c)) | cp <- corruptParties, c <- [True,False]]
-                            ++ [(0, ReceiveCSSMessage cp (Seen p c)) | cp <- corruptParties, p <- 0: corruptParties, c <- [True,False]]
-                            ++ [(0, ReceiveCSSMessage cp (DoneReporting Map.empty)) | cp <- corruptParties]
+                            ++ [(0, ReceiveCSSMessage cp (Seen $ singletonNominationSet p c)) | cp <- corruptParties, p <- 0: corruptParties, c <- [True,False]]
+                            ++ [(0, ReceiveCSSMessage cp (DoneReporting emptyNominationSet)) | cp <- corruptParties]
         runCSSTest' noCoresCheck allparties 1 corruptWeight (justs <> choices <> corruptMsgs <> corruptMsgs) iStates iCores
     where
         corruptWeight = (allparties - 1) `div` 3

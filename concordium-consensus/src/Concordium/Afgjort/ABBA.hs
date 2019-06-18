@@ -34,6 +34,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
+import Concordium.Afgjort.CSS.NominationSet
 
 -- |A phase in the ABBA protocol
 type Phase = Word32
@@ -41,8 +42,8 @@ type Phase = Word32
 -- |A message in the ABBA protocol
 data ABBAMessage
     = Justified Phase Choice TicketProof            -- ^Party's input for a given phase
-    | CSSSeen Phase Party Choice                    -- ^CSS seen message for a phase
-    | CSSDoneReporting Phase (Map Party Choice)     -- ^CSS done reporting message for a phase
+    | CSSSeen Phase NominationSet                   -- ^CSS seen message for a phase
+    | CSSDoneReporting Phase NominationSet          -- ^CSS done reporting message for a phase
     | WeAreDone Choice                              -- ^Message that indicates consensus should be reached
     deriving (Eq, Ord, Show)
 
@@ -64,6 +65,8 @@ data ABBAInstance = ABBAInstance {
     corruptWeight :: Int,
     -- |The weight of each party
     partyWeight :: Party -> Int,
+    -- |The maximal party
+    maxParty :: Party,
     -- |The public key of each party
     pubKeys :: Party -> VRF.PublicKey,
     -- |My party
@@ -187,7 +190,7 @@ liftCSSReceiveMessage phase src msg = do
         use (phaseState phase . phaseCSSState) >>= \case
             Left (justif, msgs) -> phaseState phase . phaseCSSState .= Left (justif, msgs |> (src, msg))
             Right cssstate -> do
-                let (_, cssstate', evs) = runCSS (receiveCSSMessage src msg) (CSSInstance totalWeight corruptWeight partyWeight) cssstate
+                let (_, cssstate', evs) = runCSS (receiveCSSMessage src msg) (CSSInstance totalWeight corruptWeight partyWeight maxParty) cssstate
                 phaseState phase . phaseCSSState .= Right cssstate'
                 handleCSSEvents phase evs
 
@@ -197,7 +200,7 @@ liftCSSJustifyChoice phase c = do
         use (phaseState phase . phaseCSSState) >>= \case
             Left (justif, msgs) -> phaseState phase . phaseCSSState .= Left (addChoice c justif, msgs)
             Right cssstate -> do
-                let (_, cssstate', evs) = runCSS (justifyChoice c) (CSSInstance totalWeight corruptWeight partyWeight) cssstate
+                let (_, cssstate', evs) = runCSS (justifyChoice c) (CSSInstance totalWeight corruptWeight partyWeight maxParty) cssstate
                 phaseState phase . phaseCSSState .= Right cssstate'
                 handleCSSEvents phase evs
 
@@ -206,7 +209,7 @@ handleCSSEvents _ [] = return ()
 handleCSSEvents phase (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> handleCSSEvents phase evs
     where
         liftMsg (Input _) = undefined -- Should not happen
-        liftMsg (Seen p c) = CSSSeen phase p c
+        liftMsg (Seen ns) = CSSSeen phase ns
         liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
 handleCSSEvents phase (SelectCoreSet cs : evs) = handleCoreSet phase cs >> handleCSSEvents phase evs
 
@@ -303,8 +306,8 @@ receiveABBAMessage src (Justified phase c ticketProof) = unlessCompleted $ do
             liftCSSJustifyChoice (phase + 1) c
         else
             phaseState phase . inputWeight c .= Just (w + partyWeight src, Set.insert src ps)
-receiveABBAMessage src (CSSSeen phase p c) =
-    unlessCompleted $ liftCSSReceiveMessage phase src (Seen p c)
+receiveABBAMessage src (CSSSeen phase ns) =
+    unlessCompleted $ liftCSSReceiveMessage phase src (Seen ns)
 receiveABBAMessage src (CSSDoneReporting phase m) =
     unlessCompleted $ liftCSSReceiveMessage phase src (DoneReporting m)
 receiveABBAMessage src (WeAreDone c) = unlessCompleted $ do

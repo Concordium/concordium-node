@@ -25,7 +25,6 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.ByteString as BS
 import Data.Maybe
-import qualified Data.List as List
 import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
@@ -34,6 +33,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
+import Concordium.Afgjort.CSS.NominationSet
 
 data WMVBAMessage
     = WMVBAFreezeMessage FreezeMessage
@@ -50,8 +50,8 @@ messageValues (WMVBAWitnessCreatorMessage val) = [val]
 
 messageParties :: WMVBAMessage -> [Party]
 messageParties (WMVBAFreezeMessage _) = []
-messageParties (WMVBAABBAMessage (CSSSeen _ party _)) = [party]
-messageParties (WMVBAABBAMessage (CSSDoneReporting _ choices)) = Map.keys choices
+messageParties (WMVBAABBAMessage (CSSSeen _ ns)) = fst <$> nominationSetToList ns
+messageParties (WMVBAABBAMessage (CSSDoneReporting _ choices)) = fst <$> nominationSetToList choices
 messageParties (WMVBAABBAMessage _) = []
 messageParties (WMVBAWitnessCreatorMessage _) = []
 
@@ -59,7 +59,7 @@ instance Show WMVBAMessage where
     show (WMVBAFreezeMessage (Proposal val)) = "Propose " ++ show val
     show (WMVBAFreezeMessage (Vote v)) = "Vote " ++ show v
     show (WMVBAABBAMessage (Justified phase b _ticket)) = "Justified@" ++ show phase ++ ": " ++ show b
-    show (WMVBAABBAMessage (CSSSeen phase party b)) = "Seen@" ++ show phase ++ ": " ++ show party ++ "->" ++ show b
+    show (WMVBAABBAMessage (CSSSeen phase ns)) = "Seen@" ++ show phase ++ ": " ++ show ns
     show (WMVBAABBAMessage (CSSDoneReporting phase _choices)) = "DoneReporting@" ++ show phase
     show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
     show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
@@ -70,14 +70,23 @@ instance S.Serialize WMVBAMessage where
     put (WMVBAFreezeMessage (Vote (Just val))) = putWord8 2 >> putVal val
     put (WMVBAABBAMessage (Justified phase False ticket)) = putWord8 3 >> putWord32be phase >> S.put ticket
     put (WMVBAABBAMessage (Justified phase True ticket)) = putWord8 4 >> putWord32be phase >> S.put ticket
-    put (WMVBAABBAMessage (CSSSeen phase party False)) = putWord8 5 >> putWord32be phase >> putParty party
-    put (WMVBAABBAMessage (CSSSeen phase party True)) = putWord8 6 >> putWord32be phase >> putParty party
-    put (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 7 >> putWord32be phase >> putListOf putParty (fst <$> choseFalse) >> putListOf putParty (fst <$> choseTrue)
+    put (WMVBAABBAMessage (CSSSeen phase ns)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet ns
         where
-            (choseTrue, choseFalse) = List.partition snd $ Map.toAscList choices
-    put (WMVBAABBAMessage (WeAreDone False)) = putWord8 8
-    put (WMVBAABBAMessage (WeAreDone True)) = putWord8 9
-    put (WMVBAWitnessCreatorMessage val) = putWord8 10 >> putVal val
+            tag = case nomTag ns of
+                NSEmpty -> error "Empty set for Seen message"      -- Should not be possible
+                NSTop -> 5
+                NSBot -> 6
+                NSBoth -> 7
+    put (WMVBAABBAMessage (CSSDoneReporting phase choices)) = putWord8 tag >> putWord32be phase >> putUntaggedNominationSet choices
+        where
+            tag = case nomTag choices of
+                NSEmpty -> error "Empty set for DoneReporting message"      -- Should not be possible
+                NSTop -> 8
+                NSBot -> 9
+                NSBoth -> 10
+    put (WMVBAABBAMessage (WeAreDone False)) = putWord8 11
+    put (WMVBAABBAMessage (WeAreDone True)) = putWord8 12
+    put (WMVBAWitnessCreatorMessage val) = putWord8 13 >> putVal val
 
     get = getWord8 >>= \case
         0 -> WMVBAFreezeMessage . Proposal <$> getVal
@@ -93,20 +102,31 @@ instance S.Serialize WMVBAMessage where
             return $ WMVBAABBAMessage (Justified phase True ticket)
         5 -> do
             phase <- getWord32be
-            party <- getParty
-            return $ WMVBAABBAMessage (CSSSeen phase party False)
+            ns <- getUntaggedNominationSet NSTop
+            return $ WMVBAABBAMessage (CSSSeen phase ns)
         6 -> do
             phase <- getWord32be
-            party <- getParty
-            return $ WMVBAABBAMessage (CSSSeen phase party True)
+            ns <- getUntaggedNominationSet NSBot
+            return $ WMVBAABBAMessage (CSSSeen phase ns)
         7 -> do
             phase <- getWord32be
-            choseFalse <- getListOf getParty
-            choseTrue <- getListOf getParty
-            return $ WMVBAABBAMessage $ CSSDoneReporting phase $ Map.fromList $ ((,False) <$> choseFalse) ++ ((,True) <$> choseTrue)
-        8 -> return (WMVBAABBAMessage (WeAreDone False))
-        9 -> return (WMVBAABBAMessage (WeAreDone True))
-        10 -> WMVBAWitnessCreatorMessage <$> getVal
+            ns <- getUntaggedNominationSet NSBoth
+            return $ WMVBAABBAMessage (CSSSeen phase ns)
+        8 -> do
+            phase <- getWord32be
+            choices <- getUntaggedNominationSet NSTop
+            return $ WMVBAABBAMessage $ CSSDoneReporting phase choices
+        9 -> do
+            phase <- getWord32be
+            choices <- getUntaggedNominationSet NSBot
+            return $ WMVBAABBAMessage $ CSSDoneReporting phase choices
+        10 -> do
+            phase <- getWord32be
+            choices <- getUntaggedNominationSet NSBoth
+            return $ WMVBAABBAMessage $ CSSDoneReporting phase choices
+        11 -> return (WMVBAABBAMessage (WeAreDone False))
+        12 -> return (WMVBAABBAMessage (WeAreDone True))
+        13 -> WMVBAWitnessCreatorMessage <$> getVal
         _ -> fail "Incorrect message type"
 
 data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone deriving (Show)
@@ -132,16 +152,17 @@ data WMVBAInstance sig = WMVBAInstance {
     totalWeight :: Int,
     corruptWeight :: Int,
     partyWeight :: Party -> Int,
+    maxParty :: Party,
     publicKeys :: Party -> VRF.PublicKey,
     me :: Party,
     privateKey :: VRF.KeyPair
 }
 
 toFreezeInstance :: WMVBAInstance sig -> FreezeInstance
-toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ me _) = FreezeInstance totalWeight corruptWeight partyWeight me
+toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ _ me _) = FreezeInstance totalWeight corruptWeight partyWeight me
 
 toABBAInstance :: WMVBAInstance sig -> ABBAInstance
-toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey) = ABBAInstance baid totalWeight corruptWeight partyWeight pubKeys me privateKey
+toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey) = ABBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey
 
 class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
