@@ -26,9 +26,10 @@ pub mod fails;
 mod handler_utils;
 
 pub use crate::connection::connection_private::ConnectionPrivate;
+
 pub use network_handler::{
-    MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW,
-    PacketHandler, RequestHandler, ResponseHandler,
+    MessageHandler, NetworkPacketCW, NetworkRequestCW, NetworkResponseCW, PacketHandler,
+    RequestHandler, ResponseHandler,
 };
 pub use p2p_event::P2PEvent;
 pub use seen_messages_list::SeenMessagesList;
@@ -40,14 +41,20 @@ use crate::{
         serialization::{Deserializable, ReadArchiveAdapter},
         NetworkRawRequest, P2PNodeId, P2PPeer, PeerType, RemotePeer,
     },
-    connection::{connection_default_handlers::*, connection_handshake_handlers::*},
+    connection::{
+        connection_default_handlers::*,
+        connection_handshake_handlers::*,
+        network_handler::message_processor::{
+            collapse_process_result, MessageProcessor, ProcessResult,
+        },
+    },
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest, NetworkResponse},
     stats_export_service::StatsExportService,
 };
 
 use concordium_common::{
-    functor::{FuncResult, FunctorResult, UnitFunction},
+    functor::{FuncResult, UnitFunction},
     UCursor,
 };
 
@@ -56,7 +63,6 @@ use mio::{Event, Poll, Token};
 use std::{
     cell::RefCell,
     collections::HashSet,
-    iter::IntoIterator,
     net::SocketAddr,
     rc::Rc,
     sync::{atomic::Ordering, mpsc::Sender, Arc, RwLock},
@@ -87,9 +93,9 @@ pub struct Connection {
     dptr: Rc<RefCell<ConnectionPrivate>>,
 
     // Message handlers
-    pub pre_handshake_message_handler:  MessageHandler,
-    pub post_handshake_message_handler: MessageHandler,
-    pub common_message_handler:         Rc<RefCell<MessageHandler>>,
+    pub pre_handshake_message_processor:  MessageProcessor,
+    pub post_handshake_message_processor: MessageProcessor,
+    pub common_message_processor:         Rc<RefCell<MessageProcessor>>,
 }
 
 impl Connection {
@@ -98,21 +104,16 @@ impl Connection {
     }
 
     // Setup handshake handler
-    fn setup_pre_handshake(&mut self) {
-        let cloned_message_handler = Rc::clone(&self.common_message_handler);
-        self.pre_handshake_message_handler
-            .add_callback(make_atomic_callback!(move |msg: &NetworkMessage| {
-                cloned_message_handler
-                    .borrow()
-                    .process_message(msg)
-                    .map_err(Error::from)
-            }))
-            .add_request_callback(handle_by_private!(
+    pub fn setup_pre_handshake(&mut self) {
+        let cloned_message_processor = Rc::clone(&self.common_message_processor);
+        self.pre_handshake_message_processor
+            .add(&cloned_message_processor.borrow())
+            .add_request_action(handle_by_private!(
                 self.dptr,
                 &NetworkRequest,
                 handshake_request_handle
             ))
-            .add_response_callback(handle_by_private!(
+            .add_response_action(handle_by_private!(
                 self.dptr,
                 &NetworkResponse,
                 handshake_response_handle
@@ -193,30 +194,25 @@ impl Connection {
         rh
     }
 
-    fn setup_post_handshake(&mut self) {
+    pub fn setup_post_handshake(&mut self) {
         let request_handler = self.make_request_handler();
         let response_handler = self.make_response_handler();
         let last_seen_response_handler = self.make_update_last_seen_handler();
         let last_seen_packet_handler = self.make_update_last_seen_handler();
-        let cloned_message_handler = Rc::clone(&self.common_message_handler);
+        let cloned_message_processor = Rc::clone(&self.common_message_processor);
         let dptr_1 = Rc::clone(&self.dptr);
         let dptr_2 = Rc::clone(&self.dptr);
 
-        self.post_handshake_message_handler
-            .add_callback(make_atomic_callback!(move |msg: &NetworkMessage| {
-                cloned_message_handler
-                    .borrow()
-                    .process_message(msg)
-                    .map_err(Error::from)
-            }))
-            .add_request_callback(make_atomic_callback!(move |req: &NetworkRequest| {
+        self.post_handshake_message_processor
+            .add(&cloned_message_processor.borrow())
+            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
                 request_handler.process_message(req).map_err(Error::from)
             }))
-            .add_response_callback(make_atomic_callback!(move |res: &NetworkResponse| {
+            .add_response_action(make_atomic_callback!(move |res: &NetworkResponse| {
                 response_handler.process_message(res).map_err(Error::from)
             }))
-            .add_response_callback(last_seen_response_handler)
-            .add_packet_callback(last_seen_packet_handler)
+            .add_response_action(last_seen_response_handler)
+            .add_packet_action(last_seen_packet_handler)
             .set_unknown_handler(Rc::new(move || default_unknown_message(&dptr_1)))
             .set_invalid_handler(Rc::new(move || default_invalid_message(&dptr_2)));
     }
@@ -296,14 +292,14 @@ impl Connection {
     #[inline]
     pub fn shutdown(&mut self) -> Fallible<()> { self.dptr.borrow_mut().shutdown() }
 
-    pub fn ready(&mut self, ev: &Event) -> Fallible<()> {
+    pub fn ready(
+        &mut self,
+        ev: &Event,
+    ) -> Result<ProcessResult, Vec<Result<ProcessResult, failure::Error>>> {
         let messages_result = self.dptr.borrow_mut().ready(ev);
         match messages_result {
-            Ok(messages) => messages
-                .into_iter()
-                .map(|message| Ok(self.process_message(message)?))
-                .collect::<Fallible<()>>(),
-            Err(error) => Err(error),
+            Ok(messages) => collapse_process_result(self, messages),
+            Err(error) => Err(vec![Err(error)]),
         }
     }
 
@@ -314,10 +310,10 @@ impl Connection {
 
     /// It decodes message from `buf` and processes it using its message
     /// handlers.
-    fn process_message(&mut self, message: UCursor) -> FunctorResult<()> {
+    fn process_message(&mut self, message: UCursor) -> Fallible<ProcessResult> {
         let mut archive =
             ReadArchiveAdapter::new(message, self.remote_peer().clone(), self.remote_addr().ip());
-        let message = NetworkMessage::deserialize(&mut archive).map_err(|e| vec![e])?;
+        let message = NetworkMessage::deserialize(&mut archive)?;
         let outer = Arc::new(message);
 
         self.messages_received += 1;
@@ -330,9 +326,10 @@ impl Connection {
 
         // Process message by message handler.
         if self.dptr.borrow().status == ConnectionStatus::PostHandshake {
-            self.post_handshake_message_handler.process_message(&outer)
+            self.post_handshake_message_processor
+                .process_message(&outer)
         } else {
-            self.pre_handshake_message_handler.process_message(&outer)
+            self.pre_handshake_message_processor.process_message(&outer)
         }
     }
 
@@ -380,6 +377,12 @@ impl Connection {
     #[inline]
     pub fn async_send_from_poll_loop(&mut self, input: UCursor) -> Fallible<Readiness<usize>> {
         self.dptr.borrow_mut().async_send(input)
+    }
+
+    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
+        self.pre_handshake_message_processor
+            .add_notification(Arc::clone(&func));
+        self.post_handshake_message_processor.add_notification(func);
     }
 }
 

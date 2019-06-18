@@ -7,10 +7,7 @@ extern crate grpciowin as grpcio;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{
-        functor::{FilterFunctor, Functorable},
-        spawn_or_die, RelayOrStopEnvelope,
-    };
+    use concordium_common::{spawn_or_die, RelayOrStopEnvelope};
     use concordium_consensus::{consensus::*, ffi::*};
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
@@ -24,7 +21,7 @@ mod tests {
     use structopt::StructOpt;
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
-    const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
+    const TESTCONFIG: &[&str] = &["no-bootstrap"];
 
     /// It returns next port available and it ensures that next `slot_size`
     /// ports will be available too.
@@ -80,15 +77,7 @@ mod tests {
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
 
-        let node = P2PNode::new(
-            None,
-            &config,
-            pkt_in,
-            Some(sender),
-            PeerType::Node,
-            None,
-            Arc::new(FilterFunctor::new("Broadcasting_checks")),
-        );
+        let node = P2PNode::new(None, &config, pkt_in, Some(sender), PeerType::Node, None);
 
         let mut rpc_serv = RpcServerImpl::new(
             node,

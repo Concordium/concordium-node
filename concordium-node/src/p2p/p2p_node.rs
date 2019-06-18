@@ -7,8 +7,12 @@ use crate::{
     },
     configuration,
     connection::{
-        Connection, MessageHandler, MessageManager, NetworkPacketCW, NetworkRequestCW,
-        NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler, SeenMessagesList,
+        network_handler::{
+            message_handler::NetworkMessageCW,
+            message_processor::{MessageManager, MessageProcessor},
+        },
+        Connection, NetworkRequestCW, NetworkResponseCW, P2PEvent, RequestHandler, ResponseHandler,
+        SeenMessagesList,
     },
     network::{
         packet::MessageId, request::RequestedElementType, Buckets, NetworkId, NetworkMessage,
@@ -19,6 +23,7 @@ use crate::{
         fails,
         p2p_node_handlers::{
             forward_network_packet_message, forward_network_request, forward_network_response,
+            is_message_already_seen,
         },
         peer_statistics::PeerStatistic,
         tls_server::{TlsServer, TlsServerBuilder},
@@ -28,7 +33,8 @@ use crate::{
 };
 use chrono::prelude::*;
 use concordium_common::{
-    functor::FilterFunctor, RelayOrStopSender, RelayOrStopSenderHelper, UCursor,
+    filters::FilterResult, functor::UnitFunction, RelayOrStopSender, RelayOrStopSenderHelper,
+    UCursor,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]
@@ -122,7 +128,6 @@ pub struct P2PNode {
     pub max_nodes:        Option<u16>,
     pub print_peers:      bool,
     pub config:           P2PNodeConfig,
-    broadcasting_checks:  Arc<FilterFunctor<NetworkPacket>>,
     dump_switch:          Sender<(std::path::PathBuf, bool)>,
     dump_tx:              Sender<crate::dumper::DumpItem>,
 }
@@ -137,7 +142,6 @@ impl P2PNode {
         event_log: Option<Sender<P2PEvent>>,
         peer_type: PeerType,
         stats_export_service: Option<Arc<RwLock<StatsExportService>>>,
-        broadcasting_checks: Arc<FilterFunctor<NetworkPacket>>,
     ) -> Self {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port)
@@ -295,7 +299,6 @@ impl P2PNode {
             max_nodes: None,
             print_peers: true,
             config,
-            broadcasting_checks,
             dump_switch: act_tx,
             dump_tx,
         };
@@ -305,22 +308,42 @@ impl P2PNode {
 
     /// It adds default message handler at .
     fn add_default_message_handlers(&mut self) {
+        let seen_messages = self.seen_messages.clone();
         let response_handler = self.make_response_handler();
         let request_handler = self.make_request_handler();
-        let packet_handler = self.make_default_network_packet_message_handler();
+        let packet_notifier = self.make_default_network_packet_message_notifier();
 
-        write_or_die!(self.message_handler())
-            .add_packet_callback(packet_handler)
-            .add_response_callback(make_atomic_callback!(move |res: &NetworkResponse| {
+        write_or_die!(self.message_processor())
+            .add_filter(
+                make_atomic_callback!(move |mes: &NetworkMessage| {
+                    if let NetworkMessage::NetworkPacket(pac, ..) = mes {
+                        let drop_msg = match pac.packet_type {
+                            NetworkPacketType::DirectMessage(..) => {
+                                "Dropping duplicate direct packet"
+                            }
+                            NetworkPacketType::BroadcastedMessage(..) => {
+                                "Dropping duplicate broadcast packet"
+                            }
+                        };
+                        if is_message_already_seen(&seen_messages, pac, drop_msg) {
+                            return Ok(FilterResult::Abort);
+                        }
+                    }
+                    Ok(FilterResult::Pass)
+                }),
+                0,
+            )
+            .add_response_action(make_atomic_callback!(move |res: &NetworkResponse| {
                 response_handler.process_message(res).map_err(Error::from)
             }))
-            .add_request_callback(make_atomic_callback!(move |req: &NetworkRequest| {
+            .add_request_action(make_atomic_callback!(move |req: &NetworkRequest| {
                 request_handler.process_message(req).map_err(Error::from)
-            }));
+            }))
+            .add_notification(packet_notifier);
     }
 
     /// Default packet handler just forward valid messages.
-    fn make_default_network_packet_message_handler(&self) -> NetworkPacketCW {
+    fn make_default_network_packet_message_notifier(&self) -> NetworkMessageCW {
         let seen_messages = self.seen_messages.clone();
         let own_networks = Arc::clone(&read_or_die!(self.tls_server).networks());
         let own_id = self.id();
@@ -329,31 +352,15 @@ impl P2PNode {
         let rpc_queue = Arc::clone(&self.rpc_queue);
         let send_queue = self.send_queue_in.clone();
         let trusted_broadcast = self.config.blind_trusted_broadcast;
-        let broadcasting_checks = Arc::clone(&self.broadcasting_checks);
 
-        make_atomic_callback!(move |pac: &NetworkPacket| {
-            let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
-                send_queue:     &send_queue,
-                queue_to_super: &queue_to_super,
-                rpc_queue:      &rpc_queue,
-            };
-            match pac.packet_type {
-                NetworkPacketType::BroadcastedMessage(..) => {
-                    if broadcasting_checks.run_filters(pac) {
-                        forward_network_packet_message(
-                            own_id,
-                            &seen_messages,
-                            &stats_export_service,
-                            &own_networks,
-                            &queues,
-                            pac,
-                            trusted_broadcast,
-                        )
-                    } else {
-                        Ok(())
-                    }
-                }
-                NetworkPacketType::DirectMessage(..) => forward_network_packet_message(
+        make_atomic_callback!(move |pac: &NetworkMessage| {
+            if let NetworkMessage::NetworkPacket(pac, ..) = pac {
+                let queues = crate::p2p::p2p_node_handlers::OutgoingQueues {
+                    send_queue:     &send_queue,
+                    queue_to_super: &queue_to_super,
+                    rpc_queue:      &rpc_queue,
+                };
+                forward_network_packet_message(
                     own_id,
                     &seen_messages,
                     &stats_export_service,
@@ -361,7 +368,9 @@ impl P2PNode {
                     &queues,
                     pac,
                     trusted_broadcast,
-                ),
+                )
+            } else {
+                Ok(())
             }
         })
     }
@@ -1345,6 +1354,11 @@ impl P2PNode {
         write_or_die!(self.tls_server).dump_stop();
         Ok(())
     }
+
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) -> &Self {
+        write_or_die!(self.tls_server).add_notification(func);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -1363,8 +1377,8 @@ impl Drop for P2PNode {
 }
 
 impl MessageManager for P2PNode {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> {
-        read_or_die!(self.tls_server).message_handler()
+    fn message_processor(&self) -> Arc<RwLock<MessageProcessor>> {
+        read_or_die!(self.tls_server).message_processor()
     }
 }
 

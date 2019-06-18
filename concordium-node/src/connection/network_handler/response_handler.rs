@@ -1,5 +1,5 @@
 use crate::network::NetworkResponse;
-use concordium_common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor};
+use concordium_common::functor::{FunctorResult, UnitFunction, UnitFunctor};
 
 pub struct ResponseHandler {
     pub pong_handler:      UnitFunctor<NetworkResponse>,
@@ -15,10 +15,10 @@ impl Default for ResponseHandler {
 impl ResponseHandler {
     pub fn new() -> Self {
         ResponseHandler {
-            pong_handler:      UnitFunctor::<NetworkResponse>::new("Network::Response::Pong"),
-            find_node_handler: UnitFunctor::<NetworkResponse>::new("Network::Response::FindNode"),
-            peer_list_handler: UnitFunctor::<NetworkResponse>::new("Network::Response::PeerList"),
-            handshake_handler: UnitFunctor::<NetworkResponse>::new("Network::Response::Handshake"),
+            pong_handler:      UnitFunctor::<NetworkResponse>::new(),
+            find_node_handler: UnitFunctor::<NetworkResponse>::new(),
+            peer_list_handler: UnitFunctor::<NetworkResponse>::new(),
+            handshake_handler: UnitFunctor::<NetworkResponse>::new(),
         }
     }
 

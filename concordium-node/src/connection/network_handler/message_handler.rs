@@ -1,12 +1,9 @@
 use crate::network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
 use concordium_common::{
     fails::FunctorError,
-    functor::{FuncResult, FunctorResult, Functorable, UnitFunction, UnitFunctor},
+    functor::{FuncResult, FunctorResult, UnitFunction, UnitFunctor},
 };
-use std::{
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
+use std::{rc::Rc, sync::Arc};
 
 pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
 pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
@@ -23,8 +20,6 @@ pub struct MessageHandler {
     unknown_handler: Rc<(Fn() -> FuncResult<()>)>,
 
     general_parser: UnitFunctor<NetworkMessage>,
-
-    termination_listeners: UnitFunctor<NetworkMessage>,
 }
 
 impl Default for MessageHandler {
@@ -34,13 +29,12 @@ impl Default for MessageHandler {
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {
-            request_parser:        UnitFunctor::<NetworkRequest>::new("Network::Request"),
-            response_parser:       UnitFunctor::<NetworkResponse>::new("Network::Response"),
-            packet_parser:         UnitFunctor::<NetworkPacket>::new("Network::Package"),
-            general_parser:        UnitFunctor::<NetworkMessage>::new("General NetworkMessage"),
-            invalid_handler:       Rc::new(|| Ok(())),
-            unknown_handler:       Rc::new(|| Ok(())),
-            termination_listeners: UnitFunctor::<NetworkMessage>::new("Termination listeners"),
+            request_parser:  UnitFunctor::<NetworkRequest>::new(),
+            response_parser: UnitFunctor::<NetworkResponse>::new(),
+            packet_parser:   UnitFunctor::<NetworkPacket>::new(),
+            general_parser:  UnitFunctor::<NetworkMessage>::new(),
+            invalid_handler: Rc::new(|| Ok(())),
+            unknown_handler: Rc::new(|| Ok(())),
         }
     }
 
@@ -74,13 +68,8 @@ impl MessageHandler {
         self
     }
 
-    pub fn add_termination_listener(&mut self, callback: NetworkMessageCW) -> &mut Self {
-        self.termination_listeners.add_callback(callback);
-        self
-    }
-
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
+    pub fn add(&mut self, other: &MessageHandler) -> &mut Self {
         for cb in other.general_parser.callbacks().iter() {
             self.add_callback(Arc::clone(&cb));
         }
@@ -95,10 +84,6 @@ impl MessageHandler {
 
         for cb in other.request_parser.callbacks().iter() {
             self.add_request_callback(Arc::clone(&cb));
-        }
-
-        for cb in other.termination_listeners.callbacks().iter() {
-            self.add_termination_listener(Arc::clone(&cb));
         }
 
         self
@@ -121,14 +106,8 @@ impl MessageHandler {
             }
         };
 
-        self.termination_listeners.run_callbacks(msg)?;
-
         general_status.and(specific_status)
     }
-}
-
-pub trait MessageManager {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>>;
 }
 
 #[cfg(test)]
@@ -141,7 +120,7 @@ mod message_handler_unit_test {
     use concordium_common::functor::FuncResult;
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
-        sync::{Arc, RwLock},
+        sync::Arc,
     };
 
     fn request_handler_func_1(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
@@ -190,7 +169,7 @@ mod integration_test {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, RwLock,
+            Arc,
         },
     };
 

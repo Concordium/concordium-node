@@ -1180,20 +1180,19 @@ mod tests {
     use crate::{
         common::PeerType,
         configuration::Config,
-        connection::network_handler::message_handler::MessageManager,
         db::P2PDB,
         network::NetworkMessage,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
         test_utils::{
-            connect_and_wait_handshake, log_any_message_handler, make_node_and_sync,
-            next_available_port, setup_logger, wait_broadcast_message, TESTCONFIG,
+            connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
+            wait_broadcast_message, TESTCONFIG,
         },
     };
     use chrono::prelude::Utc;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
     use structopt::StructOpt;
 
     // Same as create_node_rpc_call_option but also outputs the Message receiver
@@ -1360,9 +1359,7 @@ mod tests {
             let n = safe_lock!(rpc_serv.node)?;
             connect_and_wait_handshake(&mut node2, &n, &wt1)?;
         }
-        safe_write!(node2.message_handler())?.add_callback(make_atomic_callback!(
-            move |m: &NetworkMessage| { log_any_message_handler(port, m) }
-        ));
+
         let mut message = protobuf::well_known_types::BytesValue::new();
         message.set_value(b"Hey".to_vec());
         let mut node_id = protobuf::well_known_types::StringValue::new();

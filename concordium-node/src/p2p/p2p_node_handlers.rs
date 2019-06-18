@@ -54,37 +54,7 @@ pub struct OutgoingQueues<'a> {
     pub rpc_queue: &'a Mutex<Option<Sender<Arc<NetworkMessage>>>>,
 }
 
-/// It forwards network packet message into `packet_queue` if message id has not
-/// been already seen and its `network id` belong to `own_networks`.
-pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
-    own_id: P2PNodeId,
-    seen_messages: &SeenMessagesList,
-    stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
-    own_networks: &Arc<RwLock<HashSet<NetworkId, S>>>,
-    outgoing_queues: &OutgoingQueues,
-    pac: &NetworkPacket,
-    blind_trust_broadcast: bool,
-) -> FuncResult<()> {
-    let drop_msg = match pac.packet_type {
-        NetworkPacketType::DirectMessage(..) => "Dropping duplicate direct packet",
-        NetworkPacketType::BroadcastedMessage(..) => "Dropping duplicate broadcast packet",
-    };
-    if !is_message_already_seen(seen_messages, pac, drop_msg) {
-        forward_network_packet_message_common(
-            own_id,
-            seen_messages,
-            stats_export_service,
-            own_networks,
-            outgoing_queues,
-            pac,
-            blind_trust_broadcast,
-        )
-    } else {
-        Ok(())
-    }
-}
-
-fn is_message_already_seen(
+pub fn is_message_already_seen(
     seen_messages: &SeenMessagesList,
     pac: &NetworkPacket,
     drop_message: &str,
@@ -103,9 +73,11 @@ fn is_message_already_seen(
     }
 }
 
+/// It forwards network packet message into `packet_queue` if message id has not
+/// been already seen and its `network id` belong to `own_networks`.
 /// # TODO
 /// Avoid to create a new packet instead of reusing it.
-fn forward_network_packet_message_common<S: ::std::hash::BuildHasher>(
+pub fn forward_network_packet_message<S: ::std::hash::BuildHasher>(
     own_id: P2PNodeId,
     seen_messages: &SeenMessagesList,
     stats_export_service: &Option<Arc<RwLock<StatsExportService>>>,
