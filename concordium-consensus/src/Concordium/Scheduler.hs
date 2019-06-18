@@ -114,128 +114,54 @@ dispatch msg = do
           return $ TxValid $ TxReject (SerializationFailure err)
         Right payload -> 
           case payload of
-            DeployModule mod -> do
-              (res, (energy', cs)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleModule meta psize mod) energy
-              case res of
-                Left reason -> do payment <- computeRejectedCharge meta energy'
-                                  chargeExecutionCost (thSender meta) payment
-                                  return (TxValid (TxReject reason))
-                Right (mhash, iface, viface) -> do
-                  refund <- energyToGtu energy'
-                  let execCost = thGasAmount meta - energy'
-                  energyToGtu execCost >>= notifyExecutionCost
-                  commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
-                  b <- commitModule mhash iface viface mod
-                  if b then do
-                    return $ (TxValid $ TxSuccess [ModuleDeployed mhash])
-                  else do
-                    -- FIXME:
-                    -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
-                    -- otherwise we can waste some effort in checking before reaching this point.
-                    -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
-                    return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
+            DeployModule mod ->
+              handleDeployModule meta remainingAmount psize mod energy
 
-            InitContract amount modref cname param paramSize -> do
-              (result, (energy', cs)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleInit meta remainingAmount amount modref cname param paramSize) energy
-              case result of
-                Left reason -> do 
-                  payment <- computeRejectedCharge meta energy'
-                  chargeExecutionCost (thSender meta) payment
-                  return $ TxValid (TxReject reason)
-                Right (contract, iface, viface, msgty, model, initamount) -> do
-                    refund <- energyToGtu energy'
-                    let execCost = thGasAmount meta - energy'
-                    energyToGtu execCost >>= notifyExecutionCost
-                    commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
-                    let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
-                    addr <- putNewInstance ins
-                    return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
-
+            InitContract amount modref cname param paramSize ->
+              handleInitContract meta remainingAmount amount modref cname param paramSize energy
             -- FIXME: This is only temporary for now.
             -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
-            Transfer toaddr amount -> do
-              (res, (energy', changeSet)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleTransfer meta remainingAmount amount toaddr) energy
-              case res of
-                Right events -> do
-                  refund <- energyToGtu energy'
-                  let execCost = thGasAmount meta - energy'
-                  energyToGtu execCost >>= notifyExecutionCost
-                  commitStateAndAccountChanges (increaseAmountCS changeSet (thSender meta) refund)
-                  return $ TxValid $ TxSuccess events
-                Left reason -> do
-                  payment <- computeRejectedCharge meta energy'
-                  chargeExecutionCost (thSender meta) payment
-                  return $ TxValid (TxReject reason)
-
-            Update amount cref maybeMsg msgSize -> do
-              (result, (energy', changeSet)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleUpdate meta remainingAmount amount cref maybeMsg msgSize) energy
-              case result of
-                Right events -> do
-                   refund <- energyToGtu energy'
-                   let execCost = thGasAmount meta - energy'
-                   energyToGtu execCost >>= notifyExecutionCost
-                   commitStateAndAccountChanges (increaseAmountCS changeSet (thSender meta) refund)
-                   return $ TxValid $ TxSuccess events
-                Left reason -> do
-                    payment <- computeRejectedCharge meta energy'
-                    chargeExecutionCost (thSender meta) payment
-                    return $ TxValid (TxReject reason)
-            
-            DeployCredential cdi -> do
-              if Cost.deployCredential > energy then do
-                payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
-                chargeExecutionCost (thSender meta) payment
-                return $! TxValid (TxReject OutOfEnergy)
-              else do
-                payment <- energyToGtu (Cost.deployCredential + cost) -- charge for checking header and deploying credential
-                chargeExecutionCost (thSender meta) payment
-                -- check that a registration id does not yet exist
-                regIdEx <- accountRegIdExists (ID.cdi_regId cdi)
-                if regIdEx then
-                  return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdi_regId cdi)
-                else do
-                  -- first whether an account with the address exists in the global store
-                  let aaddr = AH.accountAddress (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
-                  macc <- getAccount aaddr
-                  case macc of
-                    Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-                      let account = Account { _accountAddress = aaddr
-                                            , _accountNonce = minNonce
-                                            , _accountAmount = 0
-                                            , _accountEncryptionKey = Nothing
-                                            , _accountEncryptedAmount = []
-                                            , _accountVerificationKey = ID.cdi_verifKey cdi
-                                            , _accountSignatureScheme = ID.cdi_sigScheme cdi
-                                            , _accountCredentials = []}
-                      in if AH.verifyCredential cdi then do
-                           _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                                      -- We know the address does not yet exist.
-                           addAccountCredential aaddr cdi  -- and then add the credentials
-                           return $! TxValid (TxSuccess [AccountCreated aaddr, CredentialDeployed cdi])
-                         else return $! TxValid $ TxReject AccountCredentialInvalid
-
-                    Just _ -> -- otherwise we just try to add a credential to the account
-                              if AH.verifyCredential cdi then do
-                                addAccountCredential aaddr cdi
-                                return $! TxValid $ TxSuccess [CredentialDeployed cdi]
-                              else
-                                return $! TxValid $ TxReject AccountCredentialInvalid
+            Transfer toaddr amount ->
+              handleSimpleTransfer meta remainingAmount toaddr amount energy
+ 
+            Update amount cref maybeMsg msgSize ->
+              handleUpdateContract meta remainingAmount cref amount maybeMsg msgSize energy
+           
+            DeployCredential cdi ->
+              handleDeployCredential meta cdi energy
             
             DeployEncryptionKey encKey ->
-              if Cost.deployEncryptionKey > energy then do
-                payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas amount
-                chargeExecutionCost (thSender meta) payment
-                return $! TxValid (TxReject OutOfEnergy)
-              else do
-                payment <- energyToGtu (Cost.deployEncryptionKey + cost) -- charge for checking header and executing this particular transaction type
-                chargeExecutionCost (thSender meta) payment
-                case senderAccount ^. accountEncryptionKey of
-                  Nothing -> do
-                    let aaddr = senderAccount ^. accountAddress
-                    addAccountEncryptionKey aaddr encKey
-                    return . TxValid . TxSuccess $ [AccountEncryptionKeyDeployed aaddr encKey]
-                  Just encKey' -> return . TxValid . TxReject $ AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'
-         
+              handleDeployEncryptionKey meta senderAccount encKey energy
+
+-- |Process the deploy module transaction.
+handleDeployModule ::
+  SchedulerMonad m
+  => TransactionHeader -- ^Header of the transaction.
+  -> Amount -- ^Amount remaining on sender's account (sender being the account initiating the transaction).
+  -> Int -- ^Serialized size of the module. Used for charging execution cost.
+  -> Core.Module -- ^The module to deploy
+  -> Energy -- ^The amount of energy this transaction is allowed to consume.
+  -> m TxResult
+handleDeployModule meta remainingAmount psize mod energy = do
+  (res, (energy', cs)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleModule meta psize mod) energy
+  case res of
+    Left reason -> do payment <- computeRejectedCharge meta energy'
+                      chargeExecutionCost (thSender meta) payment
+                      return (TxValid (TxReject reason))
+    Right (mhash, iface, viface) -> do
+      refund <- energyToGtu energy'
+      let execCost = thGasAmount meta - energy'
+      energyToGtu execCost >>= notifyExecutionCost
+      commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
+      b <- commitModule mhash iface viface mod
+      if b then do
+        return $ (TxValid $ TxSuccess [ModuleDeployed mhash])
+      else do
+        -- FIXME:
+        -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
+        -- otherwise we can waste some effort in checking before reaching this point.
+        -- This could be chedked immediately even before we reach the dispatch since module hash is the hash of module serialization.
+        return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
 
 
 handleModule :: TransactionMonad m => TransactionHeader -> Int -> Core.Module -> m (Core.ModuleRef, Interface, ValueInterface)
@@ -249,6 +175,34 @@ handleModule meta msize mod = do
   let mhash = Core.imRef imod
   viface <- runMaybeT (I.evalModule imod) `rejectingWith` EvaluationError
   return (mhash, iface, viface)
+
+-- |Handle the top-level initialize contract.
+handleInitContract ::
+  SchedulerMonad m
+    => TransactionHeader -- ^Header of the transaction.
+    -> Amount   -- ^Remaining amount on the sender's account (sender being the invoker of the top-level transaction).
+    -> Amount   -- ^The amount to initialize the contract with.
+    -> ModuleRef  -- ^Module reference of the contract to initialize.
+    -> Core.TyName  -- ^Name of the contract in a module.
+    -> Core.Expr Core.ModuleName  -- ^Parameters of the contract.
+    -> Int -- ^Serialized size of the parameters. Used for computing typechecking cost.
+    -> Energy -- ^Amount of energy this transaction can consume
+    -> m TxResult
+handleInitContract meta remainingAmount amount modref cname param paramSize energy = do
+  (result, (energy', cs)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleInit meta remainingAmount amount modref cname param paramSize) energy
+  case result of
+    Left reason -> do 
+      payment <- computeRejectedCharge meta energy'
+      chargeExecutionCost (thSender meta) payment
+      return $ TxValid (TxReject reason)
+    Right (contract, iface, viface, msgty, model, initamount) -> do
+        refund <- energyToGtu energy'
+        let execCost = thGasAmount meta - energy'
+        energyToGtu execCost >>= notifyExecutionCost
+        commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
+        let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
+        addr <- putNewInstance ins
+        return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
 
 handleInit
   :: (TransactionMonad m, InterpreterMonad m)
@@ -283,6 +237,52 @@ handleInit meta senderAmount amount modref cname param paramsize = do
   res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
   return (contract, iface, viface, (msgTy ciface), res, amount)
 
+handleSimpleTransfer ::
+  SchedulerMonad m
+    => TransactionHeader -- ^Header of the transaction.
+    -> Amount -- ^Remaing amount on the sender's account.
+    -> Address -- ^Address to send the amount to, either account or contract.
+    -> Amount -- ^The amount to transfer.
+    -> Energy -- ^Maximum amount of energy allowed for this transaction.
+    -> m TxResult
+handleSimpleTransfer meta remainingAmount toaddr amount energy = do
+  (res, (energy', changeSet)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleTransfer meta remainingAmount amount toaddr) energy
+  case res of
+    Right events -> do
+      refund <- energyToGtu energy'
+      let execCost = thGasAmount meta - energy'
+      energyToGtu execCost >>= notifyExecutionCost
+      commitStateAndAccountChanges (increaseAmountCS changeSet (thSender meta) refund)
+      return $ TxValid $ TxSuccess events
+    Left reason -> do
+      payment <- computeRejectedCharge meta energy'
+      chargeExecutionCost (thSender meta) payment
+      return $ TxValid (TxReject reason)
+
+handleUpdateContract ::
+  SchedulerMonad m
+    => TransactionHeader -- ^Header of the transaction.
+    -> Amount -- ^Remaing amount on the sender's account.
+    -> ContractAddress -- ^Address of the contract to invoke.
+    -> Amount -- ^Amount to invoke the contract's receive method with.
+    -> Core.Expr Core.ModuleName -- ^Message to send to the receive method.
+    -> Int  -- ^Serialized size of the message.
+    -> Energy -- ^Amount of energy this transaction is allowed to consume.
+    -> m TxResult
+handleUpdateContract meta remainingAmount cref amount maybeMsg msgSize energy = do
+  (result, (energy', changeSet)) <- runLocalTWithAmount (thSender meta) remainingAmount (handleUpdate meta remainingAmount amount cref maybeMsg msgSize) energy
+  case result of
+    Right events -> do
+       refund <- energyToGtu energy'
+       let execCost = thGasAmount meta - energy'
+       energyToGtu execCost >>= notifyExecutionCost
+       commitStateAndAccountChanges (increaseAmountCS changeSet (thSender meta) refund)
+       return $ TxValid $ TxSuccess events
+    Left reason -> do
+        payment <- computeRejectedCharge meta energy'
+        chargeExecutionCost (thSender meta) payment
+        return $ TxValid (TxReject reason)
+ 
 handleUpdate
   :: (TransactionMonad m, InterpreterMonad m)
      => TransactionHeader
@@ -461,6 +461,75 @@ runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f = do
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+
+
+handleDeployCredential ::
+  SchedulerMonad m
+    => TransactionHeader -- ^Header of the transaction.
+    -> ID.CredentialDeploymentInformation -- ^Credentials to deploy.
+    -> Energy -- ^Amount of energy allowed for execution of this transaction.
+    -> m TxResult
+handleDeployCredential meta cdi energy = do
+  if Cost.deployCredential > energy then do
+     payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
+     chargeExecutionCost (thSender meta) payment
+     return $! TxValid (TxReject OutOfEnergy)
+   else do
+     payment <- energyToGtu (Cost.deployCredential + Cost.checkHeader) -- charge for checking header and deploying credential
+     chargeExecutionCost (thSender meta) payment
+     -- check that a registration id does not yet exist
+     regIdEx <- accountRegIdExists (ID.cdi_regId cdi)
+     if regIdEx then
+       return $! TxValid $ TxReject $ DuplicateAccountRegistrationID (ID.cdi_regId cdi)
+     else do
+       -- first whether an account with the address exists in the global store
+       let aaddr = AH.accountAddress (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
+       macc <- getAccount aaddr
+       case macc of
+         Nothing ->  -- account does not yet exist, so create it, but we need to be careful
+           let account = Account { _accountAddress = aaddr
+                                 , _accountNonce = minNonce
+                                 , _accountAmount = 0
+                                 , _accountEncryptionKey = Nothing
+                                 , _accountEncryptedAmount = []
+                                 , _accountVerificationKey = ID.cdi_verifKey cdi
+                                 , _accountSignatureScheme = ID.cdi_sigScheme cdi
+                                 , _accountCredentials = []}
+           in if AH.verifyCredential cdi then do
+                _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                           -- We know the address does not yet exist.
+                addAccountCredential aaddr cdi  -- and then add the credentials
+                return $! TxValid (TxSuccess [AccountCreated aaddr, CredentialDeployed cdi])
+              else return $! TxValid $ TxReject AccountCredentialInvalid
+
+         Just _ -> -- otherwise we just try to add a credential to the account
+                   if AH.verifyCredential cdi then do
+                     addAccountCredential aaddr cdi
+                     return $! TxValid $ TxSuccess [CredentialDeployed cdi]
+                   else
+                     return $! TxValid $ TxReject AccountCredentialInvalid
+
+handleDeployEncryptionKey ::
+  SchedulerMonad m
+    => TransactionHeader -- ^Header of the transaction.
+    -> Account -- ^Account onto which the encryption key should be deployed.
+    -> ID.AccountEncryptionKey -- ^The encryption key.
+    -> Energy -- ^Amount of energy allowed for the execution of this transaction.
+    -> m TxResult
+handleDeployEncryptionKey meta senderAccount encKey energy = do
+  if Cost.deployEncryptionKey > energy then do
+    payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas amount
+    chargeExecutionCost (thSender meta) payment
+    return $! TxValid (TxReject OutOfEnergy)
+  else do
+    payment <- energyToGtu (Cost.deployEncryptionKey + Cost.checkHeader) -- charge for checking header and executing this particular transaction type
+    chargeExecutionCost (thSender meta) payment
+    case senderAccount ^. accountEncryptionKey of
+      Nothing -> do
+        let aaddr = senderAccount ^. accountAddress
+        addAccountEncryptionKey aaddr encKey
+        return . TxValid . TxSuccess $ [AccountEncryptionKeyDeployed aaddr encKey]
+      Just encKey' -> return . TxValid . TxReject $ AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions. The list is traversed from

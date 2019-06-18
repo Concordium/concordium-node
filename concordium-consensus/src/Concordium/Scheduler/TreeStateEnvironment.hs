@@ -111,7 +111,6 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     put s'
 
 -- |Reward the baker, identity providers, ...
--- TODO: At the moment only execution cost goes to the baker.
 -- TODO: Currently the finalized pointer is not used. But the finalization committee
 -- of that block might need to be rewarded if they have not been already.
 -- Thus the argument is here for future use
