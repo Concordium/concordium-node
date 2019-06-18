@@ -162,7 +162,7 @@ done)
 
  echo "Removing duplicated symbols"
  for file in $(find . -type f -name "*.o"); do
-     nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)" >> /dev/null;
+     nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)\|\(T __clzsi2\)" >> /dev/null;
      if [ $? -eq 0 ]; then
          echo "Removing file:"
          echo $file
