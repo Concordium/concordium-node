@@ -18,7 +18,7 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         PeerType, RemotePeer,
     },
-    connection::Connection,
+    connection::{network_handler::message_processor::ProcessResult, Connection},
     dumper::DumpItem,
     network::{NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -28,7 +28,7 @@ use crate::{
     },
     stats_export_service::StatsExportService,
 };
-use concordium_common::UCursor;
+use concordium_common::{functor::UnitFunction, UCursor};
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;
@@ -229,12 +229,15 @@ impl TlsServerPrivate {
         self.connections.push(Rc::new(RefCell::new(conn)));
     }
 
-    pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
+    pub fn conn_event(&mut self, event: &Event) -> Fallible<ProcessResult> {
         let token = event.token();
 
         if let Some(rc_conn) = self.find_connection_by_token(token) {
             let mut conn = rc_conn.borrow_mut();
-            conn.ready(event)
+            conn.ready(event).map_err(|x| {
+                let x: Vec<failure::Error> = x.into_iter().map(Result::unwrap_err).collect();
+                failure::Error::from(concordium_common::fails::FunctorError::from(x))
+            })
         } else {
             Err(Error::from(fails::PeerNotFoundError))
         }
@@ -451,6 +454,13 @@ impl TlsServerPrivate {
             let mut conn_mut_borrowed = conn.borrow_mut();
             conn_mut_borrowed.set_log_dumper(log_dumper.clone());
         });
+    }
+
+    pub fn add_notification(&mut self, func: UnitFunction<NetworkMessage>) {
+        self.connections.iter_mut().for_each(|conn| {
+            let mut conn_mut_borrowed = conn.borrow_mut();
+            conn_mut_borrowed.add_notification(Arc::clone(&func))
+        })
     }
 
     pub fn get_all_current_peers(&self) -> Box<[P2PNodeId]> {

@@ -1,15 +1,11 @@
 use crate::{
     common::PeerType,
     configuration::Config,
-    connection::MessageManager,
     network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::p2p_node::P2PNode,
     stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_common::{
-    functor::{FilterFunctor, Functorable},
-    make_atomic_callback, safe_write, UCursor,
-};
+use concordium_common::UCursor;
 use failure::Fallible;
 use std::{
     cell::RefCell,
@@ -27,7 +23,7 @@ static INIT: Once = ONCE_INIT;
 static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static PORT_START_NODE: u16 = 8888;
 
-pub const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
+pub const TESTCONFIG: &[&str] = &["no-bootstrap"];
 
 /// It returns next available port
 pub fn next_available_port() -> u16 {
@@ -136,27 +132,17 @@ pub fn make_node_and_sync(
     let export_service = Arc::new(RwLock::new(
         StatsExportService::new(StatsServiceMode::NodeMode).unwrap(),
     ));
-    let mut node = P2PNode::new(
-        None,
-        &config,
-        net_tx,
-        None,
-        node_type,
-        Some(export_service),
-        Arc::new(FilterFunctor::new("Broadcasting_checks")),
-    );
+    let mut node = P2PNode::new(None, &config, net_tx, None, node_type, Some(export_service));
     let node_id = port;
 
-    let mh = node.message_handler();
-    safe_write!(mh)?
-        .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
-            log_any_message_handler(node_id, m)
-        }))
-        .add_termination_listener(make_atomic_callback!(move |m: &NetworkMessage| {
-            // It is safe to ignore error.
-            let _ = msg_wait_tx.send(m.clone());
-            Ok(())
-        }));
+    node.add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
+        log_any_message_handler(node_id, m)
+    }))
+    .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
+        // It is safe to ignore error.
+        let _ = msg_wait_tx.send(m.clone());
+        Ok(())
+    }));
 
     node.spawn();
     Ok((node, msg_wait_rx))
@@ -256,7 +242,7 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 /// # use concordium_common::make_atomic_callback;
 /// # use p2p_client::{
 /// #     common::PeerType,
-/// #     connection::MessageManager,
+/// #     connection::network_handler::message_processor::MessageManager,
 /// #     network::NetworkMessage,
 /// #     test_utils::{log_any_message_handler, make_node_and_sync},
 /// # };
@@ -264,10 +250,10 @@ pub fn consume_pending_messages(waiter: &Receiver<NetworkMessage>) {
 /// let (mut node, waiter) = make_node_and_sync(5555, vec![100], true, PeerType::Node).unwrap();
 /// let id = node.id();
 ///
-/// node.message_handler()
+/// node.message_processor()
 ///     .write()
 ///     .unwrap()
-///     .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
+///     .add_notification(make_atomic_callback!(move |m: &NetworkMessage| {
 ///         log_any_message_handler(id, m);
 ///         Ok(())
 ///     }));

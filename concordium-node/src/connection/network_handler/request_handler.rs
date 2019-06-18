@@ -1,5 +1,5 @@
 use crate::network::{request::NetworkRequest as NRequest, NetworkRequest};
-use concordium_common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor};
+use concordium_common::functor::{FunctorResult, UnitFunction, UnitFunctor};
 
 pub struct RequestHandler {
     pub ping_handler:          UnitFunctor<NRequest>,
@@ -20,15 +20,15 @@ impl Default for RequestHandler {
 impl RequestHandler {
     pub fn new() -> Self {
         RequestHandler {
-            ping_handler:          UnitFunctor::new("Network::Request::Ping"),
-            find_node_handler:     UnitFunctor::new("Network::Request::FindNode"),
-            ban_node_handler:      UnitFunctor::new("Network::Request::BanNode"),
-            unban_node_handler:    UnitFunctor::new("Network::Request::UnbanNode"),
-            handshake_handler:     UnitFunctor::new("Network::Request::Handshake"),
-            get_peers_handler:     UnitFunctor::new("Network::Request::GetPeers"),
-            join_network_handler:  UnitFunctor::new("Network::Request::JoinNetwork"),
-            leave_network_handler: UnitFunctor::new("Network::Request::LeaveNetwork"),
-            retransmit_handler:    UnitFunctor::new("Network::Request::Retransmit"),
+            ping_handler:          UnitFunctor::new(),
+            find_node_handler:     UnitFunctor::new(),
+            ban_node_handler:      UnitFunctor::new(),
+            unban_node_handler:    UnitFunctor::new(),
+            handshake_handler:     UnitFunctor::new(),
+            get_peers_handler:     UnitFunctor::new(),
+            join_network_handler:  UnitFunctor::new(),
+            leave_network_handler: UnitFunctor::new(),
+            retransmit_handler:    UnitFunctor::new(),
         }
     }
 
@@ -123,7 +123,7 @@ mod request_handler_test {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, RwLock,
+            Arc,
         },
     };
 

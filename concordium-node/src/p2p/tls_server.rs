@@ -1,6 +1,9 @@
 use super::fails;
+use crate::connection::network_handler::message_processor::{
+    MessageManager, MessageProcessor, ProcessResult,
+};
 use concordium_common::{
-    functor::{Functorable, UnitFunction, UnitFunctor},
+    functor::{UnitFunction, UnitFunctor},
     UCursor,
 };
 
@@ -28,10 +31,7 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         P2PPeer, PeerType, RemotePeer,
     },
-    connection::{
-        default_noise_params, Connection, ConnectionBuilder, MessageHandler, MessageManager,
-        P2PEvent,
-    },
+    connection::{default_noise_params, Connection, ConnectionBuilder, P2PEvent},
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -104,10 +104,10 @@ impl TlsServerBuilder {
                 self_peer,
                 stats_export_service: self.stats_export_service,
                 buckets,
-                message_handler: Arc::new(RwLock::new(MessageHandler::new())),
+                message_processor: Arc::new(RwLock::new(MessageProcessor::new())),
                 dptr: mdptr,
                 blind_trusted_broadcast,
-                prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
+                prehandshake_validations: PreHandshake::new(),
                 log_dumper: None,
                 max_allowed_peers,
             };
@@ -172,7 +172,7 @@ pub struct TlsServer {
     self_peer:                P2PPeer,
     buckets:                  Arc<RwLock<Buckets>>,
     stats_export_service:     Option<Arc<RwLock<StatsExportService>>>,
-    message_handler:          Arc<RwLock<MessageHandler>>,
+    message_processor:        Arc<RwLock<MessageProcessor>>,
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
     blind_trusted_broadcast:  bool,
     prehandshake_validations: PreHandshake,
@@ -276,6 +276,9 @@ impl TlsServer {
 
         self.register_message_handlers(&mut conn);
 
+        conn.setup_pre_handshake();
+        conn.setup_post_handshake();
+
         let register_status = conn.register(poll);
         safe_write!(self.dptr)?.add_connection(conn);
 
@@ -356,6 +359,8 @@ impl TlsServer {
                     .build()?;
 
                 self.register_message_handlers(&mut conn);
+                conn.setup_pre_handshake();
+                conn.setup_post_handshake();
                 conn.register(poll)?;
 
                 safe_write!(self.dptr)?.add_connection(conn);
@@ -391,7 +396,7 @@ impl TlsServer {
     }
 
     #[inline]
-    pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
+    pub fn conn_event(&mut self, event: &Event) -> Fallible<ProcessResult> {
         write_or_die!(self.dptr).conn_event(event)
     }
 
@@ -431,7 +436,7 @@ impl TlsServer {
         let cloned_dptr = Arc::clone(&self.dptr);
         let banned_nodes = Rc::clone(&read_or_die!(cloned_dptr).banned_peers);
         let to_disconnect = Rc::clone(&read_or_die!(cloned_dptr).to_disconnect);
-        write_or_die!(self.message_handler).add_request_callback(make_atomic_callback!(
+        write_or_die!(self.message_processor).add_request_action(make_atomic_callback!(
             move |req: &NetworkRequest| {
                 if let NetworkRequest::Handshake(ref peer, ..) = req {
                     if banned_nodes.borrow().is_id_banned(peer.id()) {
@@ -445,10 +450,10 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let mh = &read_or_die!(self.message_handler);
-        Rc::clone(&conn.common_message_handler)
+        let mh = &read_or_die!(self.message_processor);
+        Rc::clone(&conn.common_message_processor)
             .borrow_mut()
-            .merge(mh);
+            .add(mh);
     }
 
     fn add_default_prehandshake_validations(&mut self) {
@@ -476,6 +481,11 @@ impl TlsServer {
         self.log_dumper = None;
         write_or_die!(self.dptr).dump_all_connections(None);
     }
+
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
+        write_or_die!(self.message_processor).add_notification(Arc::clone(&func));
+        write_or_die!(self.dptr).add_notification(func);
+    }
 }
 
 #[cfg(test)]
@@ -484,5 +494,7 @@ impl TlsServer {
 }
 
 impl MessageManager for TlsServer {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { Arc::clone(&self.message_handler) }
+    fn message_processor(&self) -> Arc<RwLock<MessageProcessor>> {
+        Arc::clone(&self.message_processor)
+    }
 }

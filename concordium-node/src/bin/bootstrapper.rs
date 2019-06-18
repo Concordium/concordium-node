@@ -14,10 +14,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{
-    functor::{FilterFunctor, Functorable},
-    RelayOrStopEnvelope, RelayOrStopReceiver,
-};
+use concordium_common::{RelayOrStopEnvelope, RelayOrStopReceiver};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
@@ -106,8 +103,6 @@ fn main() -> Result<(), Error> {
 
     let (pkt_in, pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
 
-    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
-
     let mut node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
         let _guard = spawn_or_die!("Log loop", move || loop {
@@ -122,7 +117,6 @@ fn main() -> Result<(), Error> {
             Some(sender),
             PeerType::Bootstrapper,
             arc_stats_export_service,
-            Arc::clone(&broadcasting_checks),
         )
     } else {
         P2PNode::new(
@@ -132,7 +126,6 @@ fn main() -> Result<(), Error> {
             None,
             PeerType::Bootstrapper,
             arc_stats_export_service,
-            Arc::clone(&broadcasting_checks),
         )
     };
 

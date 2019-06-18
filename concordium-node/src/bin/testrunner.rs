@@ -16,7 +16,6 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::{
-    functor::{FilterFunctor, Functorable},
     lock_or_die, safe_lock, spawn_or_die, RelayOrStopEnvelope, RelayOrStopReceiver,
 };
 use env_logger::{Builder, Env};
@@ -332,8 +331,6 @@ fn instantiate_node(
         None
     };
 
-    let broadcasting_checks = Arc::new(FilterFunctor::new("Broadcasting_checks"));
-
     let node = P2PNode::new(
         node_id,
         &conf,
@@ -341,7 +338,6 @@ fn instantiate_node(
         node_sender,
         PeerType::Node,
         arc_stats_export_service,
-        Arc::clone(&broadcasting_checks),
     );
 
     (node, pkt_out)

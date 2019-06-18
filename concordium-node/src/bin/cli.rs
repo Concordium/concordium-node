@@ -7,6 +7,7 @@ extern crate grpciowin as grpcio;
 extern crate log;
 
 // Explicitly defining allocator to avoid future reintroduction of jemalloc
+use p2p_client::connection::network_handler::message_processor::MessageManager;
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
@@ -14,7 +15,6 @@ static A: System = System;
 use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
-    functor::{FilterFunctor, Functorable},
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
     RelayOrStopReceiver, RelayOrStopSender,
 };
@@ -35,7 +35,6 @@ use p2p_client::{
     },
     common::{P2PNodeId, PeerType},
     configuration,
-    connection::network_handler::message_handler::MessageManager,
     db::P2PDB,
     network::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
@@ -191,8 +190,6 @@ fn instantiate_node(
         None
     };
 
-    let broadcasting_checks = FilterFunctor::new("Broadcasting_checks");
-
     // Thread #1: Read P2PEvents from P2PNode
     let node = if conf.common.debug {
         let (sender, receiver) = mpsc::channel();
@@ -208,7 +205,6 @@ fn instantiate_node(
             Some(sender),
             PeerType::Node,
             arc_stats_export_service,
-            Arc::new(broadcasting_checks),
         )
     } else {
         P2PNode::new(
@@ -218,7 +214,6 @@ fn instantiate_node(
             None,
             PeerType::Node,
             arc_stats_export_service,
-            Arc::new(broadcasting_checks),
         )
     };
     (node, pkt_out)
@@ -404,9 +399,9 @@ fn attain_post_handshake_catch_up(
 ) -> Fallible<()> {
     let cloned_handshake_response_node = Arc::new(RwLock::new(node.clone()));
     let baker_clone = baker.clone();
-    let message_handshake_response_handler = &node.message_handler();
+    let message_handshake_response_handler = &node.message_processor();
 
-    safe_write!(message_handshake_response_handler)?.add_response_callback(make_atomic_callback!(
+    safe_write!(message_handshake_response_handler)?.add_response_action(make_atomic_callback!(
         move |msg: &NetworkResponse| {
             if let NetworkResponse::Handshake(ref remote_peer, ref nets, _) = msg {
                 if remote_peer.peer_type() == PeerType::Node {

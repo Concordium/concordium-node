@@ -4,22 +4,18 @@ extern crate log;
 
 #[cfg(test)]
 mod tests {
-    use concordium_common::{
-        functor::{FilterFunctor, Functorable},
-        make_atomic_callback, safe_write, write_or_die, UCursor,
-    };
+    use concordium_common::{make_atomic_callback, safe_write, write_or_die, UCursor};
     use failure::{bail, Fallible};
     use p2p_client::{
         common::PeerType,
         configuration::Config,
-        connection::MessageManager,
+        connection::network_handler::message_processor::MessageManager,
         network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType},
         p2p::{banned_nodes::BannedNode, p2p_node::P2PNode},
         test_utils::{
-            connect_and_wait_handshake, consume_pending_messages, log_any_message_handler,
-            make_node_and_sync, make_nodes_from_port, max_recv_timeout, next_available_port,
-            setup_logger, wait_broadcast_message, wait_direct_message, wait_direct_message_timeout,
-            TESTCONFIG,
+            connect_and_wait_handshake, consume_pending_messages, make_node_and_sync,
+            make_nodes_from_port, max_recv_timeout, next_available_port, setup_logger,
+            wait_broadcast_message, wait_direct_message, wait_direct_message_timeout, TESTCONFIG,
         },
     };
 
@@ -30,7 +26,7 @@ mod tests {
         hash::Hasher,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, RwLock,
+            Arc,
         },
         time,
     };
@@ -120,14 +116,6 @@ mod tests {
         let (mut node_3, msg_waiter_3) =
             make_node_and_sync(next_available_port(), networks, true, PeerType::Node)?;
 
-        // Add log
-        safe_write!(node_2.message_handler())?.add_callback(make_atomic_callback!(
-            move |m: &NetworkMessage| { log_any_message_handler(2, m) }
-        ));
-        safe_write!(node_3.message_handler())?.add_callback(make_atomic_callback!(
-            move |m: &NetworkMessage| { log_any_message_handler(3, m) }
-        ));
-
         connect_and_wait_handshake(&mut node_2, &node_1, &msg_waiter_2)?;
         connect_and_wait_handshake(&mut node_3, &node_2, &msg_waiter_3)?;
 
@@ -179,7 +167,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore]
     #[test]
     pub fn e2e_002_small_mesh_net() -> Fallible<()> {
         const MESH_NODE_COUNT: usize = 15;
@@ -187,25 +174,28 @@ mod tests {
         let message_counter = Counter::new(0);
         let mut peers: Vec<(P2PNode, _)> = Vec::with_capacity(MESH_NODE_COUNT);
 
+        let msg = b"Hello other mother's brother";
         // Create mesh net
         for _node_idx in 0..MESH_NODE_COUNT {
             let inner_counter = message_counter.clone();
 
             let (mut node, waiter) =
                 make_node_and_sync(next_available_port(), vec![100], false, PeerType::Node)?;
-
-            safe_write!(node.message_handler())?.add_packet_callback(make_atomic_callback!(
-                move |pac: &NetworkPacket| {
-                    if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                        inner_counter.tick(1);
-                        info!(
-                            "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
-                            pac.network_id,
-                            pac.message_id,
-                            next_available_port(),
-                            pac.message.len(),
-                            inner_counter.get()
-                        );
+            let port = node.internal_addr.port();
+            safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
+                move |m: &NetworkMessage| {
+                    if let NetworkMessage::NetworkPacket(pac, _, _) = m {
+                        if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                            inner_counter.tick(1);
+                            info!(
+                                "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
+                                pac.network_id,
+                                pac.message_id,
+                                port,
+                                pac.message.len(),
+                                inner_counter.get()
+                            );
+                        }
                     }
                     Ok(())
                 }
@@ -221,14 +211,13 @@ mod tests {
         }
 
         // Send broadcast message from 0 node
-        let msg = b"Hello other mother's brother";
         if let Some((ref mut node, _)) = peers.get_mut(0) {
             node.send_broadcast_message(None, NetworkId::from(100), None, msg.to_vec())?;
         }
 
         // Wait for broadcast message from 1..MESH_NODE_COUNT
         // and close and join to all nodes (included first node).
-        for (node, waiter) in peers.iter_mut().nth(1) {
+        for (node, waiter) in peers.iter_mut().skip(1) {
             let msg_recv = wait_broadcast_message(&waiter)?.read_all_into_view()?;
             assert_eq!(msg_recv.as_slice(), msg);
             assert_eq!(true, node.close_and_join().is_ok());
@@ -253,6 +242,7 @@ mod tests {
         let mut islands: Vec<Vec<(P2PNode, _)>> = Vec::with_capacity(islands_count);
         let networks = vec![100];
 
+        let msg = b"Hello other mother's brother";
         // Create island of nodes. Each node (in each island) is connected to all
         // previous created nodes.
         for _island in 0..islands_count {
@@ -269,24 +259,25 @@ mod tests {
                 )?;
                 let port = node.internal_addr.port();
 
-                safe_write!(node.message_handler())?
-                    .add_packet_callback(make_atomic_callback!(move |pac: &NetworkPacket| {
-                        if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
-                            inner_counter.tick(1);
-                            info!(
-                                "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
-                                pac.network_id,
-                                pac.message_id,
-                                port,
-                                pac.message.len(),
-                                inner_counter.get()
-                            );
+                safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
+                    move |m: &NetworkMessage| {
+                        if let NetworkMessage::NetworkPacket(pac, _, _) = m {
+                            if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                                inner_counter.tick(1);
+                                info!(
+                                    "BroadcastedMessage/{}/{:?} at {} with size {} received, \
+                                     ticks {}",
+                                    pac.network_id,
+                                    pac.message_id,
+                                    port,
+                                    pac.message.len(),
+                                    inner_counter.get()
+                                );
+                            }
                         }
                         Ok(())
-                    }))
-                    .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
-                        log_any_message_handler(port, m)
-                    }));
+                    }
+                ));
 
                 // Connect to previous nodes and clean any pending message in waiters
                 for (tgt_node, tgt_waiter) in &peers_islands_and_ports {
@@ -300,7 +291,7 @@ mod tests {
         }
 
         // Send broadcast message in each island.
-        let msg = b"Hello other mother's brother";
+
         for island in &mut islands {
             if let Some((ref mut node_sender_ref, _)) = island.get_mut(0) {
                 node_sender_ref.send_broadcast_message(
@@ -314,7 +305,7 @@ mod tests {
 
         // Wait reception of that broadcast message.
         for island in islands.iter_mut() {
-            for (node, waiter) in island.iter_mut().nth(1) {
+            for (node, waiter) in island.iter_mut().skip(1) {
                 let msg_recv = wait_broadcast_message(&waiter)?.read_all_into_view()?;
                 assert_eq!(msg_recv.as_slice(), msg);
                 assert_eq!(true, node.close_and_join().is_ok());
@@ -368,19 +359,14 @@ mod tests {
             let (node, conn_waiter) =
                 make_node_and_sync(port, vec![network_id], true, PeerType::Node)?;
 
-            let node_id_and_port = format!("{}(port={})", node.id(), port);
-
-            let mh = node.message_handler();
-            safe_write!(mh)?
-                .add_packet_callback(make_atomic_callback!(move |pac: &NetworkPacket| {
+            let mh = node.message_processor();
+            safe_write!(mh)?.add_packet_action(make_atomic_callback!(
+                move |pac: &NetworkPacket| {
                     // It is safe to ignore error.
                     let _ = tx_i.send(pac.clone());
                     Ok(())
-                }))
-                .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
-                    let id = node_id_and_port.clone();
-                    log_any_message_handler(id, m)
-                }));
+                }
+            ));
 
             nodes.push(RefCell::new(node));
             waiters.push(conn_waiter);
@@ -523,16 +509,13 @@ mod tests {
         )?;
         let (bcast_tx, bcast_rx) = std::sync::mpsc::channel();
         {
-            write_or_die!(node.message_handler())
-                .add_packet_callback(make_atomic_callback!(move |pac: &NetworkPacket| {
+            write_or_die!(node.message_processor()).add_packet_action(make_atomic_callback!(
+                move |pac: &NetworkPacket| {
                     debug!("Root node is forwarding Packet to channel");
                     // It is safe to ignore error.
-                    let _ = bcast_tx.send(pac.clone());
-                    Ok(())
-                }))
-                .add_callback(make_atomic_callback!(move |m: &NetworkMessage| {
-                    log_any_message_handler(0, m)
-                }));
+                    bcast_tx.send(pac.clone()).map_err(failure::Error::from)
+                }
+            ));
         }
 
         nodes_per_level.push(vec![RefCell::new(node)]);
@@ -549,13 +532,6 @@ mod tests {
             // Create nodes and add logger for each message
             let (nodes, waiters): (Vec<RefCell<P2PNode>>, _) =
                 nodes_and_conn_waiters.into_iter().unzip();
-            nodes.iter().enumerate().for_each(|(idx, node)| {
-                write_or_die!(node.borrow_mut().message_handler()).add_callback(
-                    make_atomic_callback!(move |m: &NetworkMessage| {
-                        log_any_message_handler(level * 1000 + idx, m)
-                    }),
-                );
-            });
 
             nodes_per_level.push(nodes);
             conn_waiters_per_level.push(waiters);
@@ -692,15 +668,7 @@ mod tests {
             vec![100],
             100,
         );
-        let mut node = P2PNode::new(
-            None,
-            &config,
-            net_tx,
-            None,
-            PeerType::Node,
-            None,
-            Arc::new(FilterFunctor::new("Broadcasting_checks")),
-        );
+        let mut node = P2PNode::new(None, &config, net_tx, None, PeerType::Node, None);
 
         assert_eq!(true, node.close_and_join().is_err());
         assert_eq!(true, node.close_and_join().is_err());
@@ -737,7 +705,7 @@ mod tests {
             make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node)?;
 
         let node_2_cloned = RefCell::new(node_2.clone());
-        safe_write!(node_2.message_handler())?.add_packet_callback(make_atomic_callback!(
+        safe_write!(node_2.message_processor())?.add_packet_action(make_atomic_callback!(
             move |_pac: &NetworkPacket| {
                 let join_status = node_2_cloned.borrow_mut().close_and_join();
                 assert_eq!(join_status.is_err(), true);

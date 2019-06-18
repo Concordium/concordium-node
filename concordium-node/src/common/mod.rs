@@ -34,7 +34,7 @@ pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
 
 const PEER_TYPE_NODE: u8 = 0;
 const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
-pub const TESTCONFIG: &[&str] = &["no_bootstrap_dns"];
+pub const TESTCONFIG: &[&str] = &["no-bootstrap"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]

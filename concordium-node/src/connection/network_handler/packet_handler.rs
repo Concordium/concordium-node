@@ -2,7 +2,7 @@ use crate::{
     connection::network_handler::NetworkPacketCW,
     network::{NetworkPacket, NetworkPacketType},
 };
-use concordium_common::functor::{FunctorResult, Functorable, UnitFunctor};
+use concordium_common::functor::{FunctorResult, UnitFunctor};
 
 pub struct PacketHandler {
     pub direct_parser:    UnitFunctor<NetworkPacket>,
@@ -16,8 +16,8 @@ impl Default for PacketHandler {
 impl PacketHandler {
     pub fn new() -> Self {
         PacketHandler {
-            direct_parser:    UnitFunctor::new("Network::Packet::Direct"),
-            broadcast_parser: UnitFunctor::new("Network::Packet::Broadcast"),
+            direct_parser:    UnitFunctor::new(),
+            broadcast_parser: UnitFunctor::new(),
         }
     }
 

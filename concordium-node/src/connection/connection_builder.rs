@@ -2,7 +2,7 @@ use crate::{
     common::{get_current_stamp, NetworkRawRequest, P2PPeer, RemotePeer},
     connection::{
         connection_private::ConnectionPrivateBuilder, fails::MissingFieldsConnectionBuilder,
-        network_handler::MessageHandler, p2p_event::P2PEvent, Connection,
+        network_handler::message_processor::MessageProcessor, p2p_event::P2PEvent, Connection,
     },
     dumper::DumpItem,
     network::{Buckets, NetworkId},
@@ -55,20 +55,17 @@ impl ConnectionBuilder {
                 .set_log_dumper(self.log_dumper)
                 .build()?;
 
-            let mut lself = Connection {
+            let lself = Connection {
                 messages_received: 0,
                 messages_sent: 0,
                 last_ping_sent: curr_stamp,
                 network_request_sender: sender,
                 dptr: Rc::new(RefCell::new(priv_conn)),
-                pre_handshake_message_handler: MessageHandler::new(),
-                post_handshake_message_handler: MessageHandler::new(),
-                common_message_handler: Rc::new(RefCell::new(MessageHandler::new())),
+                pre_handshake_message_processor: MessageProcessor::new(),
+                post_handshake_message_processor: MessageProcessor::new(),
+                common_message_processor: Rc::new(RefCell::new(MessageProcessor::new())),
                 blind_trusted_broadcast,
             };
-
-            lself.setup_pre_handshake();
-            lself.setup_post_handshake();
 
             Ok(lself)
         } else {

@@ -14,6 +14,7 @@ extern crate serde_derive;
 pub mod fails;
 
 pub mod container_view;
+pub mod filters;
 pub mod functor;
 pub mod ucursor;
 
