@@ -16,7 +16,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
     make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
-    RelayOrStopReceiver, RelayOrStopSender,
+    RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
@@ -572,10 +572,12 @@ fn main() -> Fallible<()> {
     // Create a listener on baker output to forward to P2PNode
     //
     // Thread #5
-    let baker_thread = setup_baker_guards(baker.is_some(), &node, &conf, skov_sender);
+    let baker_thread = setup_baker_guards(baker.is_some(), &node, &conf, skov_sender.clone());
 
     // Wait for node closing
     node.join().expect("Node thread panicked!");
+
+    skov_sender.send_stop()?;
 
     // Close baker if present
     if let Some(ref mut baker_ref) = baker {
