@@ -242,7 +242,7 @@ impl ConsensusFfiResponse {
 
         match self {
             BakerNotFound | DeserializationError | InvalidResult => false,
-            _ => true
+            _ => true,
         }
     }
 }

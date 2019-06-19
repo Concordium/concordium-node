@@ -178,12 +178,36 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
             2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
             3 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, false))?),
             4 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, true))?),
-            5 => WmvbaMessage::Css(Css::deserialize((&read_all(&mut cursor)?, CssVariant::Seen, NominationTag::Top))?),
-            6 => WmvbaMessage::Css(Css::deserialize((&read_all(&mut cursor)?, CssVariant::Seen, NominationTag::Bottom))?),
-            7 => WmvbaMessage::Css(Css::deserialize((&read_all(&mut cursor)?, CssVariant::Seen, NominationTag::Both))?),
-            8 => WmvbaMessage::Css(Css::deserialize((&read_all(&mut cursor)?, CssVariant::DoneReporting, NominationTag::Top))?),
-            9 => WmvbaMessage::Css(Css::deserialize((&read_all(&mut cursor)?, CssVariant::DoneReporting, NominationTag::Bottom))?),
-            10 => WmvbaMessage::Css(Css::deserialize((&read_all(&mut cursor)?, CssVariant::DoneReporting, NominationTag::Both))?),
+            5 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::Seen,
+                NominationTag::Top,
+            ))?),
+            6 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::Seen,
+                NominationTag::Bottom,
+            ))?),
+            7 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::Seen,
+                NominationTag::Both,
+            ))?),
+            8 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::DoneReporting,
+                NominationTag::Top,
+            ))?),
+            9 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::DoneReporting,
+                NominationTag::Bottom,
+            ))?),
+            10 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::DoneReporting,
+                NominationTag::Both,
+            ))?),
             11 => WmvbaMessage::AreWeDone(false),
             12 => WmvbaMessage::AreWeDone(true),
             13 => {
@@ -274,7 +298,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
 #[derive(Debug, PartialEq, Eq, Hash)]
 enum CssVariant {
     Seen,
-    DoneReporting
+    DoneReporting,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Default)]
@@ -299,10 +323,16 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             }
         }
 
-        fn get_parties(cursor: &mut Cursor<&[u8]>, bitstring: &mut Vec<u32>, party: Party, max_party: Party) -> Fallible<()> {
+        fn get_parties(
+            cursor: &mut Cursor<&[u8]>,
+            bitstring: &mut Vec<u32>,
+            party: Party,
+            max_party: Party,
+        ) -> Fallible<()> {
             if party <= max_party {
-                let byte = read_const_sized!(cursor, 1)[0] as u32;
-                let bgn = ((0u32..8).filter(|&n| check_bit(n, byte)).map(|n| n + party)).collect::<Vec<_>>();
+                let byte = u32::from(read_const_sized!(cursor, 1)[0]);
+                let bgn = ((0u32..8).filter(|&n| check_bit(n, byte)).map(|n| n + party))
+                    .collect::<Vec<_>>();
                 let bitstring2 = [bgn.as_slice(), bitstring].concat();
                 *bitstring = bitstring2;
                 get_parties(cursor, bitstring, party + 8, max_party)
@@ -316,7 +346,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
         let max_party = NetworkEndian::read_u32(&read_const_sized!(cursor, size_of::<Party>()));
 
         let bitstr_len = (max_party as usize + 1) / 8;
-        let (mut top, mut bottom) = (Vec::with_capacity(bitstr_len), Vec::with_capacity(bitstr_len));
+        let (mut top, mut bottom) = (
+            Vec::with_capacity(bitstr_len),
+            Vec::with_capacity(bitstr_len),
+        );
 
         if tag == NominationTag::Top || tag == NominationTag::Both {
             get_parties(cursor, &mut top, Party::min_value(), max_party)?;
@@ -344,7 +377,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             }
         }
 
-        fn unpack_party(unpacked: &mut Cursor<Box<[u8]>>, packed: &[u32], party: Party, max_party: Party) {
+        fn unpack_party(
+            unpacked: &mut Cursor<Box<[u8]>>,
+            packed: &[u32],
+            party: Party,
+            max_party: Party,
+        ) {
             fn party_byte(bits: &[u32], party: Party) -> u8 {
                 bits.iter().fold(0, |acc, byte| set_bit(byte - party, acc)) as u8
             }
@@ -356,22 +394,25 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             }
         }
 
-        let bitstr_len = ((self.max_party as f64 + 1.0) / 8.0).ceil() as usize;
+        let bitstr_len = ((f64::from(self.max_party) + 1.0) / 8.0).ceil() as usize;
         let set_size = if !self.top.0.is_empty() && !self.bottom.0.is_empty() {
             2 * bitstr_len
         } else {
             bitstr_len
         };
-        let mut cursor = create_serialization_cursor(
-            size_of::<Party>() + set_size
-        );
+        let mut cursor = create_serialization_cursor(size_of::<Party>() + set_size);
 
         let _ = cursor.write_u32::<NetworkEndian>(self.max_party);
         if !self.top.0.is_empty() {
             unpack_party(&mut cursor, &self.top.0, Party::min_value(), self.max_party);
         }
         if !self.bottom.0.is_empty() {
-            unpack_party(&mut cursor, &self.bottom.0, Party::min_value(), self.max_party);
+            unpack_party(
+                &mut cursor,
+                &self.bottom.0,
+                Party::min_value(),
+                self.max_party,
+            );
         }
 
         cursor.into_inner()
@@ -388,9 +429,9 @@ struct Css {
 #[derive(Debug, PartialEq, Eq)]
 enum NominationTag {
     Empty,
-    Top = 5,
+    Top    = 5,
     Bottom = 6,
-    Both = 7,
+    Both   = 7,
 }
 
 impl Css {
@@ -418,7 +459,11 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Phase>()));
         let nomination_set = NominationSet::deserialize((&mut cursor, tag))?;
 
-        let css = Css { variant, phase, nomination_set };
+        let css = Css {
+            variant,
+            phase,
+            nomination_set,
+        };
 
         check_serialization!(css, cursor);
 

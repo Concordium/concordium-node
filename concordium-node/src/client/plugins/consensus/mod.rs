@@ -375,8 +375,8 @@ fn send_finalization_message_to_consensus(
         );
     } else {
         error!(
-            "Peer {}'s finalization message can't be sent to our consensus layer due to error code \
-             {:?} (record: {:?})",
+            "Peer {}'s finalization message can't be sent to our consensus layer due to error \
+             code {:?} (record: {:?})",
             peer_id,
             consensus_response,
             FinalizationMessage::deserialize(content)?,
