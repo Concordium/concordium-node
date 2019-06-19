@@ -8,22 +8,22 @@ COPY ./scripts/genesis-data ./genesis-data
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN ./init.build.env.sh && \
     # Regular build
-    cargo build --features=instrumentation,benchmark && \
+    cargo build --features=instrumentation,benchmark,static && \
     cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/testrunner /build-project/ && \
     cargo clean && \
     # Sanitizer build
-    rustup install nightly-2019-03-22 && \
-    rustup default nightly-2019-03-22 && \
-    rustup component add rust-src --toolchain nightly-2019-03-22-x86_64-unknown-linux-gnu && \
-    RUSTFLAGS="-Z sanitizer=address" cargo build --target x86_64-unknown-linux-gnu --features=instrumentation && \
-    RUSTFLAGS="-Z sanitizer=address" cargo test --no-run --target x86_64-unknown-linux-gnu --features=instrumentation && \
-    mkdir -p sanitized && \
-    mv target/x86_64-unknown-linux-gnu/debug/p2p_client-cli sanitized/ && \
-    mv target/x86_64-unknown-linux-gnu/debug/p2p_bootstrapper-cli sanitized/ && \
-    cp target/x86_64-unknown-linux-gnu/debug/address_sanitizer* sanitized/ && \
-    cp target/x86_64-unknown-linux-gnu/debug/p2p_client-* sanitized/ && \
+    #rustup install nightly-2019-03-22 && \
+    #rustup default nightly-2019-03-22 && \
+    #rustup component add rust-src --toolchain nightly-2019-03-22-x86_64-unknown-linux-gnu && \
+    #RUSTFLAGS="-Z sanitizer=address" cargo build --target x86_64-unknown-linux-gnu --features=instrumentation && \
+    #RUSTFLAGS="-Z sanitizer=address" cargo test --no-run --target x86_64-unknown-linux-gnu --features=instrumentation && \
+    #mkdir -p sanitized && \
+    #mv target/x86_64-unknown-linux-gnu/debug/p2p_client-cli sanitized/ && \
+    #mv target/x86_64-unknown-linux-gnu/debug/p2p_bootstrapper-cli sanitized/ && \
+    #cp target/x86_64-unknown-linux-gnu/debug/address_sanitizer* sanitized/ && \
+    #cp target/x86_64-unknown-linux-gnu/debug/p2p_client-* sanitized/ && \
     cargo clean && \
-    rustup default stable  && \
+    #rustup default stable  && \
     # Clean
     rm -rf ~/.cargo ~/.rustup && \
     rm -rf deps src benches tests src concordium-common && \
@@ -34,9 +34,3 @@ RUN ./init.build.env.sh && \
     rm -rf concordium-dns concordium-global-state && \
     rm -rf scripts/build-all-docker.sh && \
     chmod +x ./start.sh
-EXPOSE 8950
-EXPOSE 8888
-EXPOSE 9090
-EXPOSE 8900
-EXPOSE 10000
-ENTRYPOINT ./start.sh

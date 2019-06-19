@@ -60,7 +60,7 @@ then
     ARGS="$ARGS --num-bakers $NUM_BAKERS"
     if [ -n "$DATA_DIR" ];
     then
-        cd /build-project/genesis-data
+        cd /genesis-data
         tar -xvf $NUM_BAKERS-bakers.tar.gz
         cd genesis_data/
         cp * $DATA_DIR/
@@ -146,7 +146,7 @@ fi
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
 
-    /build-project/p2p_client-cli \
+    /p2p_client-cli \
     --enable-tps-test-recv \
     --external-ip 10.96.0.15 \
     $ARGS
@@ -167,18 +167,18 @@ elif [ "$MODE" == "tps_sender" ]; then
 
     # Echo to cron file
 
-    /build-project/p2p_client-cli \
+    /p2p_client-cli \
     --tps-test-data-dir $DATA_DIR/tps_test \
     --baker-id 1 \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
     $ARGS
 elif [ "$MODE" == "basic" ]; then
-    /build-project/p2p_client-cli $ARGS
+    /p2p_client-cli $ARGS
 elif [ "$MODE" == "bootstrapper" ]; then
-    /build-project/p2p_bootstrapper-cli $ARGS
+    /p2p_bootstrapper-cli $ARGS
 elif [ "$MODE" == "testrunner" ]; then
-    /build-project/testrunner $ARGS
+    /testrunner $ARGS
 
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
