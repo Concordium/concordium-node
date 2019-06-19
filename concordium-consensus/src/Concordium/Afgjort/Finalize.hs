@@ -7,7 +7,8 @@ module Concordium.Afgjort.Finalize (
     FinalizationState(..),
     FinalizationSessionId(..),
     FinalizationPoint,
-    FinalizationMessage,
+    FinalizationMessage(..),
+    FinalizationMessageHeader,
     initialFinalizationState,
     verifyFinalProof,
     makeFinalizationCommittee,
@@ -97,7 +98,7 @@ instance Show FinalizationRound where
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: BlockHash,
     fsidIncarnation :: Word64
-} deriving (Eq, Show)
+} deriving (Eq, Ord, Show)
 
 instance S.Serialize FinalizationSessionId where
     put FinalizationSessionId{..} = S.put fsidGenesis >> putWord64be fsidIncarnation
@@ -111,7 +112,7 @@ data FinalizationMessageHeader = FinalizationMessageHeader {
     msgFinalizationIndex :: FinalizationIndex,
     msgDelta :: BlockHeight,
     msgSenderIndex :: Party
-}
+} deriving (Eq, Ord)
 
 instance S.Serialize FinalizationMessageHeader where
     put FinalizationMessageHeader{..} = do

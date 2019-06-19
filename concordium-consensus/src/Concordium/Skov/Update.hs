@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, DerivingStrategies, DerivingVia, UndecidableInstances, TemplateHaskell #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, DerivingStrategies, DerivingVia, UndecidableInstances, TemplateHaskell, StandaloneDeriving #-}
 {-# LANGUAGE LambdaCase, ScopedTypeVariables, ViewPatterns, RecordWildCards, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses #-}
 module Concordium.Skov.Update where
 
@@ -28,6 +28,7 @@ import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.Buffer
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Query
@@ -48,6 +49,9 @@ class MissingEvent w where
     missingBlockEvent :: BlockHash -> BlockHeight -> w
     missingFinalizationEvent :: Either BlockHash FinalizationIndex -> w
 
+class FinalizationEvent w => BufferedFinalizationEvent w where
+    embedNotifyEvent :: NotifyEvent -> w
+
 -- |The output events that may arise from consensus and finalization.
 -- These are finalization events and missing block/record events.
 data SkovFinalizationEvent
@@ -61,6 +65,20 @@ instance FinalizationEvent (Endo [SkovFinalizationEvent]) where
 instance MissingEvent (Endo [SkovFinalizationEvent]) where
     missingBlockEvent bh delta = Endo (SkovMissingBlock bh delta :)
     missingFinalizationEvent = Endo . (:) . SkovMissingFinalization
+
+data BufferedSkovFinalizationEvent
+    = BufferedEvent SkovFinalizationEvent
+    | BufferNotification NotifyEvent
+
+instance FinalizationEvent (Endo [BufferedSkovFinalizationEvent]) where
+    embedFinalizationEvent = Endo . (:) . BufferedEvent . SkovFinalization
+
+instance MissingEvent (Endo [BufferedSkovFinalizationEvent]) where
+    missingBlockEvent bh delta = Endo (BufferedEvent (SkovMissingBlock bh delta) :)
+    missingFinalizationEvent = Endo . (:) . BufferedEvent . SkovMissingFinalization
+
+instance BufferedFinalizationEvent (Endo [BufferedSkovFinalizationEvent]) where
+    embedNotifyEvent = Endo . (:) . BufferNotification
 
 -- |Notify of a missing block.
 notifyMissingBlock :: (MonadWriter w m, MissingEvent w) => BlockHash -> BlockHeight -> m ()
@@ -490,6 +508,37 @@ finalizationListeners = SkovListeners {
 }
 
 
+-- |A wrapper for a monad to provide an instance of 'SkovMonad' with buffering of finalization messages.
+--  The wrapped monad needs to provide state and context for finalization, and allow writing missing and
+-- finalization events, as well as support various underlying monads ('TreeStateMonad', 'TimeMonad' and
+-- 'LoggerMonad'). This is intended to be used with the DerivingVia mechanism to obtain instances for more
+-- specific implementations.
+newtype TSSkovBufferedFinalizationWrapper r w s m a = TSSkovBufferedFinalizationWrapper {runTSSkovBufferedFinalizationWrapper :: m a}
+    deriving (Functor, Applicative, Monad, BlockStateOperations,
+            BlockStateQuery, TreeStateMonad, TimeMonad, LoggerMonad,
+            MonadReader r, MonadWriter w, MonadState s, MonadIO)
+    deriving SkovQueryMonad via (TSSkovWrapper m)
+type instance BlockPointer (TSSkovBufferedFinalizationWrapper r w s m) = BlockPointer m
+type instance UpdatableBlockState (TSSkovBufferedFinalizationWrapper r w s m) = UpdatableBlockState m
+
+deriving via (TSSkovFinalizationWrapper FinalizationInstance w s m) instance
+        (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader FinalizationInstance m, MonadIO m,
+        MonadState s m, FinalizationStateLenses s, MonadWriter w m, MissingEvent w, FinalizationEvent w) 
+            => SkovMonad (TSSkovBufferedFinalizationWrapper FinalizationInstance w s m)
+
+instance (TimeMonad m, LoggerMonad m, TreeStateMonad m, MonadReader FinalizationInstance m, MonadIO m,
+        MonadState s m, FinalizationStateLenses s, FinalizationBufferLenses s, MonadWriter w m,
+        MissingEvent w, BufferedFinalizationEvent w) 
+            => FinalizationMonad s (TSSkovBufferedFinalizationWrapper FinalizationInstance w s m) where
+    broadcastFinalizationMessage msg = bufferFinalizationMessage msg >>= \case
+            Left n -> tell $ embedNotifyEvent n
+            Right msgs -> forM_ msgs $ tell . embedFinalizationEvent . BroadcastFinalizationMessage
+    broadcastFinalizationRecord = tell . embedFinalizationEvent . BroadcastFinalizationRecord
+    requestMissingFinalization = notifyMissingFinalization . Right
+    requestMissingBlock bh = notifyMissingBlock bh 0
+    requestMissingBlockDescendant = notifyMissingBlock
+    getFinalizationInstance = ask
+
 -- |A wrapper for a monad to provide an instance of 'SkovMonad', but with no finalization.  The underlying
 -- monad must implement 'TreeStateMonad', 'TimeMonad' and 'LoggerMonad'.
 newtype TSSkovNoFinalizationWrapper w m a = TSSkovNoFinalizationWrapper {runTSSkovNoFinalizationWrapper :: m a}
@@ -580,3 +629,48 @@ runFSM' :: FSM' m a -> FinalizationInstance -> SkovFinalizationState -> m (a, Sk
 runFSM' (FinalizationSkovMonad' a) fi fs = SRWS.runRWST a fi fs
 
 
+-- |State record combining skov state, finalization state and finalization message buffer.
+data SkovBufferedFinalizationState = SkovBufferedFinalizationState {
+    _sbfsSkov :: Basic.SkovData,
+    _sbfsFinalization :: FinalizationState,
+    _sbfsBuffer :: FinalizationBuffer
+}
+makeLenses ''SkovBufferedFinalizationState
+
+instance Basic.SkovLenses SkovBufferedFinalizationState where
+    skov = sbfsSkov
+
+instance FinalizationStateLenses SkovBufferedFinalizationState where
+    finState = sbfsFinalization
+
+instance FinalizationBufferLenses SkovBufferedFinalizationState where
+    finBuffer = sbfsBuffer
+
+-- |The initial finalization state.
+initialSkovBufferedFinalizationState :: FinalizationInstance -> GenesisData -> BlockState (FSM m) -> SkovBufferedFinalizationState
+initialSkovBufferedFinalizationState finInst gen initBS = SkovBufferedFinalizationState{..}
+    where
+        _sbfsSkov = Basic.initialSkovData gen initBS
+        _sbfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
+        _sbfsBuffer = emptyFinalizationBuffer
+
+-- |Implementation of the 'SkovMonad' with buffered finalization.
+newtype BFSM m a = BufferedFinalizationSkovMonad {runBufferedFinalizationSkovMonad :: RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m a}
+    deriving (Functor, Applicative, Monad, TimeMonad, LoggerMonad, MonadState SkovBufferedFinalizationState, MonadReader FinalizationInstance, MonadWriter (Endo [BufferedSkovFinalizationEvent]), MonadIO)
+    deriving BlockStateQuery via (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m))
+    deriving BlockStateOperations via (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m))
+    deriving TreeStateMonad via (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m))
+    deriving SkovQueryMonad via (TSSkovWrapper (Basic.SkovTreeState SkovBufferedFinalizationState (RWST FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState m)))
+    deriving SkovMonad via (TSSkovBufferedFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
+    deriving (FinalizationMonad SkovBufferedFinalizationState) via (TSSkovFinalizationWrapper FinalizationInstance (Endo [BufferedSkovFinalizationEvent]) SkovBufferedFinalizationState (BFSM m))
+type instance UpdatableBlockState (BFSM m) = Basic.BlockState
+type instance BlockPointer (BFSM m) = Basic.BlockPointer
+
+-- |Run an action in the 'BFSM' monad from the initial state defined by the supplied parameters.
+execBFSM :: (Monad m) => BFSM m a -> FinalizationInstance -> GenesisData -> BlockState (BFSM m) -> m a
+execBFSM (BufferedFinalizationSkovMonad a) fi gd bs0 = fst <$> evalRWST a fi (initialSkovBufferedFinalizationState fi gd bs0)
+
+-- |Run an action in the 'BFSM' monad from the given state, returning the updated state and
+-- any output events.
+runBFSM :: BFSM m a -> FinalizationInstance -> SkovBufferedFinalizationState -> m (a, SkovBufferedFinalizationState, Endo [BufferedSkovFinalizationEvent])
+runBFSM (BufferedFinalizationSkovMonad a) fi fs = runRWST a fi fs
