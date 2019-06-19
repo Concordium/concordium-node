@@ -19,7 +19,7 @@ use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
 use concordium_consensus::{
     consensus,
     ffi::{
-        self, ConsensusFfiResponse,
+        self,
         PacketType::{self, *},
     },
 };
@@ -339,19 +339,22 @@ fn send_finalization_record_to_consensus(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    match baker.send_finalization_record(peer_id.as_raw(), content) {
-        ConsensusFfiResponse::Success => info!(
+    let consensus_response = baker.send_finalization_record(peer_id.as_raw(), content);
+
+    if consensus_response.is_acceptable() {
+        info!(
             "Peer {}'s {:?} was sent to our consensus layer",
             peer_id,
             FinalizationRecord::deserialize(content)?
-        ),
-        err_code => error!(
+        );
+    } else {
+        error!(
             "Peer {}'s finalization record can't be sent to our consensus layer due to error code \
-             #{} (record: {:?})",
+             {:?} (record: {:?})",
             peer_id,
-            err_code as i64,
+            consensus_response,
             FinalizationRecord::deserialize(content)?,
-        ),
+        );
     }
 
     Ok(())
@@ -362,12 +365,23 @@ fn send_finalization_message_to_consensus(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    baker.send_finalization(peer_id.as_raw(), content);
-    info!(
-        "Peer {}'s {:?} was sent to our consensus layer",
-        peer_id,
-        FinalizationMessage::deserialize(content)?
-    );
+    let consensus_response = baker.send_finalization(peer_id.as_raw(), content);
+
+    if consensus_response.is_acceptable() {
+        info!(
+            "Peer {}'s {:?} was sent to our consensus layer",
+            peer_id,
+            FinalizationMessage::deserialize(content)?
+        );
+    } else {
+        error!(
+            "Peer {}'s finalization message can't be sent to our consensus layer due to error code \
+             {:?} (record: {:?})",
+            peer_id,
+            consensus_response,
+            FinalizationMessage::deserialize(content)?,
+        );
+    }
 
     Ok(())
 }
@@ -377,20 +391,22 @@ fn send_block_to_consensus(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    // send unique blocks to the consensus layer
-    match baker.send_block(peer_id.as_raw(), content) {
-        ConsensusFfiResponse::Success => info!(
+    let consensus_response = baker.send_block(peer_id.as_raw(), content);
+
+    if consensus_response.is_acceptable() {
+        info!(
             "Peer {}'s {:?} was sent to our consensus layer",
             peer_id,
             BakedBlock::deserialize(content)?
-        ),
-        err_code => error!(
-            "Peer {}'s block can't be sent to our consensus layer due to error code #{} (block: \
+        );
+    } else {
+        error!(
+            "Peer {}'s block can't be sent to our consensus layer due to error code {:?} (block: \
              {:?})",
             peer_id,
-            err_code as i64,
+            consensus_response,
             BakedBlock::deserialize(content)?,
-        ),
+        );
     }
 
     Ok(())
@@ -404,19 +420,22 @@ fn send_catchup_finalization_messages_by_point_to_consensus(
     peer_id: P2PNodeId,
     content: &[u8],
 ) -> Fallible<()> {
-    match baker.get_finalization_messages(content, peer_id.as_raw())? {
-        ConsensusFfiResponse::Success => info!(
+    let consensus_response = baker.get_finalization_messages(content, peer_id.as_raw())?;
+
+    if consensus_response.is_acceptable() {
+        info!(
             "Peer {} requested finalization messages by point from our consensus layer",
             peer_id
-        ),
-        err_code => error!(
+        );
+    } else {
+        error!(
             "Peer {} couldn't obtain finalization messages by point from our consensus layer due \
-             to error code {} (bytes: {:?}, length: {})",
+             to error code {:?} (bytes: {:?}, length: {})",
             peer_id,
-            err_code as i64,
+            consensus_response,
             content,
             content.len(),
-        ),
+        );
     }
     Ok(())
 }

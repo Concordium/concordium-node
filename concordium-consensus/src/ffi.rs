@@ -227,7 +227,24 @@ pub enum ConsensusFfiResponse {
     BakerNotFound = -1,
     Success,
     DeserializationError,
+    InvalidResult,
+    PendingBlock,
+    PendingFinalization,
+    Asynchronous,
     DuplicateEntry,
+    Stale,
+    IncorrectFinalizationSession,
+}
+
+impl ConsensusFfiResponse {
+    pub fn is_acceptable(&self) -> bool {
+        use ConsensusFfiResponse::*;
+
+        match self {
+            BakerNotFound | DeserializationError | InvalidResult => false,
+            _ => true
+        }
+    }
 }
 
 impl TryFrom<i64> for ConsensusFfiResponse {
@@ -241,7 +258,13 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             -1 => Ok(BakerNotFound),
             0 => Ok(Success),
             1 => Ok(DeserializationError),
-            2 => Ok(DuplicateEntry),
+            2 => Ok(InvalidResult),
+            3 => Ok(PendingBlock),
+            4 => Ok(PendingFinalization),
+            5 => Ok(Asynchronous),
+            6 => Ok(DuplicateEntry),
+            7 => Ok(Stale),
+            8 => Ok(IncorrectFinalizationSession),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }
