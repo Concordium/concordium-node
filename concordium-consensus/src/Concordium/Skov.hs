@@ -4,11 +4,16 @@ module Concordium.Skov(
     evalSSM,
     SkovFinalizationEvent(..),
     SkovFinalizationState,
+    BufferedSkovFinalizationEvent,
+    SkovBufferedFinalizationState,
     sfsSkov,
     initialSkovFinalizationState,
     FSM,
     execFSM,
-    runFSM
+    runFSM,
+    BFSM,
+    execBFSM,
+    runBFSM
 ) where
 
 import Concordium.Skov.Monad
