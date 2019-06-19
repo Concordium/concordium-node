@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE BangPatterns #-}
 module Concordium.Scheduler.EnvironmentImplementation where
 
 import Concordium.Scheduler.Environment
@@ -52,7 +53,7 @@ instance SchedulerMonad SchedulerImplementation where
   accountRegIdExists regid =
     Acc.regIdExists regid <$> use blockAccounts
 
-  commitStateAndAccountChanges cs = do
+  commitStateAndAccountChanges !cs = do
     s <- get
     -- INVARIANT: the invariant which should hold at this point is that any
     -- changed instance must exist in the global state moreover all instances
@@ -76,19 +77,19 @@ instance SchedulerMonad SchedulerImplementation where
       Just modules -> True <$ (blockModules .= modules)
 
   {-# INLINE putNewInstance #-}
-  putNewInstance istance = do
+  putNewInstance !istance = do
     istances <- use blockInstances
     let (ca, istances') = Ins.createInstance istance istances
     blockInstances .= istances'
     return ca
 
   {-# INLINE increaseAccountNonce #-}
-  increaseAccountNonce addr = 
+  increaseAccountNonce !addr =
     blockAccounts . ix addr . accountNonce += 1
 
 
   {-# INLINE addAccountCredential #-}
-  addAccountCredential addr cdi = do
+  addAccountCredential !addr !cdi = do
     blockAccounts . ix addr . accountCredentials %= (cdi :)
     blockAccounts %= Acc.recordRegId (cdi_regId cdi)
 
@@ -97,7 +98,7 @@ instance SchedulerMonad SchedulerImplementation where
 
 
   {-# INLINE putNewAccount #-}
-  putNewAccount acc = do
+  putNewAccount !acc = do
     accs <- use blockAccounts
     let addr = acc ^. accountAddress
     if addr `Acc.exists` accs then return False
@@ -108,5 +109,9 @@ instance SchedulerMonad SchedulerImplementation where
   energyToGtu = return . fromIntegral
 
   {-# INLINE notifyExecutionCost #-}
-  notifyExecutionCost amnt =
+  notifyExecutionCost !amnt =
     blockBank . executionCost += amnt
+
+
+  notifyIdentityProviderCredential idk =
+    blockBank . identityIssuersRewards . at idk . non 0 += 1

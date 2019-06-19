@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -50,23 +51,23 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
   getContractInstance addr = lift . flip bsoGetInstance addr =<< get
 
   {-# INLINE getAccount #-}
-  getAccount addr = lift . flip bsoGetAccount addr =<< get
+  getAccount !addr = lift . flip bsoGetAccount addr =<< get
   
   {-# INLINE putNewInstance #-}
-  putNewInstance mkInstance = do
+  putNewInstance !mkInstance = do
     (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< get
     put s'
     return caddr
 
-  putNewAccount account = do
+  putNewAccount !account = do
     (res, s') <- lift . flip bsoPutNewAccount account =<< get
     put s'
     return res
 
-  accountRegIdExists regid =
+  accountRegIdExists !regid =
     lift . flip bsoRegIdExists regid =<< get
 
-  commitModule mhash iface viface source = do
+  commitModule !mhash !iface !viface !source = do
     (res, s') <- lift . (\s -> bsoPutNewModule s mhash iface viface source) =<< get
     put s'
     return res
@@ -82,18 +83,18 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
         put s'
 
 
-  addAccountCredential addr cdi = do
+  addAccountCredential !addr !cdi = do
     s <- get
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
     put s'
 
-  addAccountEncryptionKey addr encKey = do
+  addAccountEncryptionKey !addr !encKey = do
     s <- get
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
     put s'
 
 
-  commitStateAndAccountChanges cs = do
+  commitStateAndAccountChanges !cs = do
     s <- get
     s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
                       s
@@ -104,10 +105,14 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
   -- |FIXME: Make this variable base on block state
   energyToGtu = return . fromIntegral
 
-  -- |TODO: implement
-  notifyExecutionCost amnt = do
+  notifyExecutionCost !amnt = do
     s <- get
     s' <- lift (bsoNotifyExecutionCost s amnt)
+    put s'
+
+  notifyIdentityProviderCredential !idk = do
+    s <- get
+    s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
     put s'
 
 -- |Reward the baker, identity providers, ...
