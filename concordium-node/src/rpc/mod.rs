@@ -865,54 +865,106 @@ impl P2P for RpcServerImpl {
         });
     }
 
-    fn get_last_final_account_list(
+    fn get_account_list(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
+        req: BlockHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            successful_byte_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_last_final_account_list()
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_account_list(&req.get_block_hash())
             });
         });
     }
 
-    fn get_last_final_instances(
+    fn get_instances(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
+        req: BlockHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            successful_byte_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_last_final_instances()
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_instances(&req.get_block_hash())
             });
         });
     }
 
-    fn get_last_final_account_info(
+    fn get_account_info(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: AccountAddress,
-        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
+        req: GetAddressInfoRequest,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
-            successful_byte_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_last_final_account_info(req.get_payload())
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_account_info(&req.get_block_hash(), &req.get_address())
             });
         });
     }
 
-    fn get_last_final_instance_info(
+    fn get_instance_info(
         &self,
         ctx: ::grpcio::RpcContext<'_>,
-        req: ContractInstanceAddress,
+        req: GetAddressInfoRequest,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_instance_info(&req.get_block_hash(), &req.get_address())
+            });
+        });
+    }
+
+    fn get_reward_status(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: BlockHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_reward_status(&req.get_block_hash())
+            });
+        });
+    }
+
+    fn get_birk_parameters(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: BlockHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_birk_parameters(&req.get_block_hash())
+            });
+        });
+    }
+
+    fn get_module_list(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: BlockHash,
+        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
+    ) {
+        authenticate!(ctx, req, sink, self.access_token, {
+            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
+                consensus.get_module_list(&req.get_block_hash())
+            });
+        });
+    }
+
+    fn get_module_source(
+        &self,
+        ctx: ::grpcio::RpcContext<'_>,
+        req: GetModuleSourceRequest,
         sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             successful_byte_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_last_final_instance_info(req.get_payload())
+                consensus.get_module_source(&req.get_block_hash(), &req.get_module_ref())
             });
         });
     }

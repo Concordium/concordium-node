@@ -303,24 +303,44 @@ impl ConsensusContainer {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker.get_branches())
     }
 
-    pub fn get_last_final_account_list(&self) -> Fallible<Vec<u8>> {
+    pub fn get_account_list(&self, block_hash: &str) -> Fallible<String> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_last_final_account_list())
+            .get_account_list(block_hash))
     }
 
-    pub fn get_last_final_instance_info(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
+    pub fn get_instances(&self, block_hash: &str) -> Fallible<String> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_last_final_instance_info(block_hash))
+            .get_instances(block_hash))
     }
 
-    pub fn get_last_final_account_info(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
+    pub fn get_account_info(&self, block_hash: &str, account_address: &[u8]) -> Fallible<String> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_last_final_account_info(block_hash))
+            .get_account_info(block_hash, account_address))
     }
 
-    pub fn get_last_final_instances(&self) -> Fallible<Vec<u8>> {
+    pub fn get_instance_info(&self, block_hash: &str, contract_address: &[u8]) -> Fallible<String> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
-            .get_last_final_instances())
+            .get_instance_info(block_hash, contract_address))
+    }
+
+    pub fn get_reward_status(&self, block_hash: &str) -> Fallible<String> {
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_reward_status(block_hash))
+    }
+
+    pub fn get_birk_parameters(&self, block_hash: &str) -> Fallible<String> {
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_birk_parameters(block_hash))
+    }
+
+    pub fn get_module_list(&self, block_hash: &str) -> Fallible<String> {
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_module_list(block_hash))
+    }
+
+    pub fn get_module_source(&self, block_hash: &str, module_ref: &[u8]) -> Fallible<Vec<u8>> {
+        baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
+            .get_module_source(block_hash, module_ref))
     }
 
     pub fn get_block(&self, block_hash: &[u8]) -> Fallible<Vec<u8>> {
