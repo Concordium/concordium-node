@@ -132,8 +132,7 @@ enum WmvbaMessage {
     Proposal(Val),
     Vote(Option<Val>),
     Abba(Abba),
-    CssSeen(CssSeen),
-    CssDoneReporting(CssDoneReporting),
+    Css(Css),
     AreWeDone(bool),
     WitnessCreator(Val),
 }
@@ -151,8 +150,7 @@ impl fmt::Display for WmvbaMessage {
                 }
             ),
             WmvbaMessage::Abba(abba) => format!("ABBA phase {}", abba.phase),
-            WmvbaMessage::CssSeen(css) => format!("CssSeen phase {}", css.phase),
-            WmvbaMessage::CssDoneReporting(c) => format!("CssDoneReporting phase {}", c.phase),
+            WmvbaMessage::Css(css) => format!("Css{:?} phase {}", css.variant, css.phase),
             WmvbaMessage::AreWeDone(arewe) => if *arewe {
                 "We're done"
             } else {
@@ -180,14 +178,39 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
             2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
             3 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, false))?),
             4 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, true))?),
-            5 => WmvbaMessage::CssSeen(CssSeen::deserialize((&read_all(&mut cursor)?, false))?),
-            6 => WmvbaMessage::CssSeen(CssSeen::deserialize((&read_all(&mut cursor)?, true))?),
-            7 => WmvbaMessage::CssDoneReporting(CssDoneReporting::deserialize(&read_all(
-                &mut cursor,
-            )?)?),
-            8 => WmvbaMessage::AreWeDone(false),
-            9 => WmvbaMessage::AreWeDone(true),
-            10 => {
+            5 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::Seen,
+                NominationTag::Top,
+            ))?),
+            6 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::Seen,
+                NominationTag::Bottom,
+            ))?),
+            7 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::Seen,
+                NominationTag::Both,
+            ))?),
+            8 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::DoneReporting,
+                NominationTag::Top,
+            ))?),
+            9 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::DoneReporting,
+                NominationTag::Bottom,
+            ))?),
+            10 => WmvbaMessage::Css(Css::deserialize((
+                &read_all(&mut cursor)?,
+                CssVariant::DoneReporting,
+                NominationTag::Both,
+            ))?),
+            11 => WmvbaMessage::AreWeDone(false),
+            12 => WmvbaMessage::AreWeDone(true),
+            13 => {
                 WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))
             }
             n => panic!(
@@ -215,19 +238,18 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
                     [&[4], &*abba.serialize()].concat()
                 }
             }
-            WmvbaMessage::CssSeen(css) => {
-                if !css.saw {
-                    [&[5], &*css.serialize()].concat()
-                } else {
-                    [&[6], &*css.serialize()].concat()
+            WmvbaMessage::Css(css) => {
+                let nt = css.nomination_tag() as u8;
+                match css.variant {
+                    CssVariant::Seen => [&[nt], &*css.serialize()].concat(),
+                    CssVariant::DoneReporting => [&[nt + 3], &*css.serialize()].concat(),
                 }
             }
-            WmvbaMessage::CssDoneReporting(cdr) => [&[7], &*cdr.serialize()].concat(),
             WmvbaMessage::AreWeDone(arewe) => match arewe {
-                false => vec![8],
-                true => vec![9],
+                false => vec![11],
+                true => vec![12],
             },
-            WmvbaMessage::WitnessCreator(val) => [&[10], val.as_ref()].concat(),
+            WmvbaMessage::WitnessCreator(val) => [&[13], val.as_ref()].concat(),
         };
 
         vec.into_boxed_slice()
@@ -274,22 +296,174 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct CssSeen {
-    phase: Phase,
-    party: Party,
-    saw:   bool,
+enum CssVariant {
+    Seen,
+    DoneReporting,
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for CssSeen {
-    type Source = (&'a [u8], bool);
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
+struct BitString(Box<[u32]>);
 
-    fn deserialize((bytes, saw): (&[u8], bool)) -> Fallible<Self> {
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct NominationSet {
+    max_party: Party,
+    top:       BitString,
+    bottom:    BitString,
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
+    type Source = (&'a mut Cursor<&'b [u8]>, NominationTag);
+
+    fn deserialize((cursor, tag): (&mut Cursor<&[u8]>, NominationTag)) -> Fallible<Self> {
+        fn check_bit(bit: u32, number: u32) -> bool {
+            if bit < 32 {
+                number & (1 << bit) != 0
+            } else {
+                panic!("The bit index is too high ({})!", bit);
+            }
+        }
+
+        fn get_parties(
+            cursor: &mut Cursor<&[u8]>,
+            bitstring: &mut Vec<u32>,
+            party: Party,
+            max_party: Party,
+        ) -> Fallible<()> {
+            if party <= max_party {
+                let byte = u32::from(read_const_sized!(cursor, 1)[0]);
+                let bgn = ((0u32..8).filter(|&n| check_bit(n, byte)).map(|n| n + party))
+                    .collect::<Vec<_>>();
+                let bitstring2 = [bgn.as_slice(), bitstring].concat();
+                *bitstring = bitstring2;
+                get_parties(cursor, bitstring, party + 8, max_party)
+            } else {
+                bitstring.sort();
+                bitstring.dedup();
+                Ok(())
+            }
+        }
+
+        let max_party = NetworkEndian::read_u32(&read_const_sized!(cursor, size_of::<Party>()));
+
+        let bitstr_len = (max_party as usize + 1) / 8;
+        let (mut top, mut bottom) = (
+            Vec::with_capacity(bitstr_len),
+            Vec::with_capacity(bitstr_len),
+        );
+
+        if tag == NominationTag::Top || tag == NominationTag::Both {
+            get_parties(cursor, &mut top, Party::min_value(), max_party)?;
+        }
+
+        if tag == NominationTag::Bottom || tag == NominationTag::Both {
+            get_parties(cursor, &mut bottom, Party::min_value(), max_party)?;
+        }
+
+        let set = NominationSet {
+            max_party,
+            top: BitString(top.into_boxed_slice()),
+            bottom: BitString(bottom.into_boxed_slice()),
+        };
+
+        Ok(set)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        fn set_bit(bit: u32, number: u32) -> u32 {
+            if bit < 32 {
+                number | (1 << bit)
+            } else {
+                panic!("The bit index is too high ({})!", bit);
+            }
+        }
+
+        fn unpack_party(
+            unpacked: &mut Cursor<Box<[u8]>>,
+            packed: &[u32],
+            party: Party,
+            max_party: Party,
+        ) {
+            fn party_byte(bits: &[u32], party: Party) -> u8 {
+                bits.iter().fold(0, |acc, byte| set_bit(byte - party, acc)) as u8
+            }
+
+            if party <= max_party {
+                let (curr, rest): (Vec<_>, Vec<_>) = packed.iter().partition(|&&b| b < party + 8);
+                let _ = unpacked.write(&[party_byte(&curr, party)]);
+                unpack_party(unpacked, &rest, party + 8, max_party);
+            }
+        }
+
+        let bitstr_len = ((f64::from(self.max_party) + 1.0) / 8.0).ceil() as usize;
+        let set_size = if !self.top.0.is_empty() && !self.bottom.0.is_empty() {
+            2 * bitstr_len
+        } else {
+            bitstr_len
+        };
+        let mut cursor = create_serialization_cursor(size_of::<Party>() + set_size);
+
+        let _ = cursor.write_u32::<NetworkEndian>(self.max_party);
+        if !self.top.0.is_empty() {
+            unpack_party(&mut cursor, &self.top.0, Party::min_value(), self.max_party);
+        }
+        if !self.bottom.0.is_empty() {
+            unpack_party(
+                &mut cursor,
+                &self.bottom.0,
+                Party::min_value(),
+                self.max_party,
+            );
+        }
+
+        cursor.into_inner()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct Css {
+    variant:        CssVariant,
+    phase:          Phase,
+    nomination_set: NominationSet,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum NominationTag {
+    Empty,
+    Top    = 5,
+    Bottom = 6,
+    Both   = 7,
+}
+
+impl Css {
+    fn nomination_tag(&self) -> NominationTag {
+        let set = &self.nomination_set;
+
+        if set.top.0.is_empty() && set.bottom.0.is_empty() {
+            NominationTag::Empty
+        } else if !set.top.0.is_empty() && set.bottom.0.is_empty() {
+            NominationTag::Top
+        } else if set.top.0.is_empty() && !set.bottom.0.is_empty() {
+            NominationTag::Bottom
+        } else {
+            NominationTag::Both
+        }
+    }
+}
+
+impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
+    type Source = (&'a [u8], CssVariant, NominationTag);
+
+    fn deserialize((bytes, variant, tag): (&[u8], CssVariant, NominationTag)) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-        let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
+        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Phase>()));
+        let nomination_set = NominationSet::deserialize((&mut cursor, tag))?;
 
-        let css = CssSeen { phase, party, saw };
+        let css = Css {
+            variant,
+            phase,
+            nomination_set,
+        };
 
         check_serialization!(css, cursor);
 
@@ -297,75 +471,12 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for CssSeen {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<Phase>() + size_of::<Party>());
+        let nomination_set = self.nomination_set.serialize();
+
+        let mut cursor = create_serialization_cursor(size_of::<Phase>() + nomination_set.len());
 
         let _ = cursor.write_u32::<NetworkEndian>(self.phase);
-        let _ = cursor.write_u32::<NetworkEndian>(self.party);
-
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct CssDoneReporting {
-    phase:       Phase,
-    chose_false: Vec<Party>,
-    chose_true:  Vec<Party>,
-}
-
-impl<'a, 'b> SerializeToBytes<'a, 'b> for CssDoneReporting {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-
-        let n_false = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let mut chose_false = Vec::with_capacity(n_false as usize);
-        for _ in 0..n_false {
-            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-            chose_false.push(party);
-        }
-
-        let n_true = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let mut chose_true = Vec::with_capacity(n_true as usize);
-        for _ in 0..n_true {
-            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-            chose_true.push(party);
-        }
-
-        let cssr = CssDoneReporting {
-            phase,
-            chose_false,
-            chose_true,
-        };
-
-        check_serialization!(cssr, cursor);
-
-        Ok(cssr)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            size_of::<Phase>()
-                + 8 // u64 count of those who chose "false"
-                + size_of::<Party>() * self.chose_false.len()
-                + 8 // u64 count of those who chose "true"
-                + size_of::<Party>() * self.chose_true.len(),
-        );
-
-        let _ = cursor.write_u32::<NetworkEndian>(self.phase);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.chose_false.len() as u64);
-        for party in &self.chose_false {
-            let _ = cursor.write_u32::<NetworkEndian>(*party);
-        }
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.chose_true.len() as u64);
-        for party in &self.chose_true {
-            let _ = cursor.write_u32::<NetworkEndian>(*party);
-        }
+        let _ = cursor.write_all(&nomination_set);
 
         cursor.into_inner()
     }

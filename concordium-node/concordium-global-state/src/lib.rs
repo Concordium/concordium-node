@@ -5,7 +5,12 @@ extern crate log;
 
 macro_rules! check_serialization {
     ($target:expr, $cursor:expr) => {
-        debug_assert_eq!($cursor.position(), $cursor.get_ref().len() as u64);
+        debug_assert_eq!(
+            $cursor.position(),
+            $cursor.get_ref().len() as u64,
+            "Invalid deserialization of {:?}",
+            $target
+        );
 
         debug_assert_eq!(
             &&*$target.serialize(),
