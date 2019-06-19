@@ -99,6 +99,11 @@ dispatch msg = do
       -- account nonce of the sender account.
       increaseAccountNonce (thSender meta)
 
+      -- then we notify the block state that all the identity issuers on the sender's account should be rewarded
+      -- TODO: Alternative design would be to only reward them if the transaction is successful/committed, or
+      -- to add additional parameters (such as deposited amount)
+      mapM_ (notifyIdentityProviderCredential . ID.cdi_ipId) (senderAccount ^. accountCredentials)
+
       let cost = Cost.checkHeader
       let energy = thGasAmount meta - cost  -- the remaining gas (after subtracting cost to process the header)
       -- available for execution remaining amount available on the sender's
@@ -554,7 +559,7 @@ filterTransactions = go [] []
 runTransactions :: (TransactionData msg, SchedulerMonad m)
                    => [msg] -> m (Maybe [(msg, ValidResult)])
 runTransactions = go []
-  where go valid (t:ts) = do
+  where go valid (t:ts) =
           dispatch t >>= \case
             TxValid reason -> go ((t, reason):valid) ts
             TxInvalid _ -> return Nothing
@@ -566,7 +571,7 @@ runTransactions = go []
 -- does not have to build a list of results.
 execTransactions :: (TransactionData msg, SchedulerMonad m) => [msg] -> m (Either FailureKind ())
 execTransactions = go
-  where go (t:ts) = do
+  where go (t:ts) =
           dispatch t >>= \case
             TxValid _ -> go ts
             TxInvalid reason -> return (Left reason)

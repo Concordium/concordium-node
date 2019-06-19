@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -95,6 +96,10 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- on top of it.
   notifyExecutionCost :: Amount -> m ()
 
+  -- |Notify that an identity provider had a valid credential on the sender's
+  -- account and should be rewarded because of it.
+  notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
+
   -- |Convert the given energy amount into a the amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
   -- TODO: In this setup the exchange rate is determined by the blockchain, and
@@ -165,22 +170,22 @@ class StaticEnvironmentMonad m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {_accountUpdates :: Map.HashMap AccountAddress AccountUpdate -- ^Accounts whose states changed.
-    ,_instanceUpdates :: Map.HashMap ContractAddress (Amount, Value) -- ^Contracts whose states changed.
+    {_accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
+    ,_instanceUpdates :: !(Map.HashMap ContractAddress (Amount, Value)) -- ^Contracts whose states changed.
     }
 
 emptyCS :: ChangeSet
 emptyCS = ChangeSet Map.empty Map.empty
 
 csWithAccountBalance :: AccountAddress -> Amount -> ChangeSet
-csWithAccountBalance addr amnt = ChangeSet (Map.singleton addr (emptyAccountUpdate addr & auAmount ?~ amnt)) Map.empty
+csWithAccountBalance addr !amnt = ChangeSet (Map.singleton addr (emptyAccountUpdate addr & auAmount ?~ amnt)) Map.empty
 
 makeLenses ''ChangeSet
 
 -- |Update the amount on the account (given by address) in the changeset with
 -- the given amount. If the account is not yet in the changeset it is created.
 addAmountToCS' :: ChangeSet -> AccountAddress -> Amount -> ChangeSet
-addAmountToCS' cs addr amnt =
+addAmountToCS' !cs addr !amnt =
   cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount ?~ amnt)
                                           Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
@@ -188,14 +193,14 @@ addAmountToCS' cs addr amnt =
 -- It is assumed that the account is already in the changeset and that its balance
 -- is already affected (the auAmount field is set).
 increaseAmountCS :: ChangeSet -> AccountAddress -> Amount -> ChangeSet
-increaseAmountCS cs addr amnt = cs & (accountUpdates . ix addr . auAmount ) %~
+increaseAmountCS !cs addr !amnt = cs & (accountUpdates . ix addr . auAmount ) %~
                                      (\case Just a -> Just (a + amnt)
                                             Nothing -> error "increaaseAmountCS precondition violated.")
 
 -- |Update the amount on the account in the changeset with the given amount.
 -- If the account is not yet in the changeset it is created.
 addAmountToCS :: ChangeSet -> Account -> Amount -> ChangeSet
-addAmountToCS cs acc = addAmountToCS' cs (acc ^. accountAddress)
+addAmountToCS cs !acc = addAmountToCS' cs (acc ^. accountAddress)
 
 -- |Add or update the contract state in the changeset with the given amount and value.
 addContractStatesToCS :: ChangeSet -> ContractAddress -> Amount -> Value -> ChangeSet
