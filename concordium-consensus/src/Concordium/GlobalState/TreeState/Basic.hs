@@ -37,11 +37,11 @@ import Data.Hashable hiding (unhashed, hashed)
 
 
 data BlockState = BlockState {
-    _blockAccounts :: Account.Accounts,
-    _blockInstances :: Instances.Instances,
-    _blockModules :: Modules.Modules,
-    _blockBank :: Rewards.BankStatus,
-    _blockIdentityProviders :: IPS.IdentityProviders,
+    _blockAccounts :: !Account.Accounts,
+    _blockInstances :: !Instances.Instances,
+    _blockModules :: !Modules.Modules,
+    _blockBank :: !Rewards.BankStatus,
+    _blockIdentityProviders :: !IPS.IdentityProviders,
     _blockBirkParameters :: BirkParameters
 }
 
@@ -315,6 +315,9 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
+
+    bsoNotifyIdentityIssuerCredential bs idk =
+      return . snd $ bs & blockBank . Rewards.identityIssuersRewards . at idk . non 0 <%~ (+ 1)
 
     {-# INLINE bsoGetExecutionCost #-}
     bsoGetExecutionCost bs =

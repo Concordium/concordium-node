@@ -25,19 +25,19 @@ import Lens.Micro.Platform
 --    and another one for the specific rewards (identity issuers, finalization, ...)
 data BankStatus = BankStatus {
   -- |Total amount of GTU in existence.
-  _totalGTU :: Amount,
+  _totalGTU :: !Amount,
   -- |Total amount of encrypted amounts. This is not an important field, but can
   -- be used for debugging.
-  _totalEncryptedGTU :: Amount,
+  _totalEncryptedGTU :: !Amount,
   -- |The amount of GTU currently in the central bank. Can be used to reward
   -- bakers and other parties.
-  _centralBankGTU :: Amount,
+  _centralBankGTU :: !Amount,
   -- |Identity issuers involved in transactions in the current block with the
   -- number of transactions they were involved in. Their rewards will be
   -- calculated based on that. Note that their reward does not depend on any
   -- parameters of the transaction (such as total gas cost), but only that they
   -- were involved in a transaction.
-  _identityIssuersRewards :: HashMap IdentityProviderPublicKey Word,
+  _identityIssuersRewards :: HashMap IdentityProviderIdentity Word,
   -- |Rewards to go to the finalization committee if and once this block is
   -- finalized. We propose the following mechanism. The finalization committee
   -- gets rewarded the first time another block's last finalized pointer points
@@ -46,16 +46,16 @@ data BankStatus = BankStatus {
   -- instance, with each non-finalized block there could be a smaller fraction
   -- of the total block reward rewarded to the finalization committe since they
   -- are not doing their job.
-  _finalizationReward :: Amount,
+  _finalizationReward :: !Amount,
   -- |Total execution cost for all transactions on this block, in GTU according
   -- to the exchange rate determined for this block.
-  _executionCost :: Amount,
+  _executionCost :: !Amount,
   -- |Inflation rate for all slots from the current block's one until the next
   -- block's. The value is the amount of GTU created per slot. Since slot time
   -- is fixed at genesis time this value, together with the initial amount of
   -- GTU, this value can be adjusted to correspond to the desired inflation
   -- rate.
-  _mintedGTUPerSlot :: Amount
+  _mintedGTUPerSlot :: !Amount
   } deriving(Show)
 
 makeLenses ''BankStatus
