@@ -57,8 +57,7 @@ jsonLiteral l = case l of
   Word128 i -> JSON.toJSON (toInteger i)
   Word256 i -> JSON.toJSON i
   ByteStr32 bs -> JSON.String . TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ bs
-  CAddress addr -> JSON.object ["index" .= toInteger (contractIndex addr)
-                               ,"subindex" .= toInteger (contractSubindex addr)]
+  CAddress addr -> JSON.toJSON addr
   AAddress addr -> JSON.String (fromString (show addr)) -- show instance for addresses shows them in base58
   Str bs -> JSON.String . TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ bs
 

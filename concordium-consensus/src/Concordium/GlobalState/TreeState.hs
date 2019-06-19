@@ -5,6 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BangPatterns #-}
 module Concordium.GlobalState.TreeState where
 
 import qualified Data.Sequence as Seq
@@ -184,20 +185,23 @@ emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Empty Nothi
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
 updateAccount :: AccountUpdate -> Account -> Account
-updateAccount upd acc =
-  acc &
-  (accountNonce %~ setMaybe (upd ^. auNonce)) .
-  (accountAmount %~ setMaybe (upd ^. auAmount)) .
-  (accountCredentials %~ (\cs -> case upd ^. auCredential of
-                                   Just c -> c : cs
-                                   Nothing -> cs)) .
-  (accountEncryptionKey %~ (\case Nothing -> upd ^. auEncryptionKey
-                                  Just _ -> error "updateAccount: Precondition violated (encryption key already exists).")) .
-  (accountEncryptedAmount %~ (\eas -> case upd ^. auEncrypted of
-                                        Empty -> eas
-                                        Add ea -> ea:eas
-                                        Replace ea -> [ea]
-                             ))
+updateAccount !upd !acc =
+  acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
+       _accountAmount = (acc ^. accountAmount) & setMaybe (upd ^. auAmount),
+       _accountCredentials =
+          case upd ^. auCredential of
+            Nothing -> acc ^. accountCredentials
+            Just c -> c : (acc ^. accountCredentials),
+       _accountEncryptionKey =
+          case upd ^. auEncryptionKey of
+            Nothing -> acc ^. accountEncryptionKey
+            Just ek -> Just ek, -- relies on the invariant that the scheduler should have checked, encryption key cannot be redefined.
+       _accountEncryptedAmount =
+          case upd ^. auEncrypted of
+            Empty -> acc ^. accountEncryptedAmount
+            Add ea -> ea:(acc ^. accountEncryptedAmount)
+            Replace ea -> [ea]
+    }
   
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
@@ -236,6 +240,11 @@ class BlockStateQuery m => BlockStateOperations m where
 
   -- |Notify the block state that the given amount was spent on execution.
   bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
+  -- |Notify the block state that the given identity issuer's credential was
+  -- used by a sender of the transaction.
+  bsoNotifyIdentityIssuerCredential :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (UpdatableBlockState m)
+
   -- |Get the execution reward for the current block.
   bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
@@ -488,6 +497,7 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+  bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
@@ -574,6 +584,7 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
 
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+  bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
