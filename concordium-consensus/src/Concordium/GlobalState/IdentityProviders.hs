@@ -3,8 +3,6 @@ module Concordium.GlobalState.IdentityProviders where
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as HM
 
-import Data.ByteString(ByteString)
-
 import Concordium.Types
 import Concordium.ID.Types
 
@@ -12,22 +10,21 @@ import Concordium.ID.Types
 -- other necessary things.
 -- TODO: Any other data we need, perhaps country, jurisdiction, ...
 data IdentityProviderData = IdentityProviderData {
-  -- |Textual name of the identity provider, not necessarily unique.
-  idName :: ByteString,
-  -- |Public key of the identity provider. Uniquely identifies an identity
-  -- provider.
-  idPubKey :: IdentityProviderPublicKey,
+  -- |Unique identity of the identity provider.
+  idIdentity :: !IdentityProviderIdentity,
+  -- |Public key of the identity provider. Can change throughout the lifetime.
+  idPubKey :: !IdentityProviderPublicKey,
   -- |Account of the identity provider. Each identity provider must designate an
-  -- account to which it will receive rewards.
-  idAccount :: AccountAddress
+  -- account to which it will receive rewards. This can change throughout the
+  -- lifetime.
+  idAccount :: !AccountAddress
   }
 
 -- |The set of all identity providers. Identity providers are identified
 -- uniquely by their public key (the key used to verify signatures).
-data IdentityProviders = IdentityProviders {
-  idProviders :: HashMap IdentityProviderPublicKey IdentityProviderData
+newtype IdentityProviders = IdentityProviders {
+  idProviders :: HashMap IdentityProviderIdentity IdentityProviderData
   }
-
 
 emptyIdentityProviders :: IdentityProviders
 emptyIdentityProviders = IdentityProviders HM.empty
