@@ -1,8 +1,8 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns, RecordWildCards, MultiParamTypeClasses #-}
+{-# LANGUAGE ViewPatterns, BangPatterns, RecordWildCards, MultiParamTypeClasses #-}
 module Concordium.GlobalState.Account where
 
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
@@ -17,16 +17,16 @@ import qualified Concordium.ID.Types as ID
 import qualified Data.List as List
 
 data Accounts = Accounts {
-    accountMap :: Map.Map AccountAddress AccountIndex,
-    accountTable :: AccountTable,
-    accountRegIds :: Set.Set ID.CredentialRegistrationID
+    accountMap :: !(Map.Map AccountAddress AccountIndex),
+    accountTable :: !AccountTable,
+    accountRegIds :: !(Set.Set ID.CredentialRegistrationID)
 }
 
 emptyAccounts :: Accounts
 emptyAccounts = Accounts Map.empty Empty Set.empty
 
 putAccount :: Account -> Accounts -> Accounts
-putAccount acct Accounts{..} =
+putAccount !acct Accounts{..} =
   case Map.lookup addr accountMap of
     Nothing -> let (i, newAccountTable) = AT.append acct accountTable
                in Accounts (Map.insert addr i accountMap) newAccountTable accountRegIds'
