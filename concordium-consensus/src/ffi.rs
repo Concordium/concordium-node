@@ -327,6 +327,8 @@ extern "C" {
         genesis_callback: GenerateGenesisDataCallback,
         baker_private_data_callback: GenerateKeypairCallback,
     );
+
+    // Consensus queries
     pub fn getConsensusStatus(baker: *mut baker_runner) -> *const c_char;
     pub fn getBlockInfo(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
     pub fn getAncestors(
@@ -335,16 +337,28 @@ extern "C" {
         amount: u64,
     ) -> *const c_char;
     pub fn getBranches(baker: *mut baker_runner) -> *const c_char;
-    pub fn getLastFinalAccountList(baker: *mut baker_runner) -> *const u8;
-    pub fn getLastFinalInstances(baker: *mut baker_runner) -> *const c_char;
-    pub fn getLastFinalAccountInfo(
+
+    // State queries
+    pub fn getAccountList(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getInstances(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getAccountInfo(
         baker: *mut baker_runner,
-        block_hash: *const c_char,
+        block_hash: *const u8,
+        account_address: *const u8,
     ) -> *const c_char;
-    pub fn getLastFinalInstanceInfo(
+    pub fn getInstanceInfo(
         baker: *mut baker_runner,
-        block_hash: *const c_char,
+        block_hash: *const u8,
+        contract_address: *const u8,
     ) -> *const c_char;
+    pub fn getRewardStatus(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getBirkParameters(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getModuleList(baker: *mut baker_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getModuleSource(
+        baker: *mut baker_runner,
+        block_hash: *const u8,
+        module_ref: *const u8,
+    ) -> *const u8;
     pub fn getBlock(baker: *mut baker_runner, block_hash: *const u8) -> *const u8;
     pub fn getBlockDelta(
         baker: *mut baker_runner,
@@ -364,6 +378,7 @@ extern "C" {
         callback: CatchupFinalizationMessagesSenderCallback,
     ) -> i64;
     pub fn getFinalizationPoint(baker: *mut baker_runner) -> *const u8;
+
     pub fn freeCStr(hstring: *const c_char);
 }
 
@@ -475,25 +490,70 @@ impl ConsensusBaker {
         wrap_c_call_string!(self, baker, |baker| getBranches(baker))
     }
 
-    pub fn get_last_final_account_list(&self) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getLastFinalAccountList(baker))
-    }
-
-    pub fn get_last_final_instances(&self) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getLastFinalInstances(baker))
-    }
-
-    pub fn get_last_final_account_info(&self, _account_address: &[u8]) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getLastFinalAccountInfo(
+    pub fn get_account_list(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getAccountList(
             baker,
-            _account_address.as_ptr() as *const i8
+            block_hash.as_ptr() as *const u8
         ))
     }
 
-    pub fn get_last_final_instance_info(&self, _contract_instance_address: &[u8]) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |baker| getLastFinalInstanceInfo(
+    pub fn get_instances(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getInstances(
             baker,
-            _contract_instance_address.as_ptr() as *const i8
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_account_info(&self, block_hash: &str, account_address: &[u8]) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getAccountInfo(
+            baker,
+            block_hash.as_ptr() as *const u8,
+            account_address.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_instance_info(&self, block_hash: &str, contract_address: &[u8]) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getInstanceInfo(
+            baker,
+            block_hash.as_ptr() as *const u8,
+            contract_address.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_reward_status(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getRewardStatus(
+            baker,
+            block_hash.as_ptr() as *const u8,
+        ))
+    }
+
+    pub fn get_birk_parameters(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getBirkParameters(
+            baker,
+            block_hash.as_ptr() as *const u8,
+        ))
+    }
+
+    pub fn get_module_list(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, baker, |baker| getModuleList(
+            baker,
+            block_hash.as_ptr() as *const u8,
+        ))
+    }
+
+    pub fn get_module_source(&self, block_hash: &str, module_ref: &[u8]) -> Vec<u8> {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_bytes!(self, |baker| getModuleSource(
+            baker,
+            block_hash.as_ptr() as *const u8,
+            module_ref.as_ptr() as *const u8
         ))
     }
 

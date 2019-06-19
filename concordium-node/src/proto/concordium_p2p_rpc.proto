@@ -114,6 +114,16 @@ message ContractInstanceAddress {
   bytes payload = 1;
 }
 
+message GetAddressInfoRequest {
+  string block_hash = 1;
+  bytes address = 2;
+}
+
+message GetModuleSourceRequest {
+  string block_hash = 1;
+  bytes module_ref = 2;
+}
+
 message TpsRequest {
   uint32 network_id = 1;
   string id = 2;
@@ -169,10 +179,16 @@ service P2P {
   rpc GetBranches(Empty) returns (SuccessfulJsonPayloadResponse) {}
   // Submit a local transaction
   rpc SendTransaction(SendTransactionRequest) returns (SuccessResponse) {}
-  rpc GetLastFinalAccountList(Empty) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalInstances(Empty) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalAccountInfo(AccountAddress) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalInstanceInfo(ContractInstanceAddress) returns (SuccessfulBytePayloadResponse) {}
+
+  rpc GetAccountList(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetInstances(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetAccountInfo(GetAddressInfoRequest) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetInstanceInfo(GetAddressInfoRequest) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetRewardStatus(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetBirkParameters(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetModuleList(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetModuleSource(GetModuleSourceRequest) returns (SuccessfulBytePayloadResponse) {}
+
   rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
   rpc Shutdown(Empty) returns (SuccessResponse) {}
   rpc TpsTest(TpsRequest) returns (SuccessResponse) {}

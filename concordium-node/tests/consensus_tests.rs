@@ -5,7 +5,7 @@ extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 
-#[cfg(test)]
+#[cfg(feature = "non-existing")]
 mod tests {
     use concordium_common::{spawn_or_die, RelayOrStopEnvelope};
     use concordium_consensus::{consensus::*, ffi::*};
