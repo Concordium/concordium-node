@@ -12,12 +12,6 @@ rm -r bootstrapped_out
 
 cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
-cp /manifests/acorn.cabal             /build/acorn
-cp /manifests/Concordium.cabal        /build/Concordium
-cp /manifests/concordium-crypto.cabal /build/concordium-crypto
-cp /manifests/globalstate-types.cabal /build/globalstate-mockup/globalstate-types
-cp /manifests/globalstate.cabal       /build/globalstate-mockup/globalstate
-cp /manifests/scheduler.cabal         /build/scheduler
 
 rustup default stable
 
@@ -53,9 +47,29 @@ cd cabal-install-2.4.1.0
 ./bootstrap.sh --no-doc
 export PATH=$PATH:$HOME/.cabal/bin
 
+(cd
+cabal new-install hpack)
 
 cd ..
 rm -rf cabal-install-2.4.1.0 cabal-install-2.4.1.0.tar.gz
+
+sed -i -z -e 's/\s*- -shared//g' /build/Concordium/package.yaml
+sed -i -z -e 's/\s*when:\s*- condition: os(windows)\s*then:\s*ghc-options: -static[^\n]*\n\s*else:\s*ghc-options: -dynamic//g' /build/Concordium/package.yaml
+sed -i '/executable/,$d' /build/Concordium/package.yaml
+
+(cd /build/acorn
+ hpack
+ cd /build/Concordium
+ hpack
+ # cd /build/crypto
+ # hpack
+ cd /build/globalstate-mockup/globalstate
+ hpack
+ cd /build/globalstate-mockup/globalstate-types
+ hpack
+ cd /build/scheduler
+ hpack)
+
 cabal new-update
 
 cd /build
