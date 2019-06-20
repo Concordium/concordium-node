@@ -30,6 +30,9 @@ pub enum Address {
     Contract(ContractAddress),
 }
 
+#[derive(Debug, Hash)]
+pub struct AccountAddress(pub [u8; 21]);
+
 pub type Amount = u64;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]

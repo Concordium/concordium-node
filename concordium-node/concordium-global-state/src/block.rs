@@ -183,6 +183,7 @@ pub struct GenesisData {
     timestamp:               Timestamp,
     slot_duration:           Duration,
     pub birk_parameters:     BirkParameters,
+    baker_accounts:          Encoded,
     finalization_parameters: FinalizationParameters,
 }
 
@@ -195,12 +196,20 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
+
+        // FIXME: temporary workaround to unblock other work
+        let n_bakers = birk_parameters.bakers.len();
+        let fin_params_len = 8 + n_bakers * 80;
+        let accounts_len = bytes.len() - cursor.position() as usize - fin_params_len;
+        let baker_accounts = Encoded::new(&read_sized!(&mut cursor, accounts_len));
+
         let finalization_parameters = FinalizationParameters::deserialize(&mut cursor)?;
 
         let data = GenesisData {
             timestamp,
             slot_duration,
             birk_parameters,
+            baker_accounts,
             finalization_parameters,
         };
 
@@ -216,12 +225,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let size = size_of::<Timestamp>()
             + size_of::<Duration>()
             + birk_params.len()
+            + self.baker_accounts.len()
             + finalization_params.len();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
         let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
         let _ = cursor.write_all(&birk_params);
+        let _ = cursor.write_all(&self.baker_accounts);
         let _ = cursor.write_all(&finalization_params);
 
         cursor.into_inner()
