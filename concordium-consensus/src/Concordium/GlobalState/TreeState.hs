@@ -206,6 +206,29 @@ updateAccount !upd !acc =
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
+data BakerUpdate = BakerUpdate {
+  -- |Identity of the baker to update.
+  _buId :: !BakerId,
+  -- |Optionally update the baker's reward account.
+  _buAccount :: !(Maybe AccountAddress),
+  -- |Optionally update the baker's public verification key.
+  _buSignKey :: !(Maybe BakerSignVerifyKey),
+  -- |Optionally update the baker's lottery power.
+  _buLotteryPower :: !(Maybe LotteryPower)
+}
+
+emptyBakerUpdate :: BakerId -> BakerUpdate
+emptyBakerUpdate bid = BakerUpdate bid Nothing Nothing Nothing
+
+makeLenses ''BakerUpdate
+
+updateBaker :: BakerUpdate -> BakerInfo -> BakerInfo
+updateBaker !BakerUpdate{..} !binfo =
+  binfo {
+    bakerSignatureVerifyKey = fromMaybe (binfo & bakerSignatureVerifyKey) _buSignKey,
+    bakerAccount = fromMaybe (binfo & bakerAccount) _buAccount,
+    bakerLotteryPower = fromMaybe (binfo & bakerLotteryPower) _buLotteryPower
+  }
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -256,6 +279,11 @@ class BlockStateQuery m => BlockStateOperations m where
   -- of block execution.
   bsoGetBirkParameters :: UpdatableBlockState m -> m BirkParameters
 
+  bsoGetBakerInfo :: UpdatableBlockState m -> BakerId -> m (Maybe BakerInfo)
+  bsoGetBakerInfo s bid = do
+    BirkParameters{..} <- bsoGetBirkParameters s
+    return $! Map.lookup bid birkBakers
+
   -- |Get the account of the given baker.
   bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
   bsoGetBakerAccount s bid = do
@@ -265,9 +293,15 @@ class BlockStateQuery m => BlockStateOperations m where
       Nothing -> return Nothing
       Just addr -> bsoGetAccount s addr
 
-  -- |Add a new baker to the list of allowed bakers or update an existing baker.
-  -- If a baker with a given 'BakerId' already exists return 'True', otherwise return 'False'.
-  bsoUpdateBaker :: UpdatableBlockState m -> BakerId -> BakerInfo -> m (Bool, UpdatableBlockState m)
+
+  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the 
+  -- new baker and return the assigned identity.
+  -- This method should also update the next available baker id in the system.
+  bsoAddBaker :: UpdatableBlockState m -> BakerInfo -> m (BakerId, UpdatableBlockState m)
+  
+  -- |Update an existing baker's information. The method may assume that the baker with 
+  -- the given Id exists.
+  bsoUpdateBaker :: UpdatableBlockState m -> BakerUpdate -> m (UpdatableBlockState m)
 
   -- |Remove a baker from the list of allowed bakers. Return 'True' if a baker
   -- with given 'BakerId' existed, and 'False' otherwise.
@@ -501,7 +535,8 @@ instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
   bsoGetExecutionCost = lift . bsoGetExecutionCost
 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
-  bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
+  bsoAddBaker s = lift . bsoAddBaker s
+  bsoUpdateBaker s = lift . bsoUpdateBaker s
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoSetInflation s = lift . bsoSetInflation s
 
@@ -588,7 +623,8 @@ instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s 
   bsoGetExecutionCost = lift . bsoGetExecutionCost
 
   bsoGetBirkParameters = lift . bsoGetBirkParameters
-  bsoUpdateBaker s bid = lift . bsoUpdateBaker s bid
+  bsoAddBaker s = lift . bsoAddBaker s
+  bsoUpdateBaker s = lift . bsoUpdateBaker s
   bsoRemoveBaker s = lift . bsoRemoveBaker s
 
   bsoSetInflation s = lift . bsoSetInflation s

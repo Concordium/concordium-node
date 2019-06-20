@@ -326,11 +326,17 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     {-# INLINE bsoGetBirkParameters #-}
     bsoGetBirkParameters = return . _blockBirkParameters
 
-    bsoUpdateBaker bs bid binfo = return $
-        let updated = bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid binfo (birkBakers bp) })
-        in case bs ^? blockBirkParameters . to birkBakers . ix bid of
-             Nothing -> (False, updated)
-             Just _ -> (True, updated)
+    bsoAddBaker bs binfo = return $ 
+        let bid = bs ^. blockBirkParameters . to nextBakerId
+            bs' = bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid binfo (birkBakers bp) })
+            bs'' = bs' & blockBirkParameters %~ (\bp -> bp { nextBakerId = bid + 1 })
+        in (bid, bs'')
+
+    -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
+    bsoUpdateBaker bs bupdate = return $
+        let bid = bupdate ^. TS.buId
+            oldbinfo = bs ^. blockBirkParameters . to birkBakers . singular (ix bid)
+        in bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid (TS.updateBaker bupdate oldbinfo) (birkBakers bp) })
 
     bsoRemoveBaker bs bid = return $ 
         case bs ^? blockBirkParameters . to birkBakers . ix bid of
