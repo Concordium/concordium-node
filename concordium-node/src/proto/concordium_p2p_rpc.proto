@@ -116,12 +116,12 @@ message ContractInstanceAddress {
 
 message GetAddressInfoRequest {
   string block_hash = 1;
-  bytes address = 2;
+  string address = 2;
 }
 
 message GetModuleSourceRequest {
   string block_hash = 1;
-  bytes module_ref = 2;
+  string module_ref = 2;
 }
 
 message TpsRequest {
