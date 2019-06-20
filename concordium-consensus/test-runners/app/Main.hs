@@ -62,7 +62,7 @@ makeBaker bid lot = do
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
-relay :: Chan (OutMessage src) -> IORef SkovFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
+relay :: Chan (OutMessage src) -> MVar SkovBufferedFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sfsRef monitor outps = loop
     where
         loop = do
@@ -70,8 +70,8 @@ relay inp sfsRef monitor outps = loop
             case msg of
                 MsgNewBlock block -> do
                     let bh = getHash block :: BlockHash
-                    sfs <- readIORef sfsRef
-                    bp <- runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (resolveBlock bh)
+                    sfs <- readMVar sfsRef
+                    bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
                     -- when (isNothing bp) $ error "Block is missing!"
                     writeChan monitor (Left (bh, block, bpState <$> bp))
                     forM_ outps $ \outp -> forkIO $ do
@@ -132,7 +132,7 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeRunner logM bid gen iState
+        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
         _ <- forkIO $ sendTransactions cin trans
         return (cin, cout, out)) bis
     monitorChan <- newChan
