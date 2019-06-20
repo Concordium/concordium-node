@@ -107,6 +107,14 @@ atParty = ix . fromIntegral
 runCSSTest :: Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector CSSState -> Vec.Vector (First CoreSet) -> Gen Property
 runCSSTest = runCSSTest' coresCheck
 
+filterCSSMessages :: Party -> [CSSOutputEvent] -> Seq.Seq (Party, CSSInput) -> Seq.Seq (Party, CSSInput)
+filterCSSMessages src oes msgs = if any isSendSeen oes then Seq.filter f msgs else msgs
+    where
+        isSendSeen (SendCSSMessage (Seen _)) = True
+        isSendSeen _ = False
+        f (_, ReceiveCSSMessage src' (Seen _)) = src /= src'
+        f _ = True
+
 runCSSTest' :: (Int -> Int -> Vec.Vector (First CoreSet) -> Property) -> Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector CSSState -> Vec.Vector (First CoreSet) -> Gen Property
 runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
     where
@@ -127,7 +135,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                         Right hist' -> do
                             let sts' = sts & atParty rcpt .~ s'
                             let (msgs'', core') = mconcat $ fromOut rcpt <$> out
-                            go hist' (msgs'' <> msgs') sts' (cores & atParty rcpt %~ (<> core'))
+                            go hist' (msgs'' <> filterCSSMessages rcpt out msgs') sts' (cores & atParty rcpt %~ (<> core'))
         fromOut src (SendCSSMessage msg) = (Seq.fromList [(i,ReceiveCSSMessage src msg)|i <- parties], mempty)
         fromOut _ (SelectCoreSet theCore) = (mempty, First (Just theCore))
         cssInst = CSSInstance allparties corruptWeight (const 1) (fromIntegral nparties)

@@ -112,34 +112,14 @@ executables:
     dependencies:
     - Concordium
 
-  Concordium-server:
-    main:               Main.hs
-    source-dirs:        server
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    - -Wall
-    - -Wcompat
-    - -fno-ignore-asserts
-    when: 
-      - condition: os(windows)
-        then:
-          ghc-options: -static
-        else:
-          ghc-options: -dynamic
-    dependencies:
-    - Concordium
-    - network-simple
-
 tests:
   Concordium-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
-    - -threaded
+    #- -threaded
     - -rtsopts
-    - -with-rtsopts=-N
+    #- -with-rtsopts=-N
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
