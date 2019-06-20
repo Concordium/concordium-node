@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, RankNTypes #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, RankNTypes, BangPatterns #-}
 module ConcordiumTests.Afgjort.ABBA where
 
 import System.IO.Unsafe
@@ -54,9 +54,43 @@ selectFromSeq s = select <$> choose (0, length s - 1)
     where
         select n = (Seq.index s n, Seq.deleteAt n s)
 
+selectFromSeq' :: (RandomGen g) => g -> Seq a -> (a, Seq a, g)
+selectFromSeq' g s =
+    let (n , g') = randomR (0, length s - 1) g in
+    (Seq.index s n, Seq.deleteAt n s, g')
+
 atParty :: Party -> Traversal' (Vec.Vector a) a
 atParty = ix . fromIntegral
 
+runABBATestRG :: RandomGen g => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> IO Property
+runABBATestRG g0 baid nparties allparties vrfkeys = go g0 iStates iResults
+    where
+        iResults = Vec.replicate nparties (First Nothing)
+        iStates = Vec.replicate nparties (initialABBAState)
+        checkSucceed = (allparties - nparties) * 3 < allparties
+        corruptWeight = (allparties - 1) `div` 3
+        inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
+        go g sts ress msgs
+            | null msgs = return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
+            | otherwise = do
+                let ((rcpt, inp), msgs', g') = selectFromSeq' g msgs
+                let s = (sts Vec.! fromIntegral rcpt)
+                (_, s', out) <- runABBA (makeInput inp) (inst rcpt) s
+                let lbl = if _currentPhase s /= _currentPhase s' then label ("reached phase " ++ show (_currentPhase s')) else id
+                lbl <$> case invariantABBAState (inst rcpt) s' of
+                    Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
+                    Right _ -> do
+                        let sts' = sts & atParty rcpt .~ s'
+                        let (msgs'', c') = mconcat $ fromOut rcpt <$> out
+                        go g' sts' (ress & atParty rcpt %~ (<> c')) (msgs' <> msgs'')
+        checkRes _ (First Nothing) = False
+        checkRes g r = r == g
+        fromOut src (SendABBAMessage msg) = (Seq.fromList [(i,ReceiveABBAMessage src msg)|i <- parties], mempty)
+        fromOut _ (ABBAComplete c) = (mempty, First (Just c))
+        parties = [0..fromIntegral nparties-1]
+
+
+{-
 runABBATest :: BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> PropertyM IO Property
 runABBATest baid nparties allparties vrfkeys = go iStates iResults
     where
@@ -83,32 +117,33 @@ runABBATest baid nparties allparties vrfkeys = go iStates iResults
         fromOut src (SendABBAMessage msg) = (Seq.fromList [(i,ReceiveABBAMessage src msg)|i <- parties], mempty)
         fromOut _ (ABBAComplete c) = (mempty, First (Just c))
         parties = [0..fromIntegral nparties-1]
+-}
 
-runABBATest2 :: BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> Seq.Seq (Party, ABBAInput) -> PropertyM IO Property
-runABBATest2 baid nparties allparties vrfkeys = go iStates iResults
+runABBATest2 :: RandomGen g => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> Seq.Seq (Party, ABBAInput) -> IO Property
+runABBATest2 g0 baid nparties allparties vrfkeys = go g0 iStates iResults
     where
         iResults = Vec.replicate nparties (First Nothing)
         iStates = Vec.replicate nparties (initialABBAState)
         checkSucceed = (allparties - nparties) * 3 < allparties
         corruptWeight = (allparties - 1) `div` 3
         inst i = ABBAInstance baid allparties corruptWeight (const 1) (fromIntegral nparties) (VRF.publicKey . (vrfkeys Vec.!) . fromIntegral) i (vrfkeys Vec.! fromIntegral i)
-        go sts ress msgs lowmsgs
+        go g sts ress msgs lowmsgs
             | null msgs = if null lowmsgs then
                             return $ counterexample ("Outcome: " ++ show ress) $ not checkSucceed || all (checkRes (ress Vec.! 0)) ress
                           else do
-                            (msg, lowmsgs') <- pick $ selectFromSeq lowmsgs
-                            go sts ress (Seq.singleton msg) lowmsgs'
+                            let (msg, lowmsgs', g') = selectFromSeq' g lowmsgs
+                            go g' sts ress (Seq.singleton msg) lowmsgs'
             | otherwise = do
-                ((rcpt, inp), msgs') <- pick $ selectFromSeq msgs
+                let ((rcpt, inp), msgs', g') = selectFromSeq' g msgs
                 let s = (sts Vec.! fromIntegral rcpt)
-                (_, s', out) <- lift $ runABBA (makeInput inp) (inst rcpt) s
+                (_, s', out) <- runABBA (makeInput inp) (inst rcpt) s
                 let lbl = if _currentPhase s /= _currentPhase s' then label ("reached phase " ++ show (_currentPhase s')) else id
                 lbl <$> case invariantABBAState (inst rcpt) s' of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err ++ "\n" ++ show s') False
                     Right _ -> do
                         let sts' = sts & atParty rcpt .~ s'
                         let (msgs'', c') = mconcat $ fromOut rcpt <$> out
-                        go sts' (ress & atParty rcpt %~ (<> c')) (msgs' <> msgs'') lowmsgs
+                        go g' sts' (ress & atParty rcpt %~ (<> c')) (msgs' <> msgs'') lowmsgs
         checkRes _ (First Nothing) = False
         checkRes g r = r == g
         fromOut src (SendABBAMessage msg) = (Seq.fromList [(i,ReceiveABBAMessage src msg)|i <- parties], mempty)
@@ -148,18 +183,21 @@ allHonest :: Int -> Property
 allHonest n = monadicIO $ do
     begins <- pick $ makeBegins n
     keys <- pick $ makeKeys n
-    runABBATest "test" n n keys (justifyAll n <> begins)
+    gen <- pick $ mkStdGen <$> arbitrary
+    liftIO $ runABBATestRG gen "test" n n keys (justifyAll n <> begins)
 
 multiWithInactive :: Int -> Int -> Property
 multiWithInactive active inactive = monadicIO $ do
     begins <- pick $ makeBegins active
     keys <- pick $ makeKeys (active + inactive)
-    runABBATest "test" active (active + inactive) keys (justifyAll active <> begins)
+    gen <- pick $ mkStdGen <$> arbitrary
+    liftIO $ runABBATestRG gen "test" active (active + inactive) keys (justifyAll active <> begins)
 
 multiWithInactiveKeys :: Vec.Vector VRF.KeyPair -> Int -> Int -> Property
 multiWithInactiveKeys keys active inactive = monadicIO $ do
     begins <- pick $ makeBegins active
-    runABBATest "test" active (active + inactive) keys (justifyAll active <> begins)
+    gen <- pick $ mkStdGen <$> arbitrary
+    liftIO $ runABBATestRG gen "test" active (active + inactive) keys (justifyAll active <> begins)
 
 
 multiWithCorrupt :: Int -> Int -> Property
@@ -181,7 +219,8 @@ multiWithCorruptKeys keys active corrupt = monadicIO $ do
             jmsgs ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) c) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1], c <- [False, True]] ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone c ) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], c <- [False, True]]
-    runABBATest baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs)
+    gen <- pick $ mkStdGen <$> arbitrary
+    liftIO $ runABBATestRG gen baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs)
 
 
 -- This test is not valid, because it involves messages that are only selectively delivered.
@@ -200,12 +239,13 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
             jmsgs2 ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
             [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
-    runABBATest2 baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs) corruptMsgs2
+    gen <- pick $ mkStdGen <$> arbitrary
+    liftIO $ runABBATest2 gen baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs) corruptMsgs2
 
 
 
 tests :: Spec
-tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
+tests = describe "Concordium.Afgjort.ABBA" $ do
     it "3 parties + 1 super inactive" $ withMaxSuccess 1000 $ multiWithInactiveKeys (superCorruptKeys 3 1 6 22636) 3 1
     it "3 parties + 1 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
     it "3 parties + 1 super corrupt evil" $ withMaxSuccess 5000 $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 22636) 3 1
