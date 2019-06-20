@@ -506,8 +506,9 @@ impl ConsensusBaker {
         ))
     }
 
-    pub fn get_account_info(&self, block_hash: &str, account_address: &[u8]) -> String {
+    pub fn get_account_info(&self, block_hash: &str, account_address: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
+        let account_address = CString::new(account_address).unwrap();
         wrap_c_call_string!(self, baker, |baker| getAccountInfo(
             baker,
             block_hash.as_ptr() as *const u8,
@@ -515,8 +516,9 @@ impl ConsensusBaker {
         ))
     }
 
-    pub fn get_instance_info(&self, block_hash: &str, contract_address: &[u8]) -> String {
+    pub fn get_instance_info(&self, block_hash: &str, contract_address: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
+        let contract_address = CString::new(contract_address).unwrap();
         wrap_c_call_string!(self, baker, |baker| getInstanceInfo(
             baker,
             block_hash.as_ptr() as *const u8,
@@ -548,8 +550,9 @@ impl ConsensusBaker {
         ))
     }
 
-    pub fn get_module_source(&self, block_hash: &str, module_ref: &[u8]) -> Vec<u8> {
+    pub fn get_module_source(&self, block_hash: &str, module_ref: &str) -> Vec<u8> {
         let block_hash = CString::new(block_hash).unwrap();
+        let module_ref = CString::new(module_ref).unwrap();
         wrap_c_call_bytes!(self, |baker| getModuleSource(
             baker,
             block_hash.as_ptr() as *const u8,

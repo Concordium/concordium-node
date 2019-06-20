@@ -313,12 +313,12 @@ impl ConsensusContainer {
             .get_instances(block_hash))
     }
 
-    pub fn get_account_info(&self, block_hash: &str, account_address: &[u8]) -> Fallible<String> {
+    pub fn get_account_info(&self, block_hash: &str, account_address: &str) -> Fallible<String> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_account_info(block_hash, account_address))
     }
 
-    pub fn get_instance_info(&self, block_hash: &str, contract_address: &[u8]) -> Fallible<String> {
+    pub fn get_instance_info(&self, block_hash: &str, contract_address: &str) -> Fallible<String> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_instance_info(block_hash, contract_address))
     }
@@ -338,7 +338,7 @@ impl ConsensusContainer {
             .get_module_list(block_hash))
     }
 
-    pub fn get_module_source(&self, block_hash: &str, module_ref: &[u8]) -> Fallible<Vec<u8>> {
+    pub fn get_module_source(&self, block_hash: &str, module_ref: &str) -> Fallible<Vec<u8>> {
         baker_running_wrapper!(self, |baker: &ConsensusBaker| baker
             .get_module_source(block_hash, module_ref))
     }
