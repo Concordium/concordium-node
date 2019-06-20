@@ -159,7 +159,7 @@ where
     }
 }
 
-impl<T> Serializable for Vec<T>
+impl<T> Serializable for [T]
 where
     T: Serializable,
 {
