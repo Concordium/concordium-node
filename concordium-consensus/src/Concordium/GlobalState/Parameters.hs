@@ -21,7 +21,10 @@ instance Serialize BakerInfo where
 data BirkParameters = BirkParameters {
     birkLeadershipElectionNonce :: LeadershipElectionNonce,
     birkElectionDifficulty :: ElectionDifficulty,
-    birkBakers :: Map.Map BakerId BakerInfo
+    birkBakers :: Map.Map BakerId BakerInfo,
+    -- |Next available baker id. This is needed so that we do not recycle baker
+    -- ids even if bakers are removed.
+    nextBakerId :: BakerId
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
