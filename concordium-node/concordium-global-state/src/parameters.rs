@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 
-use failure::Fallible;
+use failure::{ensure, Fallible};
 
 use std::{
     io::{Cursor, Read, Write},
@@ -50,6 +50,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
         let baker_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
+        ensure!(baker_count <= ALLOCATION_LIMIT, "The baker count ({}) exceeds the safety limit!", baker_count);
         let mut bakers = Vec::with_capacity(baker_count);
 
         for _ in 0..baker_count {
@@ -66,7 +67,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         };
 
         // serialization is not checked here due to the parameters being of an unknown
-        // size it is instead done while deserializing the parent object -
+        // size; it is instead done while deserializing the parent object -
         // GenesisData
 
         Ok(params)
@@ -150,6 +151,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
 
     fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
         let param_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
+        ensure!(param_count <= ALLOCATION_LIMIT, "The finalization parameter count ({}) exceeds the safety limit!", param_count);
         let mut params = Vec::with_capacity(param_count);
 
         for _ in 0..param_count {

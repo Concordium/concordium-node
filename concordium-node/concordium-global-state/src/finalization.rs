@@ -10,7 +10,7 @@ use std::{
 
 use crate::{block::*, common::*};
 
-const HEADER: u8 = SESSION_ID as u8
+const HEADER: u8 = size_of::<SessionId>() as u8
     + size_of::<FinalizationIndex>() as u8
     + size_of::<BlockHeight>() as u8
     + size_of::<Party>() as u8;
@@ -90,7 +90,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let session_id = SessionId::deserialize(&read_const_sized!(&mut cursor, SESSION_ID))?;
+        let session_id = SessionId::deserialize(&read_const_sized!(&mut cursor, size_of::<SessionId>()))?;
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
@@ -109,7 +109,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
 
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(
-            SESSION_ID as usize
+            size_of::<SessionId>()
                 + size_of::<FinalizationIndex>()
                 + size_of::<BlockHeight>()
                 + size_of::<Party>(),

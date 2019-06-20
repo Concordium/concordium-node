@@ -1,7 +1,7 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use failure::Fallible;
+use failure::{ensure, Fallible};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -63,6 +63,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
             &mut cursor,
             size_of::<TransactionCount>()
         ));
+        ensure!(transaction_count <= ALLOCATION_LIMIT as u64, "The transaction count ({}) exceeds the safety limit!", transaction_count);
 
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 

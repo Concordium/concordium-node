@@ -5,6 +5,7 @@ use failure::Fallible;
 use std::{
     fmt,
     io::{Cursor, Read, Write},
+    mem::size_of,
     num::NonZeroU64,
     ops::Deref,
 };
@@ -14,8 +15,7 @@ pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
 
-pub const INCARNATION: u8 = 8;
-pub const SESSION_ID: u8 = SHA256 + INCARNATION;
+pub const ALLOCATION_LIMIT: usize = 4096;
 
 use crate::block::{BlockHash, BLOCK_HASH};
 
@@ -68,7 +68,7 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(BLOCK_HASH as usize + INCARNATION as usize);
+        let mut cursor = create_serialization_cursor(BLOCK_HASH as usize + size_of::<u64>());
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
