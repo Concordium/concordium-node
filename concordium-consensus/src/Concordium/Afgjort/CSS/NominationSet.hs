@@ -21,7 +21,13 @@ data NominationSet = NominationSet {
     nomMax :: Party,
     nomTop :: Maybe (Set Party),
     nomBot :: Maybe (Set Party)
-} deriving (Eq, Ord, Show)
+} deriving (Eq, Ord)
+
+instance Show NominationSet where
+    show NominationSet{..} = "{top: " ++ sh nomTop ++ ", bot: " ++ sh nomBot ++ "}"
+        where
+            sh Nothing = "None"
+            sh (Just s) = show $ Set.toList s
 
 data NominationSetTag
     = NSEmpty
