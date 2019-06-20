@@ -45,7 +45,7 @@ pub struct BirkParameters {
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let election_nonce = Encoded::new(&read_bytestring(cursor)?);
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
@@ -149,7 +149,7 @@ pub struct FinalizationParameters(Box<[VoterInfo]>);
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let param_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
         ensure!(param_count <= ALLOCATION_LIMIT, "The finalization parameter count ({}) exceeds the safety limit!", param_count);
         let mut params = Vec::with_capacity(param_count);

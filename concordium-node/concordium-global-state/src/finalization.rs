@@ -314,7 +314,7 @@ struct NominationSet {
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
     type Source = (&'a mut Cursor<&'b [u8]>, NominationTag);
 
-    fn deserialize((cursor, tag): (&mut Cursor<&[u8]>, NominationTag)) -> Fallible<Self> {
+    fn deserialize((cursor, tag): Self::Source) -> Fallible<Self> {
         fn check_bit(bit: u32, number: u32) -> bool {
             if bit < 32 {
                 number & (1 << bit) != 0
@@ -453,7 +453,7 @@ impl Css {
 impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
     type Source = (&'a [u8], CssVariant, NominationTag);
 
-    fn deserialize((bytes, variant, tag): (&[u8], CssVariant, NominationTag)) -> Fallible<Self> {
+    fn deserialize((bytes, variant, tag): Self::Source) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Phase>()));
