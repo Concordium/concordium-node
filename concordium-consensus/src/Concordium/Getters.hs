@@ -26,6 +26,7 @@ import Concordium.GlobalState.Finalization
 
 import Concordium.Afgjort.Finalize
 
+import Control.Concurrent.MVar
 import Data.IORef
 import Text.Read hiding (get, String)
 import qualified Data.Map as Map
@@ -43,6 +44,9 @@ class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
 
 instance SkovStateQueryable (IORef SkovFinalizationState) (SimpleSkovMonad SkovFinalizationState IO) where
     runStateQuery sfsRef a = readIORef sfsRef >>= evalSSM a
+
+instance SkovStateQueryable (MVar SkovBufferedFinalizationState) (SimpleSkovMonad SkovBufferedFinalizationState IO) where
+    runStateQuery sfsRef a = readMVar sfsRef >>= evalSSM a
 
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)

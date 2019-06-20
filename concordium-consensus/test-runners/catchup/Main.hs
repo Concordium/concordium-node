@@ -36,7 +36,7 @@ import qualified Concordium.Getters as Get
 import Concordium.Startup
 
 
-type Peer = IORef SkovFinalizationState
+type Peer = MVar SkovBufferedFinalizationState
 
 data InEvent
     = IEMessage (InMessage Peer)
@@ -68,7 +68,7 @@ makeBaker bid lot = do
         let account = makeBakerAccount bid
         return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
-relayIn :: Chan InEvent -> Chan (InMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> IO ()
+relayIn :: Chan InEvent -> Chan (InMessage Peer) -> MVar SkovBufferedFinalizationState -> IORef Bool -> IO ()
 relayIn msgChan bakerChan sfsRef connectedRef = loop
     where
         loop = do
@@ -85,7 +85,7 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
             loop
 
 
-relay :: Chan (OutMessage Peer) -> IORef SkovFinalizationState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
+relay :: Chan (OutMessage Peer) -> MVar SkovBufferedFinalizationState -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> Chan InEvent -> [Chan InEvent] -> IO ()
 relay inp sfsRef connectedRef monitor loopback outps = loop
     where
         chooseDelay = do
@@ -104,8 +104,8 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
             when connected $ case msg of
                 MsgNewBlock block -> do
                     let bh = getHash block :: BlockHash
-                    sfs <- readIORef sfsRef
-                    bp <- runSilentLogger $ flip evalSSM (sfs ^. sfsSkov) (resolveBlock bh)
+                    sfs <- readMVar sfsRef
+                    bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
                     -- when (isNothing bp) $ error "Block is missing!"
                     writeChan monitor (Left (bh, block, bpState <$> bp))
                     forM_ outps $ \outp -> usually $ delayed $
@@ -134,7 +134,7 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                     forM_ mf $ \fr -> writeChan loopback (IEMessage $ MsgFinalizationRecordReceived src fr)
             loop
 
-toggleConnection :: LogMethod IO -> IORef SkovFinalizationState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
+toggleConnection :: LogMethod IO -> MVar SkovBufferedFinalizationState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
 toggleConnection logM sfsRef connectedRef loopback outps = readIORef connectedRef >>= loop
     where
         loop connected = do
@@ -193,7 +193,7 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        (cin, cout, out) <- makeRunner logM bid gen iState
+        (cin, cout, out) <- makeAsyncRunner logM bid gen iState
         cin' <- newChan
         connectedRef <- newIORef True
         _ <- forkIO $ relayIn cin' cin out connectedRef

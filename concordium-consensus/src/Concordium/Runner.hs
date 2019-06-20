@@ -203,3 +203,42 @@ syncReceiveFinalizationMessage syncRunner finMsg = runBFSMWithStateLog syncRunne
 
 syncReceiveFinalizationRecord :: SyncRunner -> FinalizationRecord -> IO (UpdateResult, [SkovFinalizationEvent])
 syncReceiveFinalizationRecord syncRunner finRec = runBFSMWithStateLog syncRunner (finalizeBlock finRec)
+
+-- |This is provided as a compatibility wrapper for the test runners.
+makeAsyncRunner :: forall m source. LogMethod IO -> BakerIdentity -> GenesisData -> BlockState (BFSM m) -> IO (Chan (InMessage source), Chan (OutMessage source), MVar SkovBufferedFinalizationState)
+makeAsyncRunner logm bkr gen initBS = do
+        logm Runner LLInfo "Starting baker"
+        inChan <- newChan
+        outChan <- newChan
+        let somHandler = writeChan outChan . simpleToOutMessage
+        sr <- makeSyncRunner logm bkr gen initBS somHandler
+        let
+            msgLoop = readChan inChan >>= \case
+                MsgShutdown -> stopSyncRunner sr
+                MsgTimer -> msgLoop -- TODO: Remove MsgTimer altogether
+                MsgBlockReceived src block -> do
+                    (_, evts) <- syncReceiveBlock sr block
+                    forM_ evts $ handleMessage src
+                    msgLoop
+                MsgTransactionReceived trans -> do
+                    (_, evts) <- syncReceiveTransaction sr trans
+                    forM_ evts $ handleMessage undefined
+                    msgLoop
+                MsgFinalizationReceived src bs -> do
+                    (_, evts) <- syncReceiveFinalizationMessage sr bs
+                    forM_ evts $ handleMessage src
+                    msgLoop
+                MsgFinalizationRecordReceived src finRec -> do
+                    (_, evts) <- syncReceiveFinalizationRecord sr finRec
+                    forM_ evts $ handleMessage src
+                    msgLoop
+            handleMessage _ (SkovFinalization (BroadcastFinalizationMessage fmsg)) = writeChan outChan (MsgFinalization fmsg)
+            handleMessage _ (SkovFinalization (BroadcastFinalizationRecord frec)) = writeChan outChan (MsgFinalizationRecord frec)
+            handleMessage src (SkovMissingBlock bh delta) = writeChan outChan (MsgMissingBlock src bh delta)
+            handleMessage src (SkovMissingFinalization fr) = writeChan outChan (MsgMissingFinalization src fr)
+        _ <- forkIO msgLoop
+        return (inChan, outChan, syncState sr)
+    where
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock block
+        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization finMsg
+        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord finRec
