@@ -14,7 +14,6 @@ import Control.Monad
 import Concordium.Types
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -114,6 +113,37 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     s <- get
     s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
     put s'
+
+  {-# INLINE getBakerInfo #-}
+  getBakerInfo bid = do
+    s <- get
+    lift (bsoGetBakerInfo s bid)
+
+  {-# INLINE addBaker #-}
+  addBaker binfo = do
+    s <- get
+    (bid, s') <- lift (bsoAddBaker s binfo)
+    put s'
+    return bid
+
+  {-# INLINE removeBaker #-}
+  removeBaker bid = do
+    s <- get
+    (_, s') <- lift (bsoRemoveBaker s bid)
+    put s'
+
+  {-# INLINE updateBakerSignKey #-}
+  updateBakerSignKey bid signKey = do
+    s <- get
+    s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buSignKey ?~ signKey))
+    put s'
+
+  {-# INLINE updateBakerAccount #-}
+  updateBakerAccount bid bacc = do
+    s <- get
+    s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
+    put s'
+
 
 -- |Reward the baker, identity providers, ...
 -- TODO: Currently the finalized pointer is not used. But the finalization committee

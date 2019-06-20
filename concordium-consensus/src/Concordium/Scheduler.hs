@@ -15,6 +15,7 @@ import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
@@ -137,6 +138,18 @@ dispatch msg = do
             
             DeployEncryptionKey encKey ->
               handleDeployEncryptionKey meta senderAccount encKey energy
+
+            AddBaker{..} ->
+              handleAddBaker meta senderAccount abElectionVerifyKey abSignatureVerifyKey abAccount abProof energy
+
+            RemoveBaker{..} ->
+              handleRemoveBaker meta senderAccount rbId rbProof energy
+
+            UpdateBakerAccount{..} ->
+              handleUpdateBakerAccount meta senderAccount ubaId ubaAddress ubaProof energy
+
+            UpdateBakerSignKey{..} ->
+              handleUpdateBakerSignKey meta senderAccount ubsId ubsKey ubsProof energy
 
 -- |Process the deploy module transaction.
 handleDeployModule ::
@@ -535,6 +548,191 @@ handleDeployEncryptionKey meta senderAccount encKey energy = do
         addAccountEncryptionKey aaddr encKey
         return . TxValid . TxSuccess $ [AccountEncryptionKeyDeployed aaddr encKey]
       Just encKey' -> return . TxValid . TxReject $ AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'
+
+
+-- * FIXME: The baker handling is purely proof-of-concept.
+-- In particular there is no checking of proofs that the baker holds relevant
+-- private keys, etc, and the precise logic for when a baker can be added and removed 
+-- should be analyzed from a security perspective.
+
+
+-- |The following functions are placeholders until we have sigma protocols and
+-- can check these proofs.
+checkElectionKeyProof :: BakerElectionVerifyKey -> Proof -> Bool             
+checkElectionKeyProof _ _ = True
+
+checkSignatureVerifyKeyProof :: BakerSignVerifyKey -> Proof -> Bool             
+checkSignatureVerifyKeyProof _ _ = True
+
+checkAccountOwnership :: SigScheme.SchemeId -> ID.AccountVerificationKey -> Proof -> Bool             
+checkAccountOwnership _ _ _ = True
+
+
+-- |Add a baker to the baker pool. The current logic for when this is allowed is as follows.
+--
+--  * The account to which the baker wants to be rewarded must exist.
+--  * The sender account can be any other account. It does not have to be the baker's account.
+--  * The baker needs to provide a cryptographic proof that
+--
+--    - they own the private key corresponding to the reward account's key
+--    - they own the private key corresponding to the election verification key
+--    - they own the private key corresponding to the signature verification key
+-- 
+-- Upon successful completion of this transaction a new baker is added to the
+-- baking pool (birk parameters). Initially the baker has 0 lottery power. If
+-- they wish to gain lotter power they need some stake delegated to them, which
+-- is a separate transaction.
+
+handleAddBaker ::
+  SchedulerMonad m
+    => TransactionHeader
+    -> Account
+    -> BakerElectionVerifyKey
+    -> BakerSignVerifyKey
+    -> AccountAddress
+    -> Proof
+    -> Energy
+    -> m TxResult
+handleAddBaker meta senderAccount abElectionVerifyKey abSignatureVerifyKey abAccount abProof energy = do
+  if Cost.addBaker > energy then do
+     payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
+     chargeExecutionCost (thSender meta) payment
+     return $! TxValid (TxReject OutOfEnergy)
+   else do
+     payment <- energyToGtu (Cost.addBaker + Cost.checkHeader) -- charge for checking header and deploying credential
+     chargeExecutionCost (thSender meta) payment
+     
+     getAccount abAccount >>=
+       \case Nothing -> return $! TxValid (TxReject (NonExistentRewardAccount abAccount))
+             Just Account{..} ->
+               let electionP = checkElectionKeyProof abElectionVerifyKey abProof
+                   signP = checkSignatureVerifyKeyProof abSignatureVerifyKey abProof
+                   accountP = checkAccountOwnership _accountSignatureScheme _accountVerificationKey abProof
+               in if electionP && signP && accountP then do
+                    -- the proof validates that the baker owns all the private keys.
+                    -- Moreover at this point we know the reward account exists and belongs
+                    -- to the baker.
+                    -- Thus we can create the baker, starting it off with 0 lottery power.
+                    bid <- addBaker (BakerInfo { bakerElectionVerifyKey = abElectionVerifyKey,
+                                                 bakerSignatureVerifyKey = abSignatureVerifyKey,
+                                                 bakerLotteryPower = 0,
+                                                 bakerAccount = abAccount
+                                               })
+                    return $! TxValid (TxSuccess [BakerAdded bid])
+                  else return $! TxValid (TxReject InvalidProof)
+
+-- |Remove a baker from the baker pool.
+-- The current logic is that if the proof validates that the sender of the
+-- transaction knows the baker's private key corresponding to its signature key.
+handleRemoveBaker ::
+  SchedulerMonad m
+    => TransactionHeader
+    -> Account
+    -> BakerId
+    -> Proof
+    -> Energy
+    -> m TxResult
+handleRemoveBaker meta senderAccount rbId rbProof energy = 
+  if Cost.removeBaker > energy then do
+     payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
+     chargeExecutionCost (thSender meta) payment
+     return $! TxValid (TxReject OutOfEnergy)
+   else do
+     payment <- energyToGtu (Cost.removeBaker + Cost.checkHeader) -- charge for checking header and deploying credential
+     chargeExecutionCost (thSender meta) payment
+     getBakerInfo rbId >>=
+       \case Nothing ->
+               return $ TxValid (TxReject (RemovingNonExistentBaker rbId))
+             Just binfo ->
+               if checkSignatureVerifyKeyProof (bakerSignatureVerifyKey binfo) rbProof then do
+                 -- only the baker itself can remove themselves from the pool
+                 removeBaker rbId
+                 return $ TxValid (TxSuccess [BakerRemoved rbId])
+               else
+                 return $ TxValid (TxReject (InvalidBakerRemoveSource (senderAccount ^. accountAddress)))
+
+-- |Update the baker's reward account. The transaction is considered valid if
+--
+--  * The transaction is coming from the baker. This is established by
+--    the sender of the transaction proving that they own the secret key
+--    corresponding to the baker's signature verification key.
+--  * The account they wish to set as their reward account exists.
+--  * They own the account (meaning they know the private key corresponding to
+--    the public key of the account)
+handleUpdateBakerAccount ::
+  SchedulerMonad m
+    => TransactionHeader
+    -> Account
+    -> BakerId
+    -> AccountAddress
+    -> Proof
+    -> Energy
+    -> m TxResult
+handleUpdateBakerAccount meta senderAccount ubaId ubaAddress ubaProof energy = do
+  if Cost.updateBakerAccount > energy then do
+    payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
+    chargeExecutionCost (thSender meta) payment
+    return $! TxValid (TxReject OutOfEnergy)
+  else do
+    payment <- energyToGtu (Cost.updateBakerAccount + Cost.checkHeader) -- charge for checking header and deploying credential
+    chargeExecutionCost (thSender meta) payment
+    getBakerInfo ubaId >>=
+      \case Nothing ->
+              return $ TxValid (TxReject (UpdatingNonExistentBaker ubaId))
+            Just binfo ->
+              if checkSignatureVerifyKeyProof (bakerSignatureVerifyKey binfo) ubaProof then do
+                -- only the baker itself can update its account
+                -- now check the account exists and the baker owns it
+                getAccount ubaAddress >>=
+                  \case Nothing -> return $! TxValid (TxReject (NonExistentRewardAccount ubaAddress))
+                        Just Account{..} ->
+                          let accountP = checkAccountOwnership _accountSignatureScheme _accountVerificationKey ubaProof
+                          in if accountP then do
+                               updateBakerAccount ubaId ubaAddress
+                               return $ TxValid (TxSuccess [BakerAccountUpdated ubaId ubaAddress])
+                             else return $ TxValid (TxReject InvalidProof)
+              else
+                return $ TxValid (TxReject InvalidProof)
+
+-- |Update the baker's public signature key. The transaction is considered valid if
+--
+--  * The transaction is coming from the baker. This is established by
+--    the sender of the transaction proving that they own the secret key
+--    corresponding to the baker's signature verification key.
+--  * The transaction proves that they own the private key corresponding to the __NEW__
+--    signature verification key.
+handleUpdateBakerSignKey ::
+  SchedulerMonad m
+    => TransactionHeader
+    -> Account
+    -> BakerId
+    -> BakerSignVerifyKey
+    -> Proof
+    -> Energy
+    -> m TxResult
+handleUpdateBakerSignKey meta senderAccount ubsId ubsKey ubsProof energy = 
+  if Cost.updateBakerKey > energy then do
+    payment <- energyToGtu (thGasAmount meta) -- use up all the deposited gas
+    chargeExecutionCost (thSender meta) payment
+    return $! TxValid (TxReject OutOfEnergy)
+  else do
+    payment <- energyToGtu (Cost.updateBakerKey + Cost.checkHeader) -- charge for checking header and deploying credential
+    chargeExecutionCost (thSender meta) payment
+    getBakerInfo ubsId >>=
+      \case Nothing ->
+              return $ TxValid (TxReject (UpdatingNonExistentBaker ubsId))
+            Just binfo ->
+              if checkSignatureVerifyKeyProof (bakerSignatureVerifyKey binfo) ubsProof then
+                -- only the baker itself can update its own key
+                -- now also check that they own the private key for the new signature key
+                let signP = checkSignatureVerifyKeyProof ubsKey ubsProof -- FIXME: We will need a separate proof object here.
+                in if signP then do
+                     updateBakerSignKey ubsId ubsKey
+                     return $ TxValid (TxSuccess [BakerKeyUpdated ubsId ubsKey])
+                   else return $ TxValid (TxReject InvalidProof)
+              else
+                return $ TxValid (TxReject InvalidProof)
+
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions. The list is traversed from

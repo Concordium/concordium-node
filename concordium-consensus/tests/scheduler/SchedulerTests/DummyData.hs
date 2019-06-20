@@ -84,6 +84,6 @@ emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
   birkLeadershipElectionNonce = "",
   birkElectionDifficulty = 0.5,
-  birkBakers = Map.empty
+  birkBakers = Map.empty,
+  nextBakerId = 0
   }
-  

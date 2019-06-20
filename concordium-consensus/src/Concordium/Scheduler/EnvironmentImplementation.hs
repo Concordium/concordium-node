@@ -8,6 +8,7 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import Data.HashMap.Strict as Map
+import Data.Map.Strict as OrdMap
 
 import Lens.Micro.Platform
 
@@ -112,6 +113,32 @@ instance SchedulerMonad SchedulerImplementation where
   notifyExecutionCost !amnt =
     blockBank . executionCost += amnt
 
-
+  {-# INLINE notifyIdentityProviderCredential #-}
   notifyIdentityProviderCredential idk =
     blockBank . identityIssuersRewards . at idk . non 0 += 1
+
+  {-# INLINE getBakerInfo #-}
+  getBakerInfo bid =
+    use (blockBirkParameters . to birkBakers . at bid)
+
+  addBaker binfo = do
+    bps <- use blockBirkParameters
+    let bid = nextBakerId bps
+    let bakers' = OrdMap.insert bid binfo (birkBakers bps)
+    blockBirkParameters .= bps { birkBakers = bakers',
+                                 nextBakerId = bid + 1
+                               }
+    return bid
+
+  {-# INLINE removeBaker #-}
+  removeBaker bid = do
+    bps <- use blockBirkParameters
+    blockBirkParameters .= bps { birkBakers = OrdMap.delete bid (birkBakers bps) }
+
+  {-# INLINE updateBakerSignKey #-}
+  updateBakerSignKey bid signKey =
+    blockBirkParameters %= (\bps -> bps { birkBakers = OrdMap.adjust (\binfo -> binfo {bakerSignatureVerifyKey = signKey}) bid (birkBakers bps)})
+
+  {-# INLINE updateBakerAccount #-}
+  updateBakerAccount bid bacc = 
+    blockBirkParameters %= (\bps -> bps { birkBakers = OrdMap.adjust (\binfo -> binfo {bakerAccount = bacc}) bid (birkBakers bps)})
