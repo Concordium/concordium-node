@@ -78,22 +78,6 @@ pub fn default_noise_params() -> snow::params::NoiseParams {
 pub const PROLOGUE: &[u8] = b"CONCORDIUMP2P";
 pub const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
 
-macro_rules! map_io_error_to_fail {
-    ($e:expr) => {
-        $e.map_err(|io_err| {
-            use crate::connection::fails::{StreamConnectionReset, StreamWouldBlock};
-            use failure::Error;
-            use std::io::ErrorKind;
-
-            match io_err.kind() {
-                ErrorKind::WouldBlock => Error::from(StreamWouldBlock),
-                ErrorKind::ConnectionReset => Error::from(StreamConnectionReset),
-                _ => Error::from_boxed_compat(Box::new(io_err)),
-            }
-        })
-    };
-}
-
 mod handshake_stream_sink;
 pub use handshake_stream_sink::HandshakeStreamSink;
 

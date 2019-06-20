@@ -1,3 +1,5 @@
+#[macro_use]
+pub mod fails;
 pub mod network_handler;
 
 mod async_adapter;
@@ -22,7 +24,6 @@ pub use connection_builder::ConnectionBuilder;
 mod connection_default_handlers;
 mod connection_handshake_handlers;
 mod connection_private;
-pub mod fails;
 mod handler_utils;
 
 pub use crate::connection::connection_private::ConnectionPrivate;
