@@ -166,6 +166,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        use CssVariant::*;
+        use NominationTag::*;
+
         let message_type = &read_const_sized!(cursor, WMVBA_TYPE)[0];
 
         let msg = match message_type {
@@ -174,36 +177,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
             2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(cursor, VAL)))),
             3 => WmvbaMessage::Abba(Abba::deserialize((cursor, false))?),
             4 => WmvbaMessage::Abba(Abba::deserialize((cursor, true))?),
-            5 => WmvbaMessage::Css(Css::deserialize((
-                cursor,
-                CssVariant::Seen,
-                NominationTag::Top,
-            ))?),
-            6 => WmvbaMessage::Css(Css::deserialize((
-                cursor,
-                CssVariant::Seen,
-                NominationTag::Bottom,
-            ))?),
-            7 => WmvbaMessage::Css(Css::deserialize((
-                cursor,
-                CssVariant::Seen,
-                NominationTag::Both,
-            ))?),
-            8 => WmvbaMessage::Css(Css::deserialize((
-                cursor,
-                CssVariant::DoneReporting,
-                NominationTag::Top,
-            ))?),
-            9 => WmvbaMessage::Css(Css::deserialize((
-                cursor,
-                CssVariant::DoneReporting,
-                NominationTag::Bottom,
-            ))?),
-            10 => WmvbaMessage::Css(Css::deserialize((
-                cursor,
-                CssVariant::DoneReporting,
-                NominationTag::Both,
-            ))?),
+            5 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Top))?),
+            6 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Bottom))?),
+            7 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Both))?),
+            8 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Top))?),
+            9 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Bottom))?),
+            10 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Both))?),
             11 => WmvbaMessage::AreWeDone(false),
             12 => WmvbaMessage::AreWeDone(true),
             13 => WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(cursor, VAL))),
