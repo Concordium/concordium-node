@@ -221,14 +221,21 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
 
     fn serialize(&self) -> Box<[u8]> {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
-        let baker_accounts = self.baker_accounts.iter().map(|acc| acc.serialize()).collect::<Vec<_>>();
+        let baker_accounts = self
+            .baker_accounts
+            .iter()
+            .map(|acc| acc.serialize())
+            .collect::<Vec<_>>();
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
         let size = size_of::<Timestamp>()
             + size_of::<Duration>()
             + birk_params.len()
             + size_of::<u64>()
-            + baker_accounts.iter().map(|serialized| serialized.len()).sum::<usize>()
+            + baker_accounts
+                .iter()
+                .map(|serialized| serialized.len())
+                .sum::<usize>()
             + finalization_params.len();
         let mut cursor = create_serialization_cursor(size);
 

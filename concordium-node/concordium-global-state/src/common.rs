@@ -54,14 +54,14 @@ pub struct AccountAddress(pub [u8; 21]);
 
 #[derive(Debug)]
 pub struct Account {
-    address: AccountAddress,
-    nonce: Nonce,
-    amount: Amount,
+    address:           AccountAddress,
+    nonce:             Nonce,
+    amount:            Amount,
     encrypted_amounts: Box<[ByteString]>,
-    encryption_key: Option<ByteString>,
-    verification_key: ByteString,
-    signature_scheme: SchemeId,
-    credentials: Box<[Encoded]>,
+    encryption_key:    Option<ByteString>,
+    verification_key:  ByteString,
+    signature_scheme:  SchemeId,
+    credentials:       Box<[Encoded]>,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
@@ -120,17 +120,29 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(
             size_of::<AccountAddress>()
-            + size_of::<Nonce>()
-            + size_of::<Amount>()
-            + size_of::<u64>()
-            + self.encrypted_amounts.iter().map(|ea| size_of::<u64>() + ea.len()).sum::<usize>()
-            + size_of::<u8>()
-            + if let Some(ref key) = self.encryption_key { key.len() } else { 0 }
-            + size_of::<u64>()
-            + self.verification_key.len()
-            + size_of::<SchemeId>()
-            + size_of::<u64>()
-            + self.credentials.iter().map(|cred| size_of::<u64>() + cred.len()).sum::<usize>()
+                + size_of::<Nonce>()
+                + size_of::<Amount>()
+                + size_of::<u64>()
+                + self
+                    .encrypted_amounts
+                    .iter()
+                    .map(|ea| size_of::<u64>() + ea.len())
+                    .sum::<usize>()
+                + size_of::<u8>()
+                + if let Some(ref key) = self.encryption_key {
+                    key.len()
+                } else {
+                    0
+                }
+                + size_of::<u64>()
+                + self.verification_key.len()
+                + size_of::<SchemeId>()
+                + size_of::<u64>()
+                + self
+                    .credentials
+                    .iter()
+                    .map(|cred| size_of::<u64>() + cred.len())
+                    .sum::<usize>(),
         );
 
         let _ = cursor.write_all(&self.address.0);

@@ -85,8 +85,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 
         debug_assert_eq!(baker_cursor.position(), baker_cursor.get_ref().len() as u64);
 
-        let size =
-            size_of::<u64>()
+        let size = size_of::<u64>()
             + self.election_nonce.len()
             + size_of::<ElectionDifficulty>()
             + baker_cursor.get_ref().len();

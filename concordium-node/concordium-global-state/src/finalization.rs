@@ -90,7 +90,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let session_id = SessionId::deserialize(&read_const_sized!(&mut cursor, size_of::<SessionId>()))?;
+        let session_id =
+            SessionId::deserialize(&read_const_sized!(&mut cursor, size_of::<SessionId>()))?;
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
