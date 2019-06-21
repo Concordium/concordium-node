@@ -511,13 +511,21 @@ impl fmt::Debug for FinalizationRecord {
 impl FinalizationRecord {
     pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
         // TODO: verify it's the desired content
-        let proof = genesis_block_ptr.block.genesis_data().finalization_parameters.iter().enumerate().map(|(n, info)| (n as u32, info.signature_verify_key.clone())).collect::<Vec<_>>().into_boxed_slice();
+        let proof = genesis_block_ptr
+            .block
+            .genesis_data()
+            .finalization_parameters
+            .iter()
+            .enumerate()
+            .map(|(n, info)| (n as u32, info.signature_verify_key.clone()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         Self {
-            index:         0,
+            index: 0,
             block_pointer: genesis_block_ptr.hash.to_owned(),
             proof,
-            delay:         0,
+            delay: 0,
         }
     }
 }
@@ -531,7 +539,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
 
-        let proof = read_multiple!(cursor, "finalization proof", (NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)), Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE))));
+        let proof = read_multiple!(
+            cursor,
+            "finalization proof",
+            (
+                NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)),
+                Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE))
+            )
+        );
 
         let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
@@ -552,8 +567,12 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
             size_of::<FinalizationIndex>()
                 + self.block_pointer.len()
                 + size_of::<u64>()
-                + self.proof.iter().map(|(_, sig)| size_of::<Party>() + sig.len()).sum::<usize>()
-                + size_of::<BlockHeight>()
+                + self
+                    .proof
+                    .iter()
+                    .map(|(_, sig)| size_of::<Party>() + sig.len())
+                    .sum::<usize>()
+                + size_of::<BlockHeight>(),
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);

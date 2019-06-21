@@ -49,7 +49,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
-        let bakers = read_multiple!(cursor, "bakers", (NetworkEndian::read_u64(&read_const_sized!(cursor, 8)), BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?));
+        let bakers = read_multiple!(
+            cursor,
+            "bakers",
+            (
+                NetworkEndian::read_u64(&read_const_sized!(cursor, 8)),
+                BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
+            )
+        );
 
         let params = BirkParameters {
             election_nonce,

@@ -35,9 +35,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transaction {
     type Source = &'a [u8];
 
     // FIXME: finish
-    fn deserialize(_bytes: &[u8]) -> Fallible<Self> {
-        unimplemented!()
-    }
+    fn deserialize(_bytes: &[u8]) -> Fallible<Self> { unimplemented!() }
 
     fn serialize(&self) -> Box<[u8]> {
         vec![].into_boxed_slice() // TODO

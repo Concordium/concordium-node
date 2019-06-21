@@ -75,7 +75,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
 
-        let encrypted_amounts = read_multiple!(cursor, "encrypted amounts", read_bytestring(cursor, "encrypted amount's length")?);
+        let encrypted_amounts = read_multiple!(
+            cursor,
+            "encrypted amounts",
+            read_bytestring(cursor, "encrypted amount's length")?
+        );
 
         let has_encryption_key = read_const_sized!(cursor, 1)[0] == 1;
         let encryption_key = if has_encryption_key {
@@ -88,7 +92,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
 
-        let credentials = read_multiple!(cursor, "credentials", read_bytestring(cursor, "encrypted amount's length")?);
+        let credentials = read_multiple!(
+            cursor,
+            "credentials",
+            read_bytestring(cursor, "encrypted amount's length")?
+        );
 
         let account = Account {
             address,
@@ -106,8 +114,18 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
     fn serialize(&self) -> Box<[u8]> {
         fn serialized_bs_list_len(bs_list: &[ByteString]) -> usize {
-            bs_list.iter().map(|bs| size_of::<u64>() + bs.len()).sum::<usize>()
+            bs_list
+                .iter()
+                .map(|bs| size_of::<u64>() + bs.len())
+                .sum::<usize>()
         }
+
+        let encryption_key_len = self
+            .encryption_key
+            .iter()
+            .next()
+            .map(|k| k.len())
+            .unwrap_or(0);
 
         let mut cursor = create_serialization_cursor(
             size_of::<AccountAddress>()
@@ -116,12 +134,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
                 + size_of::<u64>()
                 + serialized_bs_list_len(&self.encrypted_amounts)
                 + size_of::<u8>()
-                + self.encryption_key.iter().next().map(|k| k.len()).unwrap_or(0)
+                + encryption_key_len
                 + size_of::<u64>()
                 + self.verification_key.len()
                 + size_of::<SchemeId>()
                 + size_of::<u64>()
-                + serialized_bs_list_len(&self.credentials)
+                + serialized_bs_list_len(&self.credentials),
         );
 
         let _ = cursor.write_all(&self.address.0);
@@ -144,7 +162,9 @@ pub struct Nonce(NonZeroU64);
 
 impl Nonce {
     fn new(raw: u64) -> Fallible<Self> {
-        Ok(Nonce(NonZeroU64::new(raw).ok_or_else(|| format_err!("A zero nonce was received!"))?))
+        Ok(Nonce(NonZeroU64::new(raw).ok_or_else(|| {
+            format_err!("A zero nonce was received!")
+        })?))
     }
 }
 
@@ -192,9 +212,7 @@ impl SessionId {
 pub struct Encoded(Box<[u8]>);
 
 impl Encoded {
-    pub fn new(bytes: &[u8]) -> Self {
-        Encoded(Box::from(bytes))
-    }
+    pub fn new(bytes: &[u8]) -> Self { Encoded(Box::from(bytes)) }
 }
 
 impl Deref for Encoded {
@@ -221,7 +239,11 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
 
 pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     let size = cursor.get_ref().len() - cursor.position() as usize;
-    ensure!(size <= ALLOCATION_LIMIT, "The size of a variable-length object ({}) exceeds the safety limit!", size);
+    ensure!(
+        size <= ALLOCATION_LIMIT,
+        "The size of a variable-length object ({}) exceeds the safety limit!",
+        size
+    );
     let mut buf = vec![0u8; size];
     cursor.read_exact(&mut buf)?;
 

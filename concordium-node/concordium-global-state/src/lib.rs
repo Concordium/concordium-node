@@ -85,7 +85,6 @@ macro_rules! safe_get_len {
     }};
 }
 
-
 pub mod block;
 pub mod common;
 pub mod finalization;

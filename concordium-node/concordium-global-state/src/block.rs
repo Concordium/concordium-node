@@ -194,8 +194,13 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
-        let baker_accounts = read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
-        let finalization_parameters = read_multiple!(cursor, "finalization parameters", VoterInfo::deserialize(&read_const_sized!(&mut cursor, VOTER_INFO))?);
+        let baker_accounts =
+            read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
+        let finalization_parameters = read_multiple!(
+            cursor,
+            "finalization parameters",
+            VoterInfo::deserialize(&read_const_sized!(&mut cursor, VOTER_INFO))?
+        );
 
         let data = GenesisData {
             timestamp,
