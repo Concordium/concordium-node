@@ -1,7 +1,7 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use failure::Fallible;
+use failure::{ensure, Fallible};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -59,11 +59,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let transaction_count = NetworkEndian::read_u64(&read_const_sized!(
-            &mut cursor,
-            size_of::<TransactionCount>()
-        ));
-
+        let transaction_count = safe_get_len!(&mut cursor, "transaction count");
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {

@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 
-use failure::Fallible;
+use failure::{ensure, Fallible};
 
 use std::{
     io::{Cursor, Read, Write},
@@ -39,25 +39,25 @@ const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() 
 pub struct BirkParameters {
     election_nonce:      ByteString,
     election_difficulty: ElectionDifficulty,
-    pub bakers:          Vec<(BakerId, BakerInfo)>,
+    pub bakers:          Box<[(BakerId, BakerInfo)]>,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
-        let election_nonce = Encoded::new(&read_bytestring(cursor)?);
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
-        let baker_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
+        let baker_count = safe_get_len!(cursor, "baker count");
         let mut bakers = Vec::with_capacity(baker_count);
-
         for _ in 0..baker_count {
             let id = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
             let info = BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?;
 
             bakers.push((id, info));
         }
+        let bakers = bakers.into_boxed_slice();
 
         let params = BirkParameters {
             election_nonce,
@@ -66,7 +66,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         };
 
         // serialization is not checked here due to the parameters being of an unknown
-        // size it is instead done while deserializing the parent object -
+        // size; it is instead done while deserializing the parent object -
         // GenesisData
 
         Ok(params)
@@ -85,11 +85,13 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 
         debug_assert_eq!(baker_cursor.position(), baker_cursor.get_ref().len() as u64);
 
-        let size = self.election_nonce.len()
+        let size = size_of::<u64>()
+            + self.election_nonce.len()
             + size_of::<ElectionDifficulty>()
             + baker_cursor.get_ref().len();
         let mut cursor = create_serialization_cursor(size);
 
+        let _ = cursor.write_u64::<NetworkEndian>(self.election_nonce.len() as u64);
         let _ = cursor.write_all(&self.election_nonce);
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());
@@ -148,8 +150,8 @@ pub struct FinalizationParameters(Box<[VoterInfo]>);
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(cursor: &mut Cursor<&[u8]>) -> Fallible<Self> {
-        let param_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let param_count = safe_get_len!(cursor, "finalization parameter count");
         let mut params = Vec::with_capacity(param_count);
 
         for _ in 0..param_count {

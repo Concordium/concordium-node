@@ -10,7 +10,7 @@ use std::{
 
 use crate::{block::*, common::*};
 
-const HEADER: u8 = SESSION_ID as u8
+const HEADER: u8 = size_of::<SessionId>() as u8
     + size_of::<FinalizationIndex>() as u8
     + size_of::<BlockHeight>() as u8
     + size_of::<Party>() as u8;
@@ -90,7 +90,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let session_id = SessionId::deserialize(&read_const_sized!(&mut cursor, SESSION_ID))?;
+        let session_id =
+            SessionId::deserialize(&read_const_sized!(&mut cursor, size_of::<SessionId>()))?;
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
@@ -109,7 +110,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
 
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(
-            SESSION_ID as usize
+            size_of::<SessionId>()
                 + size_of::<FinalizationIndex>()
                 + size_of::<BlockHeight>()
                 + size_of::<Party>(),
@@ -314,7 +315,7 @@ struct NominationSet {
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
     type Source = (&'a mut Cursor<&'b [u8]>, NominationTag);
 
-    fn deserialize((cursor, tag): (&mut Cursor<&[u8]>, NominationTag)) -> Fallible<Self> {
+    fn deserialize((cursor, tag): Self::Source) -> Fallible<Self> {
         fn check_bit(bit: u32, number: u32) -> bool {
             if bit < 32 {
                 number & (1 << bit) != 0
@@ -453,7 +454,7 @@ impl Css {
 impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
     type Source = (&'a [u8], CssVariant, NominationTag);
 
-    fn deserialize((bytes, variant, tag): (&[u8], CssVariant, NominationTag)) -> Fallible<Self> {
+    fn deserialize((bytes, variant, tag): Self::Source) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Phase>()));
