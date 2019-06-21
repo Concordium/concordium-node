@@ -19,7 +19,8 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.BlockState(BlockPointerData(..))
+import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.Scheduler.Utils.Init.Example as Example
 
