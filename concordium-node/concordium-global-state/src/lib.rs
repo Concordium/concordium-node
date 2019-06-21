@@ -61,6 +61,17 @@ macro_rules! write_multiple {
     }};
 }
 
+macro_rules! write_maybe {
+    ($target:expr, $maybe:expr, $write_function:ident) => {{
+        if let Some(ref value) = $maybe {
+            let _ = $target.write(&[1]);
+            $write_function($target, value);
+        } else {
+            let _ = $target.write(&[0]);
+        }
+    }};
+}
+
 macro_rules! safe_get_len {
     ($source:expr, $object:expr) => {{
         let raw_len = NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize;
