@@ -1,8 +1,9 @@
 #[macro_use]
 extern crate log;
 
-// (de)serialization macros
-
+/// A debug test designed to check whether deserialization is perfectly
+/// reversible. It also verifies that the input buffer is exhausted in the
+/// process.
 macro_rules! check_serialization {
     ($target:expr, $cursor:expr) => {
         debug_assert_eq!(
@@ -21,6 +22,7 @@ macro_rules! check_serialization {
     };
 }
 
+/// Reads a const-sized number of bytes into an array.
 macro_rules! read_const_sized {
     ($source:expr, $size:expr) => {{
         let mut buf = [0u8; $size as usize];
@@ -30,6 +32,8 @@ macro_rules! read_const_sized {
     }};
 }
 
+/// Reads a known number of bytes into a boxed slice. Incurs an allocation, but
+/// doesn't waste any space and the result is immutable.
 macro_rules! read_sized {
     ($source:expr, $size:expr) => {{
         let mut buf = vec![0u8; $size as usize];
@@ -39,6 +43,8 @@ macro_rules! read_sized {
     }};
 }
 
+/// Reads multiple objects from into a boxed slice, checking if the target
+/// length is not suspiciously long in the process.
 macro_rules! read_multiple {
     ($source:expr, $list_name:expr, $elem:expr) => {{
         let count = safe_get_len!($source, $list_name);
@@ -52,6 +58,8 @@ macro_rules! read_multiple {
     }};
 }
 
+/// Sequentially writes a collection of objects to the specified target using
+/// the given write function.
 macro_rules! write_multiple {
     ($target:expr, $list:expr, $write_function:path) => {{
         let _ = $target.write_u64::<NetworkEndian>($list.len() as u64);
@@ -61,6 +69,8 @@ macro_rules! write_multiple {
     }};
 }
 
+/// Serializes a Haskell's `Maybe` object Haskell-style to a specified target.
+/// Prepends the value with `1u8` for `Just X` and a `0u8` for `Nothing`.
 macro_rules! write_maybe {
     ($target:expr, $maybe:expr, $write_function:ident) => {{
         if let Some(ref value) = $maybe {
@@ -72,6 +82,8 @@ macro_rules! write_maybe {
     }};
 }
 
+/// Checks whether an object intended to be used as a length is not too big
+/// in order to avoid OOMs.
 macro_rules! safe_get_len {
     ($source:expr, $object:expr) => {{
         let raw_len = NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize;
