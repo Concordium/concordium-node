@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase #-}
-module Concordium.GlobalState.TreeState.Basic where
+module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
 import Data.List as List
@@ -22,123 +22,15 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.TreeState as TS
+import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
-import qualified Concordium.GlobalState.IdentityProviders as IPS
 
-import qualified Concordium.Crypto.SHA256 as Hash
-
-import Data.Time.Clock
-import Data.Time.Clock.POSIX
-import Data.Hashable hiding (unhashed, hashed)
-
-
-data BlockState = BlockState {
-    _blockAccounts :: !Account.Accounts,
-    _blockInstances :: !Instances.Instances,
-    _blockModules :: !Modules.Modules,
-    _blockBank :: !Rewards.BankStatus,
-    _blockIdentityProviders :: !IPS.IdentityProviders,
-    _blockBirkParameters :: BirkParameters
-}
-
-makeLenses ''BlockState
-
--- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
--- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: BirkParameters -> BlockState
-emptyBlockState _blockBirkParameters = BlockState {
-  _blockAccounts = Account.emptyAccounts
-  , _blockInstances = Instances.emptyInstances
-  , _blockModules = Modules.emptyModules
-  , _blockBank = Rewards.emptyBankStatus
-  , _blockIdentityProviders = IPS.emptyIdentityProviders
-  ,..
-  }
-
-
-data BlockPointer = BlockPointer {
-    -- |Hash of the block
-    _bpHash :: !BlockHash,
-    -- |The block itself
-    _bpBlock :: !Block,
-    -- |Pointer to the parent (circular reference for genesis block)
-    _bpParent :: BlockPointer,
-    -- |Pointer to the last finalized block (circular for genesis)
-    _bpLastFinalized :: BlockPointer,
-    -- |Height of the block in the tree
-    _bpHeight :: !BlockHeight,
-    -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
-    _bpState :: !BlockState,
-    -- |Time at which the block was first received
-    _bpReceiveTime :: UTCTime,
-    -- |Time at which the block was first considered part of the tree (validated)
-    _bpArriveTime :: UTCTime,
-    -- |Number of transactions in a block
-    _bpTransactionCount :: Int
-}
-
-instance Eq BlockPointer where
-    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
-
-instance Ord BlockPointer where
-    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
-
-instance Hashable BlockPointer where
-    hashWithSalt s = hashWithSalt s . _bpHash
-    hash = hash . _bpHash
-
-instance Show BlockPointer where
-    show = show . _bpHash
-
-instance HashableTo Hash.Hash BlockPointer where
-    getHash = _bpHash
-
-instance BlockData BlockPointer where
-    blockSlot = blockSlot . _bpBlock
-    blockFields = blockFields . _bpBlock
-    blockTransactions = blockTransactions . _bpBlock
-    verifyBlockSignature key = verifyBlockSignature key . _bpBlock
-
--- |Make a 'BlockPointer' from a 'PendingBlock'.
--- The parent and last finalized block pointers must match the block data.
-makeBlockPointer ::
-    PendingBlock        -- ^Pending block
-    -> BlockPointer     -- ^Parent block pointer
-    -> BlockPointer     -- ^Last finalized block pointer
-    -> BlockState       -- ^Block state
-    -> UTCTime          -- ^Block arrival time
-    -> BlockPointer
-makeBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime
-        = assert (getHash _bpParent == blockPointer bf) $
-            assert (getHash _bpLastFinalized == blockLastFinalized bf) $
-                BlockPointer {
-                    _bpHash = getHash pb,
-                    _bpBlock = NormalBlock (pbBlock pb),
-                    _bpHeight = _bpHeight _bpParent + 1,
-                    _bpReceiveTime = pbReceiveTime pb,
-                    _bpTransactionCount = length (blockTransactions pb),
-                    ..}
-    where
-        bf = bbFields $ pbBlock pb
-
-
-makeGenesisBlockPointer :: GenesisData -> BlockState -> BlockPointer
-makeGenesisBlockPointer genData _bpState = theBlockPointer
-    where
-        theBlockPointer = BlockPointer {..}
-        _bpBlock = makeGenesisBlock genData
-        _bpHash = getHash _bpBlock
-        _bpParent = theBlockPointer
-        _bpLastFinalized = theBlockPointer
-        _bpHeight = 0
-        _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
-        _bpArriveTime = _bpReceiveTime
-        _bpTransactionCount = 0
-
+import Concordium.GlobalState.Basic.BlockState
 
 data SkovData = SkovData {
     -- |Map of all received blocks by hash.
@@ -154,7 +46,7 @@ data SkovData = SkovData {
     _skovFocusBlock :: BlockPointer,
     _skovPendingTransactions :: PendingTransactionTable,
     _skovTransactionTable :: TransactionTable,
-    _skovStatistics :: TS.ConsensusStatistics
+    _skovStatistics :: ConsensusStatistics
 }
 makeLenses ''SkovData
 
@@ -188,7 +80,7 @@ class SkovLenses s where
     pendingTransactions = skov . skovPendingTransactions
     transactionTable :: Lens' s TransactionTable
     transactionTable = skov . skovTransactionTable
-    statistics :: Lens' s TS.ConsensusStatistics
+    statistics :: Lens' s ConsensusStatistics
     statistics = skov . skovStatistics
 
 instance SkovLenses SkovData where
@@ -208,7 +100,7 @@ initialSkovData gd genState = SkovData {
             _skovFocusBlock = gb,
             _skovPendingTransactions = emptyPendingTransactionTable,
             _skovTransactionTable = emptyTransactionTable,
-            _skovStatistics = TS.initialConsensusStatistics
+            _skovStatistics = initialConsensusStatistics
         }
     where
         gb = makeGenesisBlockPointer gd genState
@@ -218,20 +110,7 @@ initialSkovData gd genState = SkovData {
 newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
     deriving (Functor, Monad, Applicative, MonadState s)
 
-instance TS.BlockPointerData BlockPointer where
-    type BlockState' BlockPointer = BlockState
-
-    bpHash = _bpHash
-    bpBlock = _bpBlock
-    bpParent = _bpParent
-    bpLastFinalized = _bpLastFinalized
-    bpHeight = _bpHeight
-    bpState = _bpState
-    bpReceiveTime = _bpReceiveTime
-    bpArriveTime = _bpArriveTime
-    bpTransactionCount = _bpTransactionCount
-
-instance (Monad m, MonadState s m) => TS.BlockStateQuery (SkovTreeState s m) where
+instance (Monad m, MonadState s m) => BS.BlockStateQuery (SkovTreeState s m) where
 
     {-# INLINE getModule #-}
     getModule bs mref = 
@@ -263,9 +142,9 @@ instance (Monad m, MonadState s m) => TS.BlockStateQuery (SkovTreeState s m) whe
     {-# INLINE getRewardStatus #-}
     getRewardStatus = return . _blockBank
 
-type instance TS.UpdatableBlockState (SkovTreeState s m) = BlockState
+type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
-instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m) where
+instance (Monad m, MonadState s m) => BS.BlockStateOperations (SkovTreeState s m) where
 
     {-# INLINE bsoGetModule #-}
     bsoGetModule bs mref = 
@@ -304,9 +183,9 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
         bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
 
     bsoModifyAccount bs accountUpdates = return $
-        let account = bs ^. blockAccounts . singular (ix (accountUpdates ^. TS.auAddress))
-            updatedAccount = TS.updateAccount accountUpdates account
-        in case accountUpdates ^. TS.auCredential of
+        let account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
+            updatedAccount = BS.updateAccount accountUpdates account
+        in case accountUpdates ^. BS.auCredential of
              Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount
              Just cdi ->
                bs & blockAccounts %~ Account.putAccount updatedAccount
@@ -326,11 +205,17 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
     {-# INLINE bsoGetBirkParameters #-}
     bsoGetBirkParameters = return . _blockBirkParameters
 
-    bsoUpdateBaker bs bid binfo = return $
-        let updated = bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid binfo (birkBakers bp) })
-        in case bs ^? blockBirkParameters . to birkBakers . ix bid of
-             Nothing -> (False, updated)
-             Just _ -> (True, updated)
+    bsoAddBaker bs binfo = return $ 
+        let bid = bs ^. blockBirkParameters . to nextBakerId
+            bs' = bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid binfo (birkBakers bp) })
+            bs'' = bs' & blockBirkParameters %~ (\bp -> bp { nextBakerId = bid + 1 })
+        in (bid, bs'')
+
+    -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
+    bsoUpdateBaker bs bupdate = return $
+        let bid = bupdate ^. BS.buId
+            oldbinfo = bs ^. blockBirkParameters . to birkBakers . singular (ix bid)
+        in bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid (BS.updateBaker bupdate oldbinfo) (birkBakers bp) })
 
     bsoRemoveBaker bs bid = return $ 
         case bs ^? blockBirkParameters . to birkBakers . ix bid of
@@ -352,7 +237,7 @@ instance (Monad m, MonadState s m) => TS.BlockStateOperations (SkovTreeState s m
         in (updated ^. blockBank . Rewards.centralBankGTU, updated)
 
 
-type instance TS.BlockPointer (SkovTreeState s m) = BlockPointer
+type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
 
 instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
     getBlockStatus bh = use (blockTable . at bh)
