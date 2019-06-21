@@ -57,10 +57,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
             bakers,
         };
 
-        // serialization is not checked here due to the parameters being of an unknown
-        // size; it is instead done while deserializing the parent object -
-        // GenesisData
-
         Ok(params)
     }
 

@@ -105,31 +105,23 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        fn serialized_bs_list_len(bs_list: &[ByteString]) -> usize {
+            bs_list.iter().map(|bs| size_of::<u64>() + bs.len()).sum::<usize>()
+        }
+
         let mut cursor = create_serialization_cursor(
             size_of::<AccountAddress>()
                 + size_of::<Nonce>()
                 + size_of::<Amount>()
                 + size_of::<u64>()
-                + self
-                    .encrypted_amounts
-                    .iter()
-                    .map(|ea| size_of::<u64>() + ea.len())
-                    .sum::<usize>()
+                + serialized_bs_list_len(&self.encrypted_amounts)
                 + size_of::<u8>()
-                + if let Some(ref key) = self.encryption_key {
-                    key.len()
-                } else {
-                    0
-                }
+                + self.encryption_key.iter().next().map(|k| k.len()).unwrap_or(0)
                 + size_of::<u64>()
                 + self.verification_key.len()
                 + size_of::<SchemeId>()
                 + size_of::<u64>()
-                + self
-                    .credentials
-                    .iter()
-                    .map(|cred| size_of::<u64>() + cred.len())
-                    .sum::<usize>(),
+                + serialized_bs_list_len(&self.credentials)
         );
 
         let _ = cursor.write_all(&self.address.0);
