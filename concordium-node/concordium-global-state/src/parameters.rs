@@ -52,7 +52,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let baker_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
         ensure!(baker_count <= ALLOCATION_LIMIT, "The baker count ({}) exceeds the safety limit!", baker_count);
         let mut bakers = Vec::with_capacity(baker_count);
-
         for _ in 0..baker_count {
             let id = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
             let info = BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?;

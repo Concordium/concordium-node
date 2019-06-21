@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::{DateTime, Utc};
-use failure::Fallible;
+use failure::{ensure, Fallible};
 
 use std::{
     cell::Cell,
@@ -183,7 +183,7 @@ pub struct GenesisData {
     timestamp:               Timestamp,
     slot_duration:           Duration,
     pub birk_parameters:     BirkParameters,
-    baker_accounts:          Encoded,
+    baker_accounts:          Box<[Account]>,
     finalization_parameters: FinalizationParameters,
 }
 
@@ -197,11 +197,13 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
 
-        // FIXME: temporary workaround to unblock other work
-        let n_bakers = birk_parameters.bakers.len();
-        let fin_params_len = 8 + n_bakers * 80;
-        let accounts_len = bytes.len() - cursor.position() as usize - fin_params_len;
-        let baker_accounts = Encoded::new(&read_sized!(&mut cursor, accounts_len));
+        let n_accounts = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        ensure!(n_accounts <= ALLOCATION_LIMIT as u64, "The account count ({}) exceeds the safety limit!", n_accounts);
+        let mut baker_accounts = Vec::with_capacity(n_accounts as usize);
+        for _ in 0..n_accounts {
+            baker_accounts.push(Account::deserialize(&mut cursor)?);
+        }
+        let baker_accounts = baker_accounts.into_boxed_slice();
 
         let finalization_parameters = FinalizationParameters::deserialize(&mut cursor)?;
 
@@ -220,19 +222,26 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
 
     fn serialize(&self) -> Box<[u8]> {
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
+        let baker_accounts = self.baker_accounts.iter().map(|acc| acc.serialize()).collect::<Vec<_>>();
         let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
 
         let size = size_of::<Timestamp>()
             + size_of::<Duration>()
             + birk_params.len()
-            + self.baker_accounts.len()
+            + size_of::<u64>()
+            + baker_accounts.iter().map(|serialized| serialized.len()).sum::<usize>()
             + finalization_params.len();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
         let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
         let _ = cursor.write_all(&birk_params);
-        let _ = cursor.write_all(&self.baker_accounts);
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_accounts.len() as u64);
+        for baker_account in baker_accounts {
+            let _ = cursor.write_all(&baker_account);
+        }
+
         let _ = cursor.write_all(&finalization_params);
 
         cursor.into_inner()
