@@ -571,18 +571,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-
-        let mut signatures = Vec::with_capacity(signature_count as usize);
-
-        for _ in 0..signature_count {
-            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-            let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
-
-            signatures.push((party, signature));
-        }
-
-        let proof = FinalizationProof(signatures.into_boxed_slice());
+        let proof = FinalizationProof(read_multiple!(cursor, "finalization proof", (NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)), Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE)))));
 
         check_serialization!(proof, cursor);
 

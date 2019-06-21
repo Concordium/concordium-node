@@ -49,15 +49,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
-        let baker_count = safe_get_len!(cursor, "baker count");
-        let mut bakers = Vec::with_capacity(baker_count);
-        for _ in 0..baker_count {
-            let id = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-            let info = BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?;
-
-            bakers.push((id, info));
-        }
-        let bakers = bakers.into_boxed_slice();
+        let bakers = read_multiple!(cursor, "bakers", (NetworkEndian::read_u64(&read_const_sized!(cursor, 8)), BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?));
 
         let params = BirkParameters {
             election_nonce,
@@ -151,16 +143,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let param_count = safe_get_len!(cursor, "finalization parameter count");
-        let mut params = Vec::with_capacity(param_count);
-
-        for _ in 0..param_count {
-            params.push(VoterInfo::deserialize(&read_const_sized!(
-                cursor, VOTER_INFO
-            ))?);
-        }
-
-        let params = FinalizationParameters(params.into_boxed_slice());
+        let params = FinalizationParameters(read_multiple!(cursor, "finalization parameters", VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?));
 
         // serialization is not checked here due to the parameters being of an unknown
         // size it is instead done while deserializing the parent object -

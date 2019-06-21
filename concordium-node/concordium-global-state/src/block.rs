@@ -195,12 +195,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
 
-        let n_accounts = safe_get_len!(cursor, "account count");
-        let mut baker_accounts = Vec::with_capacity(n_accounts as usize);
-        for _ in 0..n_accounts {
-            baker_accounts.push(Account::deserialize(&mut cursor)?);
-        }
-        let baker_accounts = baker_accounts.into_boxed_slice();
+        let baker_accounts = read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
 
         let finalization_parameters = FinalizationParameters::deserialize(&mut cursor)?;
 

@@ -75,13 +75,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
 
-        let n_encrypted_amounts = safe_get_len!(cursor, "encrypted amount count");
-        let mut encrypted_amounts = Vec::with_capacity(n_encrypted_amounts as usize);
-        for _ in 0..n_encrypted_amounts {
-            let encrypted_amount = read_bytestring(cursor, "encrypted amount's length")?;
-            encrypted_amounts.push(encrypted_amount);
-        }
-        let encrypted_amounts = encrypted_amounts.into_boxed_slice();
+        let encrypted_amounts = read_multiple!(cursor, "encrypted amounts", read_bytestring(cursor, "encrypted amount's length")?);
 
         let has_encryption_key = read_const_sized!(cursor, 1)[0] == 1;
         let encryption_key = if has_encryption_key {
@@ -94,13 +88,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
 
-        let n_credentials = safe_get_len!(cursor, "credential count");
-        let mut credentials = Vec::with_capacity(n_credentials as usize);
-        for _ in 0..n_credentials {
-            let credential = read_bytestring(cursor, "credential length")?;
-            credentials.push(credential);
-        }
-        let credentials = credentials.into_boxed_slice();
+        let credentials = read_multiple!(cursor, "credentials", read_bytestring(cursor, "encrypted amount's length")?);
 
         let account = Account {
             address,

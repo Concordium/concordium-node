@@ -39,18 +39,32 @@ macro_rules! read_sized {
     }};
 }
 
+macro_rules! read_multiple {
+    ($source:expr, $list_name:expr, $elem:expr) => {{
+        let count = safe_get_len!($source, $list_name);
+        let mut list = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let elem = $elem;
+            list.push(elem);
+        }
+
+        list.into_boxed_slice()
+    }};
+}
+
 macro_rules! safe_get_len {
     ($source:expr, $object:expr) => {{
         let raw_len = NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize;
         failure::ensure!(
             raw_len <= ALLOCATION_LIMIT,
-            "The {} ({}) exceeds the safety limit!",
+            "The requested size ({}) of \"{}\" exceeds the safety limit!",
+            raw_len,
             $object,
-            raw_len
         );
         raw_len
     }};
 }
+
 
 pub mod block;
 pub mod common;
