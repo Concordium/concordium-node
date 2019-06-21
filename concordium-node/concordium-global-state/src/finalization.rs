@@ -511,7 +511,7 @@ impl fmt::Debug for FinalizationRecord {
 impl FinalizationRecord {
     pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
         // TODO: verify it's the desired content
-        let proof = genesis_block_ptr.block.genesis_data().finalization_parameters.0.iter().enumerate().map(|(n, info)| (n as u32, info.signature_verify_key.clone())).collect::<Vec<_>>().into_boxed_slice();
+        let proof = genesis_block_ptr.block.genesis_data().finalization_parameters.iter().enumerate().map(|(n, info)| (n as u32, info.signature_verify_key.clone())).collect::<Vec<_>>().into_boxed_slice();
 
         Self {
             index:         0,

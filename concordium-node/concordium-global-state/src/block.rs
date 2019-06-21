@@ -182,7 +182,7 @@ pub struct GenesisData {
     slot_duration:               Duration,
     birk_parameters:             BirkParameters,
     baker_accounts:              Box<[Account]>,
-    pub finalization_parameters: FinalizationParameters,
+    pub finalization_parameters: Box<[VoterInfo]>,
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
@@ -194,10 +194,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
-
         let baker_accounts = read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
-
-        let finalization_parameters = FinalizationParameters::deserialize(&mut cursor)?;
+        let finalization_parameters = read_multiple!(cursor, "finalization parameters", VoterInfo::deserialize(&read_const_sized!(&mut cursor, VOTER_INFO))?);
 
         let data = GenesisData {
             timestamp,
@@ -219,7 +217,11 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
             .iter()
             .map(|acc| acc.serialize())
             .collect::<Vec<_>>();
-        let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
+        let finalization_params = self
+            .finalization_parameters
+            .iter()
+            .map(|fp| fp.serialize())
+            .collect::<Vec<_>>();
 
         let size = size_of::<Timestamp>()
             + size_of::<Duration>()
@@ -229,7 +231,11 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
                 .iter()
                 .map(|serialized| serialized.len())
                 .sum::<usize>()
-            + finalization_params.len();
+            + size_of::<u64>()
+            + finalization_params
+                .iter()
+                .map(|serialized| serialized.len())
+                .sum::<usize>();
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
@@ -241,7 +247,10 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
             let _ = cursor.write_all(&baker_account);
         }
 
-        let _ = cursor.write_all(&finalization_params);
+        let _ = cursor.write_u64::<NetworkEndian>(finalization_params.len() as u64);
+        for finalization_param in finalization_params {
+            let _ = cursor.write_all(&finalization_param);
+        }
 
         cursor.into_inner()
     }

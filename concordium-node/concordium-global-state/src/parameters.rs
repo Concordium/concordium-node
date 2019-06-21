@@ -33,7 +33,7 @@ const BAKER_INFO: u8 = BAKER_VRF_KEY
 
 const VOTER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
 const VOTER_VRF_KEY: u8 = 32;
-const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
+pub const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
 
 #[derive(Debug)]
 pub struct BirkParameters {
@@ -129,34 +129,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let _ = cursor.write_all(&self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
         let _ = cursor.write_all(&self.account_address.0);
-
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug)]
-pub struct FinalizationParameters(pub Box<[VoterInfo]>);
-
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
-    type Source = &'a mut Cursor<&'b [u8]>;
-
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let params = FinalizationParameters(read_multiple!(cursor, "finalization parameters", VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?));
-
-        // serialization is not checked here due to the parameters being of an unknown
-        // size it is instead done while deserializing the parent object -
-        // GenesisData
-
-        Ok(params)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO as usize);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-        for info in self.0.iter() {
-            let _ = cursor.write_all(&info.serialize());
-        }
 
         cursor.into_inner()
     }
