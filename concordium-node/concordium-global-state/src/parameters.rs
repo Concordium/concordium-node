@@ -135,7 +135,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
 }
 
 #[derive(Debug)]
-pub struct FinalizationParameters(Box<[VoterInfo]>);
+pub struct FinalizationParameters(pub Box<[VoterInfo]>);
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
@@ -164,9 +164,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
 
 #[derive(Debug)]
 pub struct VoterInfo {
-    signature_verify_key: VoterVerificationKey,
-    election_verify_key:  VoterVRFPublicKey,
-    voting_power:         VoterPower,
+    pub signature_verify_key: VoterVerificationKey,
+    election_verify_key:      VoterVRFPublicKey,
+    voting_power:             VoterPower,
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {

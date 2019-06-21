@@ -178,11 +178,11 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
 
 #[derive(Debug)]
 pub struct GenesisData {
-    timestamp:               Timestamp,
-    slot_duration:           Duration,
-    pub birk_parameters:     BirkParameters,
-    baker_accounts:          Box<[Account]>,
-    finalization_parameters: FinalizationParameters,
+    timestamp:                   Timestamp,
+    slot_duration:               Duration,
+    birk_parameters:             BirkParameters,
+    baker_accounts:              Box<[Account]>,
+    pub finalization_parameters: FinalizationParameters,
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {

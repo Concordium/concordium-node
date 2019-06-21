@@ -484,7 +484,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
 pub struct FinalizationRecord {
     pub index:         FinalizationIndex,
     pub block_pointer: BlockHash,
-    pub proof:         FinalizationProof,
+    pub proof:         Box<[(Party, Encoded)]>,
     pub delay:         BlockHeight,
 }
 
@@ -510,10 +510,13 @@ impl fmt::Debug for FinalizationRecord {
 
 impl FinalizationRecord {
     pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
+        // TODO: verify it's the desired content
+        let proof = genesis_block_ptr.block.genesis_data().finalization_parameters.0.iter().enumerate().map(|(n, info)| (n as u32, info.signature_verify_key.clone())).collect::<Vec<_>>().into_boxed_slice();
+
         Self {
             index:         0,
             block_pointer: genesis_block_ptr.hash.to_owned(),
-            proof:         FinalizationProof::default(),
+            proof,
             delay:         0,
         }
     }
@@ -527,8 +530,9 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
-        let proof_size = bytes.len() - cursor.position() as usize - size_of::<BlockHeight>();
-        let proof = FinalizationProof::deserialize(&read_sized!(&mut cursor, proof_size))?;
+
+        let proof = read_multiple!(cursor, "finalization proof", (NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)), Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE))));
+
         let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let rec = FinalizationRecord {
@@ -544,50 +548,24 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let proof = self.proof.serialize();
-
         let mut cursor = create_serialization_cursor(
             size_of::<FinalizationIndex>()
                 + self.block_pointer.len()
-                + proof.len()
-                + size_of::<BlockHeight>(),
+                + size_of::<u64>()
+                + self.proof.iter().map(|(_, sig)| size_of::<Party>() + sig.len()).sum::<usize>()
+                + size_of::<BlockHeight>()
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
-        let _ = cursor.write_all(&proof);
-        let _ = cursor.write_u64::<NetworkEndian>(self.delay);
 
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash, Default)]
-pub struct FinalizationProof(Box<[(Party, Encoded)]>);
-
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let proof = FinalizationProof(read_multiple!(cursor, "finalization proof", (NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)), Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE)))));
-
-        check_serialization!(proof, cursor);
-
-        Ok(proof)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            8 + self.0.len() * (size_of::<Party>() + SIGNATURE as usize),
-        );
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-        for (party, signature) in &*self.0 {
+        let _ = cursor.write_u64::<NetworkEndian>(self.proof.len() as u64);
+        for (party, signature) in &*self.proof {
             let _ = cursor.write_u32::<NetworkEndian>(*party);
             let _ = cursor.write_all(signature);
         }
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.delay);
 
         cursor.into_inner()
     }
