@@ -206,9 +206,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
             ))?),
             11 => WmvbaMessage::AreWeDone(false),
             12 => WmvbaMessage::AreWeDone(true),
-            13 => {
-                WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(cursor, VAL)))
-            }
+            13 => WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(cursor, VAL))),
             n => panic!(
                 "Deserialization of WMVBA message type No {} is not implemented!",
                 n
@@ -550,15 +548,17 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        let proof_len = self
+            .proof
+            .iter()
+            .map(|(_, sig)| size_of::<Party>() + sig.len())
+            .sum::<usize>();
+
         let mut cursor = create_serialization_cursor(
             size_of::<FinalizationIndex>()
                 + self.block_pointer.len()
                 + size_of::<u64>()
-                + self
-                    .proof
-                    .iter()
-                    .map(|(_, sig)| size_of::<Party>() + sig.len())
-                    .sum::<usize>()
+                + proof_len
                 + size_of::<BlockHeight>(),
         );
 
