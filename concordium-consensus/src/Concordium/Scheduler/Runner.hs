@@ -18,6 +18,7 @@ import Control.Monad.Fail(MonadFail)
 import Concordium.Crypto.SignatureScheme(KeyPair)
 
 import Concordium.Types
+import Concordium.Types.Execution(Proof)
 import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 
@@ -47,6 +48,14 @@ transactionHelper t = do
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amount))
     (TJSON meta (DeployCredential c) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
+    (TJSON meta (AddBaker vkey sigkey acc proof) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.AddBaker vkey sigkey acc proof))
+    (TJSON meta (RemoveBaker bid proof) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
+    (TJSON meta (UpdateBakerAccount bid address proof) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid address proof))
+    (TJSON meta (UpdateBakerSignKey bid key proof) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid key proof))
 
 -- decodeAndProcessTransactions :: MonadFail m => ByteString -> Context m [Types.Transaction]
 -- decodeAndProcessTransactions txt =
@@ -71,7 +80,26 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                             , amount :: Amount
                             }
                  | DeployCredential {cdi :: CredentialDeploymentInformation}
-  deriving(Show, Generic)
+                 | AddBaker {
+                     bvfkey :: BakerElectionVerifyKey,
+                     bsigvfkey :: BakerSignVerifyKey,
+                     baccount :: AccountAddress,
+                     bproof :: Proof }
+                 | RemoveBaker {
+                     rbId :: !BakerId,
+                     rbProof :: !Proof
+                     }
+                 | UpdateBakerAccount {
+                     ubaId :: !BakerId,
+                     ubaAddress :: !AccountAddress,
+                     ubaProof :: !Proof
+                     }
+                 | UpdateBakerSignKey {
+                     ubsId :: !BakerId,
+                     ubsKey :: !BakerSignVerifyKey,
+                     ubsProof :: !Proof
+                     }
+                 deriving(Show, Generic)
 
 data TransactionJSON = TJSON { metadata :: Types.TransactionHeader
                              , payload :: PayloadJSON

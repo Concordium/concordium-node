@@ -5,6 +5,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256(Hash(..))
 import Concordium.Crypto.SignatureScheme as Sig
+import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlockSignature as BlockSig
 import Concordium.Types hiding (accountAddress)
 import Concordium.GlobalState.Transactions
 import Concordium.ID.Account
@@ -86,4 +88,22 @@ emptyBirkParameters = BirkParameters {
   birkElectionDifficulty = 0.5,
   birkBakers = Map.empty,
   nextBakerId = 0
+  }
+
+bakerElectionKey :: Int -> BakerElectionPrivateKey
+bakerElectionKey n = fst (VRF.randomKeyPair (mkStdGen n))
+
+bakerSignKey :: Int -> BakerSignPrivateKey
+bakerSignKey n = fst (BlockSig.randomKeyPair (mkStdGen n))
+
+
+-- |Make a baker deterministically from a given seed and with the given reward account.
+-- Uses 'bakerElectionKey' and 'bakerSignKey' with the given seed to generate the keys.
+-- The baker has 0 lottery power.
+mkBaker :: Int -> AccountAddress -> BakerInfo
+mkBaker seed acc = BakerInfo {
+  bakerElectionVerifyKey = VRF.publicKey (bakerElectionKey seed),
+  bakerSignatureVerifyKey = BlockSig.verifyKey (bakerSignKey seed),
+  bakerLotteryPower = 0,
+  bakerAccount = acc
   }

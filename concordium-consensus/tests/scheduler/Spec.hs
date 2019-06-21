@@ -5,6 +5,7 @@ import qualified SchedulerTests.SimpleTransfersTest(tests)
 import qualified SchedulerTests.ChainMetatest(tests)
 import qualified SchedulerTests.FibonacciTest(tests)
 import qualified SchedulerTests.AccountTransactionSpecs(tests)
+import qualified SchedulerTests.BakerTransactions(tests)
 
 import Test.Hspec
 
@@ -15,3 +16,4 @@ main = do hspec $ parallel $ do
             SchedulerTests.ChainMetatest.tests
             SchedulerTests.FibonacciTest.tests
             SchedulerTests.AccountTransactionSpecs.tests
+            SchedulerTests.BakerTransactions.tests
