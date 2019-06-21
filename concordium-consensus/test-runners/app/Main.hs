@@ -20,7 +20,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.Basic.TreeState
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF

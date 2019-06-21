@@ -8,15 +8,13 @@ import Data.Time
 import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.Statistics
 
 import Concordium.Skov.Monad
 import Concordium.Logger
 import Concordium.TimeMonad
-
--- |Weight factor to use in computing exponentially-weighted moving averages.
-emaWeight :: Double
-emaWeight = 0.1
 
 -- | Called when a block is fully validated (arrives) to update the statistics.
 updateArriveStatistics :: forall m. (LoggerMonad m, TreeStateMonad m, SkovQueryMonad m) => BlockPointer m -> m ()

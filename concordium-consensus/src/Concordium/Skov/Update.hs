@@ -16,7 +16,9 @@ import GHC.Stack
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
-import qualified Concordium.GlobalState.TreeState.Basic as Basic
+import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.Basic.TreeState as Basic
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Transactions

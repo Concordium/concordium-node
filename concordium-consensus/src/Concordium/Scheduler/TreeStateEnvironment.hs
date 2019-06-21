@@ -13,6 +13,7 @@ import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Block(blockSlot)
 import Concordium.Scheduler.Types

@@ -13,7 +13,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
-import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery)
+import Concordium.GlobalState.BlockState(BlockPointer, BlockPointerData, BlockState, BlockStateQuery)
 import Concordium.Logger
 import Concordium.TimeMonad
 

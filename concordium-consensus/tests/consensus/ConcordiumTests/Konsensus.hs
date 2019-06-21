@@ -19,9 +19,10 @@ import System.Random
 
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters

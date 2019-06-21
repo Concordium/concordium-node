@@ -24,7 +24,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters

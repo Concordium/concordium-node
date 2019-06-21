@@ -20,7 +20,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.TreeState(BlockPointerData(..))
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.Basic.TreeState
 import Concordium.Scheduler.Utils.Init.Example as Example
 
 import qualified Concordium.Crypto.BlockSignature as Sig

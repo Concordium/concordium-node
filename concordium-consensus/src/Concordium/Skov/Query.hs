@@ -8,8 +8,9 @@ import Control.Monad.Trans.State hiding (gets)
 import Control.Monad.State.Class
 import qualified Data.Sequence as Seq
 
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
-import qualified Concordium.GlobalState.TreeState.Basic as Basic
+import qualified Concordium.GlobalState.Basic.TreeState as Basic
 
 import Concordium.Skov.Monad
 import Concordium.Logger

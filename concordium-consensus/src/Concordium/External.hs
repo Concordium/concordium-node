@@ -29,7 +29,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization(FinalizationIndex(..))
-import Concordium.GlobalState.TreeState.Basic(BlockState)
+import Concordium.GlobalState.Basic.BlockState(BlockState)
 
 import Concordium.Scheduler.Utils.Init.Example (initialState)
 
