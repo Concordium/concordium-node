@@ -39,7 +39,7 @@ const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() 
 pub struct BirkParameters {
     election_nonce:      ByteString,
     election_difficulty: ElectionDifficulty,
-    pub bakers:          Vec<(BakerId, BakerInfo)>,
+    pub bakers:          Box<[(BakerId, BakerInfo)]>,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
@@ -49,8 +49,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let election_nonce = Encoded::new(&read_bytestring(cursor)?);
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
-        let baker_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
-        ensure!(baker_count <= ALLOCATION_LIMIT, "The baker count ({}) exceeds the safety limit!", baker_count);
+        let baker_count = safe_get_len!(cursor, "baker count");
         let mut bakers = Vec::with_capacity(baker_count);
         for _ in 0..baker_count {
             let id = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
@@ -58,6 +57,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 
             bakers.push((id, info));
         }
+        let bakers = bakers.into_boxed_slice();
 
         let params = BirkParameters {
             election_nonce,
@@ -149,8 +149,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let param_count = NetworkEndian::read_u64(&read_const_sized!(cursor, 8)) as usize;
-        ensure!(param_count <= ALLOCATION_LIMIT, "The finalization parameter count ({}) exceeds the safety limit!", param_count);
+        let param_count = safe_get_len!(cursor, "finalization parameter count");
         let mut params = Vec::with_capacity(param_count);
 
         for _ in 0..param_count {

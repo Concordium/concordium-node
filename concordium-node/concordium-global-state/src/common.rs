@@ -76,36 +76,31 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
 
-        let n_encrypted_amounts = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-        ensure!(n_encrypted_amounts <= ALLOCATION_LIMIT as u64, "The encrypted amount count ({}) exceeds the safety limit!", n_encrypted_amounts);
+        let n_encrypted_amounts = safe_get_len!(cursor, "encrypted amount count");
         let mut encrypted_amounts = Vec::with_capacity(n_encrypted_amounts as usize);
         for _ in 0..n_encrypted_amounts {
-            let amount_len = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-            ensure!(amount_len <= ALLOCATION_LIMIT as u64, "The encrypted amount length ({}) exceeds the safety limit!", amount_len);
+            let amount_len = safe_get_len!(cursor, "encrypted amount's length");
             encrypted_amounts.push(Encoded::new(&read_sized!(cursor, amount_len)));
         }
         let encrypted_amounts = encrypted_amounts.into_boxed_slice();
 
         let has_encryption_key = read_const_sized!(cursor, 1)[0] == 1;
         let encryption_key = if has_encryption_key {
-            let encryption_key_len = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-            ensure!(encryption_key_len <= ALLOCATION_LIMIT as u64, "The encryption key's length ({}) exceeds the safety limit!", encryption_key_len);
+            let encryption_key_len = safe_get_len!(cursor, "encrypted key's length");
             Some(Encoded::new(&read_sized!(cursor, encryption_key_len)))
         } else {
             None
         };
 
-        let verification_key_len = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-        ensure!(verification_key_len <= ALLOCATION_LIMIT as u64, "The verification key's length ({}) exceeds the safety limit!", verification_key_len);
+        let verification_key_len = safe_get_len!(cursor, "verification key's length");
         let verification_key = Encoded::new(&read_sized!(cursor, verification_key_len));
 
         let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
 
-        let n_credentials = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-        ensure!(n_credentials <= ALLOCATION_LIMIT as u64, "The credential count ({}) exceeds the safety limit!", n_credentials);
+        let n_credentials = safe_get_len!(cursor, "credential count");
         let mut credentials = Vec::with_capacity(n_credentials as usize);
         for _ in 0..n_credentials {
-            let length = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
+            let length = safe_get_len!(cursor, "credential length");
             credentials.push(Encoded::new(&read_sized!(cursor, length)));
         }
         let credentials = credentials.into_boxed_slice();

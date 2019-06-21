@@ -51,6 +51,14 @@ macro_rules! read_sized {
     }};
 }
 
+macro_rules! safe_get_len {
+    ($source:expr, $object:expr) => {{
+        let raw_len = NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize;
+        ensure!(raw_len <= ALLOCATION_LIMIT, "The {} ({}) exceeds the safety limit!", $object, raw_len);
+        raw_len
+    }};
+}
+
 pub mod block;
 pub mod common;
 pub mod finalization;

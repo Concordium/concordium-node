@@ -59,12 +59,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let transaction_count = NetworkEndian::read_u64(&read_const_sized!(
-            &mut cursor,
-            size_of::<TransactionCount>()
-        ));
-        ensure!(transaction_count <= ALLOCATION_LIMIT as u64, "The transaction count ({}) exceeds the safety limit!", transaction_count);
-
+        let transaction_count = safe_get_len!(&mut cursor, "transaction count");
         let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {
