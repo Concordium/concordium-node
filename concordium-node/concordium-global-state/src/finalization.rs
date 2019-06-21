@@ -584,7 +584,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-
         for (party, signature) in &*self.0 {
             let _ = cursor.write_u32::<NetworkEndian>(*party);
             let _ = cursor.write_all(signature);

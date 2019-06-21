@@ -69,7 +69,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let mut baker_cursor = create_serialization_cursor(baker_info_size);
 
         let _ = baker_cursor.write_u64::<NetworkEndian>(self.bakers.len() as u64);
-
         for (id, info) in self.bakers.iter() {
             let _ = baker_cursor.write_u64::<NetworkEndian>(*id);
             let _ = baker_cursor.write_all(&info.serialize());
@@ -83,8 +82,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
             + baker_cursor.get_ref().len();
         let mut cursor = create_serialization_cursor(size);
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.election_nonce.len() as u64);
-        let _ = cursor.write_all(&self.election_nonce);
+        write_bytestring(&mut cursor, &self.election_nonce);
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());
 
@@ -156,7 +154,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
         let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO as usize);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-
         for info in self.0.iter() {
             let _ = cursor.write_all(&info.serialize());
         }

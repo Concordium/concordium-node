@@ -138,27 +138,23 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let _ = cursor.write_u64::<NetworkEndian>(self.encrypted_amounts.len() as u64);
         for ea in &*self.encrypted_amounts {
-            let _ = cursor.write_u64::<NetworkEndian>(ea.len() as u64);
-            let _ = cursor.write_all(ea);
+            write_bytestring(&mut cursor, ea);
         }
 
         if let Some(ref key) = self.encryption_key {
             let _ = cursor.write(&[1]);
-            let _ = cursor.write_u64::<NetworkEndian>(key.len() as u64);
-            let _ = cursor.write_all(key);
+            write_bytestring(&mut cursor, key);
         } else {
             let _ = cursor.write(&[0]);
         };
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.verification_key.len() as u64);
-        let _ = cursor.write_all(&self.verification_key);
+        write_bytestring(&mut cursor, &self.verification_key);
 
         let _ = cursor.write(&[self.signature_scheme as u8]);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.credentials.len() as u64);
         for cred in &*self.credentials {
-            let _ = cursor.write_u64::<NetworkEndian>(cred.len() as u64);
-            let _ = cursor.write_all(cred);
+            write_bytestring(&mut cursor, cred);
         }
 
         cursor.into_inner()
@@ -260,6 +256,11 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible
     let object_length = safe_get_len!(input, object_name);
 
     Ok(Encoded(read_sized!(input, object_length)))
+}
+
+pub fn write_bytestring(target: &mut Cursor<Box<[u8]>>, bytes: &[u8]) {
+    let _ = target.write_u64::<NetworkEndian>(bytes.len() as u64);
+    let _ = target.write_all(&bytes);
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
