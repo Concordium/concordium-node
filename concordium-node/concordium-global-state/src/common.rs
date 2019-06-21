@@ -128,10 +128,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0.get());
         let _ = cursor.write_u64::<NetworkEndian>(self.amount);
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.encrypted_amounts.len() as u64);
-        for ea in &*self.encrypted_amounts {
-            write_bytestring(&mut cursor, ea);
-        }
+        write_multiple!(&mut cursor, self.encrypted_amounts, write_bytestring);
 
         if let Some(ref key) = self.encryption_key {
             let _ = cursor.write(&[1]);
@@ -144,10 +141,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let _ = cursor.write(&[self.signature_scheme as u8]);
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.credentials.len() as u64);
-        for cred in &*self.credentials {
-            write_bytestring(&mut cursor, cred);
-        }
+        write_multiple!(&mut cursor, self.credentials, write_bytestring);
 
         cursor.into_inner()
     }

@@ -52,6 +52,15 @@ macro_rules! read_multiple {
     }};
 }
 
+macro_rules! write_multiple {
+    ($target:expr, $list:expr, $write_function:path) => {{
+        let _ = $target.write_u64::<NetworkEndian>($list.len() as u64);
+        for elem in &*$list {
+            let _ = $write_function($target, &*elem);
+        }
+    }};
+}
+
 macro_rules! safe_get_len {
     ($source:expr, $object:expr) => {{
         let raw_len = NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize;

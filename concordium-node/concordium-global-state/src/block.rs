@@ -241,16 +241,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
         let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
         let _ = cursor.write_all(&birk_params);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_accounts.len() as u64);
-        for baker_account in baker_accounts {
-            let _ = cursor.write_all(&baker_account);
-        }
-
-        let _ = cursor.write_u64::<NetworkEndian>(finalization_params.len() as u64);
-        for finalization_param in finalization_params {
-            let _ = cursor.write_all(&finalization_param);
-        }
+        write_multiple!(&mut cursor, baker_accounts, Write::write_all);
+        write_multiple!(&mut cursor, finalization_params, Write::write_all);
 
         cursor.into_inner()
     }
