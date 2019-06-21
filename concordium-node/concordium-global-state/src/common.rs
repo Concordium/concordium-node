@@ -71,7 +71,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
 
         let nonce_raw = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Nonce>()));
-        let nonce = Nonce::new(nonce_raw)?;
+        let nonce = Nonce::try_from(nonce_raw)?;
 
         let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
 
@@ -160,10 +160,12 @@ pub type Amount = u64;
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(NonZeroU64);
 
-impl Nonce {
-    fn new(raw: u64) -> Fallible<Self> {
+impl TryFrom<u64> for Nonce {
+    type Error = failure::Error;
+
+    fn try_from(raw: u64) -> Fallible<Self> {
         Ok(Nonce(NonZeroU64::new(raw).ok_or_else(|| {
-            format_err!("A zero nonce was received!")
+            return format_err!("A zero nonce was received!");
         })?))
     }
 }
