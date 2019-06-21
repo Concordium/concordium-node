@@ -211,31 +211,25 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(list: &'a [T]) -> Vec<Box<[u8]>> {
+            list.iter().map(|elem| elem.serialize()).collect()
+        }
+
+        fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {
+            list.iter().map(|elem| elem.as_ref().len()).sum()
+        }
+
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
-        let baker_accounts = self
-            .baker_accounts
-            .iter()
-            .map(|acc| acc.serialize())
-            .collect::<Vec<_>>();
-        let finalization_params = self
-            .finalization_parameters
-            .iter()
-            .map(|fp| fp.serialize())
-            .collect::<Vec<_>>();
+        let baker_accounts = serialize_list(&self.baker_accounts);
+        let finalization_params = serialize_list(&self.finalization_parameters);
 
         let size = size_of::<Timestamp>()
             + size_of::<Duration>()
             + birk_params.len()
             + size_of::<u64>()
-            + baker_accounts
-                .iter()
-                .map(|serialized| serialized.len())
-                .sum::<usize>()
+            + list_len(&baker_accounts)
             + size_of::<u64>()
-            + finalization_params
-                .iter()
-                .map(|serialized| serialized.len())
-                .sum::<usize>();
+            + list_len(&finalization_params);
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
