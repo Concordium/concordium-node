@@ -15,6 +15,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.GlobalState.Transactions,
                                    module Concordium.GlobalState.Instances,
                                    module Concordium.GlobalState.Rewards,
+                                   module Concordium.GlobalState.Parameters,
                                    ReceiveContext(..),
                                    InitContext(..),
                                    link) where
@@ -27,6 +28,7 @@ import Concordium.Types.Execution
 import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Transactions
+import Concordium.GlobalState.Parameters
 
 import Acorn.Types(ReceiveContext(..), InitContext(..), link)
 

@@ -42,6 +42,11 @@ dependencies:
 - globalstate-types
 - globalstate
 
+flags:
+  dynamic:
+    manual: False
+    default: True
+
 library:
   source-dirs: src
   ghc-options:
@@ -58,7 +63,12 @@ library:
       then:
         ghc-options: -static lib.def
       else:
-        ghc-options: -dynamic
+        when:
+          - condition: flag(dynamic)
+            then:
+              ghc-options: -dynamic
+            else:
+              ghc-options: -static
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform

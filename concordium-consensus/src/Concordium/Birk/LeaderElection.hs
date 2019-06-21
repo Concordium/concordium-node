@@ -5,7 +5,6 @@ import qualified Data.ByteString.Lazy          as L
 import           Data.ByteString
 
 import qualified Concordium.Crypto.VRF    as VRF
-import           Concordium.GlobalState.Parameters
 import           Concordium.Types
 
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double

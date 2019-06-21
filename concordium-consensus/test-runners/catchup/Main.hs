@@ -176,6 +176,7 @@ main = do
     bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
     let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
                 (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
+                n -- next available baker id
     let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
     let bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis

@@ -108,6 +108,25 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- function needs to be replaced.
   energyToGtu :: Energy -> m Amount
 
+  -- *Operations related to bakers.
+
+  -- |Get the baker information, or 'Nothing'.
+  getBakerInfo :: BakerId -> m (Maybe BakerInfo)
+
+  -- |Add a new baker with a fresh baker id.
+  -- Moreover also update the next available baker id.
+  addBaker :: BakerInfo -> m BakerId
+
+  -- |Remove a baker with the given id from the baker pool.
+  removeBaker :: BakerId -> m ()
+
+  -- |Replace the given baker's verification key with the given value.
+  -- The function may assume that the baker exists.
+  updateBakerSignKey :: BakerId -> BakerSignVerifyKey -> m ()
+
+  -- |Replace the given baker's reward account with the given value.
+  -- The function may assume that the baker exists.
+  updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts

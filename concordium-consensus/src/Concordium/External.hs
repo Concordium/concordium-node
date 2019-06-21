@@ -94,7 +94,7 @@ makeGenesisData ::
     -> IO ()
 makeGenesisData genTime nBakers cbkgen cbkbaker = do
     callGenesisDataCallback cbkgen (encode genData)
-    mapM_ (\bkr@(BakerIdentity bid _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
+    mapM_ (\bkr@(BakerIdentity (BakerId bid) _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
     where
         (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers)
         bakersPrivate = map fst bakers

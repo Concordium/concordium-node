@@ -55,5 +55,6 @@ makeGenesisData genTime nBakers = (GenesisData genTime
         bps = BirkParameters (BS.pack "LeadershipElectionNonce")
                              0.5 -- voting power
                              (Map.fromList $ [(bid, binfo) | (BakerIdentity bid _ _ _ _, binfo) <- bakers])
+                             (fromIntegral nBakers) -- next available baker id (since baker ids start with 0
         fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers]
         (bakers, bakerAccounts) = unzip (makeBakers nBakers)

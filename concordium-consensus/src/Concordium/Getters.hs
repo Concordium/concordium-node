@@ -113,7 +113,7 @@ getBirkParameters hash sfsRef = runStateQuery sfsRef $
     "electionDifficulty" .= birkElectionDifficulty,
     "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ birkLeadershipElectionNonce),
     "bakers" .= Array (fromList .
-                       map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (bid :: Word64)
+                       map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
                                                             ,"bakerAccount" .= show bakerAccount
                                                             ,"bakerLotteryPower" .= bakerLotteryPower
                                                             ]) .
@@ -189,7 +189,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockSlotTime" .= slotTime,
                             "blockBaker" .= case blockFields bp of
                                             Nothing -> Null
-                                            Just bf -> toJSON (blockBaker bf),
+                                            Just bf -> toJSON (toInteger (blockBaker bf)),
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp,
 

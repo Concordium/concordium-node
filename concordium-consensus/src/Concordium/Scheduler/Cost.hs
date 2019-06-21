@@ -60,3 +60,21 @@ deployCredential = 3000
 -- |Cost to add an encryption key to an account.
 deployEncryptionKey :: Energy
 deployEncryptionKey = 500
+
+-- |Cost to register a new baker.
+addBaker :: Energy
+addBaker = 1000
+
+-- |Cost to remove a baker.
+removeBaker :: Energy
+removeBaker = 100
+
+-- |Cost to update the baker's reward account.
+updateBakerAccount :: Energy
+updateBakerAccount = 500
+
+-- |Cost to update the baker's signature verification key.
+updateBakerKey :: Energy
+updateBakerKey = 500
+
+
