@@ -79,29 +79,27 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let n_encrypted_amounts = safe_get_len!(cursor, "encrypted amount count");
         let mut encrypted_amounts = Vec::with_capacity(n_encrypted_amounts as usize);
         for _ in 0..n_encrypted_amounts {
-            let amount_len = safe_get_len!(cursor, "encrypted amount's length");
-            encrypted_amounts.push(Encoded::new(&read_sized!(cursor, amount_len)));
+            let encrypted_amount = read_bytestring(cursor, "encrypted amount's length")?;
+            encrypted_amounts.push(encrypted_amount);
         }
         let encrypted_amounts = encrypted_amounts.into_boxed_slice();
 
         let has_encryption_key = read_const_sized!(cursor, 1)[0] == 1;
         let encryption_key = if has_encryption_key {
-            let encryption_key_len = safe_get_len!(cursor, "encrypted key's length");
-            Some(Encoded::new(&read_sized!(cursor, encryption_key_len)))
+            Some(read_bytestring(cursor, "encrypted key's length")?)
         } else {
             None
         };
 
-        let verification_key_len = safe_get_len!(cursor, "verification key's length");
-        let verification_key = Encoded::new(&read_sized!(cursor, verification_key_len));
+        let verification_key = read_bytestring(cursor, "verification key's length")?;
 
         let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
 
         let n_credentials = safe_get_len!(cursor, "credential count");
         let mut credentials = Vec::with_capacity(n_credentials as usize);
         for _ in 0..n_credentials {
-            let length = safe_get_len!(cursor, "credential length");
-            credentials.push(Encoded::new(&read_sized!(cursor, length)));
+            let credential = read_bytestring(cursor, "credential length")?;
+            credentials.push(credential);
         }
         let credentials = credentials.into_boxed_slice();
 
@@ -254,14 +252,10 @@ pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     Ok(buf.into_boxed_slice())
 }
 
-pub fn read_bytestring(input: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
-    let value_size = NetworkEndian::read_u64(&read_const_sized!(input, 8)) as usize;
-    let mut buf = Cursor::new(vec![0u8; 8 + value_size]);
+pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
+    let object_length = safe_get_len!(input, object_name);
 
-    buf.write_u64::<NetworkEndian>(value_size as u64)?;
-    buf.write_all(&read_sized!(input, value_size))?;
-
-    Ok(buf.into_inner().into_boxed_slice())
+    Ok(Encoded(read_sized!(input, object_length)))
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }

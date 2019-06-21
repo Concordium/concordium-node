@@ -46,7 +46,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let election_nonce = Encoded::new(&read_bytestring(cursor)?);
+        let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
         let baker_count = safe_get_len!(cursor, "baker count");
@@ -85,11 +85,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 
         debug_assert_eq!(baker_cursor.position(), baker_cursor.get_ref().len() as u64);
 
-        let size = self.election_nonce.len()
+        let size =
+            size_of::<u64>()
+            + self.election_nonce.len()
             + size_of::<ElectionDifficulty>()
             + baker_cursor.get_ref().len();
         let mut cursor = create_serialization_cursor(size);
 
+        let _ = cursor.write_u64::<NetworkEndian>(self.election_nonce.len() as u64);
         let _ = cursor.write_all(&self.election_nonce);
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());

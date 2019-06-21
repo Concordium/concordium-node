@@ -47,7 +47,7 @@ macro_rules! read_sized {
         let mut buf = vec![0u8; $size as usize];
         $source.read_exact(&mut buf)?;
 
-        buf
+        buf.into_boxed_slice()
     }};
 }
 
