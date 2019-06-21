@@ -245,7 +245,7 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
 
 
 tests :: Spec
-tests = describe "Concordium.Afgjort.ABBA" $ do
+tests = parallel $ describe "Concordium.Afgjort.ABBA" $ do
     it "3 parties + 1 super inactive" $ withMaxSuccess 1000 $ multiWithInactiveKeys (superCorruptKeys 3 1 6 22636) 3 1
     it "3 parties + 1 super corrupt" $ withMaxSuccess 5000 $ multiWithCorruptKeys (superCorruptKeys 3 1 6 22636) 3 1
     it "3 parties + 1 super corrupt evil" $ withMaxSuccess 5000 $ multiWithCorruptKeysEvil (superCorruptKeys 3 1 6 22636) 3 1

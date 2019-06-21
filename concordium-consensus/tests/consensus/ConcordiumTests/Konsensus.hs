@@ -15,6 +15,7 @@ import Data.Bits
 import Data.Monoid
 import Data.Time.Clock.POSIX
 import qualified Data.PQueue.Prio.Min as MPQ
+import System.Random
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -187,10 +188,10 @@ type EventPool = Seq (Int, Event)
 
 -- |Pick an element from a seqeunce, returning the element
 -- and the sequence with that element removed.
-selectFromSeq :: Seq a -> Gen (a, Seq a)
-selectFromSeq s = select <$> choose (0, length s - 1)
-    where
-        select n = (Seq.index s n, Seq.deleteAt n s)
+selectFromSeq :: (RandomGen g) => g -> Seq a -> (a, Seq a, g)
+selectFromSeq g s =
+    let (n , g') = randomR (0, length s - 1) g in
+    (Seq.index s n, Seq.deleteAt n s, g')
 
 type States = Vec.Vector (BakerIdentity, FinalizationInstance, SkovFinalizationState)
 
@@ -201,12 +202,12 @@ myRunFSM a fi sfs = liftIO $ runLoggerT (runFSM a fi sfs) doLog
         doLog _ _ _ = return ()
 
 
-runKonsensusTest :: Int -> States -> EventPool -> PropertyM IO Property
-runKonsensusTest steps states events
+runKonsensusTest :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
+runKonsensusTest steps g states events
         | steps <= 0 = return $ property True
         | null events = return $ property True
         | otherwise = do
-            ((rcpt, ev), events') <- pick $ selectFromSeq events
+            let ((rcpt, ev), events', g') = selectFromSeq g events
             let (bkr, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- {- trace (show rcpt ++ ": " ++ show ev) $ -} case ev of
@@ -225,7 +226,7 @@ runKonsensusTest steps states events
                 Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                 Right _ -> do
                     let states' = states & ix rcpt . _3 .~ fs'
-                    runKonsensusTest (steps - 1) states' (events'' <> events')
+                    runKonsensusTest (steps - 1) g' states' (events'' <> events')
     where
         handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
         handleMessages _ [] = Seq.empty
@@ -236,14 +237,14 @@ runKonsensusTest steps states events
             (_, fs', Endo evs) <- myRunFSM a fi fs
             return (fs', handleMessages btargets (evs []))
 
-runKonsensusTestSimple :: Int -> States -> EventPool -> PropertyM IO Property
-runKonsensusTestSimple steps states events
+runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> EventPool -> IO Property
+runKonsensusTestSimple steps g states events
         | steps <= 0 || null events = return
             (case forM_ states $ \(_, _, s) -> invariantSkovFinalization s of
                 Left err -> counterexample ("Invariant failed: " ++ err) False
                 Right _ -> property True)
         | otherwise = do
-            ((rcpt, ev), events') <- pick $ selectFromSeq events
+            let ((rcpt, ev), events', g') = selectFromSeq g events
             let (bkr, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             (fs', events'') <- case ev of
@@ -259,7 +260,7 @@ runKonsensusTestSimple steps states events
                 EFinalization fmsg -> runAndHandle (receiveFinalizationMessage fmsg) fi fs btargets
                 EFinalizationRecord frec -> runAndHandle (finalizeBlock frec) fi fs btargets
             let states' = states & ix rcpt . _3 .~ fs'
-            runKonsensusTestSimple (steps - 1) states' (events'' <> events')
+            runKonsensusTestSimple (steps - 1) g' states' (events'' <> events')
     where
         handleMessages :: [Int] -> [SkovFinalizationEvent] -> EventPool
         handleMessages _ [] = Seq.empty
@@ -316,16 +317,18 @@ instance Show SkovFinalizationState where
     show sfs = show (sfs ^. skov)
 
 
-withInitialStates :: Int -> (States -> EventPool -> PropertyM IO Property) -> Property
+withInitialStates :: Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
 withInitialStates n r = monadicIO $ do
         s0 <- pick $ initialiseStates n
-        r s0 (initialEvents s0)
+        gen <- pick $ mkStdGen <$> arbitrary
+        liftIO $ r gen s0 (initialEvents s0)
 
-withInitialStatesTransactions :: Int -> Int -> (States -> EventPool -> PropertyM IO Property) -> Property
+withInitialStatesTransactions :: Int -> Int -> (StdGen -> States -> EventPool -> IO Property) -> Property
 withInitialStatesTransactions n trcount r = monadicIO $ do
         s0 <- pick $ initialiseStates n
         trs <- pick $ genTransactions trcount
-        r s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
+        gen <- pick $ mkStdGen <$> arbitrary
+        liftIO $ r gen s0 (initialEvents s0 <> Seq.fromList [(x, ETransaction tr) | x <- [0..n-1], tr <- trs])
 
 tests :: Spec
 tests = parallel $ describe "Concordium.Konsensus" $ do
