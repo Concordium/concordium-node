@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::{DateTime, Utc};
-use failure::{ensure, Fallible};
+use failure::Fallible;
 
 use std::{
     cell::Cell,
@@ -124,8 +124,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("Block", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));

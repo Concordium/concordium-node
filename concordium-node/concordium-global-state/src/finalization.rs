@@ -40,8 +40,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessage {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("FinalizationMessage", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let header =
@@ -525,8 +523,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("FinalizationRecord", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));

@@ -71,8 +71,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
 
         let nonce_raw = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Nonce>()));
-        ensure!(nonce_raw != 0, "A zero nonce was received!");
-        let nonce = Nonce(unsafe { NonZeroU64::new_unchecked(nonce_raw) }); // safe, just checked
+        let nonce = Nonce::new(nonce_raw)?;
 
         let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
 
@@ -183,6 +182,12 @@ pub type Amount = u64;
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(NonZeroU64);
 
+impl Nonce {
+    fn new(raw: u64) -> Fallible<Self> {
+        Ok(Nonce(NonZeroU64::new(raw).ok_or_else(|| format_err!("A zero nonce was received!"))?))
+    }
+}
+
 pub type Slot = u64;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -228,9 +233,7 @@ pub struct Encoded(Box<[u8]>);
 
 impl Encoded {
     pub fn new(bytes: &[u8]) -> Self {
-        let boxed = Box::from(bytes);
-
-        Encoded(boxed)
+        Encoded(Box::from(bytes))
     }
 }
 
@@ -258,6 +261,7 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
 
 pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
     let size = cursor.get_ref().len() - cursor.position() as usize;
+    ensure!(size <= ALLOCATION_LIMIT, "The size of a variable-length object ({}) exceeds the safety limit!", size);
     let mut buf = vec![0u8; size];
     cursor.read_exact(&mut buf)?;
 

@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 
-use failure::{ensure, Fallible};
+use failure::Fallible;
 
 use std::{
     io::{Cursor, Read, Write},

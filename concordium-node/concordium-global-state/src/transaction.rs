@@ -1,7 +1,7 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use failure::{ensure, Fallible};
+use failure::Fallible;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -35,15 +35,11 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transaction {
     type Source = &'a [u8];
 
     // FIXME: finish
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("Transaction", bytes);
-
+    fn deserialize(_bytes: &[u8]) -> Fallible<Self> {
         unimplemented!()
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        debug_serialization!(self);
-
         vec![].into_boxed_slice() // TODO
     }
 }
