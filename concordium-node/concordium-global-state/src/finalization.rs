@@ -36,7 +36,7 @@ impl fmt::Debug for FinalizationMessage {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessage {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
@@ -44,8 +44,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessage {
 
         let header =
             FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
-        let message_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
-        let message = WmvbaMessage::deserialize(&read_sized!(&mut cursor, message_size))?;
+        let message = WmvbaMessage::deserialize(&mut cursor)?;
         let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let msg = FinalizationMessage {
@@ -82,10 +81,10 @@ struct FinalizationMessageHeader {
     sender:     Party,
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
     type Source = &'a [u8];
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let session_id =
@@ -163,62 +162,58 @@ impl fmt::Display for WmvbaMessage {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
-    type Source = &'a [u8];
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
+    type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let message_type = &read_const_sized!(&mut cursor, WMVBA_TYPE)[0];
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let message_type = &read_const_sized!(cursor, WMVBA_TYPE)[0];
 
         let msg = match message_type {
-            0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
+            0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(cursor, VAL))),
             1 => WmvbaMessage::Vote(None),
-            2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
-            3 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, false))?),
-            4 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, true))?),
+            2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(cursor, VAL)))),
+            3 => WmvbaMessage::Abba(Abba::deserialize((cursor, false))?),
+            4 => WmvbaMessage::Abba(Abba::deserialize((cursor, true))?),
             5 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
+                cursor,
                 CssVariant::Seen,
                 NominationTag::Top,
             ))?),
             6 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
+                cursor,
                 CssVariant::Seen,
                 NominationTag::Bottom,
             ))?),
             7 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
+                cursor,
                 CssVariant::Seen,
                 NominationTag::Both,
             ))?),
             8 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
+                cursor,
                 CssVariant::DoneReporting,
                 NominationTag::Top,
             ))?),
             9 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
+                cursor,
                 CssVariant::DoneReporting,
                 NominationTag::Bottom,
             ))?),
             10 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
+                cursor,
                 CssVariant::DoneReporting,
                 NominationTag::Both,
             ))?),
             11 => WmvbaMessage::AreWeDone(false),
             12 => WmvbaMessage::AreWeDone(true),
             13 => {
-                WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))
+                WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(cursor, VAL)))
             }
             n => panic!(
                 "Deserialization of WMVBA message type No {} is not implemented!",
                 n
             ),
         };
-
-        check_serialization!(msg, cursor);
 
         Ok(msg)
     }
@@ -264,22 +259,18 @@ struct Abba {
     justified: bool, // FIXME: verify that this is what True/False means here
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
-    type Source = (&'a [u8], bool);
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Abba {
+    type Source = (&'a mut Cursor<&'b [u8]>, bool);
 
-    fn deserialize((bytes, justified): (&[u8], bool)) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-        let ticket = Encoded::new(&read_const_sized!(&mut cursor, TICKET));
+    fn deserialize((cursor, justified): Self::Source) -> Fallible<Self> {
+        let phase = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
+        let ticket = Encoded::new(&read_const_sized!(cursor, TICKET));
 
         let abba = Abba {
             phase,
             ticket,
             justified,
         };
-
-        check_serialization!(abba, cursor);
 
         Ok(abba)
     }
@@ -449,22 +440,18 @@ impl Css {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
-    type Source = (&'a [u8], CssVariant, NominationTag);
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Css {
+    type Source = (&'a mut Cursor<&'b [u8]>, CssVariant, NominationTag);
 
-    fn deserialize((bytes, variant, tag): Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Phase>()));
-        let nomination_set = NominationSet::deserialize((&mut cursor, tag))?;
+    fn deserialize((cursor, variant, tag): Self::Source) -> Fallible<Self> {
+        let phase = NetworkEndian::read_u32(&read_const_sized!(cursor, size_of::<Phase>()));
+        let nomination_set = NominationSet::deserialize((cursor, tag))?;
 
         let css = Css {
             variant,
             phase,
             nomination_set,
         };
-
-        check_serialization!(css, cursor);
 
         Ok(css)
     }

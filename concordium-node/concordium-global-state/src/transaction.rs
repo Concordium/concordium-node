@@ -54,13 +54,10 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
         let mut cursor = Cursor::new(bytes);
 
         let transaction_count = safe_get_len!(&mut cursor, "transaction count");
-        let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
+        let transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {
             // FIXME: determine how to read each transaction
-            while let Ok(transaction) = Transaction::deserialize(&read_all(&mut cursor)?) {
-                transactions.0.push(transaction);
-            }
         }
 
         check_serialization!(transactions, cursor);

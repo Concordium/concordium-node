@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
-use failure::{ensure, format_err, Fallible};
+use failure::{format_err, Fallible};
 
 use std::{
     convert::TryFrom,
@@ -235,19 +235,6 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
     let buf = vec![0; size];
 
     Cursor::new(buf.into_boxed_slice())
-}
-
-pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
-    let size = cursor.get_ref().len() - cursor.position() as usize;
-    ensure!(
-        size <= ALLOCATION_LIMIT,
-        "The size of a variable-length object ({}) exceeds the safety limit!",
-        size
-    );
-    let mut buf = vec![0u8; size];
-    cursor.read_exact(&mut buf)?;
-
-    Ok(buf.into_boxed_slice())
 }
 
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
