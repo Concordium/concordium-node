@@ -446,8 +446,8 @@ withBlockHash :: CString -> (String -> IO ()) -> (BlockHash -> IO CString) -> IO
 withBlockHash blockcstr logm f = 
   readMaybe <$> (peekCString blockcstr) >>=
     \case Nothing -> do
-            logm "Block hash invalid. Returning empty string."
-            newCString ""
+            logm "Block hash invalid. Returning error value."
+            newCString "\"Invalid block hash.\""
           Just hash -> f hash
 
 -- |Get the list of account addresses in the given block. The block must be
