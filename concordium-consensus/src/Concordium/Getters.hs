@@ -12,8 +12,10 @@ import Concordium.Skov
 import Concordium.Skov.Update (isAncestorOf)
 
 import qualified Concordium.Scheduler.Types as AT
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import qualified Concordium.GlobalState.TreeState as TS
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Statistics as Stat
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
@@ -51,13 +53,13 @@ instance SkovStateQueryable (MVar SkovBufferedFinalizationState) (SimpleSkovMona
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
 
-getBestBlockState :: SkovQueryMonad m => m (TS.BlockState m)
+getBestBlockState :: SkovQueryMonad m => m (BS.BlockState m)
 getBestBlockState = bpState <$> bestBlock
 
-getLastFinalState :: SkovQueryMonad m => m (TS.BlockState m)
+getLastFinalState :: SkovQueryMonad m => m (BS.BlockState m)
 getLastFinalState = bpState <$> lastFinalizedBlock
 
-withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (TS.BlockState m -> m Value) -> m Value
+withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BS.BlockState m -> m Value) -> m Value
 withBlockStateJSON hash f =
   resolveBlock hash >>=
     \case Nothing -> return Null
@@ -66,19 +68,19 @@ withBlockStateJSON hash f =
 getAccountList :: SkovStateQueryable z m => BlockHash -> z -> IO Value
 getAccountList hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  alist <- TS.getAccountList st
+  alist <- BS.getAccountList st
   return . toJSON . map show $ alist  -- show instance for account addresses is based on Base58 encoding
 
 getInstances :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getInstances hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  ilist <- TS.getContractInstanceList st
+  ilist <- BS.getContractInstanceList st
   return $ toJSON (map iaddress ilist)
 
 getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
 getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st ->
-  TS.getAccount st addr >>=
+  BS.getAccount st addr >>=
       \case Nothing -> return Null
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
@@ -87,7 +89,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
 getContractInfo hash sfsRef addr = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st ->
-  TS.getContractInstance st addr >>=
+  BS.getContractInstance st addr >>=
       \case Nothing -> return Null
             Just istance -> let params = instanceParameters istance
                             in return $ object ["model" .= jsonStorable (instanceModel istance)
@@ -97,7 +99,7 @@ getContractInfo hash sfsRef addr = runStateQuery sfsRef $
 getRewardStatus :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getRewardStatus hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  reward <- TS.getRewardStatus st
+  reward <- BS.getRewardStatus st
   return $ object [
     "totalAmount" .= (fromIntegral (reward ^. AT.totalGTU) :: Integer),
     "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
@@ -108,7 +110,7 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
 getBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  BirkParameters{..} <- TS.getBirkParameters st
+  BirkParameters{..} <- BS.getBirkParameters st
   return $ object [
     "electionDifficulty" .= birkElectionDifficulty,
     "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ birkLeadershipElectionNonce),
@@ -123,7 +125,7 @@ getBirkParameters hash sfsRef = runStateQuery sfsRef $
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getModuleList hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  mlist <- TS.getModuleList st
+  mlist <- BS.getModuleList st
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
 
 
@@ -132,7 +134,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
   resolveBlock hash >>=
     \case Nothing -> return Nothing
           Just bp -> do
-            mmodul <- TS.getModule (bpState bp) mhash
+            mmodul <- BS.getModule (bpState bp) mhash
             return $ (moduleSource <$> mmodul)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
@@ -147,24 +149,24 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
                 "lastFinalizedBlock" .= hsh lfb,
                 "bestBlockHeight" .= theBlockHeight (bpHeight bb),
                 "lastFinalizedBlockHeight" .= theBlockHeight (bpHeight lfb),
-                "blocksReceivedCount" .= (stats ^. TS.blocksReceivedCount),
-                "blockLastReceivedTime" .= (stats ^. TS.blockLastReceived),
-                "blockReceiveLatencyEMA" .= (stats ^. TS.blockReceiveLatencyEMA),
-                "blockReceiveLatencyEMSD" .= sqrt (stats ^. TS.blockReceiveLatencyEMVar),
-                "blockReceivePeriodEMA" .= (stats ^. TS.blockReceivePeriodEMA),
-                "blockReceivePeriodEMSD" .= (sqrt <$> (stats ^. TS.blockReceivePeriodEMVar)),
-                "blocksVerifiedCount" .= (stats ^. TS.blocksVerifiedCount),
-                "blockLastArrivedTime" .= (stats ^. TS.blockLastArrive),
-                "blockArriveLatencyEMA" .= (stats ^. TS.blockArriveLatencyEMA),
-                "blockArriveLatencyEMSD" .= sqrt (stats ^. TS.blockArriveLatencyEMVar),
-                "blockArrivePeriodEMA" .= (stats ^. TS.blockArrivePeriodEMA),
-                "blockArrivePeriodEMSD" .= (sqrt <$> (stats ^. TS.blockArrivePeriodEMVar)),
-                "transactionsPerBlockEMA" .= (stats ^. TS.transactionsPerBlockEMA),
-                "transactionsPerBlockEMSD" .= sqrt (stats ^. TS.transactionsPerBlockEMVar),
-                "finalizationCount" .= (stats ^. TS.finalizationCount),
-                "lastFinalizedTime" .= (stats ^. TS.lastFinalizedTime),
-                "finalizationPeriodEMA" .= (stats ^. TS.finalizationPeriodEMA),
-                "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. TS.finalizationPeriodEMVar))
+                "blocksReceivedCount" .= (stats ^. Stat.blocksReceivedCount),
+                "blockLastReceivedTime" .= (stats ^. Stat.blockLastReceived),
+                "blockReceiveLatencyEMA" .= (stats ^. Stat.blockReceiveLatencyEMA),
+                "blockReceiveLatencyEMSD" .= sqrt (stats ^. Stat.blockReceiveLatencyEMVar),
+                "blockReceivePeriodEMA" .= (stats ^. Stat.blockReceivePeriodEMA),
+                "blockReceivePeriodEMSD" .= (sqrt <$> (stats ^. Stat.blockReceivePeriodEMVar)),
+                "blocksVerifiedCount" .= (stats ^. Stat.blocksVerifiedCount),
+                "blockLastArrivedTime" .= (stats ^. Stat.blockLastArrive),
+                "blockArriveLatencyEMA" .= (stats ^. Stat.blockArriveLatencyEMA),
+                "blockArriveLatencyEMSD" .= sqrt (stats ^. Stat.blockArriveLatencyEMVar),
+                "blockArrivePeriodEMA" .= (stats ^. Stat.blockArrivePeriodEMA),
+                "blockArrivePeriodEMSD" .= (sqrt <$> (stats ^. Stat.blockArrivePeriodEMVar)),
+                "transactionsPerBlockEMA" .= (stats ^. Stat.transactionsPerBlockEMA),
+                "transactionsPerBlockEMSD" .= sqrt (stats ^. Stat.transactionsPerBlockEMVar),
+                "finalizationCount" .= (stats ^. Stat.finalizationCount),
+                "lastFinalizedTime" .= (stats ^. Stat.lastFinalizedTime),
+                "finalizationPeriodEMA" .= (stats ^. Stat.finalizationPeriodEMA),
+                "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. Stat.finalizationPeriodEMVar))
             ]
 
 getBlockInfo :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> String -> IO Value
@@ -175,7 +177,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                     Nothing -> return Null
                     Just bp -> do
                         let slot = blockSlot (bpBlock bp)
-                        reward <- TS.getRewardStatus (bpState bp)
+                        reward <- BS.getRewardStatus (bpState bp)
                         slotTime <- getSlotTime slot
                         bfin <- isFinalized bh
                         return $ object [

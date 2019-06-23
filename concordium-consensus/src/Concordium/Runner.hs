@@ -14,7 +14,7 @@ import Data.Either
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.TreeState(BlockState)
+import Concordium.GlobalState.BlockState(BlockState)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Birk.Bake

@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import GHC.Stack
 import Control.Concurrent
 import Control.Monad
 import System.Random
@@ -10,7 +9,6 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 import System.IO
-import Data.IORef
 import Lens.Micro.Platform
 
 import Concordium.Types.HashableTo
@@ -19,8 +17,9 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.BlockState(BlockPointerData(..))
+import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Basic.BlockState
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF

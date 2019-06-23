@@ -23,7 +23,7 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.TreeState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
 
 import Control.Exception(assert)
 import Data.Maybe(isJust)

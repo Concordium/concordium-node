@@ -42,7 +42,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
+import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.Kontrol
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA

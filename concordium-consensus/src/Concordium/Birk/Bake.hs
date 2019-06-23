@@ -13,6 +13,7 @@ import Concordium.Types
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Transactions
 

@@ -17,8 +17,8 @@ import Control.Monad.RWS.Strict
 
 import Concordium.ID.Types(cdi_regId)
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.TreeState(auAddress, updateAccount)
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.BlockState(auAddress, updateAccount)
+import Concordium.GlobalState.Basic.BlockState
 import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import qualified Concordium.GlobalState.Instances as Ins
