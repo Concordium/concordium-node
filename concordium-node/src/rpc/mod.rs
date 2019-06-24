@@ -669,7 +669,7 @@ impl P2P for RpcServerImpl {
                                     i_msg.set_data(msg);
                                     r.set_message_direct(i_msg);
                                 }
-                                NetworkPacketType::BroadcastedMessage(..) => {
+                                NetworkPacketType::BroadcastedMessage => {
                                     let mut i_msg = MessageBroadcast::new();
                                     i_msg.set_data(msg);
                                     r.set_message_broadcast(i_msg);

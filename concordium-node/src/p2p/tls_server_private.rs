@@ -463,10 +463,14 @@ impl TlsServerPrivate {
         })
     }
 
-    pub fn get_all_current_peers(&self) -> Box<[P2PNodeId]> {
+    pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Box<[P2PNodeId]> {
         self.connections
         .iter()
-        .filter(|rc_conn| rc_conn.borrow().is_post_handshake() )
+        .filter(|rc_conn| {
+            let rc_conn_borrowed = rc_conn.borrow();
+            rc_conn_borrowed.is_post_handshake() && (
+                peer_type.is_none() || peer_type == Some(rc_conn_borrowed.remote_peer_type()) )
+        })
         // we can safely unwrap here, because we've filetered away any
         // non-post-handshake peers already
         .map(|conn| conn.borrow().remote_peer().peer().unwrap().id() )

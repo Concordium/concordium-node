@@ -63,8 +63,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use rand::Rng;
-
 const SERVER: Token = Token(0);
 
 #[derive(Clone)]
@@ -80,7 +78,7 @@ pub struct P2PNodeConfig {
     blind_trusted_broadcast: bool,
     max_allowed_nodes: u16,
     max_resend_attempts: u8,
-    ignore_carbon_copies_when_rebroadcasting_probability: f64,
+    relay_broadcast_percentage: f64,
     pub global_state_catch_up_requests: bool,
 }
 
@@ -249,9 +247,7 @@ impl P2PNode {
                 ) as u16
             },
             max_resend_attempts: conf.connection.max_resend_attempts,
-            ignore_carbon_copies_when_rebroadcasting_probability: conf
-                .connection
-                .ignore_carbon_copies_when_rebroadcasting_probability,
+            relay_broadcast_percentage: conf.connection.relay_broadcast_percentage,
             global_state_catch_up_requests: conf.connection.global_state_catch_up_requests,
         };
 
@@ -321,7 +317,7 @@ impl P2PNode {
                             NetworkPacketType::DirectMessage(..) => {
                                 "Dropping duplicate direct packet"
                             }
-                            NetworkPacketType::BroadcastedMessage(..) => {
+                            NetworkPacketType::BroadcastedMessage => {
                                 "Dropping duplicate broadcast packet"
                             }
                         };
@@ -806,9 +802,9 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
-        let (ignore_carbon_copies, s11n_data) = match inner_pkt.packet_type {
+        let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => (
-                false,
+                vec![].into_boxed_slice(),
                 serialize_into_memory(
                     &NetworkMessage::NetworkPacket(
                         inner_pkt.clone(),
@@ -818,30 +814,28 @@ impl P2PNode {
                     256,
                 ),
             ),
-            NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
-                let local_peers = read_or_die!(self.tls_server).get_all_current_peers();
-                let mut updated_packet = inner_pkt.clone();
-
-                // if we are the originator (carbon_copies is empty) of the packet or
-                // the number of desired nodes is greater than the current number of
-                // peers, we must send out the broadcast; otherwise, we roll the dice
-                // to determine if we are going to re-broadcast it
-                let ignore_carbon_copies = if carbon_copies.is_empty()
-                    || self.config.desired_nodes_count as usize > local_peers.len()
-                {
-                    true
+            NetworkPacketType::BroadcastedMessage => {
+                let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
+                    use rand::seq::SliceRandom;
+                    let mut rng = rand::thread_rng();
+                    let peers =
+                        read_or_die!(self.tls_server).get_all_current_peers(Some(PeerType::Node));
+                    let peers_to_take = f64::floor(
+                        f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
+                    );
+                    peers
+                        .choose_multiple(&mut rng, peers_to_take as usize)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice()
                 } else {
-                    rand::thread_rng().gen_bool(
-                        self.config
-                            .ignore_carbon_copies_when_rebroadcasting_probability,
-                    )
+                    vec![].into_boxed_slice()
                 };
-                updated_packet.packet_type = NetworkPacketType::BroadcastedMessage(local_peers);
                 (
-                    ignore_carbon_copies,
+                    not_valid_receivers,
                     serialize_into_memory(
                         &NetworkMessage::NetworkPacket(
-                            updated_packet,
+                            inner_pkt.clone(),
                             Some(get_current_stamp()),
                             None,
                         ),
@@ -864,13 +858,12 @@ impl P2PNode {
                             &check_sent_status_fn,
                         ) >= 1
                     }
-                    NetworkPacketType::BroadcastedMessage(ref carbon_copies) => {
+                    NetworkPacketType::BroadcastedMessage => {
                         let filter = |conn: &Connection| {
                             is_valid_connection_in_broadcast(
                                 conn,
-                                &carbon_copies,
-                                ignore_carbon_copies,
                                 &inner_pkt.peer,
+                                &peers_to_skip,
                                 inner_pkt.network_id,
                             )
                         };
@@ -1113,7 +1106,7 @@ impl P2PNode {
                 .message_id(msg_id.unwrap_or_else(NetworkPacket::generate_message_id))
                 .network_id(network_id)
                 .message(msg)
-                .build_broadcast(Box::new([]))?
+                .build_broadcast()?
         } else {
             let receiver =
                 id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
@@ -1399,15 +1392,14 @@ fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
 /// a bootstrap node.
 pub fn is_valid_connection_in_broadcast(
     conn: &Connection,
-    carbon_copies: &[P2PNodeId],
-    ignore_carbons: bool,
     sender: &P2PPeer,
+    peers_to_skip: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
     if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         if remote_peer.peer_type() != PeerType::Bootstrapper
             && remote_peer.id() != sender.id()
-            && (ignore_carbons || !carbon_copies.contains(&remote_peer.id()))
+            && !peers_to_skip.contains(&remote_peer.id())
         {
             let remote_end_networks = conn.remote_end_networks();
             return remote_end_networks.contains(&network_id);
