@@ -815,7 +815,7 @@ impl P2PNode {
                 ),
             ),
             NetworkPacketType::BroadcastedMessage => {
-                let not_valid_receivers = if self.config.relay_broadcast_percentage != 1.0 {
+                let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
                     let peers =
