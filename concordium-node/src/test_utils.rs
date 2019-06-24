@@ -175,7 +175,7 @@ pub fn wait_broadcast_message(waiter: &Receiver<NetworkMessage>) -> Fallible<UCu
     loop {
         let msg = waiter.recv()?;
         if let NetworkMessage::NetworkPacket(ref pac, ..) = msg {
-            if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                 payload = pac.message.clone();
                 break;
             }
@@ -286,7 +286,7 @@ where
             NetworkResponse::Handshake(..) => "Response::Handshake".to_owned(),
         },
         NetworkMessage::NetworkPacket(ref packet, ..) => match packet.packet_type {
-            NetworkPacketType::BroadcastedMessage(..) => {
+            NetworkPacketType::BroadcastedMessage => {
                 format!("Packet::Broadcast(size={})", packet.message.len())
             }
             NetworkPacketType::DirectMessage(src_node_id, ..) => format!(

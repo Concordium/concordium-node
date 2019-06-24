@@ -397,10 +397,7 @@ pub fn parse_config() -> Fallible<Config> {
     if conf.connection.relay_broadcast_percentage < 0.0
         || conf.connection.relay_broadcast_percentage > 1.0
     {
-        bail!(
-            "Percentage of peers to relay broadcasted packets to, which must be between 0.0 and \
-             1.0"
-        );
+        bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
     }
 
     Ok(conf)

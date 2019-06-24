@@ -317,7 +317,7 @@ impl P2PNode {
                             NetworkPacketType::DirectMessage(..) => {
                                 "Dropping duplicate direct packet"
                             }
-                            NetworkPacketType::BroadcastedMessage(..) => {
+                            NetworkPacketType::BroadcastedMessage => {
                                 "Dropping duplicate broadcast packet"
                             }
                         };
@@ -814,8 +814,8 @@ impl P2PNode {
                     256,
                 ),
             ),
-            NetworkPacketType::BroadcastedMessage() => {
-                let not_valid_receivers = if self.config.relay_broadcast_percentage < 1.0 {
+            NetworkPacketType::BroadcastedMessage => {
+                let not_valid_receivers = if self.config.relay_broadcast_percentage != 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
                     let peers =
@@ -858,7 +858,7 @@ impl P2PNode {
                             &check_sent_status_fn,
                         ) >= 1
                     }
-                    NetworkPacketType::BroadcastedMessage() => {
+                    NetworkPacketType::BroadcastedMessage => {
                         let filter = |conn: &Connection| {
                             is_valid_connection_in_broadcast(
                                 conn,

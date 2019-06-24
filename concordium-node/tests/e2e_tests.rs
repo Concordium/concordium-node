@@ -152,7 +152,7 @@ mod tests {
         if let Ok(msg) = msg_waiter_3.recv_timeout(time::Duration::from_secs(5)) {
             match msg {
                 NetworkMessage::NetworkPacket(ref pac, ..) => {
-                    if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                    if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                         panic!("Got a message; this should not happen!");
                     }
                 }
@@ -185,7 +185,7 @@ mod tests {
             safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
                 move |m: &NetworkMessage| {
                     if let NetworkMessage::NetworkPacket(pac, _, _) = m {
-                        if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                        if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                             inner_counter.tick(1);
                             info!(
                                 "BroadcastedMessage/{}/{:?} at {} with size {} received, ticks {}",
@@ -262,7 +262,7 @@ mod tests {
                 safe_write!(node.message_processor())?.add_notification(make_atomic_callback!(
                     move |m: &NetworkMessage| {
                         if let NetworkMessage::NetworkPacket(pac, _, _) = m {
-                            if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                            if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                                 inner_counter.tick(1);
                                 info!(
                                     "BroadcastedMessage/{}/{:?} at {} with size {} received, \
@@ -411,7 +411,7 @@ mod tests {
             // 4. Wait broadcast in root.
             if let Ok(ref mut pac) = bcast_rx.recv_timeout(time::Duration::from_secs(2)) {
                 match pac.packet_type {
-                    NetworkPacketType::BroadcastedMessage(..) => {
+                    NetworkPacketType::BroadcastedMessage => {
                         let msg = pac.message.read_all_into_view()?;
                         assert_eq!(msg.as_slice(), broadcast_msg.as_slice());
                         ack_count += 1;
@@ -622,7 +622,7 @@ mod tests {
             debug!("Waiting broadcast message");
             if let Ok(ref mut pac) = bcast_rx.recv_timeout(time::Duration::from_secs(2)) {
                 debug!("Waiting broadcast message - finished");
-                if let NetworkPacketType::BroadcastedMessage(..) = pac.packet_type {
+                if let NetworkPacketType::BroadcastedMessage = pac.packet_type {
                     let msg = pac.message.read_all_into_view()?;
                     assert_eq!(msg.as_slice(), bcast_content.as_slice());
                     wait_loop = false;
