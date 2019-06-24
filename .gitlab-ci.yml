@@ -12,8 +12,7 @@ stages:
   extends: .generic
   stage: test
   script:
-    - pacman -Syy --noconfirm numactl
-    - ar ds deps/static-libs/linux/rust/libRcrypto.a clzsi2.o
+    #- ar ds deps/static-libs/linux/rust/libRcrypto.a clzsi2.o
     - rustc --version && cargo --version
     - ( cd concordium-dns && cargo test --all --color=always)
     - ( cd concordium-global-state && cargo test --all --color=always)
