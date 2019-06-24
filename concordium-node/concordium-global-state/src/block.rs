@@ -5,7 +5,6 @@ use chrono::prelude::{DateTime, Utc};
 use failure::Fallible;
 
 use std::{
-    cell::Cell,
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
@@ -296,13 +295,6 @@ impl From<BakedBlock> for PendingBlock {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockStatus {
-    Alive,
-    Dead,
-    Finalized,
-}
-
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
@@ -312,7 +304,6 @@ pub struct BlockPtr {
     // state:       BlockState,
     pub received:  DateTime<Utc>,
     pub validated: DateTime<Utc>,
-    pub status:    Cell<BlockStatus>,
 }
 
 impl BlockPtr {
@@ -332,7 +323,6 @@ impl BlockPtr {
             height:         0,
             received:       timestamp,
             validated:      timestamp,
-            status:         Cell::new(BlockStatus::Finalized),
         }
     }
 
@@ -352,7 +342,6 @@ impl BlockPtr {
             height,
             received: pb.received,
             validated,
-            status: Cell::new(BlockStatus::Alive),
         }
     }
 
@@ -389,7 +378,7 @@ impl Ord for BlockPtr {
 
 impl fmt::Debug for BlockPtr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} ({:?})", self.hash, self.status.get())
+        write!(f, "{:?}", self.hash)
     }
 }
 
