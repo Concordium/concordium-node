@@ -802,7 +802,7 @@ impl P2PNode {
         let check_sent_status_fn =
             |conn: &Connection, status: Fallible<()>| self.check_sent_status(&conn, status);
 
-        let (invalid_receivers, s11n_data) = match inner_pkt.packet_type {
+        let (peers_to_skip, s11n_data) = match inner_pkt.packet_type {
             NetworkPacketType::DirectMessage(..) => (
                 vec![].into_boxed_slice(),
                 serialize_into_memory(
@@ -863,7 +863,7 @@ impl P2PNode {
                             is_valid_connection_in_broadcast(
                                 conn,
                                 &inner_pkt.peer,
-                                &invalid_receivers,
+                                &peers_to_skip,
                                 inner_pkt.network_id,
                             )
                         };
@@ -1393,13 +1393,13 @@ fn is_conn_peer_id(conn: &Connection, id: P2PNodeId) -> bool {
 pub fn is_valid_connection_in_broadcast(
     conn: &Connection,
     sender: &P2PPeer,
-    invalid_peers: &[P2PNodeId],
+    peers_to_skip: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
     if let RemotePeer::PostHandshake(remote_peer) = conn.remote_peer() {
         if remote_peer.peer_type() != PeerType::Bootstrapper
             && remote_peer.id() != sender.id()
-            && !invalid_peers.contains(&remote_peer.id())
+            && !peers_to_skip.contains(&remote_peer.id())
         {
             let remote_end_networks = conn.remote_end_networks();
             return remote_end_networks.contains(&network_id);
