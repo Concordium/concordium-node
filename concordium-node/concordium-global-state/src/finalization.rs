@@ -36,18 +36,15 @@ impl fmt::Debug for FinalizationMessage {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessage {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessage {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("FinalizationMessage", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let header =
             FinalizationMessageHeader::deserialize(&read_const_sized!(&mut cursor, HEADER))?;
-        let message_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
-        let message = WmvbaMessage::deserialize(&read_sized!(&mut cursor, message_size))?;
+        let message = WmvbaMessage::deserialize(&mut cursor)?;
         let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let msg = FinalizationMessage {
@@ -84,10 +81,10 @@ struct FinalizationMessageHeader {
     sender:     Party,
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
     type Source = &'a [u8];
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+    fn deserialize(bytes: Self::Source) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
         let session_id =
@@ -165,62 +162,35 @@ impl fmt::Display for WmvbaMessage {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for WmvbaMessage {
-    type Source = &'a [u8];
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
+    type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        use CssVariant::*;
+        use NominationTag::*;
 
-        let message_type = &read_const_sized!(&mut cursor, WMVBA_TYPE)[0];
+        let message_type = &read_const_sized!(cursor, WMVBA_TYPE)[0];
 
         let msg = match message_type {
-            0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(&mut cursor, VAL))),
+            0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(cursor, VAL))),
             1 => WmvbaMessage::Vote(None),
-            2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))),
-            3 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, false))?),
-            4 => WmvbaMessage::Abba(Abba::deserialize((&read_all(&mut cursor)?, true))?),
-            5 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
-                CssVariant::Seen,
-                NominationTag::Top,
-            ))?),
-            6 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
-                CssVariant::Seen,
-                NominationTag::Bottom,
-            ))?),
-            7 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
-                CssVariant::Seen,
-                NominationTag::Both,
-            ))?),
-            8 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
-                CssVariant::DoneReporting,
-                NominationTag::Top,
-            ))?),
-            9 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
-                CssVariant::DoneReporting,
-                NominationTag::Bottom,
-            ))?),
-            10 => WmvbaMessage::Css(Css::deserialize((
-                &read_all(&mut cursor)?,
-                CssVariant::DoneReporting,
-                NominationTag::Both,
-            ))?),
+            2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(cursor, VAL)))),
+            3 => WmvbaMessage::Abba(Abba::deserialize((cursor, false))?),
+            4 => WmvbaMessage::Abba(Abba::deserialize((cursor, true))?),
+            5 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Top))?),
+            6 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Bottom))?),
+            7 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Both))?),
+            8 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Top))?),
+            9 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Bottom))?),
+            10 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Both))?),
             11 => WmvbaMessage::AreWeDone(false),
             12 => WmvbaMessage::AreWeDone(true),
-            13 => {
-                WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(&mut cursor, VAL)))
-            }
+            13 => WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(cursor, VAL))),
             n => panic!(
                 "Deserialization of WMVBA message type No {} is not implemented!",
                 n
             ),
         };
-
-        check_serialization!(msg, cursor);
 
         Ok(msg)
     }
@@ -266,22 +236,18 @@ struct Abba {
     justified: bool, // FIXME: verify that this is what True/False means here
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Abba {
-    type Source = (&'a [u8], bool);
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Abba {
+    type Source = (&'a mut Cursor<&'b [u8]>, bool);
 
-    fn deserialize((bytes, justified): (&[u8], bool)) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-        let ticket = Encoded::new(&read_const_sized!(&mut cursor, TICKET));
+    fn deserialize((cursor, justified): Self::Source) -> Fallible<Self> {
+        let phase = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
+        let ticket = Encoded::new(&read_const_sized!(cursor, TICKET));
 
         let abba = Abba {
             phase,
             ticket,
             justified,
         };
-
-        check_serialization!(abba, cursor);
 
         Ok(abba)
     }
@@ -451,22 +417,18 @@ impl Css {
     }
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
-    type Source = (&'a [u8], CssVariant, NominationTag);
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Css {
+    type Source = (&'a mut Cursor<&'b [u8]>, CssVariant, NominationTag);
 
-    fn deserialize((bytes, variant, tag): Self::Source) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let phase = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Phase>()));
-        let nomination_set = NominationSet::deserialize((&mut cursor, tag))?;
+    fn deserialize((cursor, variant, tag): Self::Source) -> Fallible<Self> {
+        let phase = NetworkEndian::read_u32(&read_const_sized!(cursor, size_of::<Phase>()));
+        let nomination_set = NominationSet::deserialize((cursor, tag))?;
 
         let css = Css {
             variant,
             phase,
             nomination_set,
         };
-
-        check_serialization!(css, cursor);
 
         Ok(css)
     }
@@ -486,7 +448,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Css {
 pub struct FinalizationRecord {
     pub index:         FinalizationIndex,
     pub block_pointer: BlockHash,
-    pub proof:         FinalizationProof,
+    pub proof:         Box<[(Party, Encoded)]>,
     pub delay:         BlockHeight,
 }
 
@@ -512,11 +474,22 @@ impl fmt::Debug for FinalizationRecord {
 
 impl FinalizationRecord {
     pub fn genesis(genesis_block_ptr: &BlockPtr) -> Self {
+        // TODO: verify it's the desired content
+        let proof = genesis_block_ptr
+            .block
+            .genesis_data()
+            .finalization_parameters
+            .iter()
+            .enumerate()
+            .map(|(n, info)| (n as u32, info.signature_verify_key.clone()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
         Self {
-            index:         0,
+            index: 0,
             block_pointer: genesis_block_ptr.hash.to_owned(),
-            proof:         FinalizationProof::default(),
-            delay:         0,
+            proof,
+            delay: 0,
         }
     }
 }
@@ -525,14 +498,20 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("FinalizationRecord", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
-        let proof_size = bytes.len() - cursor.position() as usize - size_of::<BlockHeight>();
-        let proof = FinalizationProof::deserialize(&read_sized!(&mut cursor, proof_size))?;
+
+        let proof = read_multiple!(
+            cursor,
+            "finalization proof",
+            (
+                NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4)),
+                Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE))
+            )
+        );
+
         let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let rec = FinalizationRecord {
@@ -548,62 +527,30 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let proof = self.proof.serialize();
+        let proof_len = self
+            .proof
+            .iter()
+            .map(|(_, sig)| size_of::<Party>() + sig.len())
+            .sum::<usize>();
 
         let mut cursor = create_serialization_cursor(
             size_of::<FinalizationIndex>()
                 + self.block_pointer.len()
-                + proof.len()
+                + size_of::<u64>()
+                + proof_len
                 + size_of::<BlockHeight>(),
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.index);
         let _ = cursor.write_all(&self.block_pointer);
-        let _ = cursor.write_all(&proof);
-        let _ = cursor.write_u64::<NetworkEndian>(self.delay);
 
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash, Default)]
-pub struct FinalizationProof(Box<[(Party, Encoded)]>);
-
-impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationProof {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let signature_count = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-
-        let mut signatures = Vec::with_capacity(signature_count as usize);
-
-        for _ in 0..signature_count {
-            let party = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
-            let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
-
-            signatures.push((party, signature));
-        }
-
-        let proof = FinalizationProof(signatures.into_boxed_slice());
-
-        check_serialization!(proof, cursor);
-
-        Ok(proof)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(
-            8 + self.0.len() * (size_of::<Party>() + SIGNATURE as usize),
-        );
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-
-        for (party, signature) in &*self.0 {
+        let _ = cursor.write_u64::<NetworkEndian>(self.proof.len() as u64);
+        for (party, signature) in &*self.proof {
             let _ = cursor.write_u32::<NetworkEndian>(*party);
             let _ = cursor.write_all(signature);
         }
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.delay);
 
         cursor.into_inner()
     }

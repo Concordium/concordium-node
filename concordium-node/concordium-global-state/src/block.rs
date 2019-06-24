@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use chrono::prelude::{DateTime, Utc};
-use failure::{ensure, Fallible};
+use failure::Fallible;
 
 use std::{
     cell::Cell,
@@ -124,8 +124,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
     type Source = &'a [u8];
 
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        // debug_deserialization!("Block", bytes);
-
         let mut cursor = Cursor::new(bytes);
 
         let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
@@ -180,11 +178,11 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
 
 #[derive(Debug)]
 pub struct GenesisData {
-    timestamp:               Timestamp,
-    slot_duration:           Duration,
-    pub birk_parameters:     BirkParameters,
-    baker_accounts:          Box<[Account]>,
-    finalization_parameters: FinalizationParameters,
+    timestamp:                   Timestamp,
+    slot_duration:               Duration,
+    birk_parameters:             BirkParameters,
+    baker_accounts:              Box<[Account]>,
+    pub finalization_parameters: Box<[VoterInfo]>,
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
@@ -196,15 +194,13 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
         let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
-
-        let n_accounts = safe_get_len!(cursor, "account count");
-        let mut baker_accounts = Vec::with_capacity(n_accounts as usize);
-        for _ in 0..n_accounts {
-            baker_accounts.push(Account::deserialize(&mut cursor)?);
-        }
-        let baker_accounts = baker_accounts.into_boxed_slice();
-
-        let finalization_parameters = FinalizationParameters::deserialize(&mut cursor)?;
+        let baker_accounts =
+            read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
+        let finalization_parameters = read_multiple!(
+            cursor,
+            "finalization parameters",
+            VoterInfo::deserialize(&read_const_sized!(&mut cursor, VOTER_INFO))?
+        );
 
         let data = GenesisData {
             timestamp,
@@ -220,35 +216,32 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(list: &'a [T]) -> Vec<Box<[u8]>> {
+            list.iter().map(|elem| elem.serialize()).collect()
+        }
+
+        fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {
+            list.iter().map(|elem| elem.as_ref().len()).sum()
+        }
+
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
-        let baker_accounts = self
-            .baker_accounts
-            .iter()
-            .map(|acc| acc.serialize())
-            .collect::<Vec<_>>();
-        let finalization_params = FinalizationParameters::serialize(&self.finalization_parameters);
+        let baker_accounts = serialize_list(&self.baker_accounts);
+        let finalization_params = serialize_list(&self.finalization_parameters);
 
         let size = size_of::<Timestamp>()
             + size_of::<Duration>()
             + birk_params.len()
             + size_of::<u64>()
-            + baker_accounts
-                .iter()
-                .map(|serialized| serialized.len())
-                .sum::<usize>()
-            + finalization_params.len();
+            + list_len(&baker_accounts)
+            + size_of::<u64>()
+            + list_len(&finalization_params);
         let mut cursor = create_serialization_cursor(size);
 
         let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
         let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
         let _ = cursor.write_all(&birk_params);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_accounts.len() as u64);
-        for baker_account in baker_accounts {
-            let _ = cursor.write_all(&baker_account);
-        }
-
-        let _ = cursor.write_all(&finalization_params);
+        write_multiple!(&mut cursor, baker_accounts, Write::write_all);
+        write_multiple!(&mut cursor, finalization_params, Write::write_all);
 
         cursor.into_inner()
     }

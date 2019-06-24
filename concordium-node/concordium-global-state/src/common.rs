@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
-use failure::{ensure, format_err, Fallible};
+use failure::{format_err, Fallible};
 
 use std::{
     convert::TryFrom,
@@ -71,18 +71,15 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         let address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
 
         let nonce_raw = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Nonce>()));
-        ensure!(nonce_raw != 0, "A zero nonce was received!");
-        let nonce = Nonce(unsafe { NonZeroU64::new_unchecked(nonce_raw) }); // safe, just checked
+        let nonce = Nonce::try_from(nonce_raw)?;
 
         let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
 
-        let n_encrypted_amounts = safe_get_len!(cursor, "encrypted amount count");
-        let mut encrypted_amounts = Vec::with_capacity(n_encrypted_amounts as usize);
-        for _ in 0..n_encrypted_amounts {
-            let encrypted_amount = read_bytestring(cursor, "encrypted amount's length")?;
-            encrypted_amounts.push(encrypted_amount);
-        }
-        let encrypted_amounts = encrypted_amounts.into_boxed_slice();
+        let encrypted_amounts = read_multiple!(
+            cursor,
+            "encrypted amounts",
+            read_bytestring(cursor, "encrypted amount's length")?
+        );
 
         let has_encryption_key = read_const_sized!(cursor, 1)[0] == 1;
         let encryption_key = if has_encryption_key {
@@ -95,13 +92,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
 
-        let n_credentials = safe_get_len!(cursor, "credential count");
-        let mut credentials = Vec::with_capacity(n_credentials as usize);
-        for _ in 0..n_credentials {
-            let credential = read_bytestring(cursor, "credential length")?;
-            credentials.push(credential);
-        }
-        let credentials = credentials.into_boxed_slice();
+        let credentials = read_multiple!(
+            cursor,
+            "credentials",
+            read_bytestring(cursor, "encrypted amount's length")?
+        );
 
         let account = Account {
             address,
@@ -118,61 +113,43 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
     }
 
     fn serialize(&self) -> Box<[u8]> {
+        fn serialized_bs_list_len(bs_list: &[ByteString]) -> usize {
+            bs_list
+                .iter()
+                .map(|bs| size_of::<u64>() + bs.len())
+                .sum::<usize>()
+        }
+
+        let encryption_key_len = self
+            .encryption_key
+            .iter()
+            .next()
+            .map(|k| k.len())
+            .unwrap_or(0);
+
         let mut cursor = create_serialization_cursor(
             size_of::<AccountAddress>()
                 + size_of::<Nonce>()
                 + size_of::<Amount>()
                 + size_of::<u64>()
-                + self
-                    .encrypted_amounts
-                    .iter()
-                    .map(|ea| size_of::<u64>() + ea.len())
-                    .sum::<usize>()
+                + serialized_bs_list_len(&self.encrypted_amounts)
                 + size_of::<u8>()
-                + if let Some(ref key) = self.encryption_key {
-                    key.len()
-                } else {
-                    0
-                }
+                + encryption_key_len
                 + size_of::<u64>()
                 + self.verification_key.len()
                 + size_of::<SchemeId>()
                 + size_of::<u64>()
-                + self
-                    .credentials
-                    .iter()
-                    .map(|cred| size_of::<u64>() + cred.len())
-                    .sum::<usize>(),
+                + serialized_bs_list_len(&self.credentials),
         );
 
         let _ = cursor.write_all(&self.address.0);
         let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0.get());
         let _ = cursor.write_u64::<NetworkEndian>(self.amount);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.encrypted_amounts.len() as u64);
-        for ea in &*self.encrypted_amounts {
-            let _ = cursor.write_u64::<NetworkEndian>(ea.len() as u64);
-            let _ = cursor.write_all(ea);
-        }
-
-        if let Some(ref key) = self.encryption_key {
-            let _ = cursor.write(&[1]);
-            let _ = cursor.write_u64::<NetworkEndian>(key.len() as u64);
-            let _ = cursor.write_all(key);
-        } else {
-            let _ = cursor.write(&[0]);
-        };
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.verification_key.len() as u64);
-        let _ = cursor.write_all(&self.verification_key);
-
+        write_multiple!(&mut cursor, self.encrypted_amounts, write_bytestring);
+        write_maybe!(&mut cursor, self.encryption_key, write_bytestring);
+        write_bytestring(&mut cursor, &self.verification_key);
         let _ = cursor.write(&[self.signature_scheme as u8]);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.credentials.len() as u64);
-        for cred in &*self.credentials {
-            let _ = cursor.write_u64::<NetworkEndian>(cred.len() as u64);
-            let _ = cursor.write_all(cred);
-        }
+        write_multiple!(&mut cursor, self.credentials, write_bytestring);
 
         cursor.into_inner()
     }
@@ -182,6 +159,16 @@ pub type Amount = u64;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(NonZeroU64);
+
+impl TryFrom<u64> for Nonce {
+    type Error = failure::Error;
+
+    fn try_from(raw: u64) -> Fallible<Self> {
+        Ok(Nonce(NonZeroU64::new(raw).ok_or_else(|| {
+            return format_err!("A zero nonce was received!");
+        })?))
+    }
+}
 
 pub type Slot = u64;
 
@@ -227,11 +214,7 @@ impl SessionId {
 pub struct Encoded(Box<[u8]>);
 
 impl Encoded {
-    pub fn new(bytes: &[u8]) -> Self {
-        let boxed = Box::from(bytes);
-
-        Encoded(boxed)
-    }
+    pub fn new(bytes: &[u8]) -> Self { Encoded(Box::from(bytes)) }
 }
 
 impl Deref for Encoded {
@@ -256,18 +239,15 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
     Cursor::new(buf.into_boxed_slice())
 }
 
-pub fn read_all(cursor: &mut Cursor<&[u8]>) -> Fallible<Box<[u8]>> {
-    let size = cursor.get_ref().len() - cursor.position() as usize;
-    let mut buf = vec![0u8; size];
-    cursor.read_exact(&mut buf)?;
-
-    Ok(buf.into_boxed_slice())
-}
-
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, object_name);
 
     Ok(Encoded(read_sized!(input, object_length)))
+}
+
+pub fn write_bytestring(target: &mut Cursor<Box<[u8]>>, bytes: &[u8]) {
+    let _ = target.write_u64::<NetworkEndian>(bytes.len() as u64);
+    let _ = target.write_all(&bytes);
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }

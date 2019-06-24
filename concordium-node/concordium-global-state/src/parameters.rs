@@ -2,7 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 
-use failure::{ensure, Fallible};
+use failure::Fallible;
 
 use std::{
     io::{Cursor, Read, Write},
@@ -33,7 +33,7 @@ const BAKER_INFO: u8 = BAKER_VRF_KEY
 
 const VOTER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
 const VOTER_VRF_KEY: u8 = 32;
-const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
+pub const VOTER_INFO: u8 = VOTER_SIGN_KEY + VOTER_VRF_KEY + size_of::<VoterPower>() as u8;
 
 #[derive(Debug)]
 pub struct BirkParameters {
@@ -49,25 +49,20 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, 8));
 
-        let baker_count = safe_get_len!(cursor, "baker count");
-        let mut bakers = Vec::with_capacity(baker_count);
-        for _ in 0..baker_count {
-            let id = NetworkEndian::read_u64(&read_const_sized!(cursor, 8));
-            let info = BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?;
-
-            bakers.push((id, info));
-        }
-        let bakers = bakers.into_boxed_slice();
+        let bakers = read_multiple!(
+            cursor,
+            "bakers",
+            (
+                NetworkEndian::read_u64(&read_const_sized!(cursor, 8)),
+                BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
+            )
+        );
 
         let params = BirkParameters {
             election_nonce,
             election_difficulty,
             bakers,
         };
-
-        // serialization is not checked here due to the parameters being of an unknown
-        // size; it is instead done while deserializing the parent object -
-        // GenesisData
 
         Ok(params)
     }
@@ -77,7 +72,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let mut baker_cursor = create_serialization_cursor(baker_info_size);
 
         let _ = baker_cursor.write_u64::<NetworkEndian>(self.bakers.len() as u64);
-
         for (id, info) in self.bakers.iter() {
             let _ = baker_cursor.write_u64::<NetworkEndian>(*id);
             let _ = baker_cursor.write_all(&info.serialize());
@@ -91,8 +85,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
             + baker_cursor.get_ref().len();
         let mut cursor = create_serialization_cursor(size);
 
-        let _ = cursor.write_u64::<NetworkEndian>(self.election_nonce.len() as u64);
-        let _ = cursor.write_all(&self.election_nonce);
+        write_bytestring(&mut cursor, &self.election_nonce);
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());
 
@@ -145,48 +138,10 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
 }
 
 #[derive(Debug)]
-pub struct FinalizationParameters(Box<[VoterInfo]>);
-
-impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationParameters {
-    type Source = &'a mut Cursor<&'b [u8]>;
-
-    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let param_count = safe_get_len!(cursor, "finalization parameter count");
-        let mut params = Vec::with_capacity(param_count);
-
-        for _ in 0..param_count {
-            params.push(VoterInfo::deserialize(&read_const_sized!(
-                cursor, VOTER_INFO
-            ))?);
-        }
-
-        let params = FinalizationParameters(params.into_boxed_slice());
-
-        // serialization is not checked here due to the parameters being of an unknown
-        // size it is instead done while deserializing the parent object -
-        // GenesisData
-
-        Ok(params)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(8 + self.0.len() * VOTER_INFO as usize);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-
-        for info in self.0.iter() {
-            let _ = cursor.write_all(&info.serialize());
-        }
-
-        cursor.into_inner()
-    }
-}
-
-#[derive(Debug)]
 pub struct VoterInfo {
-    signature_verify_key: VoterVerificationKey,
-    election_verify_key:  VoterVRFPublicKey,
-    voting_power:         VoterPower,
+    pub signature_verify_key: VoterVerificationKey,
+    election_verify_key:      VoterVRFPublicKey,
+    voting_power:             VoterPower,
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {

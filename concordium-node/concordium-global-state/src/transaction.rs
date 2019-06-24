@@ -1,7 +1,7 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use failure::{ensure, Fallible};
+use failure::Fallible;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -35,15 +35,9 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transaction {
     type Source = &'a [u8];
 
     // FIXME: finish
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        debug_deserialization!("Transaction", bytes);
-
-        unimplemented!()
-    }
+    fn deserialize(_bytes: &[u8]) -> Fallible<Self> { unimplemented!() }
 
     fn serialize(&self) -> Box<[u8]> {
-        debug_serialization!(self);
-
         vec![].into_boxed_slice() // TODO
     }
 }
@@ -60,13 +54,10 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
         let mut cursor = Cursor::new(bytes);
 
         let transaction_count = safe_get_len!(&mut cursor, "transaction count");
-        let mut transactions = Transactions(Vec::with_capacity(transaction_count as usize));
+        let transactions = Transactions(Vec::with_capacity(transaction_count as usize));
 
         if transaction_count > 0 {
             // FIXME: determine how to read each transaction
-            while let Ok(transaction) = Transaction::deserialize(&read_all(&mut cursor)?) {
-                transactions.0.push(transaction);
-            }
         }
 
         check_serialization!(transactions, cursor);
@@ -79,7 +70,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
         let mut cursor = create_serialization_cursor(size_of::<TransactionCount>());
 
         let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-
         for transaction in &self.0 {
             let _ = cursor.write_all(&transaction.serialize());
         }
