@@ -391,8 +391,8 @@ impl TlsServer {
         }
     }
 
-    pub fn get_all_current_peers(&self) -> Box<[P2PNodeId]> {
-        read_or_die!(self.dptr).get_all_current_peers()
+    pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Box<[P2PNodeId]> {
+        read_or_die!(self.dptr).get_all_current_peers(peer_type)
     }
 
     #[inline]

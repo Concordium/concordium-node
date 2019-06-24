@@ -206,7 +206,7 @@ mod integration_test {
                     .message_id(MessageId::new(&[1u8; 32]))
                     .network_id(NetworkId::from(100))
                     .message(inner_msg.clone())
-                    .build_broadcast(Box::new([]))
+                    .build_broadcast()
                     .unwrap(),
                 None,
                 None,

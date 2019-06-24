@@ -133,9 +133,9 @@ then
     ARGS="$ARGS --max-resend-attempts $MAX_RESEND_ATTEMPTS"
 fi
 
-if [ -n "$IGNORE_CARBON_COPIES_WHEN_REBROADCASTING" ];
+if [ -n "$RELAY_BROADCAST_PERCENTAGE" ];
 then
-    ARGS="$ARGS --ignore-carbon-copies-when-rebroadcasting $IGNORE_CARBON_COPIES_WHEN_REBROADCASTING"
+    ARGS="$ARGS --relay-broadcast-percentage $RELAY_BROADCAST_PERCENTAGE"
 fi
 
 if [ -n "$GLOBAL_STATE_CATCH_UP_REQUESTS" ];
