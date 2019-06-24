@@ -2,6 +2,8 @@ syntax = "proto3";
 
 import "google/protobuf/wrappers.proto";
 
+package concordium;
+
 message NumberResponse {
   uint64 value = 1;
 }
