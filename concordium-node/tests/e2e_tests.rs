@@ -1,6 +1,4 @@
 extern crate p2p_client;
-#[macro_use]
-extern crate log;
 
 #[cfg(test)]
 mod tests {
@@ -19,6 +17,7 @@ mod tests {
         },
     };
 
+    use log::{debug, info};
     use rand::{distributions::Standard, thread_rng, Rng};
     use std::{
         cell::RefCell,
