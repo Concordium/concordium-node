@@ -7,7 +7,6 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import Control.Exception
 import qualified Data.Map.Strict as Map
-import qualified Data.HashMap.Strict as HM
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types(cdi_regId)
@@ -22,8 +21,6 @@ import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
-
-import Debug.Trace
 
 data BlockState = BlockState {
     _blockAccounts :: !Account.Accounts,

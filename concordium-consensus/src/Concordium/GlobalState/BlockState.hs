@@ -11,8 +11,6 @@ module Concordium.GlobalState.BlockState where
 
 import Data.Time
 import Lens.Micro.Platform
-import qualified Data.Map as Map
-import Data.Maybe
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
