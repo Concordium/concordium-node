@@ -13,6 +13,7 @@ import Lens.Micro.Platform
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
@@ -52,14 +53,6 @@ sendTransactions chan (t : ts) = do
         threadDelay 50000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
-
-makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity, Account)
-makeBaker bid lot = do
-        ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
-        sk                     <- Sig.newKeyPair
-        let spk = Sig.verifyKey sk
-        let account = makeBakerAccount bid
-        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
 relay :: Chan (OutMessage src) -> MVar SkovBufferedFinalizationState -> Chan (Either (BlockHash, BakedBlock, Maybe BlockState) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sfsRef monitor outps = loop
@@ -115,20 +108,12 @@ gsToString gs = intercalate "\\l" . map show $ keys
 main :: IO ()
 main = do
     let n = 10
-    let bns = [1..n]
-    let bakeShare = (1.0 / (fromInteger $ toInteger n))
-    bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
-    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
-                (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
-                n -- next available baker id
-    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
-    let bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-    let gen = GenesisData now 1 bps bakerAccounts fps
-    let iState = Example.initialState bps bakerAccounts nContracts
+    let (gen, bis) = makeGenesisData now n 1 0.5
+    let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bix, (_, bid, _)) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
+    chans <- mapM (\(bid, _) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show (bakerId bid) ++ ".log"
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     appendFile logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"

@@ -3,7 +3,6 @@ module Concordium.Birk.Bake where
 
 import GHC.Generics
 import Control.Monad.Trans.Maybe
-import Lens.Micro.Platform
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -54,12 +53,12 @@ bakeForSlot :: (SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Sl
 bakeForSlot BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot (bpBlock bb) < slot)
-    BirkParameters{..} <- getBirkParameters (bpState bb)
-    lotteryPower <- MaybeT . pure $ bakerLotteryPower <$> birkBakers ^? ix bakerId
+    birkParams@BirkParameters{..} <- getBirkParameters (bpState bb)
+    (_, lotteryPower) <- MaybeT . pure $ birkBaker bakerId birkParams
     electionProof <- MaybeT . liftIO $
-        leaderElection birkLeadershipElectionNonce birkElectionDifficulty slot bakerElectionKey lotteryPower
+        leaderElection _birkLeadershipElectionNonce _birkElectionDifficulty slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot
-    nonce <- liftIO $ computeBlockNonce birkLeadershipElectionNonce slot bakerElectionKey
+    nonce <- liftIO $ computeBlockNonce _birkLeadershipElectionNonce slot bakerElectionKey
     lastFinal <- lastFinalizedBlock
     (transactions, newState) <- processTransactions slot bb lastFinal bakerId
     let block = signBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions

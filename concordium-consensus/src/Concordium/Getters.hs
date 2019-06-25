@@ -19,6 +19,7 @@ import qualified Concordium.GlobalState.Statistics as Stat
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
@@ -112,14 +113,14 @@ getBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   BirkParameters{..} <- BS.getBirkParameters st
   return $ object [
-    "electionDifficulty" .= birkElectionDifficulty,
-    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ birkLeadershipElectionNonce),
+    "electionDifficulty" .= _birkElectionDifficulty,
+    "electionNonce" .= String (TL.toStrict . EL.decodeUtf8 . toLazyByteString . byteStringHex $ _birkLeadershipElectionNonce),
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= (toInteger bid)
-                                                            ,"bakerAccount" .= show bakerAccount
-                                                            ,"bakerLotteryPower" .= bakerLotteryPower
+                                                            ,"bakerAccount" .= show _bakerAccount
+                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkBakers))
                                                             ]) .
-                       Map.toList $ birkBakers)
+                       Map.toList $ _bakerMap $ _birkBakers)
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value

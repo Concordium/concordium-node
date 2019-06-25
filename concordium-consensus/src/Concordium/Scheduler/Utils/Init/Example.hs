@@ -105,7 +105,7 @@ initialState birkParams bakerAccounts n =
                             )
         initialAmount = 2 ^ (62 :: Int)
         initAccount = foldl (flip Acc.putAccount)
-                            (Acc.putAccount (Types.Account mateuszAccount 1 initialAmount [] Nothing (Sig.verifyKey mateuszKP) Ed25519 []) Acc.emptyAccounts)
+                            (Acc.putAccount (Types.Account mateuszAccount 1 initialAmount [] Nothing (Sig.verifyKey mateuszKP) Ed25519 [] Nothing) Acc.emptyAccounts)
                             bakerAccounts
         gs = BlockState.emptyBlockState birkParams &
                (BlockState.blockAccounts .~ initAccount) .

@@ -23,6 +23,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Bakers
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom)
 
@@ -313,23 +314,23 @@ addBlock sl@SkovListeners{..} block = do
                             bps@BirkParameters{..} <- getBirkParameters (bpState parentP)
                             case birkBaker (blockBaker bf) bps of
                                 Nothing -> invalidBlock
-                                Just (BakerInfo{..}) ->
+                                Just (BakerInfo{..}, lotteryPower) ->
                                     -- Check the block proof
                                     check (verifyProof
-                                                birkLeadershipElectionNonce
-                                                birkElectionDifficulty
+                                                _birkLeadershipElectionNonce
+                                                _birkElectionDifficulty
                                                 (blockSlot block)
-                                                bakerElectionVerifyKey
-                                                bakerLotteryPower
+                                                _bakerElectionVerifyKey
+                                                lotteryPower
                                                 (blockProof bf)) $
                                     -- The block nonce
                                     check (verifyBlockNonce
-                                                birkLeadershipElectionNonce
+                                                _birkLeadershipElectionNonce
                                                 (blockSlot block)
-                                                bakerElectionVerifyKey
+                                                _bakerElectionVerifyKey
                                                 (blockNonce bf)) $
                                     -- And the block signature
-                                    check (verifyBlockSignature bakerSignatureVerifyKey block) $ do
+                                    check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                                         let ts = blockTransactions block
                                         executeFrom (blockSlot block) parentP lfBlockP (blockBaker . bbFields . pbBlock $ block) ts >>= \case
                                             Left err -> do

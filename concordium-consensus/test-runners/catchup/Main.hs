@@ -43,13 +43,13 @@ data InEvent
     = IEMessage (InMessage Peer)
     | IECatchupFinalization FinalizationPoint Bool (Chan InEvent)
 
-nAccounts :: Int
-nAccounts = 2
+nContracts :: Int
+nContracts = 2
 
 transactions :: StdGen -> [Transaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
-        contr i = ContractAddress (fromIntegral $ i `mod` nAccounts) 0
+        contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
@@ -60,14 +60,6 @@ sendTransactions chan (t : ts) = do
         threadDelay 50000
         sendTransactions chan ts
 sendTransactions _ _ = return ()
-
-makeBaker :: BakerId -> LotteryPower -> IO (BakerInfo, BakerIdentity, Account)
-makeBaker bid lot = do
-        ek@(VRF.KeyPair _ epk) <- VRF.newKeyPair
-        sk                     <- Sig.newKeyPair
-        let spk = Sig.verifyKey sk
-        let account = makeBakerAccount bid
-        return (BakerInfo epk spk lot (_accountAddress account), BakerIdentity bid sk spk ek epk, account)
 
 relayIn :: Chan InEvent -> Chan (InMessage Peer) -> MVar SkovBufferedFinalizationState -> IORef Bool -> IO ()
 relayIn msgChan bakerChan sfsRef connectedRef = loop
@@ -167,25 +159,17 @@ gsToString :: BlockState -> String
 gsToString gs = intercalate "\\l" . map show $ keys
     where
         ca n = ContractAddress (fromIntegral n) 0
-        keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nAccounts-1)
+        keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 
 main :: IO ()
 main = do
     let n = 20
-    let bns = [1..n]
-    let bakeShare = (1.0 / (fromInteger $ toInteger n))
-    bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
-    let bps = BirkParameters (BS.pack "LeadershipElectionNonce") 0.5
-                (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
-                n -- next available baker id
-    let fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
     now <- truncate <$> getPOSIXTime
-    let bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-    let gen = GenesisData now 1 bps bakerAccounts fps
-    let iState = Example.initialState bps bakerAccounts nAccounts
+    let (gen, bis) = makeGenesisData now n 1 0.5
+    let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
-    chans <- mapM (\(bix, (_, bid, _)) -> do
-        let logFile = "consensus-" ++ show now ++ "-" ++ show bix ++ ".log"
+    chans <- mapM (\(bid, _) -> do
+        let logFile = "consensus-" ++ show now ++ "-" ++ show (bakerId bid) ++ ".log"
         logChan <- newChan
         let logLoop = do
                 logMsg <- readChan logChan

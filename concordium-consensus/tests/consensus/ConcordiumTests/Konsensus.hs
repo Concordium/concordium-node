@@ -27,6 +27,7 @@ import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.Bakers
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -287,7 +288,7 @@ genTransactions n = mapM gent (take n [minNonce..])
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
-makeBaker :: BakerId -> LotteryPower -> Gen (BakerInfo, BakerIdentity, Account)
+makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
 makeBaker bid lot = do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- arbitrary
@@ -297,12 +298,12 @@ makeBaker bid lot = do
 
 initialiseStates :: Int -> Gen States
 initialiseStates n = do
-        let bns = [1..fromIntegral n]
-        let bakeShare = 1.0 / fromIntegral n
-        bis <- mapM (\i -> (i,) <$> makeBaker i bakeShare) bns
+        let bns = [0..fromIntegral n - 1]
+        bis <- mapM (\i -> (i,) <$> makeBaker i 1) bns
         let bps = BirkParameters "LeadershipElectionNonce" 0.5
-                (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
-                (fromIntegral (n+1)) -- next available baker id
+                (Bakers (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
+                    (fromIntegral n)
+                    (fromIntegral n)) -- next available baker id
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps

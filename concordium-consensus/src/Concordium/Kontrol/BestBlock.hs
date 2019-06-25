@@ -5,6 +5,7 @@ module Concordium.Kontrol.BestBlock(
 ) where
 
 import Data.Foldable
+import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.GlobalState.Block
@@ -23,8 +24,8 @@ blockLuck block = case blockFields block of
             params <- getBirkParameters (bpState (bpParent block))
             case birkBaker (blockBaker bf) params of
                 Nothing -> return 0 -- This should not happen, since it would mean the block was baked by an invalid baker
-                Just baker ->
-                    return (electionLuck (birkElectionDifficulty params) (bakerLotteryPower baker) (blockProof bf))
+                Just (_, lotteryPower) ->
+                    return (electionLuck (params ^. birkElectionDifficulty) lotteryPower (blockProof bf))
 
 compareBlocks :: (SkovQueryMonad m) => BlockPointer m -> Maybe (BlockPointer m, Maybe Double) -> m (Maybe (BlockPointer m, Maybe Double))
 compareBlocks bp Nothing = return $ Just (bp, Nothing)

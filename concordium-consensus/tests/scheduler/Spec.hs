@@ -10,7 +10,7 @@ import qualified SchedulerTests.BakerTransactions(tests)
 import Test.Hspec
 
 main :: IO ()
-main = do hspec $ parallel $ do
+main = do hspec $ do
             SchedulerTests.ContractCommSpec.tests
             SchedulerTests.SimpleTransfersTest.tests
             SchedulerTests.ChainMetatest.tests

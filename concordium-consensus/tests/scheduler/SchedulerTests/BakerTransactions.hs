@@ -14,7 +14,8 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.TreeState.Basic
+import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 
@@ -45,22 +46,22 @@ baker2 = mkBaker 2 thomasAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-    [TJSON { payload = AddBaker (Types.bakerElectionVerifyKey baker0)
-                                (Types.bakerSignatureVerifyKey baker0)
-                                (Types.bakerAccount baker0)
+    [TJSON { payload = AddBaker (baker0 ^. bakerElectionVerifyKey)
+                                (baker0 ^. bakerSignatureVerifyKey)
+                                (baker0 ^. bakerAccount)
                                 "<dummy proof>"
            , metadata = makeHeader alesKP 1 10000
            , keypair = alesKP
            },
-     TJSON { payload = AddBaker (Types.bakerElectionVerifyKey baker1)
-                                (Types.bakerSignatureVerifyKey baker1)
-                                (Types.bakerAccount baker0) "<dummy proof>"
+     TJSON { payload = AddBaker (baker1 ^. bakerElectionVerifyKey)
+                                (baker1 ^. bakerSignatureVerifyKey)
+                                (baker1 ^. bakerAccount) "<dummy proof>"
            , metadata = makeHeader alesKP 2 10000
            , keypair = alesKP
            },     
-     TJSON { payload = AddBaker (Types.bakerElectionVerifyKey baker2)
-                                (Types.bakerSignatureVerifyKey baker2)
-                                (Types.bakerAccount baker2) "<dummy proof>"
+     TJSON { payload = AddBaker (baker2 ^. bakerElectionVerifyKey)
+                                (baker2 ^. bakerSignatureVerifyKey)
+                                (baker2 ^. bakerAccount) "<dummy proof>"
            , metadata = makeHeader alesKP 3 10000
            , keypair = alesKP
            },     
@@ -104,25 +105,25 @@ tests = do
           [([(_,Types.TxSuccess [Types.BakerAdded 0])],[],bps1),
            ([(_,Types.TxSuccess [Types.BakerAdded 1])],[],bps2),
            ([(_,Types.TxSuccess [Types.BakerAdded 2])],[],bps3)] ->
-            Map.keys (Types.birkBakers bps1) == [0] &&
-            Map.keys (Types.birkBakers bps2) == [0,1] &&
-            Map.keys (Types.birkBakers bps3) == [0,1,2]
+            Map.keys (bps1 ^. Types.birkBakers . bakerMap) == [0] &&
+            Map.keys (bps2 ^. Types.birkBakers . bakerMap) == [0,1] &&
+            Map.keys (bps3 ^. Types.birkBakers . bakerMap) == [0,1,2]
           _ -> False
 
     specify "Remove second baker." $
       case results !! 3 of
         ([(_,Types.TxSuccess [Types.BakerRemoved 1])], [], bps4) ->
-            Map.keys (Types.birkBakers bps4) == [0,2]
+            Map.keys (bps4 ^. Types.birkBakers . bakerMap) == [0,2]
         _ -> False
 
     specify "Update third baker's account." $
       -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 3, results !! 4) of
         ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _])], [], bps5)) ->
-          Map.keys (Types.birkBakers bps5) == [0,2] &&
-          let b2 = Types.birkBakers bps5 Map.! 2
-          in Types.bakerAccount b2 == alesAccount &&
-             Types.bakerAccount (Types.birkBakers bps4 Map.! 2) == thomasAccount
+          Map.keys (bps5 ^. Types.birkBakers . bakerMap) == [0,2] &&
+          let b2 = (bps5 ^. Types.birkBakers . bakerMap) Map.! 2
+          in b2 ^. bakerAccount == alesAccount &&
+             ((bps4 ^. Types.birkBakers . bakerMap) Map.! 2) ^. bakerAccount == thomasAccount
         _ -> False
 
 
@@ -130,9 +131,9 @@ tests = do
       -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 4, results !! 5) of
         ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
-          Map.keys (Types.birkBakers bps6) == [0,2] &&
-          let b0 = Types.birkBakers bps6 Map.! 0
-          in Types.bakerSignatureVerifyKey b0 == BlockSig.verifyKey (bakerSignKey 3) &&
-             Types.bakerSignatureVerifyKey (Types.birkBakers bps5 Map.! 0) == BlockSig.verifyKey (bakerSignKey 0)
+          Map.keys (bps6 ^. Types.birkBakers . bakerMap) == [0,2] &&
+          let b0 = (bps6 ^. Types.birkBakers . bakerMap) Map.! 0
+          in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&
+             ((bps5 ^. Types.birkBakers . bakerMap) Map.! 0) ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
         _ -> False
         

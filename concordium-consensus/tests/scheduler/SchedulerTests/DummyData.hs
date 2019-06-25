@@ -17,6 +17,7 @@ import Concordium.Crypto.Ed25519Signature
 import qualified Data.Map as Map
 
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Bakers
 
 import qualified Concordium.Scheduler.Types as Types
 
@@ -62,6 +63,7 @@ mkAccount vfKey amnt = Types.Account aaddr
                                      vfKey
                                      Ed25519
                                      []
+                                     Nothing
   where aaddr = accountAddress vfKey Ed25519
 
 -- |Make a dummy credential deployment information from an account registration
@@ -84,10 +86,9 @@ mkDummyCDI vfKey nregId =
 
 emptyBirkParameters :: BirkParameters
 emptyBirkParameters = BirkParameters {
-  birkLeadershipElectionNonce = "",
-  birkElectionDifficulty = 0.5,
-  birkBakers = Map.empty,
-  nextBakerId = 0
+  _birkLeadershipElectionNonce = "",
+  _birkElectionDifficulty = 0.5,
+  _birkBakers = emptyBakers
   }
 
 bakerElectionKey :: Int -> BakerElectionPrivateKey
@@ -102,8 +103,8 @@ bakerSignKey n = fst (BlockSig.randomKeyPair (mkStdGen n))
 -- The baker has 0 lottery power.
 mkBaker :: Int -> AccountAddress -> BakerInfo
 mkBaker seed acc = BakerInfo {
-  bakerElectionVerifyKey = VRF.publicKey (bakerElectionKey seed),
-  bakerSignatureVerifyKey = BlockSig.verifyKey (bakerSignKey seed),
-  bakerLotteryPower = 0,
-  bakerAccount = acc
+  _bakerElectionVerifyKey = VRF.publicKey (bakerElectionKey seed),
+  _bakerSignatureVerifyKey = BlockSig.verifyKey (bakerSignKey seed),
+  _bakerStake = 0,
+  _bakerAccount = acc
   }

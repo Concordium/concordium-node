@@ -115,7 +115,7 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
-  addBaker :: BakerInfo -> m BakerId
+  addBaker :: BakerCreationInfo -> m BakerId
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()

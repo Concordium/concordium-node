@@ -3,12 +3,13 @@ module Concordium.Birk.LeaderElection where
 import           Data.ByteString.Builder
 import qualified Data.ByteString.Lazy          as L
 import           Data.ByteString
+import Data.Ratio
 
 import qualified Concordium.Crypto.VRF    as VRF
 import           Concordium.Types
 
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double
-electionProbability alpha diff = 1 - (1 - diff) ** alpha
+electionProbability alpha diff = 1 - (1 - diff) ** (fromIntegral (numerator alpha) / fromIntegral (denominator alpha) )
 
 leaderElectionMessage :: LeadershipElectionNonce -> Slot -> ByteString
 leaderElectionMessage nonce (Slot sl) =

@@ -19,6 +19,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
+import Concordium.GlobalState.Bakers(bakerSignatureVerifyKey)
 import qualified Concordium.GlobalState.Instances as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
@@ -512,7 +513,8 @@ handleDeployCredential meta cdi energy = do
                                  , _accountEncryptedAmount = []
                                  , _accountVerificationKey = ID.cdi_verifKey cdi
                                  , _accountSignatureScheme = ID.cdi_sigScheme cdi
-                                 , _accountCredentials = []}
+                                 , _accountCredentials = []
+                                 , _accountStakeDelegate = Nothing}
            in if AH.verifyCredential cdi then do
                 _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                            -- We know the address does not yet exist.
@@ -613,11 +615,7 @@ handleAddBaker meta senderAccount abElectionVerifyKey abSignatureVerifyKey abAcc
                     -- Moreover at this point we know the reward account exists and belongs
                     -- to the baker.
                     -- Thus we can create the baker, starting it off with 0 lottery power.
-                    bid <- addBaker (BakerInfo { bakerElectionVerifyKey = abElectionVerifyKey,
-                                                 bakerSignatureVerifyKey = abSignatureVerifyKey,
-                                                 bakerLotteryPower = 0,
-                                                 bakerAccount = abAccount
-                                               })
+                    bid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAccount)
                     return $! TxValid (TxSuccess [BakerAdded bid])
                   else return $! TxValid (TxReject InvalidProof)
 
@@ -644,7 +642,7 @@ handleRemoveBaker meta senderAccount rbId rbProof energy =
        \case Nothing ->
                return $ TxValid (TxReject (RemovingNonExistentBaker rbId))
              Just binfo ->
-               if checkSignatureVerifyKeyProof (bakerSignatureVerifyKey binfo) rbProof then do
+               if checkSignatureVerifyKeyProof (binfo ^. bakerSignatureVerifyKey) rbProof then do
                  -- only the baker itself can remove themselves from the pool
                  removeBaker rbId
                  return $ TxValid (TxSuccess [BakerRemoved rbId])
@@ -680,7 +678,7 @@ handleUpdateBakerAccount meta senderAccount ubaId ubaAddress ubaProof energy = d
       \case Nothing ->
               return $ TxValid (TxReject (UpdatingNonExistentBaker ubaId))
             Just binfo ->
-              if checkSignatureVerifyKeyProof (bakerSignatureVerifyKey binfo) ubaProof then do
+              if checkSignatureVerifyKeyProof (binfo ^. bakerSignatureVerifyKey) ubaProof then do
                 -- only the baker itself can update its account
                 -- now check the account exists and the baker owns it
                 getAccount ubaAddress >>=
@@ -722,7 +720,7 @@ handleUpdateBakerSignKey meta senderAccount ubsId ubsKey ubsProof energy =
       \case Nothing ->
               return $ TxValid (TxReject (UpdatingNonExistentBaker ubsId))
             Just binfo ->
-              if checkSignatureVerifyKeyProof (bakerSignatureVerifyKey binfo) ubsProof then
+              if checkSignatureVerifyKeyProof (binfo ^. bakerSignatureVerifyKey) ubsProof then
                 -- only the baker itself can update its own key
                 -- now also check that they own the private key for the new signature key
                 let signP = checkSignatureVerifyKeyProof ubsKey ubsProof -- FIXME: We will need a separate proof object here.

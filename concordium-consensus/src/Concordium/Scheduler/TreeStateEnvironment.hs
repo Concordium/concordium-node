@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DerivingVia, DerivingStrategies, StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
 
@@ -16,9 +17,11 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Block(blockSlot)
+import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import qualified Concordium.GlobalState.Modules as Modules
+import Concordium.Scheduler.EnvironmentImplementation (BSOMonadWrapper(..))
 
 import Control.Monad.RWS.Strict
 
@@ -28,12 +31,19 @@ import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ChainMetadata () state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ChainMetadata, MonadTrans)
+    -- deriving StaticEnvironmentMonad via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+
+deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad (BlockStateMonad state m)
+
+deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
+    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
 runBSM :: Monad m => BlockStateMonad b m a -> ChainMetadata -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', ()) <- runRWST (_runBSM m) cm s
   return (r, s')
-
+{-
 instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad (BlockStateMonad state m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = ask
@@ -45,7 +55,8 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnviro
     case mmod of
       Nothing -> return Nothing
       Just m -> return (Just (Modules.moduleInterface m, Modules.moduleValueInterface m))
-
+-}
+{-
 instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m) where
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip bsoGetInstance addr =<< get
@@ -144,7 +155,7 @@ instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMon
     s <- get
     s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
     put s'
-
+-}
 
 -- |Reward the baker, identity providers, ...
 -- TODO: Currently the finalized pointer is not used. But the finalization committee
