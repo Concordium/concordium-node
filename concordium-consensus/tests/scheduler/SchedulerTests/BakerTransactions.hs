@@ -128,7 +128,6 @@ tests = do
 
 
     specify "Update first baker's sign key." $
-      -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 4, results !! 5) of
         ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
           Map.keys (bps6 ^. Types.birkBakers . bakerMap) == [0,2] &&
