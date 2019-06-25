@@ -15,10 +15,7 @@ use std::{
 
 use crate::{common::*, parameters::*, transaction::*};
 
-pub const BLOCK_HASH: u8 = SHA256;
-const POINTER: u8 = BLOCK_HASH;
-const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
-const LAST_FINALIZED: u8 = BLOCK_HASH;
+const NONCE: u8 = size_of::<BlockHash>() as u8 + PROOF_LENGTH as u8; // should soon be shorter
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 
 #[derive(Debug)]
@@ -102,7 +99,7 @@ pub struct BakedBlock {
     proof:              Encoded,
     nonce:              Encoded,
     pub last_finalized: BlockHash,
-    transactions:       Transactions,
+    transactions:       Box<[Transaction]>,
     signature:          Encoded,
 }
 
@@ -130,8 +127,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
         let last_finalized = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
-        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
-        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
+        let transactions = read_multiple!(&mut cursor, "transactions", Transaction::deserialize(&mut cursor)?);
         let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let block = BakedBlock {
@@ -151,15 +147,19 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let transactions = Transactions::serialize(&self.transactions);
-        let consts = size_of::<Slot>()
-            + POINTER as usize
+        let transactions = serialize_list(&self.transactions);
+
+        let mut cursor = create_serialization_cursor(
+            size_of::<Slot>()
+            + size_of::<BlockHash>()
             + size_of::<BakerId>()
             + PROOF_LENGTH
             + NONCE as usize
-            + LAST_FINALIZED as usize
-            + SIGNATURE as usize;
-        let mut cursor = create_serialization_cursor(consts + transactions.len());
+            + size_of::<BlockHash>()
+            + size_of::<u64>()
+            + list_len(&transactions)
+            + SIGNATURE as usize
+        );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
         let _ = cursor.write_all(&self.pointer);
@@ -167,7 +167,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let _ = cursor.write_all(&self.proof);
         let _ = cursor.write_all(&self.nonce);
         let _ = cursor.write_all(&self.last_finalized);
-        let _ = cursor.write_all(&transactions);
+        write_multiple!(&mut cursor, transactions, Write::write_all);
         let _ = cursor.write_all(&self.signature);
 
         cursor.into_inner()
@@ -214,14 +214,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(list: &'a [T]) -> Vec<Box<[u8]>> {
-            list.iter().map(|elem| elem.serialize()).collect()
-        }
-
-        fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {
-            list.iter().map(|elem| elem.as_ref().len()).sum()
-        }
-
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let baker_accounts = serialize_list(&self.baker_accounts);
         let finalization_params = serialize_list(&self.finalization_parameters);

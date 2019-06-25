@@ -16,7 +16,7 @@ const HEADER: u8 = size_of::<SessionId>() as u8
     + size_of::<Party>() as u8;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 const WMVBA_TYPE: u8 = 1;
-const VAL: u8 = BLOCK_HASH;
+const VAL: u8 = size_of::<BlockHash>() as u8;
 const TICKET: u8 = 80;
 
 #[derive(PartialEq, Eq, Hash)]
@@ -501,7 +501,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let mut cursor = Cursor::new(bytes);
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let block_pointer = HashBytes::from(read_const_sized!(&mut cursor, BLOCK_HASH));
+        let block_pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
 
         let proof = read_multiple!(
             cursor,

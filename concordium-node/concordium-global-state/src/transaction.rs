@@ -81,16 +81,15 @@ pub struct Transaction {
     hash:      TransactionHash,
 }
 
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Transaction {
-    type Source = &'a [u8];
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
+    type Source = &'a mut Cursor<&'b [u8]>;
 
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let signature = read_bytestring(&mut cursor, "transaction signature")?;
-        let header = TransactionHeader::deserialize(&mut cursor)?;
-        let payload = read_bytestring(&mut cursor, "transaction payload")?;
-        let hash = sha256(&bytes[..cursor.position() as usize]);
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let initial_pos = cursor.position() as usize;
+        let signature = read_bytestring(cursor, "transaction signature")?;
+        let header = TransactionHeader::deserialize(cursor)?;
+        let payload = read_bytestring(cursor, "transaction payload")?;
+        let hash = sha256(&cursor.get_ref()[initial_pos..cursor.position() as usize]);
 
         let transaction = Transaction {
             signature,
@@ -117,42 +116,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Transaction {
         let _ = cursor.write_u64::<NetworkEndian>(self.signature.len() as u64);
         let _ = cursor.write_all(&self.signature);
         let _ = cursor.write_all(&self.payload);
-
-        cursor.into_inner()
-    }
-}
-
-pub type TransactionCount = u64;
-
-#[derive(Debug)]
-pub struct Transactions(Vec<Transaction>);
-
-impl<'a, 'b> SerializeToBytes<'a, 'b> for Transactions {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let transaction_count = safe_get_len!(&mut cursor, "transaction count");
-        let transactions = Transactions(Vec::with_capacity(transaction_count as usize));
-
-        if transaction_count > 0 {
-            // FIXME: determine how to read each transaction
-        }
-
-        check_serialization!(transactions, cursor);
-
-        Ok(transactions)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        // FIXME: add an estimated size of all Transactions
-        let mut cursor = create_serialization_cursor(size_of::<TransactionCount>());
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.0.len() as u64);
-        for transaction in &self.0 {
-            let _ = cursor.write_all(&transaction.serialize());
-        }
 
         cursor.into_inner()
     }
