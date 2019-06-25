@@ -14,8 +14,6 @@ import Concordium.ID.Types
 import Concordium.ID.Attributes
 import Concordium.Crypto.Ed25519Signature
 
-import qualified Data.Map as Map
-
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 

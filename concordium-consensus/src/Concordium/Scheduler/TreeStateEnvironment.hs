@@ -17,10 +17,8 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Block(blockSlot)
-import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
-import qualified Concordium.GlobalState.Modules as Modules
 import Concordium.Scheduler.EnvironmentImplementation (BSOMonadWrapper(..))
 
 import Control.Monad.RWS.Strict
@@ -31,7 +29,6 @@ import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ChainMetadata () state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ChainMetadata, MonadTrans)
-    -- deriving StaticEnvironmentMonad via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
 
 deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad (BlockStateMonad state m)
@@ -43,119 +40,6 @@ runBSM :: Monad m => BlockStateMonad b m a -> ChainMetadata -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', ()) <- runRWST (_runBSM m) cm s
   return (r, s')
-{-
-instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad (BlockStateMonad state m) where
-  {-# INLINE getChainMetadata #-}
-  getChainMetadata = ask
-
-  {-# INLINE getModuleInterfaces #-}
-  getModuleInterfaces mref = do
-    s <- get
-    mmod <- lift (bsoGetModule s mref)
-    case mmod of
-      Nothing -> return Nothing
-      Just m -> return (Just (Modules.moduleInterface m, Modules.moduleValueInterface m))
--}
-{-
-instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m) where
-  {-# INLINE getContractInstance #-}
-  getContractInstance addr = lift . flip bsoGetInstance addr =<< get
-
-  {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip bsoGetAccount addr =<< get
-  
-  {-# INLINE putNewInstance #-}
-  putNewInstance !mkInstance = do
-    (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< get
-    put s'
-    return caddr
-
-  putNewAccount !account = do
-    (res, s') <- lift . flip bsoPutNewAccount account =<< get
-    put s'
-    return res
-
-  accountRegIdExists !regid =
-    lift . flip bsoRegIdExists regid =<< get
-
-  commitModule !mhash !iface !viface !source = do
-    (res, s') <- lift . (\s -> bsoPutNewModule s mhash iface viface source) =<< get
-    put s'
-    return res
-
-  increaseAccountNonce addr = do
-    s <- get
-    macc <- lift $ bsoGetAccount s addr
-    case macc of
-      Nothing -> error "increaseAccountNonce precondition violated."
-      Just acc ->
-        let nonce = acc ^. accountNonce in do
-        s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
-        put s'
-
-
-  addAccountCredential !addr !cdi = do
-    s <- get
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
-    put s'
-
-  addAccountEncryptionKey !addr !encKey = do
-    s <- get
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
-    put s'
-
-
-  commitStateAndAccountChanges !cs = do
-    s <- get
-    s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
-                      s
-                      (HM.toList (cs ^. instanceUpdates)))
-    s'' <- lift (foldM bsoModifyAccount s' (cs ^. accountUpdates))
-    put s''
-
-  -- |FIXME: Make this variable base on block state
-  energyToGtu = return . fromIntegral
-
-  notifyExecutionCost !amnt = do
-    s <- get
-    s' <- lift (bsoNotifyExecutionCost s amnt)
-    put s'
-
-  notifyIdentityProviderCredential !idk = do
-    s <- get
-    s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
-    put s'
-
-  {-# INLINE getBakerInfo #-}
-  getBakerInfo bid = do
-    s <- get
-    lift (bsoGetBakerInfo s bid)
-
-  {-# INLINE addBaker #-}
-  addBaker binfo = do
-    s <- get
-    (bid, s') <- lift (bsoAddBaker s binfo)
-    put s'
-    return bid
-
-  {-# INLINE removeBaker #-}
-  removeBaker bid = do
-    s <- get
-    (_, s') <- lift (bsoRemoveBaker s bid)
-    put s'
-
-  {-# INLINE updateBakerSignKey #-}
-  updateBakerSignKey bid signKey = do
-    s <- get
-    s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buSignKey ?~ signKey))
-    put s'
-
-  {-# INLINE updateBakerAccount #-}
-  updateBakerAccount bid bacc = do
-    s <- get
-    s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
-    put s'
--}
 
 -- |Reward the baker, identity providers, ...
 -- TODO: Currently the finalized pointer is not used. But the finalization committee

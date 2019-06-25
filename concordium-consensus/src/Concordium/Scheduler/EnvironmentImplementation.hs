@@ -10,25 +10,19 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import Data.HashMap.Strict as Map
-import Data.Map.Strict as OrdMap
 import Data.Functor.Identity
 
 import Lens.Micro.Platform
 
 import Control.Monad.Reader
 import Control.Monad.Trans.RWS.Strict hiding (ask, get, put)
-import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 
-import Concordium.ID.Types(cdi_regId)
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.BlockState (auAddress, updateAccount)
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.BlockState hiding (BlockState)
 import Concordium.GlobalState.Basic.BlockState
-import qualified Concordium.GlobalState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
-import qualified Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Bakers as Bakers
 
 newtype BSOMonadWrapper r s m a = BSOMonadWrapper (m a)

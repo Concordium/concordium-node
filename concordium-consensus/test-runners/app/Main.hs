@@ -5,15 +5,12 @@ module Main where
 import Control.Concurrent
 import Control.Monad
 import System.Random
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 import System.IO
 import Lens.Micro.Platform
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
@@ -22,8 +19,6 @@ import Concordium.GlobalState.BlockState(BlockPointerData(..))
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState
 
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
