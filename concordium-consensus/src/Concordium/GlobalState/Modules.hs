@@ -76,3 +76,10 @@ unsafePutInterfaces mref iface viface source m =
              _nextModuleIndex = 1 + _nextModuleIndex m,
              _runningHash = H.hashLazy $ runPutLazy $ put (_runningHash m) <> put mref
             }
+
+-- |Get a module.
+getModule :: Core.ModuleRef -> Modules -> Maybe Module
+getModule ref mods = Map.lookup ref (_modules mods)
+
+moduleList :: Modules -> [Core.ModuleRef]
+moduleList mods = Map.keys (_modules mods)

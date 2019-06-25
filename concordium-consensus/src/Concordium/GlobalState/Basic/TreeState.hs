@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase #-}
+{-# LANGUAGE DerivingStrategies, DerivingVia #-}
 module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
@@ -109,135 +110,11 @@ initialSkovData gd genState = SkovData {
 
 newtype SkovTreeState s m a = SkovTreeState {runSkovTreeState :: m a}
     deriving (Functor, Monad, Applicative, MonadState s)
-
-instance (Monad m, MonadState s m) => BS.BlockStateQuery (SkovTreeState s m) where
-
-    {-# INLINE getModule #-}
-    getModule bs mref = 
-      let Modules.Modules{..} = bs ^. blockModules
-      in return $ HM.lookup mref _modules
-
-    {-# INLINE getContractInstance #-}
-    getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
-
-    {-# INLINE getAccount #-}
-    getAccount bs aaddr =
-      return $ bs ^? blockAccounts . ix aaddr
-
-    {-# INLINE getModuleList #-}
-    getModuleList bs = 
-      let Modules.Modules{..} = bs ^. blockModules
-      in return $ HM.keys _modules
-
-    {-# INLINE getContractInstanceList #-}
-    getContractInstanceList bs = return (bs ^.. blockInstances . Instances.foldInstances)
-
-    {-# INLINE getAccountList #-}
-    getAccountList bs =
-      return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
-  
-    {-# INLINE getBirkParameters #-}
-    getBirkParameters = return . _blockBirkParameters
-
-    {-# INLINE getRewardStatus #-}
-    getRewardStatus = return . _blockBank
-
-type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
-
-instance (Monad m, MonadState s m) => BS.BlockStateOperations (SkovTreeState s m) where
-
-    {-# INLINE bsoGetModule #-}
-    bsoGetModule bs mref = 
-      let Modules.Modules{..} = bs ^. blockModules
-      in return $ HM.lookup mref _modules
-
-    {-# INLINE bsoGetInstance #-}
-    bsoGetInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
-
-    {-# INLINE bsoGetAccount #-}
-    bsoGetAccount bs aaddr =
-      return $ bs ^? blockAccounts . ix aaddr
-
-    {-# INLINE bsoRegIdExists #-}
-    bsoRegIdExists bs regid = return (Account.regIdExists regid (bs ^. blockAccounts))
-
-    {-# INLINE bsoPutNewAccount #-}
-    bsoPutNewAccount bs acc = return $
-        if Account.exists addr accounts then
-          (False, bs)
-        else
-          (True, bs & blockAccounts .~ Account.putAccount acc accounts)
-        where accounts = bs ^. blockAccounts
-              addr = acc ^. accountAddress
-
-    bsoPutNewInstance bs mkInstance = return $
-        let (caddr, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
-        in (caddr, bs & blockInstances .~ instances')
-
-    bsoPutNewModule bs mref iface viface source = return $
-        case Modules.putInterfaces mref iface viface source (bs ^. blockModules) of
-          Nothing -> (False, bs)
-          Just mods' -> (True, bs & blockModules .~ mods')
-
-    bsoModifyInstance bs caddr amount model = return $
-        bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
-
-    bsoModifyAccount bs accountUpdates = return $
-        let account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
-            updatedAccount = BS.updateAccount accountUpdates account
-        in case accountUpdates ^. BS.auCredential of
-             Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount
-             Just cdi ->
-               bs & blockAccounts %~ Account.putAccount updatedAccount
-                                   . Account.recordRegId (cdi_regId cdi)
-
-    {-# INLINE bsoNotifyExecutionCost #-}
-    bsoNotifyExecutionCost bs amnt =
-      return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
-
-    bsoNotifyIdentityIssuerCredential bs idk =
-      return . snd $ bs & blockBank . Rewards.identityIssuersRewards . at idk . non 0 <%~ (+ 1)
-
-    {-# INLINE bsoGetExecutionCost #-}
-    bsoGetExecutionCost bs =
-      return $ bs ^. blockBank . Rewards.executionCost 
-
-    {-# INLINE bsoGetBirkParameters #-}
-    bsoGetBirkParameters = return . _blockBirkParameters
-
-    bsoAddBaker bs binfo = return $ 
-        let bid = bs ^. blockBirkParameters . to nextBakerId
-            bs' = bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid binfo (birkBakers bp) })
-            bs'' = bs' & blockBirkParameters %~ (\bp -> bp { nextBakerId = bid + 1 })
-        in (bid, bs'')
-
-    -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
-    bsoUpdateBaker bs bupdate = return $
-        let bid = bupdate ^. BS.buId
-            oldbinfo = bs ^. blockBirkParameters . to birkBakers . singular (ix bid)
-        in bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.insert bid (BS.updateBaker bupdate oldbinfo) (birkBakers bp) })
-
-    bsoRemoveBaker bs bid = return $ 
-        case bs ^? blockBirkParameters . to birkBakers . ix bid of
-          Nothing -> (False, bs)
-          Just _ -> (True, bs & blockBirkParameters %~ (\bp -> bp { birkBakers = Map.delete bid (birkBakers bp) }))
-
-    bsoSetInflation bs amnt = return $
-        bs & blockBank . Rewards.mintedGTUPerSlot .~ amnt
-
-    -- mint currency in the central bank, and also update the total gtu amount to maintain the invariant
-    -- that the total gtu amount is indeed the total gtu amount
-    bsoMint bs amount = return $
-        let updated = bs & ((blockBank . Rewards.totalGTU) +~ amount) .
-                           ((blockBank . Rewards.centralBankGTU) +~ amount)
-        in (updated ^. blockBank . Rewards.centralBankGTU, updated)
-
-    bsoDecrementCentralBankGTU bs amount = return $
-        let updated = bs & ((blockBank . Rewards.centralBankGTU) -~ amount)
-        in (updated ^. blockBank . Rewards.centralBankGTU, updated)
-
+    deriving (BS.BlockStateQuery) via (PureBlockStateMonad m)
+    deriving (BS.BlockStateOperations) via (PureBlockStateMonad m)
 
 type instance BS.BlockPointer (SkovTreeState s m) = BlockPointer
+type instance BS.UpdatableBlockState (SkovTreeState s m) = BlockState
 
 instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeState s m) where
     getBlockStatus bh = use (blockTable . at bh)
