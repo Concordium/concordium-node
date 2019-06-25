@@ -9,7 +9,6 @@ module Concordium.GlobalState.Parameters(
 ) where
 
 import GHC.Generics
-import qualified Data.Map as Map
 import Data.Word
 import Data.Ratio
 import Data.Serialize

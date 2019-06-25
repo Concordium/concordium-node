@@ -16,7 +16,6 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
-import Concordium.ID.Types(cdi_regId)
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
@@ -26,9 +25,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.GlobalState.Transactions
-import qualified Concordium.GlobalState.Modules as Modules
-import qualified Concordium.GlobalState.Account as Account
-import qualified Concordium.GlobalState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 
 import Concordium.GlobalState.Basic.BlockState
