@@ -126,8 +126,13 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
-        let transactions = read_multiple!(&mut cursor, "transactions", Transaction::deserialize(&mut cursor)?);
+        let last_finalized =
+            HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
+        let transactions = read_multiple!(
+            &mut cursor,
+            "transactions",
+            Transaction::deserialize(&mut cursor)?
+        );
         let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let block = BakedBlock {
@@ -151,14 +156,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
 
         let mut cursor = create_serialization_cursor(
             size_of::<Slot>()
-            + size_of::<BlockHash>()
-            + size_of::<BakerId>()
-            + PROOF_LENGTH
-            + NONCE as usize
-            + size_of::<BlockHash>()
-            + size_of::<u64>()
-            + list_len(&transactions)
-            + SIGNATURE as usize
+                + size_of::<BlockHash>()
+                + size_of::<BakerId>()
+                + PROOF_LENGTH
+                + NONCE as usize
+                + size_of::<BlockHash>()
+                + size_of::<u64>()
+                + list_len(&transactions)
+                + SIGNATURE as usize,
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);

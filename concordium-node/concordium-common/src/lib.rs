@@ -87,9 +87,7 @@ impl HashBytes {
 }
 
 impl From<[u8; 32]> for HashBytes {
-    fn from(array: [u8; 32]) -> Self {
-        HashBytes(array)
-    }
+    fn from(array: [u8; 32]) -> Self { HashBytes(array) }
 }
 
 impl Deref for HashBytes {
