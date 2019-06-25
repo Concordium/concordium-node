@@ -158,7 +158,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 pub type Amount = u64;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Nonce(NonZeroU64);
+pub struct Nonce(pub NonZeroU64);
 
 impl TryFrom<u64> for Nonce {
     type Error = failure::Error;
