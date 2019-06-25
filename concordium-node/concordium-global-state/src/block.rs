@@ -95,7 +95,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:           Slot,
     pub pointer:        BlockHash,
@@ -104,7 +103,7 @@ pub struct BakedBlock {
     nonce:              Encoded,
     pub last_finalized: BlockHash,
     transactions:       Transactions,
-    signature:          ByteString,
+    signature:          Encoded,
 }
 
 // this is a very debug method used only by the Display impl of ConsensusMessage
@@ -126,14 +125,14 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let mut cursor = Cursor::new(bytes);
 
         let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
+        let pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
         let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
+        let last_finalized = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
         let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
         let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
-        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
+        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let block = BakedBlock {
             slot,
@@ -377,9 +376,7 @@ impl Ord for BlockPtr {
 }
 
 impl fmt::Debug for BlockPtr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.hash)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self.hash) }
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for BlockPtr {

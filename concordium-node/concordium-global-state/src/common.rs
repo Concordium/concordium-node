@@ -172,6 +172,8 @@ impl TryFrom<u64> for Nonce {
 
 pub type Slot = u64;
 
+pub type Energy = u64;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct SessionId {
     genesis_block: BlockHash,
@@ -186,7 +188,7 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
+        let genesis_block = HashBytes::from(read_const_sized!(&mut cursor, size_of::<HashBytes>()));
         let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let sess = SessionId {
