@@ -1,35 +1,36 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell, RankNTypes #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
-module Concordium.GlobalState.Parameters where
+module Concordium.GlobalState.Parameters(
+    module Concordium.GlobalState.Parameters,
+    BakerInfo,
+    BakerCreationInfo(..)
+) where
 
 import GHC.Generics
 import qualified Data.Map as Map
 import Data.Word
+import Data.Ratio
 import Data.Serialize
+import Lens.Micro.Platform
 
 import Concordium.Types
+import Concordium.GlobalState.Bakers
 
-data BakerInfo = BakerInfo {
-    bakerElectionVerifyKey :: BakerElectionVerifyKey,
-    bakerSignatureVerifyKey :: BakerSignVerifyKey,
-    bakerLotteryPower :: LotteryPower,
-    bakerAccount :: AccountAddress
-} deriving (Eq, Generic, Show)
-instance Serialize BakerInfo where
 
 data BirkParameters = BirkParameters {
-    birkLeadershipElectionNonce :: LeadershipElectionNonce,
-    birkElectionDifficulty :: ElectionDifficulty,
-    birkBakers :: Map.Map BakerId BakerInfo,
-    -- |Next available baker id. This is needed so that we do not recycle baker
-    -- ids even if bakers are removed.
-    nextBakerId :: BakerId
+    _birkLeadershipElectionNonce :: LeadershipElectionNonce,
+    _birkElectionDifficulty :: ElectionDifficulty,
+    _birkBakers :: Bakers
 } deriving (Eq, Generic, Show)
 instance Serialize BirkParameters where
 
-birkBaker :: BakerId -> BirkParameters -> Maybe BakerInfo
-birkBaker bid bps = Map.lookup bid (birkBakers bps)
+makeLenses ''BirkParameters
+
+birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
+birkBaker bid bps = (bps ^. birkBakers . bakerMap . at bid) <&>
+                        \bkr -> (bkr, (bkr ^. bakerStake) % (bps ^. birkBakers . bakerTotalStake))
 
 
 data VoterInfo = VoterInfo {

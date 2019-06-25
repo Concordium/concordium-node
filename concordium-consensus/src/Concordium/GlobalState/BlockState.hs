@@ -6,6 +6,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
 module Concordium.GlobalState.BlockState where
 
 import Data.Time
@@ -14,7 +15,8 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Class
-import Control.Monad.Trans.RWS
+import Control.Monad.Trans.RWS.Strict
+import Control.Monad
 
 import Concordium.Types
 import Concordium.GlobalState.Block
@@ -24,7 +26,8 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instances
-import Concordium.GlobalState.Modules
+import Concordium.GlobalState.Modules hiding (getModule)
+import Concordium.GlobalState.Bakers
 
 import qualified Concordium.ID.Types as ID
 
@@ -132,29 +135,6 @@ updateAccount !upd !acc =
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
-data BakerUpdate = BakerUpdate {
-  -- |Identity of the baker to update.
-  _buId :: !BakerId,
-  -- |Optionally update the baker's reward account.
-  _buAccount :: !(Maybe AccountAddress),
-  -- |Optionally update the baker's public verification key.
-  _buSignKey :: !(Maybe BakerSignVerifyKey),
-  -- |Optionally update the baker's lottery power.
-  _buLotteryPower :: !(Maybe LotteryPower)
-}
-
-emptyBakerUpdate :: BakerId -> BakerUpdate
-emptyBakerUpdate bid = BakerUpdate bid Nothing Nothing Nothing
-
-makeLenses ''BakerUpdate
-
-updateBaker :: BakerUpdate -> BakerInfo -> BakerInfo
-updateBaker !BakerUpdate{..} !binfo =
-  binfo {
-    bakerSignatureVerifyKey = fromMaybe (binfo & bakerSignatureVerifyKey) _buSignKey,
-    bakerAccount = fromMaybe (binfo & bakerAccount) _buAccount,
-    bakerLotteryPower = fromMaybe (binfo & bakerLotteryPower) _buLotteryPower
-  }
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -207,23 +187,20 @@ class BlockStateQuery m => BlockStateOperations m where
 
   bsoGetBakerInfo :: UpdatableBlockState m -> BakerId -> m (Maybe BakerInfo)
   bsoGetBakerInfo s bid = do
-    BirkParameters{..} <- bsoGetBirkParameters s
-    return $! Map.lookup bid birkBakers
+    bps <- bsoGetBirkParameters s
+    return $! fst <$> birkBaker bid bps
 
   -- |Get the account of the given baker.
   bsoGetBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
   bsoGetBakerAccount s bid = do
-    BirkParameters{..} <- bsoGetBirkParameters s
-    let maddr = bakerAccount <$> Map.lookup bid birkBakers
-    case maddr of
-      Nothing -> return Nothing
-      Just addr -> bsoGetAccount s addr
+    binfo <- bsoGetBakerInfo s bid
+    join <$> mapM (bsoGetAccount s . _bakerAccount) binfo
 
 
   -- |Add a new baker to the baker pool. Assign a fresh baker identity to the 
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
-  bsoAddBaker :: UpdatableBlockState m -> BakerInfo -> m (BakerId, UpdatableBlockState m)
+  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (BakerId, UpdatableBlockState m)
   
   -- |Update an existing baker's information. The method may assume that the baker with 
   -- the given Id exists.
@@ -244,95 +221,76 @@ class BlockStateQuery m => BlockStateOperations m where
   -- sufficient.
   bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
-instance BlockStateQuery m => BlockStateQuery (MaybeT m) where
+newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
+    deriving (Functor, Applicative, Monad, MonadTrans)
+type instance UpdatableBlockState (BSMTrans t m) = UpdatableBlockState m
+type instance BlockPointer (BSMTrans t m) = BlockPointer m
 
+instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (BSMTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
   getContractInstance s = lift . getContractInstance s
-
   getModuleList = lift . getModuleList
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
-
   getBirkParameters = lift . getBirkParameters
-
   getRewardStatus = lift . getRewardStatus
+  {-# INLINE getModule #-}
+  {-# INLINE getAccount #-}
+  {-# INLINE getContractInstance #-}
+  {-# INLINE getModuleList #-}
+  {-# INLINE getAccountList #-}
+  {-# INLINE getContractInstanceList #-}
+  {-# INLINE getBirkParameters #-}
+  {-# INLINE getRewardStatus #-}
 
-
-type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
-
-instance BlockStateOperations m => BlockStateOperations (MaybeT m) where
-  -- |Get the module from the module table of the state instance.
+instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (BSMTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoRegIdExists s = lift . bsoRegIdExists s
-
-  bsoPutNewAccount s = bsoPutNewAccount s
-  bsoPutNewInstance s = bsoPutNewInstance s
+  bsoPutNewAccount s = lift . bsoPutNewAccount s
+  bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
-
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
-
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
   bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
-
   bsoGetBirkParameters = lift . bsoGetBirkParameters
   bsoAddBaker s = lift . bsoAddBaker s
   bsoUpdateBaker s = lift . bsoUpdateBaker s
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoSetInflation s = lift . bsoSetInflation s
-
   bsoMint s = lift . bsoMint s
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
+  {-# INLINE bsoGetModule #-}
+  {-# INLINE bsoGetAccount #-}
+  {-# INLINE bsoGetInstance #-}
+  {-# INLINE bsoRegIdExists #-}
+  {-# INLINE bsoPutNewAccount #-}
+  {-# INLINE bsoPutNewInstance #-}
+  {-# INLINE bsoPutNewModule #-}
+  {-# INLINE bsoModifyAccount #-}
+  {-# INLINE bsoModifyInstance #-}
+  {-# INLINE bsoNotifyExecutionCost #-}
+  {-# INLINE bsoNotifyIdentityIssuerCredential #-}
+  {-# INLINE bsoGetExecutionCost #-}
+  {-# INLINE bsoGetBirkParameters #-}
+  {-# INLINE bsoAddBaker #-}
+  {-# INLINE bsoUpdateBaker #-}
+  {-# INLINE bsoRemoveBaker #-}
+  {-# INLINE bsoSetInflation #-}
+  {-# INLINE bsoMint #-}
+  {-# INLINE bsoDecrementCentralBankGTU #-}
 
 
 type instance BlockPointer (MaybeT m) = BlockPointer m
-
-instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m) where
-  getModule s = lift . getModule s
-  getAccount s = lift . getAccount s
-  getContractInstance s = lift . getContractInstance s
-
-  getModuleList = lift . getModuleList
-  getAccountList = lift . getAccountList
-  getContractInstanceList = lift . getContractInstanceList
-
-  getBirkParameters = lift . getBirkParameters
-
-  getRewardStatus = lift . getRewardStatus
-
-
-type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
-
-instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m) where
-  -- |Get the module from the module table of the state instance.
-  bsoGetModule s = lift . bsoGetModule s
-  bsoGetAccount s = lift . bsoGetAccount s
-  bsoGetInstance s = lift . bsoGetInstance s
-  bsoRegIdExists s = lift . bsoRegIdExists s
-
-  bsoPutNewAccount s = bsoPutNewAccount s
-  bsoPutNewInstance s = bsoPutNewInstance s
-  bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
-
-  bsoModifyAccount s = lift . bsoModifyAccount s
-  bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
-
-  bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
-  bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
-  bsoGetExecutionCost = lift . bsoGetExecutionCost
-
-  bsoGetBirkParameters = lift . bsoGetBirkParameters
-  bsoAddBaker s = lift . bsoAddBaker s
-  bsoUpdateBaker s = lift . bsoUpdateBaker s
-  bsoRemoveBaker s = lift . bsoRemoveBaker s
-
-  bsoSetInflation s = lift . bsoSetInflation s
-
-  bsoMint s = lift . bsoMint s
-  bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
+type instance UpdatableBlockState (MaybeT m) = UpdatableBlockState m
+deriving via (BSMTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
+deriving via (BSMTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 
 type instance BlockPointer (RWST r w s m) = BlockPointer m
+type instance UpdatableBlockState (RWST r w s m) = UpdatableBlockState m
+deriving via (BSMTrans (RWST r w s) m) instance (BlockStateQuery m, Monoid w) => BlockStateQuery (RWST r w s m)
+deriving via (BSMTrans (RWST r w s) m) instance (BlockStateOperations m, Monoid w) => BlockStateOperations (RWST r w s m)
