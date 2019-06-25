@@ -40,18 +40,17 @@ for l in /target/profiling/ghc/libHSrts_p.a \
     rm $l;
 done
 
-wget http://hackage.haskell.org/package/cabal-install-2.4.1.0/cabal-install-2.4.1.0.tar.gz
-tar -xf cabal-install-2.4.1.0.tar.gz
-cd cabal-install-2.4.1.0
-
-./bootstrap.sh --no-doc
+wget https://downloads.haskell.org/~cabal/cabal-install-latest/cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
+tar -xf cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
+mkdir -p $HOME/.cabal/bin
+chmod +x cabal
+mv cabal $HOME/.cabal/bin/
 export PATH=$PATH:$HOME/.cabal/bin
+
+cabal new-update
 
 (cd
 cabal new-install hpack)
-
-cd ..
-rm -rf cabal-install-2.4.1.0 cabal-install-2.4.1.0.tar.gz
 
 sed -i -z -e 's/\s*- -shared//g' /build/Concordium/package.yaml
 sed -i -z -e 's/\s*when:\s*- condition: os(windows)\s*then:\s*ghc-options: -static[^\n]*\n\s*else:\s*ghc-options: -dynamic//g' /build/Concordium/package.yaml
@@ -69,8 +68,6 @@ sed -i '/executable/,$d' /build/Concordium/package.yaml
  hpack
  cd /build/scheduler
  hpack)
-
-cabal new-update
 
 cd /build
 
