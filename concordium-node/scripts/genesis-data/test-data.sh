@@ -6,7 +6,7 @@ final_state=0
 
 for baker_size in "${baker_sizes[@]}" 
 do
-    echo "Testing $baker_sizes" &&
+    echo "Testing genesis data with $baker_sizes baker(s)" &&
     mkdir -p $cwd/$baker_size &&
     tar xzf $cwd/$baker_size-bakers.tar.gz -C $cwd/$baker_size &&
     cargo run --features=static --bin=read_block_dump \
@@ -15,9 +15,9 @@ do
         echo "- failed"
         final_state=-1
     fi
-    rm -rf $cwd/$baker_size
+    rm -r $cwd/$baker_size
 done
 
 if [[ $final_state != 0 ]]; then
-    exit 1
+    exit $final_state
 fi
