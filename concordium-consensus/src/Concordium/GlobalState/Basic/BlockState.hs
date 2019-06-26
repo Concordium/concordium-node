@@ -7,6 +7,8 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import Control.Exception
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import Data.Maybe
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types(cdi_regId)
@@ -193,13 +195,24 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         if Account.exists addr accounts then
           (False, bs)
         else
-          (True, bs & blockAccounts .~ Account.putAccount acc accounts)
-        where accounts = bs ^. blockAccounts
-              addr = acc ^. accountAddress
+          (True, bs & blockAccounts .~ Account.putAccount acc accounts & bakerUpdate)
+        where
+            accounts = bs ^. blockAccounts
+            addr = acc ^. accountAddress
+            bakerUpdate = blockBirkParameters . birkBakers %~ addStake (acc ^. accountStakeDelegate) (acc ^. accountAmount)
 
-    bsoPutNewInstance bs mkInstance = return $
-        let (caddr, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
-        in (caddr, bs & blockInstances .~ instances')
+    bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
+        where
+            (inst, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
+            Instances.InstanceParameters{..} = Instances.instanceParameters inst
+            bs' = bs
+                -- Add the instance
+                & blockInstances .~ instances'
+                -- Update the owner accounts set of instances
+                & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
+                & maybe (error "Instance has invalid owner") 
+                    (\owner -> blockBirkParameters . birkBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
+                    (bs ^? blockAccounts . ix instanceOwner)
 
     bsoPutNewModule bs mref iface viface source = return $
         case Modules.putInterfaces mref iface viface source (bs ^. blockModules) of
@@ -208,15 +221,29 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoModifyInstance bs caddr amount model = return $
         bs & blockInstances %~ Instances.updateInstanceAt caddr amount model
+        & maybe (error "Instance has invalid owner") 
+            (\owner -> blockBirkParameters . birkBakers %~ modifyStake (owner ^. accountStakeDelegate) (amountDiff amount $ Instances.instanceAmount inst))
+            (bs ^? blockAccounts . ix instanceOwner)
+        where
+            inst = fromMaybe (error "Instance does not exist") $ bs ^? blockInstances . ix caddr
+            Instances.InstanceParameters{..} = Instances.instanceParameters inst
 
     bsoModifyAccount bs accountUpdates = return $
-        let account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
-            updatedAccount = BS.updateAccount accountUpdates account
-        in case accountUpdates ^. BS.auCredential of
+        -- Update the account
+        (case accountUpdates ^. BS.auCredential of
              Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount
              Just cdi ->
                bs & blockAccounts %~ Account.putAccount updatedAccount
-                                   . Account.recordRegId (cdi_regId cdi)
+                                   . Account.recordRegId (cdi_regId cdi))
+        -- If we change the amount, update the delegate
+        & maybe id 
+            (\amt -> blockBirkParameters . birkBakers
+                    %~ modifyStake (account ^. accountStakeDelegate)
+                            (amountDiff amt $ account ^. accountAmount))
+            (accountUpdates ^. BS.auAmount)
+        where
+            account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
+            updatedAccount = BS.updateAccount accountUpdates account
 
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =

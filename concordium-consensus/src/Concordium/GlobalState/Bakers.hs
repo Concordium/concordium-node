@@ -73,3 +73,16 @@ removeBaker bid !bakers =
     case bakers ^. bakerMap . at bid of
         Nothing -> (False, bakers)
         Just bkr -> (True, bakers & (bakerMap . at bid .~ Nothing) . (bakerTotalStake %~ subtract (bkr ^. bakerStake)))
+
+modifyStake :: Maybe BakerId -> AmountDelta -> Bakers -> Bakers
+modifyStake (Just bid) delta bakers = case bakers ^. bakerMap . at bid of
+        Nothing -> bakers
+        Just _ -> bakers & bakerMap . ix bid . bakerStake %~ applyAmountDelta delta
+                    & bakerTotalStake %~ applyAmountDelta delta
+modifyStake _ _ bakers = bakers
+
+addStake :: Maybe BakerId -> Amount -> Bakers -> Bakers
+addStake bid amt = modifyStake bid (amountToDelta amt)
+
+removeStake :: Maybe BakerId -> Amount -> Bakers -> Bakers
+removeStake bid amt = modifyStake bid (- amountToDelta amt)

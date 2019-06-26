@@ -91,8 +91,8 @@ updateInstanceAt :: ContractAddress -> Amount -> Value -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
 -- |Create a new smart contract instance.
-createInstance :: (ContractAddress -> Instance) -> Instances -> (ContractAddress, Instances)
-createInstance mkInst (Instances iss) = Instances <$> (iss & newContractInstance <<%~ mkInst)
+createInstance :: (ContractAddress -> Instance) -> Instances -> (Instance, Instances)
+createInstance mkInst (Instances iss) = Instances <$> (iss & newContractInstance <%~ mkInst)
 
 -- |Delete the instance with the given address.  Does nothing
 -- if there is no such instance.

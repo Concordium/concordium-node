@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
 module Concordium.GlobalState.Instances.Internal where
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -219,6 +219,13 @@ deleteContractInstanceExact addr (Tree t0) = Tree $ dci (contractIndex addr) t0
 newtype Instances = Instances {
   _instances :: InstanceTable
   }
+makeLenses ''Instances
 
 instance HashableTo H.Hash Instances where
     getHash = getHash . _instances
+
+type instance Index Instances = ContractAddress
+type instance IxValue Instances = Instance
+
+instance Ixed Instances where
+    ix z = instances . ix z
