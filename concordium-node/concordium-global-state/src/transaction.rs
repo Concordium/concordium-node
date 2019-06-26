@@ -1,7 +1,7 @@
 // https://gitlab.com/Concordium/consensus/globalstate-mockup/blob/master/globalstate/src/Concordium/GlobalState/Transactions.hs
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use failure::Fallible;
+use failure::{ensure, format_err, Fallible};
 
 use std::{
     collections::HashMap,
@@ -11,6 +11,8 @@ use std::{
 };
 
 use crate::{block::*, common::*};
+
+const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
 
 pub type TransactionHash = HashBytes;
 
@@ -75,7 +77,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
 pub struct Transaction {
     signature: ByteString,
     header:    TransactionHeader,
-    payload:   ByteString,
+    payload:   TransactionPayload,
     hash:      TransactionHash,
 }
 
@@ -86,7 +88,16 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
         let initial_pos = cursor.position() as usize;
         let signature = read_bytestring(cursor, "transaction signature")?;
         let header = TransactionHeader::deserialize(cursor)?;
-        let payload = read_bytestring_short(cursor)?;
+
+        let payload_len = NetworkEndian::read_u32(&read_const_sized!(cursor, 4));
+        ensure!(
+            payload_len <= PAYLOAD_MAX_LEN,
+            "The payload size ({}) exceeds the protocol limit ({})!",
+            payload_len,
+            PAYLOAD_MAX_LEN,
+        );
+        let payload = TransactionPayload::deserialize((cursor, payload_len))?;
+
         let hash = sha256(&cursor.get_ref()[initial_pos..cursor.position() as usize]);
 
         let transaction = Transaction {
@@ -103,50 +114,134 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
 
     fn serialize(&self) -> Box<[u8]> {
         let header = self.header.serialize();
+        let payload = self.payload.serialize();
 
         let mut cursor = create_serialization_cursor(
             size_of::<u64>()
                 + self.signature.len()
                 + header.len()
                 + size_of::<u32>()
-                + self.payload.len(),
+                + payload.len(),
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.signature.len() as u64);
         let _ = cursor.write_all(&self.signature);
         let _ = cursor.write_all(&header);
-        let _ = cursor.write_u32::<NetworkEndian>(self.payload.len() as u32);
-        let _ = cursor.write_all(&self.payload);
+        let _ = cursor.write_u32::<NetworkEndian>(payload.len() as u32);
+        let _ = cursor.write_all(&payload);
 
         cursor.into_inner()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum TransactionType {
-    DeployLibrary,
-    DeploySmartContract,
-    ContractCall,
-    SimpleTransfer,
-    UpgradeAccount,
-    UpdateCredentials,
-    UpgradeSmartContract,
+    DeployModule = 0,
+    InitContract,
+    Update,
+    Transfer,
+    DeployCredentials,
+    DeployEncryptionKey,
+    AddBaker,
+    RemoveBaker,
+    UpdateBakerAccount,
+    UpdateBakerSignKey,
 }
 
 impl TryFrom<u8> for TransactionType {
-    type Error = String;
+    type Error = failure::Error;
 
-    fn try_from(id: u8) -> Result<Self, Self::Error> {
+    fn try_from(id: u8) -> Fallible<Self> {
         match id {
-            0 => Ok(TransactionType::DeployLibrary),
-            1 => Ok(TransactionType::DeploySmartContract),
-            2 => Ok(TransactionType::ContractCall),
-            3 => Ok(TransactionType::SimpleTransfer),
-            4 => Ok(TransactionType::UpgradeAccount),
-            5 => Ok(TransactionType::UpdateCredentials),
-            6 => Ok(TransactionType::UpgradeSmartContract),
-            n => Err(format!("Unsupported TransactionType ({})!", n)),
+            0 => Ok(TransactionType::DeployModule),
+            1 => Ok(TransactionType::InitContract),
+            2 => Ok(TransactionType::Update),
+            3 => Ok(TransactionType::Transfer),
+            4 => Ok(TransactionType::DeployCredentials),
+            5 => Ok(TransactionType::DeployEncryptionKey),
+            6 => Ok(TransactionType::AddBaker),
+            7 => Ok(TransactionType::RemoveBaker),
+            8 => Ok(TransactionType::UpdateBakerAccount),
+            9 => Ok(TransactionType::UpdateBakerSignKey),
+            n => Err(format_err!("Unsupported TransactionType ({})!", n)),
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum TransactionPayload {
+    DeployModule(Encoded),
+    InitContract { amount: Amount, module: Encoded, contract: Encoded },
+    Update { amount: Amount, address: AccountAddress, message: Encoded, size: u64 },
+    Transfer { target_scheme: SchemeId, target_address: AccountAddress, amount: Amount },
+    DeployCredentials,
+    DeployEncryptionKey,
+    AddBaker,
+    RemoveBaker,
+    UpdateBakerAccount,
+    UpdateBakerSignKey,
+}
+
+impl TransactionPayload {
+    pub fn transaction_type(&self) -> TransactionType {
+        use TransactionPayload::*;
+
+        match self {
+            DeployModule(_) => TransactionType::DeployModule,
+            InitContract { .. } => TransactionType::InitContract,
+            Update { .. } => TransactionType::Update,
+            Transfer { .. } => TransactionType::Transfer,
+            DeployCredentials => TransactionType::DeployCredentials,
+            DeployEncryptionKey => TransactionType::DeployEncryptionKey,
+            AddBaker => TransactionType::AddBaker,
+            RemoveBaker => TransactionType::RemoveBaker,
+            UpdateBakerAccount => TransactionType::UpdateBakerAccount,
+            UpdateBakerSignKey => TransactionType::UpdateBakerSignKey,
+        }
+    }
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
+    type Source = (&'a mut Cursor<&'b [u8]>, u32);
+
+    fn deserialize((cursor, len): Self::Source) -> Fallible<Self> {
+        let variant = TransactionType::try_from(read_const_sized!(cursor, 1)[0])?;
+
+        match variant {
+            TransactionType::DeployModule => {
+                let module = Encoded::new(&read_sized!(cursor, len - 1));
+                Ok(TransactionPayload::DeployModule(module))
+            },
+            TransactionType::Transfer => {
+                let target_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
+                let target_address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
+                let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+
+                Ok(TransactionPayload::Transfer { target_scheme, target_address, amount })
+            },
+            _ => unimplemented!("Deserialization of {:?} is not implemented yet!", variant),
+        }
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        // FIXME: tweak based on the smallest possible size
+        let mut cursor = Cursor::new(Vec::with_capacity(16));
+        let transaction_type = self.transaction_type();
+        let _ = cursor.write(&[transaction_type as u8]);
+
+        match self {
+            TransactionPayload::DeployModule(module) => {
+                let _ = cursor.write_all(&module);
+            },
+            TransactionPayload::Transfer { target_scheme, target_address, amount } => {
+                let _ = cursor.write(&[*target_scheme as u8]);
+                let _ = cursor.write_all(&target_address.0);
+                let _ = cursor.write_u64::<NetworkEndian>(*amount);
+            },
+            _ => unimplemented!("Serialization of {:?} is not implemented yet!", transaction_type),
+        }
+
+        cursor.into_inner().into_boxed_slice()
     }
 }
 
