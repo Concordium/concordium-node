@@ -89,9 +89,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
 
         let session_id =
             SessionId::deserialize(&read_const_sized!(&mut cursor, size_of::<SessionId>()))?;
-        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, 4));
+        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<FinalizationIndex>()));
+        let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<Delta>()));
+        let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Party>()));
 
         let header = FinalizationMessageHeader {
             session_id,
@@ -500,7 +500,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<FinalizationIndex>()));
         let block_pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
 
         let proof = read_multiple!(
@@ -512,7 +512,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
             )
         );
 
-        let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<BlockHeight>()));
 
         let rec = FinalizationRecord {
             index,

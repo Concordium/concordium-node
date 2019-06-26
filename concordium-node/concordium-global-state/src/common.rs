@@ -206,6 +206,8 @@ pub type Slot = u64;
 
 pub type Energy = u64;
 
+pub type Incarnation = u64;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct SessionId {
     genesis_block: BlockHash,
@@ -221,7 +223,7 @@ impl SessionId {
         let mut cursor = Cursor::new(bytes);
 
         let genesis_block = HashBytes::from(read_const_sized!(&mut cursor, size_of::<HashBytes>()));
-        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<Incarnation>()));
 
         let sess = SessionId {
             genesis_block,
@@ -234,7 +236,7 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<BlockHash>() + size_of::<u64>());
+        let mut cursor = create_serialization_cursor(size_of::<BlockHash>() + size_of::<Incarnation>());
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
