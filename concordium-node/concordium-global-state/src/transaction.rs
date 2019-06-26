@@ -57,7 +57,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
                 + self.sender_key.len()
                 + size_of::<Nonce>()
                 + size_of::<Energy>()
-                + size_of::<BlockHash>()
+                + size_of::<BlockHash>(),
         );
 
         let _ = cursor.write(&[self.scheme_id as u8]);
@@ -106,10 +106,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
 
         let mut cursor = create_serialization_cursor(
             size_of::<u64>()
-            + self.signature.len()
-            + header.len()
-            + size_of::<u32>()
-            + self.payload.len(),
+                + self.signature.len()
+                + header.len()
+                + size_of::<u32>()
+                + self.payload.len(),
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.signature.len() as u64);
