@@ -22,11 +22,40 @@ pub const ALLOCATION_LIMIT: usize = 4096;
 
 use crate::block::BlockHash;
 
-#[allow(dead_code)]
+pub type ContractIndex = u64;
+pub type ContractSubIndex = u64;
+
+#[derive(Debug, Clone, Copy)]
 pub struct ContractAddress {
-    index:    u64,
-    subindex: u64,
+    index:    ContractIndex,
+    subindex: ContractSubIndex,
 }
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let index = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<ContractIndex>()));
+        let subindex = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<ContractSubIndex>()));
+
+        let contract_address = ContractAddress {
+            index,
+            subindex,
+        };
+
+        Ok(contract_address)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(size_of::<ContractAddress>());
+
+        cursor.write_u64::<NetworkEndian>(self.index);
+        cursor.write_u64::<NetworkEndian>(self.subindex);
+
+        cursor.into_inner()
+    }
+}
+
 
 pub enum Address {
     Account(Encoded),

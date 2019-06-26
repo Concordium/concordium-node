@@ -172,7 +172,7 @@ impl TryFrom<u8> for TransactionType {
 pub enum TransactionPayload {
     DeployModule(Encoded),
     InitContract { amount: Amount, module: Encoded, contract: Encoded },
-    Update { amount: Amount, address: AccountAddress, message: Encoded, size: u64 },
+    Update { amount: Amount, address: ContractAddress, message: Encoded, size: u64 },
     Transfer { target_scheme: SchemeId, target_address: AccountAddress, amount: Amount },
     DeployCredentials,
     DeployEncryptionKey,
@@ -212,6 +212,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 let module = Encoded::new(&read_sized!(cursor, len - 1));
                 Ok(TransactionPayload::DeployModule(module))
             },
+            TransactionType::InitContract => {
+                let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+                unimplemented!()
+            },
+            TransactionType::Update => {
+                let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+                unimplemented!()
+            },
             TransactionType::Transfer => {
                 let target_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
                 let target_address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
@@ -232,6 +240,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
         match self {
             TransactionPayload::DeployModule(module) => {
                 let _ = cursor.write_all(&module);
+            },
+            TransactionPayload::InitContract { amount, module, contract } => {
+                unimplemented!()
+            },
+            TransactionPayload::Update { amount, address, message, size } => {
+                unimplemented!()
             },
             TransactionPayload::Transfer { target_scheme, target_address, amount } => {
                 let _ = cursor.write(&[*target_scheme as u8]);
