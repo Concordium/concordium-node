@@ -56,6 +56,11 @@ transactionHelper t = do
       return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid address proof))
     (TJSON meta (UpdateBakerSignKey bid key proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid key proof))
+    (TJSON meta (DelegateStake bid) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
+    (TJSON meta UndelegateStake keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.UndelegateStake)
+
 
 -- decodeAndProcessTransactions :: MonadFail m => ByteString -> Context m [Types.Transaction]
 -- decodeAndProcessTransactions txt =
@@ -99,6 +104,10 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      ubsKey :: !BakerSignVerifyKey,
                      ubsProof :: !Proof
                      }
+                 | DelegateStake {
+                     dsID :: !BakerId
+                     }
+                 | UndelegateStake
                  deriving(Show, Generic)
 
 data TransactionJSON = TJSON { metadata :: Types.TransactionHeader
