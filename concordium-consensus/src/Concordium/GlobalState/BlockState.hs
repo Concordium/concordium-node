@@ -222,6 +222,10 @@ class BlockStateQuery m => BlockStateOperations m where
   -- sufficient.
   bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
+  -- |Change the given account's stake delegation. Return 'False' if the target
+  -- is an invalid baker (and delegation is unchanged), and 'True' otherwise.
+  bsoDelegateStake :: UpdatableBlockState m -> AccountAddress -> Maybe BakerId -> m (Bool, UpdatableBlockState m)
+
 newtype BSMTrans t (m :: * -> *) a = BSMTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans)
 type instance UpdatableBlockState (BSMTrans t m) = UpdatableBlockState m
@@ -265,6 +269,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetInflation s = lift . bsoSetInflation s
   bsoMint s = lift . bsoMint s
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
+  bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -284,6 +289,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetInflation #-}
   {-# INLINE bsoMint #-}
   {-# INLINE bsoDecrementCentralBankGTU #-}
+  {-# INLINE bsoDelegateStake #-}
 
 
 type instance BlockPointer (MaybeT m) = BlockPointer m

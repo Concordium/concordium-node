@@ -286,3 +286,15 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoDecrementCentralBankGTU bs amount = return $
         let updated = bs & ((blockBank . Rewards.centralBankGTU) -~ amount)
         in (updated ^. blockBank . Rewards.centralBankGTU, updated)
+
+    bsoDelegateStake bs aaddr target = return $ if targetValid then (True, bs') else (False, bs)
+        where
+            targetValid = case target of
+                Nothing -> True
+                Just bid -> isJust $ bs ^. blockBirkParameters . birkBakers . bakerMap . at bid
+            acct = fromMaybe (error "Invalid account address") $ bs ^? blockAccounts . ix aaddr
+            stake = acct ^. accountAmount + 
+                sum [Instances.instanceAmount inst |
+                        Just inst <- Set.toList (acct ^. accountInstances) <&> flip Instances.getInstance (bs ^. blockInstances)]
+            bs' = bs & blockBirkParameters . birkBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
+                    & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
