@@ -36,7 +36,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
 
         let gas_amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Energy>()));
         let finalized_ptr = HashBytes::from(read_const_sized!(cursor, size_of::<HashBytes>()));
-        let sender_account = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
+        let sender_account = AccountAddress::from((&*sender_key, scheme_id));
 
         let transaction_header = TransactionHeader {
             scheme_id,
@@ -58,7 +58,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
                 + size_of::<Nonce>()
                 + size_of::<Energy>()
                 + size_of::<BlockHash>()
-                + size_of::<AccountAddress>(),
         );
 
         let _ = cursor.write(&[self.scheme_id as u8]);
@@ -67,7 +66,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let _ = cursor.write_u64::<NetworkEndian>(self.nonce.0.get());
         let _ = cursor.write_u64::<NetworkEndian>(self.gas_amount);
         let _ = cursor.write_all(&self.finalized_ptr);
-        let _ = cursor.write_all(&self.sender_account.0);
 
         cursor.into_inner()
     }
@@ -88,7 +86,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
         let initial_pos = cursor.position() as usize;
         let signature = read_bytestring(cursor, "transaction signature")?;
         let header = TransactionHeader::deserialize(cursor)?;
-        let payload = read_bytestring(cursor, "transaction payload")?;
+        let payload = read_bytestring_short(cursor)?;
         let hash = sha256(&cursor.get_ref()[initial_pos..cursor.position() as usize]);
 
         let transaction = Transaction {
@@ -107,11 +105,17 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Transaction {
         let header = self.header.serialize();
 
         let mut cursor = create_serialization_cursor(
-            size_of::<u64>() + self.signature.len() + header.len() + self.payload.len(),
+            size_of::<u64>()
+            + self.signature.len()
+            + header.len()
+            + size_of::<u32>()
+            + self.payload.len(),
         );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.signature.len() as u64);
         let _ = cursor.write_all(&self.signature);
+        let _ = cursor.write_all(&header);
+        let _ = cursor.write_u32::<NetworkEndian>(self.payload.len() as u32);
         let _ = cursor.write_all(&self.payload);
 
         cursor.into_inner()

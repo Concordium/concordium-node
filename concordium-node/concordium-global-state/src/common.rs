@@ -2,6 +2,7 @@ use base58::ToBase58;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
+use sha2::Sha224;
 
 use std::{
     convert::TryFrom,
@@ -52,6 +53,18 @@ impl TryFrom<u8> for SchemeId {
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct AccountAddress(pub [u8; 21]);
+
+impl From<(&[u8], SchemeId)> for AccountAddress {
+    fn from((verification_key, scheme_id): (&[u8], SchemeId)) -> Self {
+        let mut buf = [0u8; size_of::<AccountAddress>()];
+        let hash_len = size_of::<AccountAddress>() - 1;
+
+        buf[0] = scheme_id as u8;
+        buf[1..].copy_from_slice(&Sha224::digest(verification_key)[0..hash_len]);
+
+        Self(buf)
+    }
+}
 
 impl fmt::Debug for AccountAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -168,7 +181,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
 pub type Amount = u64;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Nonce(pub NonZeroU64);
 
 impl TryFrom<u64> for Nonce {
@@ -179,6 +192,16 @@ impl TryFrom<u64> for Nonce {
             return format_err!("A zero nonce was received!");
         })?))
     }
+}
+
+impl fmt::Debug for Nonce {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Display for Nonce {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
 }
 
 pub type Slot = u64;
@@ -254,6 +277,14 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
 
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, object_name);
+
+    Ok(Encoded(read_sized!(input, object_length)))
+}
+
+// FIXME: do we or do we not actually want to have this distinction in deserialization?
+pub fn read_bytestring_short(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
+    // these objects can be big, so we can easily expect to need to handle 32b lengths
+    let object_length = NetworkEndian::read_u32(&read_const_sized!(input, 4)) as usize;
 
     Ok(Encoded(read_sized!(input, object_length)))
 }
