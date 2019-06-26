@@ -1,3 +1,4 @@
+use base58::ToBase58;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use digest::Digest;
 use failure::{format_err, Fallible};
@@ -49,8 +50,18 @@ impl TryFrom<u8> for SchemeId {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct AccountAddress(pub [u8; 21]);
+
+impl fmt::Debug for AccountAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", ToBase58::to_base58(&self.0[..]))
+    }
+}
+
+impl fmt::Display for AccountAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
+}
 
 #[derive(Debug)]
 pub struct Account {
