@@ -148,14 +148,14 @@ impl TryFrom<u8> for TransactionType {
 
 #[derive(Debug)]
 pub struct AccountNonFinalizedTransactions {
-    map:        Vec<(Nonce, Vec<Transaction>)>,
+    map:        Vec<Transaction>, // indexed by Nonce
     next_nonce: Nonce,
 }
 
 #[derive(Debug, Default)]
 pub struct TransactionTable {
     map: HashMap<TransactionHash, (Transaction, Slot)>,
-    non_finalized_transactions: HashMap<Encoded, AccountNonFinalizedTransactions>,
+    non_finalized_transactions: HashMap<AccountAddress, AccountNonFinalizedTransactions>,
 }
 
-pub type PendingTransactionTable = HashMap<Encoded, (Nonce, Nonce)>;
+pub type PendingTransactionTable = HashMap<AccountAddress, (Nonce, Nonce)>;
