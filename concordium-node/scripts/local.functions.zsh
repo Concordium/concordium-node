@@ -282,10 +282,10 @@ concordium_p2p_nix_shell() {
    if [[ -f /etc/NIXOS ]]; then
        (
         cd $CONCORDIUM_P2P_DIR &&
-            printf "%s\n" "Entering nix-shell environment for p2p-client"
+            printf "Entering nix-shell environment for p2p-client\n"
             nix-shell $@
        )
     else
-       printf "%s\n" "Not a NixOS environment!"
+       printf "Not a NixOS environment!\n"
    fi
 }
