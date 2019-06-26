@@ -152,6 +152,12 @@ dispatch msg = do
 
             UpdateBakerSignKey{..} ->
               handleUpdateBakerSignKey meta senderAccount ubsId ubsKey ubsProof energy
+            
+            DelegateStake{..} ->
+              handleDelegateStake meta senderAccount (Just dsID) energy
+            
+            UndelegateStake ->
+              handleDelegateStake meta senderAccount Nothing energy
 
 -- |Process the deploy module transaction.
 handleDeployModule ::
@@ -545,7 +551,7 @@ handleDeployEncryptionKey meta senderAccount encKey energy = do
       Just encKey' -> return . TxValid . TxReject $ AccountEncryptionKeyAlreadyExists (senderAccount ^. accountAddress) encKey'
 
 
--- * FIXME: The baker handling is purely proof-of-concept.
+-- FIXME: The baker handling is purely proof-of-concept.
 -- In particular there is no checking of proofs that the baker holds relevant
 -- private keys, etc, and the precise logic for when a baker can be added and removed 
 -- should be analyzed from a security perspective.
@@ -724,6 +730,29 @@ handleUpdateBakerSignKey meta senderAccount ubsId ubsKey ubsProof energy =
               else
                 return $ TxValid (TxReject InvalidProof)
 
+-- |Update an account's stake delegate.
+handleDelegateStake ::
+  SchedulerMonad m
+    => TransactionHeader
+    -> Account
+    -> Maybe BakerId
+    -> Energy
+    -> m TxResult
+handleDelegateStake meta senderAccount targetBaker energy =
+  if delegateCost > energy then do
+    payment <- energyToGtu (thGasAmount meta) -- use up all deposited gas
+    chargeExecutionCost (thSender meta) payment
+    return $! TxValid (TxReject OutOfEnergy)
+  else do
+    payment <- energyToGtu (delegateCost + Cost.checkHeader)
+    chargeExecutionCost (thSender meta) payment
+    res <- delegateStake (thSender meta) targetBaker
+    return $! if res then
+                TxValid (TxSuccess [maybe StakeUndelegated StakeDelegated targetBaker])
+            else
+                TxValid (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker))
+  where
+    delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions. The list is traversed from

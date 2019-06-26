@@ -77,4 +77,8 @@ updateBakerAccount = 500
 updateBakerKey :: Energy
 updateBakerKey = 500
 
-
+-- |Cost to update an account's stake delegate.
+-- This is parametrised by the number of smart contract instances
+-- owned by the account.
+updateStakeDelegate :: Int -> Energy
+updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50

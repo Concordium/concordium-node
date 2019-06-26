@@ -154,6 +154,13 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
     s' <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
     put s'
 
+  {-# INLINE delegateStake #-}
+  delegateStake acc bid = do
+    s <- get
+    (r, s') <- lift (bsoDelegateStake s acc bid)
+    put s'
+    return r
+
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ChainMetadata () BlockState (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState BlockState)
     deriving StaticEnvironmentMonad via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))

@@ -128,6 +128,12 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- The function may assume that the baker exists.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
+  -- |Delegate the stake from an account to a baker. The account is
+  -- assumed to exist, although the baker is not.  Returns 'True'
+  -- if the delegation was successful, and 'False' if the baker is
+  -- not valid.
+  delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
+
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not

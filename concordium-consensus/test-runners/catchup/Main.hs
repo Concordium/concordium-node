@@ -5,8 +5,6 @@ module Main where
 import Control.Concurrent
 import Control.Monad
 import System.Random
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 import System.IO
 import Data.IORef
@@ -24,8 +22,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.Scheduler.Utils.Init.Example as Example
 
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Runner
