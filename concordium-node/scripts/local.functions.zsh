@@ -273,3 +273,19 @@ lint_fmt() {
   ( cd $CONCORDIUM_P2P_DIR/concordium-global-state && cargo +$NIGHTLY_FMT_VERSION fmt)
   ( cd $CONCORDIUM_P2P_DIR/concordium-dns && cargo +$NIGHTLY_FMT_VERSION fmt)
 }
+
+#####
+# Run nix-shell for p2p-client
+#
+#####
+concordium_p2p_nix_shell() {
+   if [[ -f /etc/NIXOS ]]; then
+       (
+        cd $CONCORDIUM_P2P_DIR &&
+            printf "Entering nix-shell environment for p2p-client\n"
+            nix-shell $@
+       )
+    else
+       printf "Not a NixOS environment!\n"
+   fi
+}
