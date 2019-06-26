@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-declare -a baker_sizes=("20" "30" "50" "75")
 cwd=$(dirname $0)
+. $cwd/config.sh
 final_state=0
 
 for baker_size in "${baker_sizes[@]}" 
