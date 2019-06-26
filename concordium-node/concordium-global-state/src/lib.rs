@@ -9,14 +9,15 @@ macro_rules! check_serialization {
         debug_assert_eq!(
             $cursor.position(),
             $cursor.get_ref().len() as u64,
-            "Invalid deserialization of {:?}",
-            $target
+            "\n\nInvalid deserialization of {:#?}\n\nbytes: {:?}",
+            $target,
+            $cursor.get_ref()
         );
 
         debug_assert_eq!(
             &&*$target.serialize(),
             $cursor.get_ref(),
-            "Invalid serialization of {:?}",
+            "\n\nInvalid serialization of {:#?}",
             $target
         );
     };
