@@ -152,7 +152,7 @@ impl TryFrom<u8> for TransactionType {
 
 #[derive(Debug)]
 pub struct AccountNonFinalizedTransactions {
-    map:        Vec<Transaction>, // indexed by Nonce
+    map:        Vec<Vec<Transaction>>, // indexed by Nonce
     next_nonce: Nonce,
 }
 
