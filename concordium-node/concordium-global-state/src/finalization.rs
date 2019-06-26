@@ -16,7 +16,7 @@ const HEADER: u8 = size_of::<SessionId>() as u8
     + size_of::<Party>() as u8;
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 const WMVBA_TYPE: u8 = 1;
-const VAL: u8 = BLOCK_HASH;
+const VAL: u8 = size_of::<BlockHash>() as u8;
 const TICKET: u8 = 80;
 
 #[derive(PartialEq, Eq, Hash)]
@@ -172,9 +172,9 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
         let message_type = &read_const_sized!(cursor, WMVBA_TYPE)[0];
 
         let msg = match message_type {
-            0 => WmvbaMessage::Proposal(HashBytes::new(&read_const_sized!(cursor, VAL))),
+            0 => WmvbaMessage::Proposal(HashBytes::from(read_const_sized!(cursor, VAL))),
             1 => WmvbaMessage::Vote(None),
-            2 => WmvbaMessage::Vote(Some(HashBytes::new(&read_const_sized!(cursor, VAL)))),
+            2 => WmvbaMessage::Vote(Some(HashBytes::from(read_const_sized!(cursor, VAL)))),
             3 => WmvbaMessage::Abba(Abba::deserialize((cursor, false))?),
             4 => WmvbaMessage::Abba(Abba::deserialize((cursor, true))?),
             5 => WmvbaMessage::Css(Css::deserialize((cursor, Seen, Top))?),
@@ -185,7 +185,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for WmvbaMessage {
             10 => WmvbaMessage::Css(Css::deserialize((cursor, DoneReporting, Both))?),
             11 => WmvbaMessage::AreWeDone(false),
             12 => WmvbaMessage::AreWeDone(true),
-            13 => WmvbaMessage::WitnessCreator(HashBytes::new(&read_const_sized!(cursor, VAL))),
+            13 => WmvbaMessage::WitnessCreator(HashBytes::from(read_const_sized!(cursor, VAL))),
             n => panic!(
                 "Deserialization of WMVBA message type No {} is not implemented!",
                 n
@@ -501,7 +501,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
         let mut cursor = Cursor::new(bytes);
 
         let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let block_pointer = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
+        let block_pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
 
         let proof = read_multiple!(
             cursor,

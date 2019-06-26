@@ -536,10 +536,10 @@ impl SkovData {
 
         let housekeeping_hash = record.block_pointer.clone();
 
-        let mut target_block = self.tree_candidates.remove_entry(&record.block_pointer);
+        let target_pair = self.tree_candidates.remove_entry(&record.block_pointer);
 
-        if let Some((_, ref mut block)) = target_block {
-            block.status.set(BlockStatus::Finalized);
+        let (target_hash, target_block) = if target_pair.is_some() {
+            target_pair.unwrap()
         } else {
             let error = SkovError::MissingBlockToFinalize(record.block_pointer.clone());
 
@@ -547,13 +547,11 @@ impl SkovData {
                 .insert(record.block_pointer.clone(), record);
 
             return SkovResult::Error(error);
-        }
+        };
 
         // drop the now-redundant old pending finalization records
         self.inapplicable_finalization_records
             .retain(|_, rec| rec.index > record.index);
-
-        let (target_hash, target_block) = target_block.unwrap(); // safe - we've already checked
 
         self.last_finalized = Rc::clone(&target_block);
         self.block_tree.insert(target_hash, target_block);

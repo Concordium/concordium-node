@@ -18,7 +18,7 @@ pub use eddsa_ed25519 as sig;
 
 pub const ALLOCATION_LIMIT: usize = 4096;
 
-use crate::block::{BlockHash, BLOCK_HASH};
+use crate::block::BlockHash;
 
 #[allow(dead_code)]
 pub struct ContractAddress {
@@ -158,7 +158,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 pub type Amount = u64;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Nonce(NonZeroU64);
+pub struct Nonce(pub NonZeroU64);
 
 impl TryFrom<u64> for Nonce {
     type Error = failure::Error;
@@ -171,6 +171,8 @@ impl TryFrom<u64> for Nonce {
 }
 
 pub type Slot = u64;
+
+pub type Energy = u64;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct SessionId {
@@ -186,7 +188,7 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let genesis_block = HashBytes::new(&read_const_sized!(&mut cursor, BLOCK_HASH));
+        let genesis_block = HashBytes::from(read_const_sized!(&mut cursor, size_of::<HashBytes>()));
         let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
 
         let sess = SessionId {
@@ -200,7 +202,7 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(BLOCK_HASH as usize + size_of::<u64>());
+        let mut cursor = create_serialization_cursor(size_of::<BlockHash>() + size_of::<u64>());
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
@@ -248,6 +250,14 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible
 pub fn write_bytestring(target: &mut Cursor<Box<[u8]>>, bytes: &[u8]) {
     let _ = target.write_u64::<NetworkEndian>(bytes.len() as u64);
     let _ = target.write_all(&bytes);
+}
+
+pub fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(list: &'a [T]) -> Vec<Box<[u8]>> {
+    list.iter().map(|elem| elem.serialize()).collect()
+}
+
+pub fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {
+    list.iter().map(|elem| elem.as_ref().len()).sum()
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }

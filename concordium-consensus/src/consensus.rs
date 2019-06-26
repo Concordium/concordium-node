@@ -80,7 +80,6 @@ impl fmt::Debug for ConsensusMessage {
     }
 }
 
-#[derive(Clone)]
 pub struct ConsensusOutQueue {
     receiver_request: Arc<Mutex<RelayOrStopReceiver<ConsensusMessage>>>,
     sender_request:   RelayOrStopSyncSender<ConsensusMessage>,

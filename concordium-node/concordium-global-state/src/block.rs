@@ -5,7 +5,6 @@ use chrono::prelude::{DateTime, Utc};
 use failure::Fallible;
 
 use std::{
-    cell::Cell,
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
@@ -16,10 +15,7 @@ use std::{
 
 use crate::{common::*, parameters::*, transaction::*};
 
-pub const BLOCK_HASH: u8 = SHA256;
-const POINTER: u8 = BLOCK_HASH;
-const NONCE: u8 = BLOCK_HASH + PROOF_LENGTH as u8; // should soon be shorter
-const LAST_FINALIZED: u8 = BLOCK_HASH;
+const NONCE: u8 = size_of::<BlockHash>() as u8 + PROOF_LENGTH as u8; // should soon be shorter
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 
 #[derive(Debug)]
@@ -96,7 +92,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
 pub struct BakedBlock {
     pub slot:           Slot,
     pub pointer:        BlockHash,
@@ -104,8 +99,8 @@ pub struct BakedBlock {
     proof:              Encoded,
     nonce:              Encoded,
     pub last_finalized: BlockHash,
-    transactions:       Transactions,
-    signature:          ByteString,
+    transactions:       Box<[Transaction]>,
+    signature:          Encoded,
 }
 
 // this is a very debug method used only by the Display impl of ConsensusMessage
@@ -127,14 +122,18 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let mut cursor = Cursor::new(bytes);
 
         let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let pointer = HashBytes::new(&read_const_sized!(&mut cursor, POINTER));
+        let pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
         let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized = HashBytes::new(&read_const_sized!(&mut cursor, SHA256));
-        let payload_size = bytes.len() - cursor.position() as usize - SIGNATURE as usize;
-        let transactions = Transactions::deserialize(&read_sized!(&mut cursor, payload_size))?;
-        let signature = ByteString::new(&read_const_sized!(&mut cursor, SIGNATURE));
+        let last_finalized =
+            HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
+        let transactions = read_multiple!(
+            &mut cursor,
+            "transactions",
+            Transaction::deserialize(&mut cursor)?
+        );
+        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
 
         let block = BakedBlock {
             slot,
@@ -153,15 +152,19 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        let transactions = Transactions::serialize(&self.transactions);
-        let consts = size_of::<Slot>()
-            + POINTER as usize
-            + size_of::<BakerId>()
-            + PROOF_LENGTH
-            + NONCE as usize
-            + LAST_FINALIZED as usize
-            + SIGNATURE as usize;
-        let mut cursor = create_serialization_cursor(consts + transactions.len());
+        let transactions = serialize_list(&self.transactions);
+
+        let mut cursor = create_serialization_cursor(
+            size_of::<Slot>()
+                + size_of::<BlockHash>()
+                + size_of::<BakerId>()
+                + PROOF_LENGTH
+                + NONCE as usize
+                + size_of::<BlockHash>()
+                + size_of::<u64>()
+                + list_len(&transactions)
+                + SIGNATURE as usize,
+        );
 
         let _ = cursor.write_u64::<NetworkEndian>(self.slot);
         let _ = cursor.write_all(&self.pointer);
@@ -169,7 +172,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let _ = cursor.write_all(&self.proof);
         let _ = cursor.write_all(&self.nonce);
         let _ = cursor.write_all(&self.last_finalized);
-        let _ = cursor.write_all(&transactions);
+        write_multiple!(&mut cursor, transactions, Write::write_all);
         let _ = cursor.write_all(&self.signature);
 
         cursor.into_inner()
@@ -216,14 +219,6 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        fn serialize_list<'a, 'b, T: SerializeToBytes<'a, 'b>>(list: &'a [T]) -> Vec<Box<[u8]>> {
-            list.iter().map(|elem| elem.serialize()).collect()
-        }
-
-        fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {
-            list.iter().map(|elem| elem.as_ref().len()).sum()
-        }
-
         let birk_params = BirkParameters::serialize(&self.birk_parameters);
         let baker_accounts = serialize_list(&self.baker_accounts);
         let finalization_params = serialize_list(&self.finalization_parameters);
@@ -296,13 +291,6 @@ impl From<BakedBlock> for PendingBlock {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockStatus {
-    Alive,
-    Dead,
-    Finalized,
-}
-
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
@@ -312,7 +300,6 @@ pub struct BlockPtr {
     // state:       BlockState,
     pub received:  DateTime<Utc>,
     pub validated: DateTime<Utc>,
-    pub status:    Cell<BlockStatus>,
 }
 
 impl BlockPtr {
@@ -332,7 +319,6 @@ impl BlockPtr {
             height:         0,
             received:       timestamp,
             validated:      timestamp,
-            status:         Cell::new(BlockStatus::Finalized),
         }
     }
 
@@ -352,7 +338,6 @@ impl BlockPtr {
             height,
             received: pb.received,
             validated,
-            status: Cell::new(BlockStatus::Alive),
         }
     }
 
@@ -388,9 +373,7 @@ impl Ord for BlockPtr {
 }
 
 impl fmt::Debug for BlockPtr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} ({:?})", self.hash, self.status.get())
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self.hash) }
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for BlockPtr {
