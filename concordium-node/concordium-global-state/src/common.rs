@@ -35,8 +35,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let index = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<ContractIndex>()));
-        let subindex = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<ContractSubIndex>()));
+        let index = NetworkEndian::read_u64(&read_ty!(cursor, ContractIndex));
+        let subindex = NetworkEndian::read_u64(&read_ty!(cursor, ContractSubIndex));
 
         let contract_address = ContractAddress {
             index,
@@ -121,12 +121,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
+        let address = AccountAddress(read_ty!(cursor, AccountAddress));
 
-        let nonce_raw = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Nonce>()));
+        let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
 
-        let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+        let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
 
         let encrypted_amounts = read_multiple!(
             cursor,
@@ -143,7 +143,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let verification_key = read_bytestring(cursor, "verification key's length")?;
 
-        let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
+        let signature_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
 
         let credentials = read_multiple!(
             cursor,
@@ -251,8 +251,8 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let genesis_block = HashBytes::from(read_const_sized!(&mut cursor, size_of::<HashBytes>()));
-        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<Incarnation>()));
+        let genesis_block = HashBytes::from(read_ty!(&mut cursor, HashBytes));
+        let incarnation = NetworkEndian::read_u64(&read_ty!(&mut cursor, Incarnation));
 
         let sess = SessionId {
             genesis_block,

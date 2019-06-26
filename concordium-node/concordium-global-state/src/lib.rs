@@ -33,6 +33,16 @@ macro_rules! read_const_sized {
     }};
 }
 
+/// Reads a number of bytes equal to the size of `object` into an array.
+macro_rules! read_ty {
+    ($source:expr, $object:ty) => {{
+        let mut buf = [0u8; std::mem::size_of::<$object>()];
+        $source.read_exact(&mut buf)?;
+
+        buf
+    }};
+}
+
 /// Reads a known number of bytes into a boxed slice. Incurs an allocation, but
 /// doesn't waste any space and the result is immutable.
 macro_rules! read_sized {

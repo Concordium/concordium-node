@@ -33,11 +33,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionHeader {
         let scheme_id = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
         let sender_key = read_bytestring(cursor, "sender key's length")?;
 
-        let nonce_raw = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Nonce>()));
+        let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
 
-        let gas_amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Energy>()));
-        let finalized_ptr = HashBytes::from(read_const_sized!(cursor, size_of::<HashBytes>()));
+        let gas_amount = NetworkEndian::read_u64(&read_ty!(cursor, Energy));
+        let finalized_ptr = HashBytes::from(read_ty!(cursor, HashBytes));
         let sender_account = AccountAddress::from((&*sender_key, scheme_id));
 
         let transaction_header = TransactionHeader {
@@ -213,17 +213,17 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 Ok(TransactionPayload::DeployModule(module))
             },
             TransactionType::InitContract => {
-                let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+                let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
                 unimplemented!()
             },
             TransactionType::Update => {
-                let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+                let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
                 unimplemented!()
             },
             TransactionType::Transfer => {
-                let target_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
-                let target_address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
-                let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+                let target_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
+                let target_address = AccountAddress(read_ty!(cursor, AccountAddress));
+                let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
 
                 Ok(TransactionPayload::Transfer { target_scheme, target_address, amount })
             },

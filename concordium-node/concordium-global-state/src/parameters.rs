@@ -47,13 +47,13 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
         let election_nonce = read_bytestring(cursor, "election nonce")?;
-        let election_difficulty = NetworkEndian::read_f64(&read_const_sized!(cursor, size_of::<ElectionDifficulty>()));
+        let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
 
         let bakers = read_multiple!(
             cursor,
             "bakers",
             (
-                NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<BakerId>())),
+                NetworkEndian::read_u64(&read_ty!(cursor, BakerId)),
                 BakerInfo::deserialize(&read_const_sized!(cursor, BAKER_INFO))?
             )
         );
@@ -109,9 +109,9 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
 
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
         let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, BAKER_SIGN_KEY));
-        let lottery_power = NetworkEndian::read_f64(&read_const_sized!(cursor, size_of::<LotteryPower>()));
+        let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
         let account_address =
-            AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
+            AccountAddress(read_ty!(cursor, AccountAddress));
 
         let info = BakerInfo {
             election_verify_key,
@@ -152,7 +152,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for VoterInfo {
 
         let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, VOTER_SIGN_KEY));
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, VOTER_VRF_KEY));
-        let voting_power = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<VoterPower>()));
+        let voting_power = NetworkEndian::read_u64(&read_ty!(cursor, VoterPower));
 
         let info = VoterInfo {
             signature_verify_key,

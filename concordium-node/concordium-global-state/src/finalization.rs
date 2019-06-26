@@ -88,10 +88,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for FinalizationMessageHeader {
         let mut cursor = Cursor::new(bytes);
 
         let session_id =
-            SessionId::deserialize(&read_const_sized!(&mut cursor, size_of::<SessionId>()))?;
-        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<FinalizationIndex>()));
-        let delta = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<Delta>()));
-        let sender = NetworkEndian::read_u32(&read_const_sized!(&mut cursor, size_of::<Party>()));
+            SessionId::deserialize(&read_ty!(&mut cursor, SessionId))?;
+        let index = NetworkEndian::read_u64(&read_ty!(&mut cursor, FinalizationIndex));
+        let delta = NetworkEndian::read_u64(&read_ty!(&mut cursor, Delta));
+        let sender = NetworkEndian::read_u32(&read_ty!(&mut cursor, Party));
 
         let header = FinalizationMessageHeader {
             session_id,
@@ -310,7 +310,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for NominationSet {
             }
         }
 
-        let max_party = NetworkEndian::read_u32(&read_const_sized!(cursor, size_of::<Party>()));
+        let max_party = NetworkEndian::read_u32(&read_ty!(cursor, Party));
 
         let bitstr_len = (max_party as usize + 1) / 8;
         let (mut top, mut bottom) = (
@@ -421,7 +421,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Css {
     type Source = (&'a mut Cursor<&'b [u8]>, CssVariant, NominationTag);
 
     fn deserialize((cursor, variant, tag): Self::Source) -> Fallible<Self> {
-        let phase = NetworkEndian::read_u32(&read_const_sized!(cursor, size_of::<Phase>()));
+        let phase = NetworkEndian::read_u32(&read_ty!(cursor, Phase));
         let nomination_set = NominationSet::deserialize((cursor, tag))?;
 
         let css = Css {
@@ -500,8 +500,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let index = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<FinalizationIndex>()));
-        let block_pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
+        let index = NetworkEndian::read_u64(&read_ty!(&mut cursor, FinalizationIndex));
+        let block_pointer = HashBytes::from(read_ty!(&mut cursor, BlockHash));
 
         let proof = read_multiple!(
             cursor,
@@ -512,7 +512,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for FinalizationRecord {
             )
         );
 
-        let delay = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, size_of::<BlockHeight>()));
+        let delay = NetworkEndian::read_u64(&read_ty!(&mut cursor, BlockHeight));
 
         let rec = FinalizationRecord {
             index,
