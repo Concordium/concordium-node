@@ -140,6 +140,7 @@ updateAccount !upd !acc =
 class BlockStateQuery m => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
+  -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe Account)
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
@@ -151,6 +152,7 @@ class BlockStateQuery m => BlockStateOperations m where
   -- |Try to add a new account to the state. If an account with the address already exists
   -- return @False@, and if the account was successfully added return @True@.
   bsoPutNewAccount :: UpdatableBlockState m -> Account -> m (Bool, UpdatableBlockState m)
+  -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
@@ -183,6 +185,7 @@ class BlockStateQuery m => BlockStateOperations m where
   -- of block execution.
   bsoGetBirkParameters :: UpdatableBlockState m -> m BirkParameters
 
+  -- |Get the 'BakerInfo' for a given baker.
   bsoGetBakerInfo :: UpdatableBlockState m -> BakerId -> m (Maybe BakerInfo)
   bsoGetBakerInfo s bid = do
     bps <- bsoGetBirkParameters s

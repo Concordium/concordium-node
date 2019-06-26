@@ -210,7 +210,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     instData <- arbitrary
                     let (ca, insts') = createInstance (makeDummyInstance instData) insts
                     let (cam, model') = modelCreateInstance (makeDummyInstance instData) model
-                    checkEqualThen ca cam $
+                    checkEqualThen (instanceAddress $ instanceParameters ca) cam $
                         tu (n-1) insts' model'
                 deleteAbsent = do
                     ci <- ContractIndex <$> choose (fromIntegral $ modelBound model, maxBound)
