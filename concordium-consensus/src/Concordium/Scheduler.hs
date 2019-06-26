@@ -28,6 +28,7 @@ import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust)
+import qualified Data.Set as Set
 
 import Control.Exception(assert)
 
@@ -506,15 +507,7 @@ handleDeployCredential meta cdi energy = do
        macc <- getAccount aaddr
        case macc of
          Nothing ->  -- account does not yet exist, so create it, but we need to be careful
-           let account = Account { _accountAddress = aaddr
-                                 , _accountNonce = minNonce
-                                 , _accountAmount = 0
-                                 , _accountEncryptionKey = Nothing
-                                 , _accountEncryptedAmount = []
-                                 , _accountVerificationKey = ID.cdi_verifKey cdi
-                                 , _accountSignatureScheme = ID.cdi_sigScheme cdi
-                                 , _accountCredentials = []
-                                 , _accountStakeDelegate = Nothing}
+           let account = newAccount (ID.cdi_verifKey cdi) (ID.cdi_sigScheme cdi)
            in if AH.verifyCredential cdi then do
                 _ <- putNewAccount account -- first create new account, but only if credential was valid.
                                            -- We know the address does not yet exist.

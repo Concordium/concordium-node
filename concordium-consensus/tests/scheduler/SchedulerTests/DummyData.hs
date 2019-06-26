@@ -17,8 +17,6 @@ import Concordium.Crypto.Ed25519Signature
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 
-import qualified Concordium.Scheduler.Types as Types
-
 import System.Random
 
 blockPointer :: BlockHash
@@ -53,16 +51,7 @@ accountVFKeyFrom :: Int -> VerifyKey
 accountVFKeyFrom = verifyKey . fst . randomKeyPair . mkStdGen 
 
 mkAccount ::AccountVerificationKey -> Amount -> Account
-mkAccount vfKey amnt = Types.Account aaddr
-                                     1 -- nonce
-                                     amnt -- initial amount
-                                     [] -- encrypted amounts
-                                     Nothing -- no encryption key
-                                     vfKey
-                                     Ed25519
-                                     []
-                                     Nothing
-  where aaddr = accountAddress vfKey Ed25519
+mkAccount vfKey amnt = (newAccount vfKey Ed25519) {_accountAmount = amnt}
 
 -- |Make a dummy credential deployment information from an account registration
 -- id and sequential registration id. All the proofs are dummy values, and there
