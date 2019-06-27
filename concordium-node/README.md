@@ -46,9 +46,9 @@ Use docker-compose and follow instructions in [scripts/local/README.md](/scripts
 
 ## Nix
 Currently this project only sports support for Nix on Linux platforms.
-# Development
+### Development
 All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
-# Install binaries as a package
+### Install binaries as a package
 ```
 $> nix-env -f . -i
 ```
