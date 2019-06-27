@@ -26,3 +26,4 @@ src/proto/concordium_p2p_rpc*.rs
 *.ps
 scripts/static-libs/static-libs-docker/output_dir/
 result
+*/Cargo.lock
