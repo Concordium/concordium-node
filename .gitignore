@@ -2,7 +2,6 @@
 *.swo
 *.swp
 target
-Cargo.lock
 *.orig
 *.bk
 _rust_rocksdb*
@@ -26,3 +25,4 @@ src/proto/concordium_p2p_rpc*.rs
 *.svg
 *.ps
 scripts/static-libs/static-libs-docker/output_dir/
+result
