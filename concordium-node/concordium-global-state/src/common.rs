@@ -53,11 +53,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
     }
 }
 
-pub enum Address {
-    Account(Encoded),
-    Contract(ContractAddress),
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum SchemeId {
     Cl = 0,

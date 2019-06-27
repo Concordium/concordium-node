@@ -47,6 +47,8 @@ use p2p_client::{
     utils,
 };
 
+use rkv::{Manager, Rkv};
+
 use std::{
     net::SocketAddr,
     str,
@@ -234,6 +236,7 @@ fn setup_process_output(
     baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
     (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
+    app_prefs: &configuration::AppPreferences,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
@@ -244,11 +247,20 @@ fn setup_process_output(
     let (_tps_test_enabled, _tps_message_count) = tps_setup_process_output(&conf.cli);
     let transactions_cache = TransactionsCache::new();
     let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     let genesis_data = baker.get_genesis_data().unwrap();
     let mut node_clone = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
-        let mut skov = Skov::new(&genesis_data);
+        // Open the k-v store
+        let created_arc = Manager::singleton()
+            .write()
+            .unwrap()
+            .get_or_create(data_dir_path.as_ref(), Rkv::new)
+            .unwrap();
+        let kvs_env = created_arc.read().unwrap();
+
+        let mut skov = Skov::new(&genesis_data, &kvs_env);
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
@@ -467,6 +479,7 @@ fn main() -> Fallible<()> {
     for resolver in &dns_resolvers {
         debug!("Using resolver: {}", resolver);
     }
+
     let bootstrap_nodes = utils::get_bootstrap_nodes(
         conf.connection.bootstrap_server.clone(),
         &dns_resolvers,
@@ -564,6 +577,7 @@ fn main() -> Fallible<()> {
             baker,
             pkt_out,
             (skov_receiver, skov_sender.clone()),
+            &app_prefs,
         )
     } else {
         vec![]
