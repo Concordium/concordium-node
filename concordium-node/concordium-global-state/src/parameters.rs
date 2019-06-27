@@ -110,8 +110,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
         let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, BAKER_SIGN_KEY));
         let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
-        let account_address =
-            AccountAddress(read_ty!(cursor, AccountAddress));
+        let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
 
         let info = BakerInfo {
             election_verify_key,

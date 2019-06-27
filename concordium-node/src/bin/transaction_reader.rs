@@ -4,10 +4,7 @@ use std::{
     io::{self, Cursor, Read},
 };
 
-use concordium_global_state::{
-    transaction::Transaction,
-    common::SerializeToBytes,
-};
+use concordium_global_state::{common::SerializeToBytes, transaction::Transaction};
 
 fn read_transaction(bytes: &[u8]) {
     let mut cursor = Cursor::new(bytes);

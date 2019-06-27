@@ -126,8 +126,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
         let baker_id = NetworkEndian::read_u64(&read_ty!(&mut cursor, BakerId));
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized =
-            HashBytes::from(read_ty!(&mut cursor, BlockHash));
+        let last_finalized = HashBytes::from(read_ty!(&mut cursor, BlockHash));
         let transactions = read_multiple!(
             &mut cursor,
             "transactions",

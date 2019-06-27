@@ -38,10 +38,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
         let index = NetworkEndian::read_u64(&read_ty!(cursor, ContractIndex));
         let subindex = NetworkEndian::read_u64(&read_ty!(cursor, ContractSubIndex));
 
-        let contract_address = ContractAddress {
-            index,
-            subindex,
-        };
+        let contract_address = ContractAddress { index, subindex };
 
         Ok(contract_address)
     }
@@ -55,7 +52,6 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
         cursor.into_inner()
     }
 }
-
 
 pub enum Address {
     Account(Encoded),
@@ -265,7 +261,8 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<BlockHash>() + size_of::<Incarnation>());
+        let mut cursor =
+            create_serialization_cursor(size_of::<BlockHash>() + size_of::<Incarnation>());
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);

@@ -173,9 +173,22 @@ pub type TyName = u32;
 #[derive(Debug)]
 pub enum TransactionPayload {
     DeployModule(Encoded),
-    InitContract { amount: Amount, module: HashBytes, contract: TyName, param: Encoded },
-    Update { amount: Amount, address: ContractAddress, message: Encoded },
-    Transfer { target_scheme: SchemeId, target_address: AccountAddress, amount: Amount },
+    InitContract {
+        amount:   Amount,
+        module:   HashBytes,
+        contract: TyName,
+        param:    Encoded,
+    },
+    Update {
+        amount:  Amount,
+        address: ContractAddress,
+        message: Encoded,
+    },
+    Transfer {
+        target_scheme:  SchemeId,
+        target_address: AccountAddress,
+        amount:         Amount,
+    },
     DeployCredentials,
     DeployEncryptionKey,
     AddBaker,
@@ -213,43 +226,63 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             TransactionType::DeployModule => {
                 let module = Encoded::new(&read_sized!(cursor, len - 1));
                 Ok(TransactionPayload::DeployModule(module))
-            },
+            }
             TransactionType::InitContract => {
                 let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
                 let module = HashBytes::from(read_ty!(cursor, HashBytes));
                 let contract = NetworkEndian::read_u32(&read_ty!(cursor, TyName));
 
                 let non_param_len = sum_ty_lens!(TransactionType, Amount, HashBytes, TyName);
-                ensure!(len as usize >= non_param_len, "malformed transaction param!");
+                ensure!(
+                    len as usize >= non_param_len,
+                    "malformed transaction param!"
+                );
                 let param_size = len as usize - non_param_len;
                 let param = Encoded::new(&read_sized!(cursor, param_size));
 
-                Ok(TransactionPayload::InitContract { amount, module, contract, param })
-            },
+                Ok(TransactionPayload::InitContract {
+                    amount,
+                    module,
+                    contract,
+                    param,
+                })
+            }
             TransactionType::Update => {
                 let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
                 let address = ContractAddress::deserialize(cursor)?;
 
                 let non_message_len = sum_ty_lens!(TransactionType, Amount, ContractAddress);
-                ensure!(len as usize >= non_message_len, "malformed transaction message!");
+                ensure!(
+                    len as usize >= non_message_len,
+                    "malformed transaction message!"
+                );
                 let msg_size = len as usize - non_message_len;
                 let message = Encoded::new(&read_sized!(cursor, msg_size));
 
-                Ok(TransactionPayload::Update { amount, address, message })
-            },
+                Ok(TransactionPayload::Update {
+                    amount,
+                    address,
+                    message,
+                })
+            }
             TransactionType::Transfer => {
                 let target_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
                 let target_address = AccountAddress(read_ty!(cursor, AccountAddress));
                 let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
 
-                Ok(TransactionPayload::Transfer { target_scheme, target_address, amount })
-            },
+                Ok(TransactionPayload::Transfer {
+                    target_scheme,
+                    target_address,
+                    amount,
+                })
+            }
             _ => unimplemented!("Deserialization of {:?} is not implemented yet!", variant),
         }
     }
 
     fn serialize(&self) -> Box<[u8]> {
-        // FIXME: tweak based on the smallest possible size or trigger from within branches
+        // FIXME: tweak based on the smallest possible size or trigger from within
+        // branches
         let mut cursor = Cursor::new(Vec::with_capacity(16));
         let transaction_type = self.transaction_type();
         let _ = cursor.write(&[transaction_type as u8]);
@@ -257,24 +290,40 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
         match self {
             TransactionPayload::DeployModule(module) => {
                 let _ = cursor.write_all(&module);
-            },
-            TransactionPayload::InitContract { amount, module, contract, param } => {
+            }
+            TransactionPayload::InitContract {
+                amount,
+                module,
+                contract,
+                param,
+            } => {
                 let _ = cursor.write_u64::<NetworkEndian>(*amount);
                 let _ = cursor.write_all(&*module);
                 let _ = cursor.write_u32::<NetworkEndian>(*contract);
                 let _ = cursor.write_all(&*param);
-            },
-            TransactionPayload::Update { amount, address, message } => {
+            }
+            TransactionPayload::Update {
+                amount,
+                address,
+                message,
+            } => {
                 let _ = cursor.write_u64::<NetworkEndian>(*amount);
                 let _ = cursor.write_all(&address.serialize());
                 let _ = cursor.write_all(&*message);
-            },
-            TransactionPayload::Transfer { target_scheme, target_address, amount } => {
+            }
+            TransactionPayload::Transfer {
+                target_scheme,
+                target_address,
+                amount,
+            } => {
                 let _ = cursor.write(&[*target_scheme as u8]);
                 let _ = cursor.write_all(&target_address.0);
                 let _ = cursor.write_u64::<NetworkEndian>(*amount);
-            },
-            _ => unimplemented!("Serialization of {:?} is not implemented yet!", transaction_type),
+            }
+            _ => unimplemented!(
+                "Serialization of {:?} is not implemented yet!",
+                transaction_type
+            ),
         }
 
         cursor.into_inner().into_boxed_slice()
