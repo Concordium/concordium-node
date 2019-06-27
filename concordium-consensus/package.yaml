@@ -51,7 +51,6 @@ library:
   source-dirs: src
   ghc-options:
       - -fPIC
-      - -shared
       - -Wall
       - -Wcompat
       - -Werror=missing-fields
@@ -61,12 +60,12 @@ library:
   when:
     - condition: os(windows)
       then:
-        ghc-options: -static lib.def
+        ghc-options: -shared -static lib.def
       else:
         when:
           - condition: flag(dynamic)
             then:
-              ghc-options: -dynamic
+              ghc-options: -shared -dynamic
             else:
               ghc-options: -static
 
@@ -84,12 +83,17 @@ executables:
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
-    when: 
+    when:
       - condition: os(windows)
         then:
           ghc-options: -static
         else:
-          ghc-options: -dynamic
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
     dependencies:
     - Concordium
 
@@ -103,12 +107,17 @@ executables:
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
-    when: 
+    when:
       - condition: os(windows)
         then:
           ghc-options: -static
         else:
-          ghc-options: -dynamic
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
     dependencies:
     - Concordium
 
@@ -123,12 +132,17 @@ tests:
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
-    when: 
+    when:
       - condition: os(windows)
         then:
           ghc-options: -static
         else:
-          ghc-options: -dynamic
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
     dependencies:
     - Concordium
     - hspec >= 2.5
@@ -148,12 +162,17 @@ benchmarks:
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
-    when: 
+    when:
       - condition: os(windows)
         then:
           ghc-options: -static
         else:
-          ghc-options: -dynamic
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
     dependencies:
     - Concordium
     - vector >= 0.12
