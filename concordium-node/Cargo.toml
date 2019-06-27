@@ -118,6 +118,10 @@ path = "src/bin/block_dump_reader.rs"
 name = "read_block_dump"
 
 [[bin]]
+path = "src/bin/transaction_reader.rs"
+name = "read_transaction"
+
+[[bin]]
 path = "src/bin/cli.rs"
 name = "p2p_client-cli"
 

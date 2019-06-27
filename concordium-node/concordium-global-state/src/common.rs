@@ -22,10 +22,35 @@ pub const ALLOCATION_LIMIT: usize = 4096;
 
 use crate::block::BlockHash;
 
-#[allow(dead_code)]
+pub type ContractIndex = u64;
+pub type ContractSubIndex = u64;
+
+#[derive(Debug, Clone, Copy)]
 pub struct ContractAddress {
-    index:    u64,
-    subindex: u64,
+    index:    ContractIndex,
+    subindex: ContractSubIndex,
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
+    type Source = &'a mut Cursor<&'b [u8]>;
+
+    fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let index = NetworkEndian::read_u64(&read_ty!(cursor, ContractIndex));
+        let subindex = NetworkEndian::read_u64(&read_ty!(cursor, ContractSubIndex));
+
+        let contract_address = ContractAddress { index, subindex };
+
+        Ok(contract_address)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let mut cursor = create_serialization_cursor(size_of::<ContractAddress>());
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.index);
+        let _ = cursor.write_u64::<NetworkEndian>(self.subindex);
+
+        cursor.into_inner()
+    }
 }
 
 pub enum Address {
@@ -92,12 +117,12 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
-        let address = AccountAddress(read_const_sized!(cursor, size_of::<AccountAddress>()));
+        let address = AccountAddress(read_ty!(cursor, AccountAddress));
 
-        let nonce_raw = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Nonce>()));
+        let nonce_raw = NetworkEndian::read_u64(&read_ty!(cursor, Nonce));
         let nonce = Nonce::try_from(nonce_raw)?;
 
-        let amount = NetworkEndian::read_u64(&read_const_sized!(cursor, size_of::<Amount>()));
+        let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
 
         let encrypted_amounts = read_multiple!(
             cursor,
@@ -114,7 +139,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
 
         let verification_key = read_bytestring(cursor, "verification key's length")?;
 
-        let signature_scheme = SchemeId::try_from(read_const_sized!(cursor, 1)[0])?;
+        let signature_scheme = SchemeId::try_from(read_ty!(cursor, SchemeId)[0])?;
 
         let credentials = read_multiple!(
             cursor,
@@ -206,6 +231,8 @@ pub type Slot = u64;
 
 pub type Energy = u64;
 
+pub type Incarnation = u64;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct SessionId {
     genesis_block: BlockHash,
@@ -220,8 +247,8 @@ impl SessionId {
     pub fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let genesis_block = HashBytes::from(read_const_sized!(&mut cursor, size_of::<HashBytes>()));
-        let incarnation = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let genesis_block = HashBytes::from(read_ty!(&mut cursor, HashBytes));
+        let incarnation = NetworkEndian::read_u64(&read_ty!(&mut cursor, Incarnation));
 
         let sess = SessionId {
             genesis_block,
@@ -234,7 +261,8 @@ impl SessionId {
     }
 
     pub fn serialize(&self) -> Box<[u8]> {
-        let mut cursor = create_serialization_cursor(size_of::<BlockHash>() + size_of::<u64>());
+        let mut cursor =
+            create_serialization_cursor(size_of::<BlockHash>() + size_of::<Incarnation>());
 
         let _ = cursor.write_all(&self.genesis_block);
         let _ = cursor.write_u64::<NetworkEndian>(self.incarnation);
@@ -275,16 +303,6 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
 
 pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible<ByteString> {
     let object_length = safe_get_len!(input, object_name);
-
-    Ok(Encoded(read_sized!(input, object_length)))
-}
-
-// FIXME: do we or do we not actually want to have this distinction in
-// deserialization?
-pub fn read_bytestring_short(input: &mut Cursor<&[u8]>) -> Fallible<ByteString> {
-    // these objects can be big, so we can easily expect to need to handle 32b
-    // lengths
-    let object_length = NetworkEndian::read_u32(&read_const_sized!(input, 4)) as usize;
 
     Ok(Encoded(read_sized!(input, object_length)))
 }

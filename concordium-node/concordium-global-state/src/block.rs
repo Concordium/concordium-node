@@ -121,13 +121,12 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let slot = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let pointer = HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
-        let baker_id = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let slot = NetworkEndian::read_u64(&read_ty!(&mut cursor, Slot));
+        let pointer = HashBytes::from(read_ty!(&mut cursor, BlockHash));
+        let baker_id = NetworkEndian::read_u64(&read_ty!(&mut cursor, BakerId));
         let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
         let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized =
-            HashBytes::from(read_const_sized!(&mut cursor, size_of::<BlockHash>()));
+        let last_finalized = HashBytes::from(read_ty!(&mut cursor, BlockHash));
         let transactions = read_multiple!(
             &mut cursor,
             "transactions",
@@ -194,8 +193,8 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
     fn deserialize(bytes: &[u8]) -> Fallible<Self> {
         let mut cursor = Cursor::new(bytes);
 
-        let timestamp = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
-        let slot_duration = NetworkEndian::read_u64(&read_const_sized!(&mut cursor, 8));
+        let timestamp = NetworkEndian::read_u64(&read_ty!(&mut cursor, Timestamp));
+        let slot_duration = NetworkEndian::read_u64(&read_ty!(&mut cursor, Duration));
         let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
         let baker_accounts =
             read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
