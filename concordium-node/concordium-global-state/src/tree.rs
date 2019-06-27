@@ -1,5 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
+use rkv::Rkv;
 
 use std::{
     collections::{BinaryHeap, HashMap, HashSet},
@@ -253,11 +254,11 @@ impl Skov {
     );
 
     #[doc(hidden)]
-    pub fn new(genesis_data: &[u8]) -> Self {
+    pub fn new(genesis_data: &[u8], kvs_env: &Rkv) -> Self {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
-            data:  SkovData::new(genesis_data),
+            data:  SkovData::new(genesis_data, &kvs_env),
             stats: SkovStats::new(MOVING_AVERAGE_QUEUE_LEN),
         }
     }
@@ -303,9 +304,11 @@ impl Skov {
 /// blocks.
 type PendingQueue = HashMap<BlockHash, HashSet<PendingBlock>>;
 
-#[derive(Debug)]
 /// Holds the global state objects.
+#[allow(dead_code)]
 pub struct SkovData {
+    /// the persistent key-value store
+    // finalized_blocks: SingleStore,
     /// finalized blocks AKA the blockchain
     block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
     /// finalization records; the blocks they point to are in the tree
@@ -330,7 +333,7 @@ pub struct SkovData {
 }
 
 impl SkovData {
-    fn new(genesis_data: &[u8]) -> Self {
+    fn new(genesis_data: &[u8], _kvs_env: &Rkv) -> Self {
         const SKOV_LONG_PREALLOCATION_SIZE: usize = 128;
         const SKOV_SHORT_PREALLOCATION_SIZE: usize = 16;
         const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
@@ -348,6 +351,7 @@ impl SkovData {
         let genesis_block_ptr = Rc::clone(genesis_block_ref);
 
         Self {
+            // finalized_blocks: kvs_env.open_single("blocks", StoreOptions::create()).unwrap();,
             block_tree,
             finalization_list,
             genesis_block_ptr,
