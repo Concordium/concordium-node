@@ -49,8 +49,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for ContractAddress {
     fn serialize(&self) -> Box<[u8]> {
         let mut cursor = create_serialization_cursor(size_of::<ContractAddress>());
 
-        cursor.write_u64::<NetworkEndian>(self.index);
-        cursor.write_u64::<NetworkEndian>(self.subindex);
+        let _ = cursor.write_u64::<NetworkEndian>(self.index);
+        let _ = cursor.write_u64::<NetworkEndian>(self.subindex);
 
         cursor.into_inner()
     }
