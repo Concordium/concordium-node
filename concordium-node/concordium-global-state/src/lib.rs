@@ -43,6 +43,15 @@ macro_rules! read_ty {
     }};
 }
 
+/// Reads a number of bytes equal to the size of `object` into an array.
+macro_rules! sum_ty_lens {
+    ($($t:ty),+) => {{
+        let mut sum = 0;
+        $(sum += size_of::<$t>();)+
+        sum
+    }};
+}
+
 /// Reads a known number of bytes into a boxed slice. Incurs an allocation, but
 /// doesn't waste any space and the result is immutable.
 macro_rules! read_sized {

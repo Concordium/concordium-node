@@ -219,7 +219,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 let module = HashBytes::from(read_ty!(cursor, HashBytes));
                 let contract = NetworkEndian::read_u32(&read_ty!(cursor, TyName));
 
-                let non_param_len = size_of::<TransactionType>() + size_of::<Amount>() + size_of::<HashBytes>() + size_of::<TyName>();
+                let non_param_len = sum_ty_lens!(TransactionType, Amount, HashBytes, TyName);
                 ensure!(len as usize >= non_param_len, "malformed transaction param!");
                 let param_size = len as usize - non_param_len;
                 let param = Encoded::new(&read_sized!(cursor, param_size));
@@ -230,7 +230,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 let amount = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
                 let address = ContractAddress::deserialize(cursor)?;
 
-                let non_message_len = size_of::<TransactionType>() + size_of::<Amount>() + size_of::<ContractAddress>();
+                let non_message_len = sum_ty_lens!(TransactionType, Amount, ContractAddress);
                 ensure!(len as usize >= non_message_len, "malformed transaction message!");
                 let msg_size = len as usize - non_message_len;
                 let message = Encoded::new(&read_sized!(cursor, msg_size));
