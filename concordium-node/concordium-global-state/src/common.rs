@@ -127,7 +127,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             read_bytestring(cursor, "encrypted amount's length")?
         );
 
-        let encryption_key = read_maybe!(cursor, read_bytestring(cursor, "encrypted key's length")?);
+        let encryption_key =
+            read_maybe!(cursor, read_bytestring(cursor, "encrypted key's length")?);
 
         let verification_key = read_bytestring(cursor, "verification key's length")?;
 
@@ -139,13 +140,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             read_bytestring(cursor, "encrypted amount's length")?
         );
 
-        let stake_delegate = read_maybe!(cursor, NetworkEndian::read_u64(&read_ty!(cursor, BakerId)));
+        let stake_delegate =
+            read_maybe!(cursor, NetworkEndian::read_u64(&read_ty!(cursor, BakerId)));
 
-        let instances = read_multiple!(
-            cursor,
-            "instances",
-            ContractAddress::deserialize(cursor)?
-        );
+        let instances = read_multiple!(cursor, "instances", ContractAddress::deserialize(cursor)?);
 
         let account = Account {
             address,
@@ -178,7 +176,10 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             .map(|k| k.len())
             .unwrap_or(0);
 
-        let stake_delegate_len = self.stake_delegate.map(|_| size_of::<BakerId>()).unwrap_or(0);
+        let stake_delegate_len = self
+            .stake_delegate
+            .map(|_| size_of::<BakerId>())
+            .unwrap_or(0);
 
         let mut cursor = create_serialization_cursor(
             size_of::<AccountAddress>()
