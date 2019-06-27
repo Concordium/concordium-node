@@ -16,8 +16,6 @@ cabal new-install hpack)
 ## Prepare our stuff for cabal
 cp cabal.project           $consensus_dir
 cp cabal.project.local     $consensus_dir
-sed -i -z -e 's/\s*- -shared//g' $consensus_dir/Concordium/package.yaml
-sed -i -z -e 's/\s*when:\s*- condition: os(windows)\s*then:\s*ghc-options: -static[^\n]*\n\s*else:\s*ghc-options: -dynamic//g' $consensus_dir/Concordium/package.yaml
 (cd $consensus_dir/acorn
  hpack
  cd $consensus_dir/Concordium
