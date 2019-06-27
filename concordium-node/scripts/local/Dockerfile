@@ -6,9 +6,6 @@ RUN pacman -Sy && \
         file which boost patch libunwind libdwarf elfutils unbound llvm --noconfirm && \
     pacman -Scc --noconfirm && \
     rustup default stable && \
-    git clone https://github.com/mitls/hacl-c && \
-    cd hacl-c && make -j$(nproc) && cp libhacl.so /usr/lib && \
-    rm -rf hacl-c && \
     git clone https://github.com/libffi/libffi.git && \
     cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install && \
     rm -rf libffi && \
