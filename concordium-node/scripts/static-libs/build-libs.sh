@@ -36,8 +36,8 @@ cabal new-update)
 
 # Build our stuff
 (rm -rf ~/.cabal/store/ghc-$GHCVER/
-    cd $rootdir/../../deps/internal/consensus
-LD_LIBRARY_PATH=$rootdir/../../deps/internal/consensus/crypto/rust-src/target/release cabal new-build all
+    cd $consensus_dir
+LD_LIBRARY_PATH=$rootdir/../../deps/internal/consensus/crypto/rust-src/target/release cabal new-build all --flags="-dynamic"
 
 rm -rf $rootdir/target
 mkdir -p $rootdir/target/{profiling,vanilla}/{cabal,concordium}
@@ -65,7 +65,6 @@ done)
 # Copy the rust libraries
 (echo "Let's copy the needed rust libraries"
  cd $rootdir/../../deps/internal/consensus/crypto/rust-src/target/release
- mkdir $rootdir/target/rust
  cp *.a $rootdir/target/rust
  cd $rootdir/target/rust
 
