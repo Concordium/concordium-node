@@ -40,12 +40,16 @@ pub struct BirkParameters {
     election_nonce:      ByteString,
     election_difficulty: ElectionDifficulty,
     pub bakers:          Box<[(BakerId, BakerInfo)]>,
+    baker_total_stake:   Amount,
+    next_baker_id:       BakerId,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
     type Source = &'a mut Cursor<&'b [u8]>;
 
     fn deserialize(cursor: Self::Source) -> Fallible<Self> {
+        let initial_pos = cursor.position() as usize;
+
         let election_nonce = read_bytestring(cursor, "election nonce")?;
         let election_difficulty = NetworkEndian::read_f64(&read_ty!(cursor, ElectionDifficulty));
 
@@ -58,11 +62,20 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
             )
         );
 
+        let baker_total_stake = NetworkEndian::read_u64(&read_ty!(cursor, Amount));
+        let next_baker_id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+
         let params = BirkParameters {
             election_nonce,
             election_difficulty,
             bakers,
+            baker_total_stake,
+            next_baker_id,
         };
+
+        let final_pos = cursor.position() as usize;
+
+        check_partial_serialization!(params, &cursor.get_ref()[initial_pos..final_pos]);
 
         Ok(params)
     }
@@ -82,12 +95,16 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BirkParameters {
         let size = size_of::<u64>()
             + self.election_nonce.len()
             + size_of::<ElectionDifficulty>()
-            + baker_cursor.get_ref().len();
+            + baker_cursor.get_ref().len()
+            + size_of::<Amount>()
+            + size_of::<BakerId>();
         let mut cursor = create_serialization_cursor(size);
 
         write_bytestring(&mut cursor, &self.election_nonce);
         let _ = cursor.write_f64::<NetworkEndian>(self.election_difficulty);
         let _ = cursor.write_all(baker_cursor.get_ref());
+        let _ = cursor.write_u64::<NetworkEndian>(self.baker_total_stake);
+        let _ = cursor.write_u64::<NetworkEndian>(self.next_baker_id);
 
         cursor.into_inner()
     }

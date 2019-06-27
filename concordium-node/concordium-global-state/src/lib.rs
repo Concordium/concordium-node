@@ -23,6 +23,19 @@ macro_rules! check_serialization {
     };
 }
 
+/// A debug test designed to check whether deserialization is perfectly
+/// reversible in variable-length objects.
+macro_rules! check_partial_serialization {
+    ($target:expr, $source:expr) => {
+        debug_assert_eq!(
+            &*$target.serialize(),
+            $source,
+            "\n\nInvalid serialization of {:#?}",
+            $target
+        );
+    };
+}
+
 /// Reads a const-sized number of bytes into an array.
 macro_rules! read_const_sized {
     ($source:expr, $size:expr) => {{
@@ -89,13 +102,25 @@ macro_rules! write_multiple {
     }};
 }
 
+/// Deserializes a Haskell's `Maybe` object to a specified target.
+/// `1u8` is decoded as `Just X` and a `0u8` as `Nothing`.
+macro_rules! read_maybe {
+    ($source:expr, $read_expr:expr) => {{
+        if read_const_sized!($source, 1)[0] == 1 {
+            Some($read_expr)
+        } else {
+            None
+        }
+    }};
+}
+
 /// Serializes a Haskell's `Maybe` object Haskell-style to a specified target.
 /// Prepends the value with `1u8` for `Just X` and a `0u8` for `Nothing`.
 macro_rules! write_maybe {
-    ($target:expr, $maybe:expr, $write_function:ident) => {{
+    ($target:expr, $maybe:expr, $write_function:path) => {{
         if let Some(ref value) = $maybe {
             let _ = $target.write(&[1]);
-            $write_function($target, value);
+            $write_function($target, &*value);
         } else {
             let _ = $target.write(&[0]);
         }
@@ -109,9 +134,10 @@ macro_rules! safe_get_len {
         let raw_len = NetworkEndian::read_u64(&read_const_sized!($source, 8)) as usize;
         failure::ensure!(
             raw_len <= ALLOCATION_LIMIT,
-            "The requested size ({}) of \"{}\" exceeds the safety limit!",
+            "The requested size ({}) of {} exceeds the safety limit! bytes: {:?}",
             raw_len,
             $object,
+            $source,
         );
         raw_len
     }};
