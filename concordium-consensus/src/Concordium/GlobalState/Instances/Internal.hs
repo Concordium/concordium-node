@@ -80,8 +80,8 @@ makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
 data InstanceTable 
     -- |The empty instance table
     = Empty
-    -- |A non-empty instance table
-    | Tree !IT
+    -- |A non-empty instance table (recording the size)
+    | Tree !Word64 !IT
     deriving (Show)
 
 computeBranchHash :: IT -> IT -> H.Hash
@@ -117,7 +117,7 @@ instance HashableTo H.Hash IT where
 instance HashableTo H.Hash InstanceTable where
     -- The hash of the empty tree is defined arbitrarily to be the hash of the empty string
     getHash Empty = H.hash ""
-    getHash (Tree t) = getHash t
+    getHash (Tree _ t) = getHash t
 
 -- |A fold over the leaves of an 'IT'
 foldIT :: SimpleFold IT (Either ContractSubindex Instance)
@@ -145,7 +145,7 @@ type instance IxValue InstanceTable = Instance
 
 instance Ixed InstanceTable where
     ix _ _ t@Empty = pure t
-    ix i upd (Tree t) = Tree <$> (ix (contractIndex i) . filtered ((== i) . instanceAddress . instanceParameters)) upd t
+    ix i upd (Tree s t) = Tree s <$> (ix (contractIndex i) . filtered ((== i) . instanceAddress . instanceParameters)) upd t
 
 -- |Determine if an 'IT' is a full binary tree.
 isFull :: IT -> Bool
@@ -163,8 +163,8 @@ hasVacancies (Leaf _) = False
 hasVacancies (VacantLeaf _) = True
 
 newContractInstance :: Lens InstanceTable InstanceTable ContractAddress Instance
-newContractInstance mk Empty = Tree . Leaf <$> mk (ContractAddress 0 0)
-newContractInstance mk (Tree t0) = Tree <$> nci 0 t0
+newContractInstance mk Empty = Tree 1 . Leaf <$> mk (ContractAddress 0 0)
+newContractInstance mk (Tree s0 t0) = Tree (s0 + 1) <$> nci 0 t0
     where
         -- Insert into a tree with vacancies: insert in left if it has vacancies, otherwise right
         nci offset (Branch h f True _ l r)
@@ -184,34 +184,36 @@ newContractInstance mk (Tree t0) = Tree <$> nci 0 t0
         mkBranch h f v t1' t2' = Branch h f v (computeBranchHash t1' t2') t1' t2'
         leaf ind subind = Leaf <$> mk (ContractAddress ind subind)
 
+-- |Delete the contract instance with the given 'ContractIndex'.
 deleteContractInstance :: ContractIndex -> InstanceTable -> InstanceTable
 deleteContractInstance _ Empty = Empty
-deleteContractInstance i0 (Tree t0) = Tree $ dci i0 t0
+deleteContractInstance i0 (Tree s0 t0) = uncurry Tree $ dci i0 t0
     where
         dci i l@(Leaf inst)
-            | i == 0 = VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst
-            | otherwise = l
-        dci _ vl@(VacantLeaf _) = vl
+            | i == 0 = (s0 - 1, VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst)
+            | otherwise = (s0, l)
+        dci _ vl@(VacantLeaf _) = (s0, vl)
         dci i b@(Branch h f _ _ l r)
-            | i < 2^h = mkBranch (dci i l) r
-            | i < 2^(h+1) = mkBranch l (dci (i - 2^h) r)
-            | otherwise = b
+            | i < 2^h = let (s', l') = dci i l in (s', mkBranch l' r)
+            | i < 2^(h+1) = let (s', r') = dci (i - 2^h) r in (s', mkBranch l r')
+            | otherwise = (s0, b)
             where
                 mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 
+-- |Delete the contract instance at the given 'ContractAddress'.
 deleteContractInstanceExact :: ContractAddress -> InstanceTable -> InstanceTable
 deleteContractInstanceExact _ Empty = Empty
-deleteContractInstanceExact addr (Tree t0) = Tree $ dci (contractIndex addr) t0
+deleteContractInstanceExact addr (Tree s0 t0) = uncurry Tree $ dci (contractIndex addr) t0
     where
         dci i l@(Leaf inst)
             | i == 0 && addr == instanceAddress (instanceParameters inst)
-                        = VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst
-            | otherwise = l
-        dci _ vl@(VacantLeaf _) = vl
+                        = (s0 - 1, VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst)
+            | otherwise = (s0, l)
+        dci _ vl@(VacantLeaf _) = (s0, vl)
         dci i b@(Branch h f _ _ l r)
-            | i < 2^h = mkBranch (dci i l) r
-            | i < 2^(h+1) = mkBranch l (dci (i - 2^h) r)
-            | otherwise = b
+            | i < 2^h = let (s', l') = dci i l in (s', mkBranch l' r)
+            | i < 2^(h+1) = let (s', r') = dci (i - 2^h) r in (s', mkBranch l r')
+            | otherwise = (s0, b)
             where
                 mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 

@@ -89,3 +89,10 @@ instance Ixed AccountTable where
     ix i upd a@(Tree t)
         | i < bit (fromIntegral (nextLevel t)) = Tree <$> ix i upd t
         | otherwise = pure a
+
+toList :: AccountTable -> [(AccountIndex, Account)]
+toList Empty = []
+toList (Tree t) = toL 0 t
+    where
+        toL o (Leaf _ a) = [(o, a)]
+        toL o (Branch lvl _ _ t1 t2) = toL o t1 ++ toL (setBit o (fromIntegral lvl)) t2

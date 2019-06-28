@@ -15,7 +15,8 @@ module Concordium.GlobalState.Instances(
     updateInstanceAt,
     createInstance,
     deleteInstance,
-    foldInstances
+    foldInstances,
+    instanceCount
 ) where
 
 import Concordium.Types
@@ -24,6 +25,7 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Information (InstanceInfo(InstanceInfo))
 import Concordium.GlobalState.Instances.Internal
 
+import Data.Word
 import Lens.Micro.Platform
 
 -- |Get the 'InstanceInfo' summary of an 'Instance'.
@@ -102,4 +104,8 @@ deleteInstance ca (Instances i) = Instances (deleteContractInstanceExact ca i)
 -- |A fold over smart contract instances.
 foldInstances :: SimpleFold Instances Instance
 foldInstances _ is@(Instances Empty) = is <$ mempty
-foldInstances f is@(Instances (Tree t)) = is <$ (foldIT . _Right) f t
+foldInstances f is@(Instances (Tree _ t)) = is <$ (foldIT . _Right) f t
+
+instanceCount :: Instances -> Word64
+instanceCount (Instances Empty) = 0
+instanceCount (Instances (Tree c _)) = c

@@ -24,25 +24,27 @@ import Test.Hspec
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
-invariantIT :: ContractIndex -> IT -> Either String (Word8, Bool, Bool, ContractIndex, H.Hash)
+invariantIT :: ContractIndex -> IT -> Either String (Word8, Bool, Bool, ContractIndex, H.Hash, Word64)
 invariantIT offset (Leaf inst) = do
         checkBinary (==) (contractIndex $ iaddress inst) offset "==" "account index" "expected value"
-        return (0, True, False, succ offset, getHash inst)
-invariantIT offset (VacantLeaf si) = return (0, True, True, succ offset, H.hash $ runPut $ put si)
+        return (0, True, False, succ offset, getHash inst, 1)
+invariantIT offset (VacantLeaf si) = return (0, True, True, succ offset, H.hash $ runPut $ put si, 0)
 invariantIT offset (Branch h f v hsh l r) = do
-        (hl, fl, vl, offset', hshl) <- invariantIT offset l
+        (hl, fl, vl, offset', hshl, cl) <- invariantIT offset l
         checkBinary (==) hl h "==" "sucessor level of left child" "node level"
         unless fl $ Left "tree is not left-full"
-        (hr, fr, vr, offset'', hshr) <- invariantIT offset' r
+        (hr, fr, vr, offset'', hshr, cr) <- invariantIT offset' r
         checkBinary (==) hsh (H.hash $ runPut $ put hshl <> put hshr) "==" "branch hash" "hash(leftHash <> rightHash)"
         checkBinary (<=) hr h "<=" "successor level of right child" "node level"
         checkBinary (==) f (fr && hr == h) "<->" "branch marked full" "right child is full at next lower level"
         checkBinary (==) v (vl || vr) "<->" "branch has vacancies" "at least one child has vacancies"
-        return (succ h, f, v, offset'', hsh)
+        return (succ h, f, v, offset'', hsh, cl + cr)
 
 invariantInstanceTable :: InstanceTable -> Either String ()
 invariantInstanceTable Empty = Right ()
-invariantInstanceTable (Tree t) = () <$ invariantIT 0 t
+invariantInstanceTable (Tree c0 t) = do
+        (_, _, _, _, _, c) <- invariantIT 0 t
+        checkBinary (==) c0 c "==" "reported number of instances" "actual number"
 
 invariantInstances :: Instances -> Either String ()
 invariantInstances = invariantInstanceTable . _instances
@@ -137,7 +139,7 @@ modelDeleteInstance (ContractAddress ci csi) m = case Map.lookup ci (modelInstan
 
 instanceTableToModel :: InstanceTable -> Model
 instanceTableToModel Empty = emptyModel
-instanceTableToModel (Tree t0) = ttm 0 emptyModel t0
+instanceTableToModel (Tree _ t0) = ttm 0 emptyModel t0
     where
         ttm offset m (Branch h _ _ _ l r) =
             let m' = ttm offset m l in
