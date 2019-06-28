@@ -3,8 +3,8 @@
 module Concordium.GlobalState.Bakers where
 
 import GHC.Generics
-import qualified Data.Map as Map
-import Data.Map(Map)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict(Map)
 import Data.Serialize
 import Lens.Micro.Platform
 
