@@ -77,7 +77,6 @@ pub mod fails;
 pub mod common;
 pub mod configuration;
 pub mod connection;
-pub mod db;
 
 pub mod client;
 pub mod crypto;

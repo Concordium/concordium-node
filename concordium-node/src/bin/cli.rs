@@ -23,7 +23,6 @@ use concordium_global_state::{
     common::SerializeToBytes,
     tree::{Skov, SkovReq},
 };
-use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::{
@@ -35,7 +34,6 @@ use p2p_client::{
     },
     common::{P2PNodeId, PeerType},
     configuration,
-    db::P2PDB,
     network::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
         NetworkPacketType, NetworkRequest, NetworkResponse,
@@ -44,7 +42,7 @@ use p2p_client::{
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    utils,
+    utils::{self, get_config_and_logging_setup, load_bans},
 };
 
 use rkv::{Manager, Rkv};
@@ -54,49 +52,6 @@ use std::{
     str,
     sync::{mpsc, Arc, RwLock},
 };
-
-fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
-{
-    // Get config and app preferences
-    let conf = configuration::parse_config()?;
-    let app_prefs = configuration::AppPreferences::new(
-        conf.common.config_dir.to_owned(),
-        conf.common.data_dir.to_owned(),
-    );
-
-    // Prepare the logger
-    let env = if conf.common.trace {
-        Env::default().filter_or("MY_LOG_LEVEL", "trace")
-    } else if conf.common.debug {
-        Env::default().filter_or("MY_LOG_LEVEL", "debug")
-    } else {
-        Env::default().filter_or("MY_LOG_LEVEL", "info")
-    };
-
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
-
-    p2p_client::setup_panics();
-
-    info!(
-        "Starting up {} version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
-    );
-    info!(
-        "Application data directory: {:?}",
-        app_prefs.get_user_app_dir()
-    );
-    info!(
-        "Application config directory: {:?}",
-        app_prefs.get_user_config_dir()
-    );
-
-    Ok((conf, app_prefs))
-}
 
 fn setup_baker_guards(
     is_baker: bool,
@@ -231,7 +186,7 @@ fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (fals
 
 fn setup_process_output(
     node: &P2PNode,
-    db: P2PDB,
+    kvs_handle: Arc<RwLock<Rkv>>,
     conf: &configuration::Config,
     baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
@@ -252,15 +207,18 @@ fn setup_process_output(
     let genesis_data = baker.get_genesis_data().unwrap();
     let mut node_clone = node.clone();
     let global_state_thread = spawn_or_die!("Process global state requests", {
-        // Open the k-v store
-        let created_arc = Manager::singleton()
+        // Open the Skov-exclusive k-v store environment
+        let skov_kvs_handle = Manager::singleton()
             .write()
-            .unwrap()
+            .expect("Can't write to the kvs manager for Skov purposes!")
             .get_or_create(data_dir_path.as_ref(), Rkv::new)
-            .unwrap();
-        let kvs_env = created_arc.read().unwrap();
+            .expect("Can't load the Skov kvs environment!");
 
-        let mut skov = Skov::new(&genesis_data, &kvs_env);
+        let skov_kvs_env = skov_kvs_handle
+            .read()
+            .expect("Can't unlock the kvs env for Skov!");
+
+        let mut skov = Skov::new(&genesis_data, &skov_kvs_env);
         loop {
             match skov_receiver.recv() {
                 Ok(RelayOrStopEnvelope::Relay(request)) => {
@@ -289,13 +247,25 @@ fn setup_process_output(
                     NetworkRequest::BanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::ban_node(&mut node_ref, peer, peer_to_ban, &db, _no_trust_bans);
+                    utils::ban_node(
+                        &mut node_ref,
+                        peer,
+                        peer_to_ban,
+                        &kvs_handle,
+                        _no_trust_bans,
+                    );
                 }
                 NetworkMessage::NetworkRequest(
                     NetworkRequest::UnbanNode(ref peer, peer_to_ban),
                     ..
                 ) => {
-                    utils::unban_node(&mut node_ref, peer, peer_to_ban, &db, _no_trust_bans);
+                    utils::unban_node(
+                        &mut node_ref,
+                        peer,
+                        peer_to_ban,
+                        &kvs_handle,
+                        _no_trust_bans,
+                    );
                 }
                 NetworkMessage::NetworkResponse(
                     NetworkResponse::PeerList(ref peer, ref peers),
@@ -472,6 +442,7 @@ fn main() -> Fallible<()> {
         // Print out the configuration
         info!("{:?}", conf);
     }
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     // Retrieving bootstrap nodes
     let dns_resolvers =
@@ -486,11 +457,6 @@ fn main() -> Fallible<()> {
         conf.connection.dnssec_disabled,
         &conf.connection.bootstrap_node,
     );
-
-    // Create the database
-    let mut db_path = app_prefs.get_user_app_dir();
-    db_path.push("p2p.db");
-    let db = P2PDB::new(db_path.as_path());
 
     // Instantiate stats export engine
     let stats_export_service =
@@ -508,19 +474,16 @@ fn main() -> Fallible<()> {
     // Instantiate the p2p node
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &stats_export_service);
 
-    // Banning nodes in database
-    let db = match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n);
-            }
-            db
-        }
-        None => {
-            warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist(db_path.as_path())
-        }
+    // Create the cli key-value store environment
+    let cli_kvs_handle = Manager::singleton()
+        .write()
+        .unwrap()
+        .get_or_create(data_dir_path.as_path(), Rkv::new)
+        .unwrap();
+
+    // Load and apply existing bans
+    if let Err(e) = load_bans(&mut node, &cli_kvs_handle) {
+        error!("{}", e);
     };
 
     #[cfg(feature = "instrumentation")]
@@ -557,7 +520,12 @@ fn main() -> Fallible<()> {
 
     // Starting rpc server
     let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(node.clone(), db.clone(), baker.clone(), &conf.cli.rpc);
+        let mut serv = RpcServerImpl::new(
+            node.clone(),
+            Arc::clone(&cli_kvs_handle),
+            baker.clone(),
+            &conf.cli.rpc,
+        );
         serv.start_server()?;
         Some(serv)
     } else {
@@ -572,7 +540,7 @@ fn main() -> Fallible<()> {
     let higer_process_threads = if let Some(ref mut baker) = baker {
         setup_process_output(
             &node,
-            db,
+            cli_kvs_handle,
             &conf,
             baker,
             pkt_out,

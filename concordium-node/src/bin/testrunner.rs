@@ -18,7 +18,6 @@ static A: System = System;
 use concordium_common::{
     lock_or_die, safe_lock, spawn_or_die, RelayOrStopEnvelope, RelayOrStopReceiver,
 };
-use env_logger::{Builder, Env};
 use failure::Fallible;
 use gotham::{
     handler::IntoResponse,
@@ -32,13 +31,13 @@ use hyper::{Body, Response, StatusCode};
 use p2p_client::{
     common::{self, PeerType},
     configuration,
-    db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
     stats_export_service::StatsExportService,
-    utils,
+    utils::{self, get_config_and_logging_setup, load_bans},
 };
 use rand::{distributions::Standard, thread_rng, Rng};
+use rkv::{Manager, Rkv};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc, Mutex, RwLock,
@@ -260,46 +259,6 @@ impl TestRunner {
     }
 }
 
-fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
-{
-    let conf = configuration::parse_config()?;
-    let app_prefs = configuration::AppPreferences::new(
-        conf.common.config_dir.to_owned(),
-        conf.common.data_dir.to_owned(),
-    );
-
-    info!(
-        "Starting up {}-TestRunner version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
-    );
-    info!(
-        "Application data directory: {:?}",
-        app_prefs.get_user_app_dir()
-    );
-    info!(
-        "Application config directory: {:?}",
-        app_prefs.get_user_config_dir()
-    );
-
-    let env = if conf.common.trace {
-        Env::default().filter_or("MY_LOG_LEVEL", "trace")
-    } else if conf.common.debug {
-        Env::default().filter_or("MY_LOG_LEVEL", "debug")
-    } else {
-        Env::default().filter_or("MY_LOG_LEVEL", "info")
-    };
-
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
-
-    p2p_client::setup_panics();
-    Ok((conf, app_prefs))
-}
-
 fn instantiate_node(
     conf: &configuration::Config,
     app_prefs: &mut configuration::AppPreferences,
@@ -347,7 +306,7 @@ fn setup_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-    db: P2PDB,
+    kvs_handle: Arc<RwLock<Rkv>>,
 ) {
     let mut _node_self_clone = node.clone();
 
@@ -388,10 +347,10 @@ fn setup_process_output(
                     }
                 },
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
-                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                    utils::ban_node(&mut _node_self_clone, peer, x, &kvs_handle, _no_trust_bans);
                 }
                 NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
-                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                    utils::unban_node(&mut _node_self_clone, peer, x, &kvs_handle, _no_trust_bans);
                 }
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
@@ -428,10 +387,7 @@ fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    let mut db_path = app_prefs.get_user_app_dir();
-    db_path.push("p2p.db");
-
-    let db = P2PDB::new(db_path.as_path());
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -451,21 +407,19 @@ fn main() -> Fallible<()> {
 
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &None);
 
-    node.spawn();
+    // Create the key-value store environment
+    let kvs_handle = Manager::singleton()
+        .write()
+        .unwrap()
+        .get_or_create(data_dir_path.as_path(), Rkv::new)
+        .unwrap();
 
-    let db = match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n);
-            }
-            db
-        }
-        None => {
-            warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist(db_path.as_path())
-        }
+    // Load and apply existing bans
+    if let Err(e) = load_bans(&mut node, &kvs_handle) {
+        error!("{}", e);
     };
+
+    node.spawn();
 
     if !app_prefs.set_config(
         configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
@@ -474,7 +428,7 @@ fn main() -> Fallible<()> {
         error!("Failed to persist own node id");
     }
 
-    setup_process_output(&node, &conf, pkt_out, db);
+    setup_process_output(&node, &conf, pkt_out, kvs_handle);
 
     for connect_to in conf.connection.connect_to {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.dnssec_disabled) {

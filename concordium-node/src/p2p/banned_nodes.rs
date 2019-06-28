@@ -2,9 +2,10 @@ use crate::common::{
     serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
     P2PNodeId,
 };
-use failure::Fallible;
+use failure::{self, format_err, Fallible};
+use rkv::{Rkv, StoreOptions, Value};
 
-use std::{collections::HashSet, net::IpAddr};
+use std::{collections::HashSet, convert::TryFrom, net::IpAddr, sync::RwLock};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -18,10 +19,35 @@ pub enum BannedNode {
 }
 
 impl BannedNode {
-    pub fn to_db_repr(&self) -> (Option<String>, Option<String>) {
+    pub fn to_db_repr(&self) -> Box<[u8]> {
         match self {
-            BannedNode::ById(id) => (Some(id.to_string()), None),
-            BannedNode::ByAddr(addr) => (None, Some(addr.to_string())),
+            BannedNode::ById(id) => id.to_string().into_bytes().into_boxed_slice(),
+            BannedNode::ByAddr(addr) => addr.to_string().into_bytes().into_boxed_slice(),
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for BannedNode {
+    type Error = failure::Error;
+
+    fn try_from(bytes: &[u8]) -> Fallible<Self> {
+        match bytes.len() {
+            4 => {
+                let mut arr = [0u8; 4];
+                arr.copy_from_slice(bytes);
+                Ok(BannedNode::ByAddr(IpAddr::from(arr)))
+            }
+            8 => {
+                let mut arr = [0u8; 8];
+                arr.copy_from_slice(bytes);
+                Ok(BannedNode::ById(P2PNodeId(u64::from_le_bytes(arr))))
+            }
+            16 => {
+                let mut arr = [0u8; 16];
+                arr.copy_from_slice(bytes);
+                Ok(BannedNode::ByAddr(IpAddr::from(arr)))
+            }
+            n => Err(format_err!("Invalid ban id length ({})!", n)),
         }
     }
 }
@@ -101,6 +127,26 @@ impl Deserializable for BannedNode {
 
         Ok(bn)
     }
+}
+
+pub fn insert_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_handle)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+    let mut writer = ban_kvs_env.write()?;
+    // TODO: insert ban expiry timestamp as the Value
+    ban_store.put(&mut writer, id, &Value::U64(0))?;
+
+    Ok(())
+}
+
+pub fn remove_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_handle)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+    let mut writer = ban_kvs_env.write()?;
+
+    ban_store.delete(&mut writer, id)?;
+
+    Ok(())
 }
 
 #[cfg(test)]

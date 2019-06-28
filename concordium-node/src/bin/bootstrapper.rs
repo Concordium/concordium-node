@@ -21,13 +21,13 @@ use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration,
-    db::P2PDB,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
     stats_export_service::StatsServiceMode,
-    utils,
+    utils::{self, load_bans},
 };
-use std::sync::{mpsc, Arc};
+use rkv::{Manager, Rkv};
+use std::sync::{mpsc, Arc, RwLock};
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config()?;
@@ -36,6 +36,7 @@ fn main() -> Result<(), Error> {
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
     );
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     let env = if conf.common.trace {
         Env::default().filter_or("MY_LOG_LEVEL", "trace")
@@ -71,11 +72,6 @@ fn main() -> Result<(), Error> {
         "Application config directory: {:?}",
         app_prefs.get_user_config_dir()
     );
-
-    let mut db_path = app_prefs.get_user_app_dir();
-    db_path.push("p2p.db");
-
-    let db = P2PDB::new(db_path.as_path());
 
     // Instantiate stats export engine
     let stats_export_service =
@@ -129,28 +125,26 @@ fn main() -> Result<(), Error> {
         )
     };
 
-    let db = match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n);
-            }
-            db
-        }
-        None => {
-            warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist(db_path.as_path())
-        }
-    };
-
     #[cfg(feature = "instrumentation")]
     // Start push gateway to prometheus
     client_utils::start_push_gateway(&conf.prometheus, &stats_export_service, node.id())?;
 
+    // Create the key-value store environment
+    let kvs_handle = Manager::singleton()
+        .write()
+        .unwrap()
+        .get_or_create(data_dir_path.as_path(), Rkv::new)
+        .unwrap();
+
+    // Load and apply existing bans
+    if let Err(e) = load_bans(&mut node, &kvs_handle) {
+        error!("{}", e);
+    };
+
     // Connect outgoing messages to be forwarded into the baker and RPC streams.
     //
     // Thread #4: Read P2PNode output
-    setup_process_output(&node, &db, &conf, pkt_out);
+    setup_process_output(&node, kvs_handle, &conf, pkt_out);
 
     {
         node.max_nodes = Some(conf.bootstrapper.max_nodes);
@@ -168,12 +162,11 @@ fn main() -> Result<(), Error> {
 
 fn setup_process_output(
     node: &P2PNode,
-    db: &P2PDB,
+    kvs_handle: Arc<RwLock<Rkv>>,
     conf: &configuration::Config,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
 ) {
     let mut _node_self_clone = node.clone();
-    let mut _db = db.clone();
     let _no_trust_bans = conf.common.no_trust_bans;
     let _guard_pkt = spawn_or_die!("Higher queue processing", move || {
         while let Ok(RelayOrStopEnvelope::Relay(full_msg)) = pkt_out.recv() {
@@ -186,7 +179,7 @@ fn setup_process_output(
                         &mut _node_self_clone,
                         peer,
                         peer_to_ban,
-                        &_db,
+                        &kvs_handle,
                         _no_trust_bans,
                     );
                 }
@@ -198,7 +191,7 @@ fn setup_process_output(
                         &mut _node_self_clone,
                         peer,
                         peer_to_ban,
-                        &_db,
+                        &kvs_handle,
                         _no_trust_bans,
                     );
                 }
