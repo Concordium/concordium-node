@@ -20,7 +20,7 @@ pub use eddsa_ed25519 as sig;
 
 pub const ALLOCATION_LIMIT: usize = 4096;
 
-use crate::block::BlockHash;
+use crate::block::{BakerId, BlockHash};
 
 pub type ContractIndex = u64;
 pub type ContractSubIndex = u64;
@@ -106,6 +106,8 @@ pub struct Account {
     verification_key:  ByteString,
     signature_scheme:  SchemeId,
     credentials:       Box<[Encoded]>,
+    stake_delegate:    Option<BakerId>,
+    instances:         Box<[ContractAddress]>,
 }
 
 impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
@@ -125,12 +127,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             read_bytestring(cursor, "encrypted amount's length")?
         );
 
-        let has_encryption_key = read_const_sized!(cursor, 1)[0] == 1;
-        let encryption_key = if has_encryption_key {
-            Some(read_bytestring(cursor, "encrypted key's length")?)
-        } else {
-            None
-        };
+        let encryption_key =
+            read_maybe!(cursor, read_bytestring(cursor, "encrypted key's length")?);
 
         let verification_key = read_bytestring(cursor, "verification key's length")?;
 
@@ -142,6 +140,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             read_bytestring(cursor, "encrypted amount's length")?
         );
 
+        let stake_delegate =
+            read_maybe!(cursor, NetworkEndian::read_u64(&read_ty!(cursor, BakerId)));
+
+        let instances = read_multiple!(cursor, "instances", ContractAddress::deserialize(cursor)?);
+
         let account = Account {
             address,
             nonce,
@@ -151,6 +154,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             verification_key,
             signature_scheme,
             credentials,
+            stake_delegate,
+            instances,
         };
 
         Ok(account)
@@ -171,6 +176,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
             .map(|k| k.len())
             .unwrap_or(0);
 
+        let stake_delegate_len = self
+            .stake_delegate
+            .map(|_| size_of::<BakerId>())
+            .unwrap_or(0);
+
         let mut cursor = create_serialization_cursor(
             size_of::<AccountAddress>()
                 + size_of::<Nonce>()
@@ -183,7 +193,11 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
                 + self.verification_key.len()
                 + size_of::<SchemeId>()
                 + size_of::<u64>()
-                + serialized_bs_list_len(&self.credentials),
+                + serialized_bs_list_len(&self.credentials)
+                + size_of::<u8>()
+                + stake_delegate_len
+                + size_of::<u64>()
+                + self.instances.len() * size_of::<ContractAddress>(),
         );
 
         let _ = cursor.write_all(&self.address.0);
@@ -194,6 +208,18 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for Account {
         write_bytestring(&mut cursor, &self.verification_key);
         let _ = cursor.write(&[self.signature_scheme as u8]);
         write_multiple!(&mut cursor, self.credentials, write_bytestring);
+
+        if let Some(baker_id) = self.stake_delegate {
+            let _ = cursor.write(&[1]);
+            let _ = cursor.write_u64::<NetworkEndian>(baker_id);
+        } else {
+            let _ = cursor.write(&[0]);
+        }
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.instances.len() as u64);
+        for instance in &*self.instances {
+            let _ = cursor.write_all(&ContractAddress::serialize(instance));
+        }
 
         cursor.into_inner()
     }
