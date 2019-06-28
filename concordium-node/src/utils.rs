@@ -1,5 +1,7 @@
 use crate::{
+    self as p2p_client,
     common::{serialize_addr, P2PPeer},
+    configuration,
     fails::{HostPortParseError, NoDNSResolversAvailable},
     p2p::{
         banned_nodes::{insert_ban, remove_ban, BannedNode},
@@ -9,19 +11,21 @@ use crate::{
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_dns::dns;
+use env_logger::{Builder, Env};
 use failure::{Error, Fallible};
 use hacl_star::{
     ed25519::{keypair, PublicKey, SecretKey, Signature},
     sha2,
 };
 use rand::rngs::OsRng;
-use rkv::Rkv;
+use rkv::{Rkv, StoreOptions};
 use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
+    convert::TryFrom,
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
@@ -460,6 +464,25 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     ret
 }
 
+pub fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_env)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+
+    {
+        let ban_reader = ban_kvs_env.read()?;
+        let ban_iter = ban_store.iter_start(&ban_reader)?;
+
+        for entry in ban_iter {
+            let (id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::try_from(id_bytes)?;
+
+            node.ban_node(node_to_ban);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn ban_node(
     node: &mut P2PNode,
     peer: &P2PPeer,
@@ -506,6 +529,49 @@ pub fn clone_snow_keypair(kp: &Keypair) -> Keypair {
         private: kp.private.clone(),
         public:  kp.public.clone(),
     }
+}
+
+pub fn get_config_and_logging_setup(
+) -> Fallible<(configuration::Config, configuration::AppPreferences)> {
+    // Get config and app preferences
+    let conf = configuration::parse_config()?;
+    let app_prefs = configuration::AppPreferences::new(
+        conf.common.config_dir.to_owned(),
+        conf.common.data_dir.to_owned(),
+    );
+
+    // Prepare the logger
+    let env = if conf.common.trace {
+        Env::default().filter_or("MY_LOG_LEVEL", "trace")
+    } else if conf.common.debug {
+        Env::default().filter_or("MY_LOG_LEVEL", "debug")
+    } else {
+        Env::default().filter_or("MY_LOG_LEVEL", "info")
+    };
+
+    let mut log_builder = Builder::from_env(env);
+    if conf.common.no_log_timestamp {
+        log_builder.default_format_timestamp(false);
+    }
+    log_builder.init();
+
+    p2p_client::setup_panics();
+
+    info!(
+        "Starting up {} version {}!",
+        p2p_client::APPNAME,
+        p2p_client::VERSION
+    );
+    info!(
+        "Application data directory: {:?}",
+        app_prefs.get_user_app_dir()
+    );
+    info!(
+        "Application config directory: {:?}",
+        app_prefs.get_user_config_dir()
+    );
+
+    Ok((conf, app_prefs))
 }
 
 #[cfg(test)]

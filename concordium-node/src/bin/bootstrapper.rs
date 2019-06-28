@@ -16,40 +16,18 @@ static A: System = System;
 
 use concordium_common::{RelayOrStopEnvelope, RelayOrStopReceiver};
 use env_logger::{Builder, Env};
-use failure::{Error, Fallible};
+use failure::Error;
 use p2p_client::{
     client::utils as client_utils,
     common::{P2PNodeId, PeerType},
     configuration,
     network::{NetworkMessage, NetworkRequest},
-    p2p::{banned_nodes::BannedNode, *},
+    p2p::*,
     stats_export_service::StatsServiceMode,
-    utils,
+    utils::{self, load_bans},
 };
-use rkv::{Manager, Rkv, StoreOptions};
-use std::{
-    convert::TryFrom,
-    sync::{mpsc, Arc, RwLock},
-};
-
-fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
-    let ban_kvs_env = safe_read!(kvs_env)?;
-    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
-
-    {
-        let ban_reader = ban_kvs_env.read()?;
-        let ban_iter = ban_store.iter_start(&ban_reader)?;
-
-        for entry in ban_iter {
-            let (id_bytes, _expiry) = entry?;
-            let node_to_ban = BannedNode::try_from(id_bytes)?;
-
-            node.ban_node(node_to_ban);
-        }
-    }
-
-    Ok(())
-}
+use rkv::{Manager, Rkv};
+use std::sync::{mpsc, Arc, RwLock};
 
 fn main() -> Result<(), Error> {
     let conf = configuration::parse_config()?;

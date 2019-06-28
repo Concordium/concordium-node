@@ -15,7 +15,7 @@ static A: System = System;
 use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
-    make_atomic_callback, safe_read, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
+    make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
     RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
@@ -23,7 +23,6 @@ use concordium_global_state::{
     common::SerializeToBytes,
     tree::{Skov, SkovReq},
 };
-use env_logger::{Builder, Env};
 use failure::Fallible;
 use p2p_client::{
     client::{
@@ -39,64 +38,20 @@ use p2p_client::{
         packet::MessageId, request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacket,
         NetworkPacketType, NetworkRequest, NetworkResponse,
     },
-    p2p::{banned_nodes::BannedNode, *},
+    p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
     stats_export_service::{StatsExportService, StatsServiceMode},
-    utils,
+    utils::{self, get_config_and_logging_setup, load_bans},
 };
 
-use rkv::{Manager, Rkv, StoreOptions};
+use rkv::{Manager, Rkv};
 
 use std::{
-    convert::TryFrom,
     net::SocketAddr,
     str,
     sync::{mpsc, Arc, RwLock},
 };
-
-fn get_config_and_logging_setup() -> Fallible<(configuration::Config, configuration::AppPreferences)>
-{
-    // Get config and app preferences
-    let conf = configuration::parse_config()?;
-    let app_prefs = configuration::AppPreferences::new(
-        conf.common.config_dir.to_owned(),
-        conf.common.data_dir.to_owned(),
-    );
-
-    // Prepare the logger
-    let env = if conf.common.trace {
-        Env::default().filter_or("MY_LOG_LEVEL", "trace")
-    } else if conf.common.debug {
-        Env::default().filter_or("MY_LOG_LEVEL", "debug")
-    } else {
-        Env::default().filter_or("MY_LOG_LEVEL", "info")
-    };
-
-    let mut log_builder = Builder::from_env(env);
-    if conf.common.no_log_timestamp {
-        log_builder.default_format_timestamp(false);
-    }
-    log_builder.init();
-
-    p2p_client::setup_panics();
-
-    info!(
-        "Starting up {} version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
-    );
-    info!(
-        "Application data directory: {:?}",
-        app_prefs.get_user_app_dir()
-    );
-    info!(
-        "Application config directory: {:?}",
-        app_prefs.get_user_config_dir()
-    );
-
-    Ok((conf, app_prefs))
-}
 
 fn setup_baker_guards(
     is_baker: bool,
@@ -477,25 +432,6 @@ fn attain_post_handshake_catch_up(
             Ok(())
         }
     ));
-
-    Ok(())
-}
-
-fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
-    let ban_kvs_env = safe_read!(kvs_env)?;
-    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
-
-    {
-        let ban_reader = ban_kvs_env.read()?;
-        let ban_iter = ban_store.iter_start(&ban_reader)?;
-
-        for entry in ban_iter {
-            let (id_bytes, _expiry) = entry?;
-            let node_to_ban = BannedNode::try_from(id_bytes)?;
-
-            node.ban_node(node_to_ban);
-        }
-    }
 
     Ok(())
 }
