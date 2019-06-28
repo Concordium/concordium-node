@@ -268,6 +268,7 @@ impl P2PNode {
             .set_self_peer(self_peer)
             .set_networks(networks)
             .set_buckets(Arc::new(RwLock::new(Buckets::new())))
+            .set_noise_params(&conf.crypto)
             .build()
             .expect("P2P Node creation couldn't create a Tls Server");
 

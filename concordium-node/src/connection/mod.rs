@@ -4,7 +4,7 @@ pub mod network_handler;
 
 mod async_adapter;
 pub use async_adapter::{
-    default_noise_params, FrameSink, FrameStream, HandshakeStreamSink, Readiness,
+    FrameSink, FrameStream, HandshakeStreamSink, Readiness,
 };
 
 mod p2p_event;

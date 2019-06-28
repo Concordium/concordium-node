@@ -59,6 +59,8 @@ pub struct ConnectionPrivate {
     pub blind_trusted_broadcast: bool,
 
     pub log_dumper: Option<Sender<DumpItem>>,
+
+    pub noise_params: snow::params::NoiseParams,
 }
 
 impl ConnectionPrivate {
@@ -231,6 +233,8 @@ pub struct ConnectionPrivateBuilder {
 
     pub blind_trusted_broadcast: Option<bool>,
     pub log_dumper:              Option<Sender<DumpItem>>,
+
+    pub noise_params: Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionPrivateBuilder {
@@ -246,6 +250,7 @@ impl ConnectionPrivateBuilder {
             Some(socket),
             Some(key_pair),
             Some(blind_trusted_broadcast),
+            Some(noise_params),
         ) = (
             self.token,
             self.local_peer,
@@ -255,9 +260,11 @@ impl ConnectionPrivateBuilder {
             self.socket,
             self.key_pair,
             self.blind_trusted_broadcast,
+            self.noise_params,
         ) {
             let peer_type = local_peer.peer_type();
             let handshaker = Rc::new(RefCell::new(HandshakeStreamSink::new(
+                noise_params.clone(),
                 key_pair,
                 self.is_initiator,
             )));
@@ -282,6 +289,7 @@ impl ConnectionPrivateBuilder {
                 last_latency_measured: u64_max_value,
                 blind_trusted_broadcast,
                 log_dumper: self.log_dumper,
+                noise_params,
             })
         } else {
             Err(failure::Error::from(fails::MissingFieldsConnectionBuilder))
@@ -354,6 +362,14 @@ impl ConnectionPrivateBuilder {
         log_dumper: Option<Sender<DumpItem>>,
     ) -> ConnectionPrivateBuilder {
         self.log_dumper = log_dumper;
+        self
+    }
+
+    pub fn set_noise_params(
+        mut self,
+        params: snow::params::NoiseParams,
+    ) -> ConnectionPrivateBuilder {
+        self.noise_params = Some(params);
         self
     }
 }

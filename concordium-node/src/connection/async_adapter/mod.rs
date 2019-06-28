@@ -70,11 +70,6 @@ pub fn partial_copy(input: &mut UCursor, output: &mut impl Write) -> Fallible<us
     Ok(total_written_bytes)
 }
 
-/// It defines the default Noise parameters.
-pub fn default_noise_params() -> snow::params::NoiseParams {
-    "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b".parse().unwrap()
-}
-
 pub const PROLOGUE: &[u8] = b"CONCORDIUMP2P";
 pub const PRE_SHARED_KEY: &[u8; 32] = b"54686973206973206d79204175737472";
 
