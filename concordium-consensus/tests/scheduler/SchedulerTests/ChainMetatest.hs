@@ -5,6 +5,7 @@
 module SchedulerTests.ChainMetatest where
 
 import Test.Hspec
+import Test.HUnit
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -15,6 +16,7 @@ import qualified Concordium.Scheduler as Sch
 import qualified Acorn.Core as Core
 
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.Invariants
 import Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
@@ -72,6 +74,9 @@ testChainMeta = do
     let ((suc, fails), gs) = Types.runSI (Sch.filterTransactions transactions)
                                          chainMeta
                                          initialBlockState
+    case invariantBlockState gs of
+        Left f -> liftIO $ assertFailure f
+        _ -> return ()
     return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
 checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
