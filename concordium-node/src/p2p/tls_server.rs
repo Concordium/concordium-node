@@ -31,7 +31,8 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         P2PPeer, PeerType, RemotePeer,
     },
-    connection::{default_noise_params, Connection, ConnectionBuilder, P2PEvent},
+    connection::{Connection, ConnectionBuilder, P2PEvent},
+    crypto::generate_snow_config,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -54,6 +55,7 @@ pub struct TlsServerBuilder {
     blind_trusted_broadcast: Option<bool>,
     networks:                Option<HashSet<NetworkId>>,
     max_allowed_peers:       Option<u16>,
+    noise_params:            Option<snow::params::NoiseParams>,
 }
 
 impl Default for TlsServerBuilder {
@@ -71,6 +73,7 @@ impl TlsServerBuilder {
             blind_trusted_broadcast: None,
             networks:                None,
             max_allowed_peers:       None,
+            noise_params:            None,
         }
     }
 
@@ -82,6 +85,7 @@ impl TlsServerBuilder {
             Some(buckets),
             Some(blind_trusted_broadcast),
             Some(max_allowed_peers),
+            Some(noise_params),
         ) = (
             self.networks,
             self.server,
@@ -89,12 +93,13 @@ impl TlsServerBuilder {
             self.buckets,
             self.blind_trusted_broadcast,
             self.max_allowed_peers,
+            self.noise_params,
         ) {
             let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
                 networks,
                 self.stats_export_service.clone(),
             )));
-            let key_pair = snow::Builder::new(default_noise_params()).generate_keypair()?;
+            let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
             let mut mself = TlsServer {
                 server,
@@ -110,6 +115,7 @@ impl TlsServerBuilder {
                 prehandshake_validations: PreHandshake::new(),
                 log_dumper: None,
                 max_allowed_peers,
+                noise_params,
             };
 
             mself.add_default_prehandshake_validations();
@@ -162,6 +168,14 @@ impl TlsServerBuilder {
         self.max_allowed_peers = Some(max_allowed_peers);
         self
     }
+
+    pub fn set_noise_params(
+        mut self,
+        config: &crate::configuration::CryptoConfig,
+    ) -> TlsServerBuilder {
+        self.noise_params = Some(generate_snow_config(config));
+        self
+    }
 }
 
 pub struct TlsServer {
@@ -178,6 +192,7 @@ pub struct TlsServer {
     prehandshake_validations: PreHandshake,
     log_dumper:               Option<Sender<DumpItem>>,
     max_allowed_peers:        u16,
+    noise_params:             snow::params::NoiseParams,
 }
 
 impl TlsServer {
@@ -272,6 +287,7 @@ impl TlsServer {
             .set_network_request_sender(Some(
                 read_or_die!(self.dptr).network_request_sender.clone(),
             ))
+            .set_noise_params(self.noise_params.clone())
             .build()?;
 
         self.register_message_handlers(&mut conn);
@@ -356,6 +372,7 @@ impl TlsServer {
                     .set_network_request_sender(Some(
                         read_or_die!(self.dptr).network_request_sender.clone(),
                     ))
+                    .set_noise_params(self.noise_params.clone())
                     .build()?;
 
                 self.register_message_handlers(&mut conn);

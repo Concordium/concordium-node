@@ -143,6 +143,21 @@ then
     ARGS="$ARGS --global-state-catch-up-requests"
 fi
 
+if [ -n "$NOISE_CRYPTO_DH_ALGORITHM" ];
+then
+    ARGS="$NOISE_ARGS --dh-algorithm $NOISE_CRYPTO_DH_ALGORITHM"
+fi
+
+if [ -n "$CRYPTO_CIPHER_ALGORITHM" ];
+then
+    ARGS="$ARGS --cipher-algorithm $NOISE_CRYPTO_CIPHER_ALGORITHM"
+fi
+
+if [ -n "$NOISE_CRYPTO_HASH_ALGORITHM" ];
+then
+    ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
 

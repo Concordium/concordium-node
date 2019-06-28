@@ -32,15 +32,19 @@ pub struct ConnectionBuilder {
     is_initiator:            bool,
     network_request_sender:  Option<Sender<NetworkRawRequest>>,
     priv_conn_builder:       ConnectionPrivateBuilder,
+    noise_params:            Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionBuilder {
     pub fn build(self) -> Fallible<Connection> {
         let curr_stamp = get_current_stamp();
 
-        if let (Some(key_pair), Some(token), Some(blind_trusted_broadcast)) =
-            (self.key_pair, self.token, self.blind_trusted_broadcast)
-        {
+        if let (Some(key_pair), Some(token), Some(blind_trusted_broadcast), Some(noise_params)) = (
+            self.key_pair,
+            self.token,
+            self.blind_trusted_broadcast,
+            self.noise_params,
+        ) {
             let sender = self.network_request_sender.unwrap_or_else(|| {
                 // Create a dummy sender.
                 let (s, _) = channel();
@@ -53,6 +57,7 @@ impl ConnectionBuilder {
                 .set_as_initiator(self.is_initiator)
                 .set_key_pair(key_pair)
                 .set_log_dumper(self.log_dumper)
+                .set_noise_params(noise_params.clone())
                 .build()?;
 
             let lself = Connection {
@@ -146,6 +151,11 @@ impl ConnectionBuilder {
 
     pub fn set_log_dumper(mut self, log_dumper: Option<Sender<DumpItem>>) -> ConnectionBuilder {
         self.log_dumper = log_dumper;
+        self
+    }
+
+    pub fn set_noise_params(mut self, params: snow::params::NoiseParams) -> ConnectionBuilder {
+        self.noise_params = Some(params);
         self
     }
 }

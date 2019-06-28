@@ -3,9 +3,7 @@ pub mod fails;
 pub mod network_handler;
 
 mod async_adapter;
-pub use async_adapter::{
-    default_noise_params, FrameSink, FrameStream, HandshakeStreamSink, Readiness,
-};
+pub use async_adapter::{FrameSink, FrameStream, HandshakeStreamSink, Readiness};
 
 mod p2p_event;
 mod seen_messages_list;
