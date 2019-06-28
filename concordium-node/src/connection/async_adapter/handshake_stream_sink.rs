@@ -1,4 +1,5 @@
-use crate::connection::async_adapter::{partial_copy, PayloadSize, Readiness, PRE_SHARED_KEY, PROLOGUE,
+use crate::connection::async_adapter::{
+    partial_copy, PayloadSize, Readiness, PRE_SHARED_KEY, PROLOGUE,
 };
 
 use concordium_common::UCursor;
@@ -52,7 +53,11 @@ fn create_frame(data: &[u8]) -> Fallible<UCursor> {
 }
 
 impl HandshakeStreamSink {
-    pub fn new(noise_params: snow::params::NoiseParams, keypair: Keypair, is_initiator: bool) -> Self {
+    pub fn new(
+        noise_params: snow::params::NoiseParams,
+        keypair: Keypair,
+        is_initiator: bool,
+    ) -> Self {
         let mut send_queue = VecDeque::new();
 
         let (state, noise_session) = if is_initiator {
@@ -64,7 +69,7 @@ impl HandshakeStreamSink {
         } else {
             // The responder does NOT need any key from initiator, so let's create its
             // session.
-            let session = snow::Builder::new(crate::crypto::default_noise_params())
+            let session = snow::Builder::new(noise_params.clone())
                 .prologue(PROLOGUE)
                 .psk(2, PRE_SHARED_KEY)
                 .local_private_key(&keypair.private)
@@ -148,7 +153,7 @@ impl HandshakeStreamSink {
             remote_public_key_vw.len()
         );
 
-        let mut session = snow::Builder::new(crate::crypto::default_noise_params())
+        let mut session = snow::Builder::new(self.noise_params.clone())
             .prologue(PROLOGUE)
             .psk(2, PRE_SHARED_KEY)
             .local_private_key(&self.keypair.private)

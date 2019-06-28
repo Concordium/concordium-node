@@ -2,6 +2,7 @@ use app_dirs2::*;
 use failure::{bail, Fallible};
 use preferences::{Preferences, PreferencesMap};
 use semver::Version;
+use snow::params::{CipherChoice, DHChoice, HashChoice};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
@@ -9,7 +10,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 use structopt::StructOpt;
-use snow::params::{DHChoice,CipherChoice,HashChoice};
 
 pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
@@ -239,12 +239,24 @@ pub struct ConnectionConfig {
 
 #[derive(StructOpt, Debug)]
 pub struct CryptoConfig {
-    #[structopt(long="dh-algorithm", help ="DH algorithm to use (25519, 448)", default_value="25519")]
+    #[structopt(
+        long = "dh-algorithm",
+        help = "DH algorithm to use (25519, 448)",
+        default_value = "25519"
+    )]
     pub dh_choice: DHChoice,
-    #[structopt(long="cipher-algorithm", help="Cipher algorithm to use (ChaChaPoly, AESGCM)", default_value="ChaChaPoly")]
+    #[structopt(
+        long = "cipher-algorithm",
+        help = "Cipher algorithm to use (ChaChaPoly, AESGCM)",
+        default_value = "ChaChaPoly"
+    )]
     pub cipher_choice: CipherChoice,
-    #[structopt(long="hash-algorithm", help="Hashing algorithm to use (SHA256, SHA512, BLAKE2s, BLAKE2b)", default_value="BLAKE2b")]
-    pub hash_choice: HashChoice
+    #[structopt(
+        long = "hash-algorithm",
+        help = "Hashing algorithm to use (SHA256, SHA512, BLAKE2s, BLAKE2b)",
+        default_value = "BLAKE2b"
+    )]
+    pub hash_choice: HashChoice,
 }
 
 #[derive(StructOpt, Debug)]

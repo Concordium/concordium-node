@@ -32,16 +32,19 @@ pub struct ConnectionBuilder {
     is_initiator:            bool,
     network_request_sender:  Option<Sender<NetworkRawRequest>>,
     priv_conn_builder:       ConnectionPrivateBuilder,
-    noise_params:             Option<snow::params::NoiseParams>,
+    noise_params:            Option<snow::params::NoiseParams>,
 }
 
 impl ConnectionBuilder {
     pub fn build(self) -> Fallible<Connection> {
         let curr_stamp = get_current_stamp();
 
-        if let (Some(key_pair), Some(token), Some(blind_trusted_broadcast), Some(noise_params)) =
-            (self.key_pair, self.token, self.blind_trusted_broadcast, self.noise_params)
-        {
+        if let (Some(key_pair), Some(token), Some(blind_trusted_broadcast), Some(noise_params)) = (
+            self.key_pair,
+            self.token,
+            self.blind_trusted_broadcast,
+            self.noise_params,
+        ) {
             let sender = self.network_request_sender.unwrap_or_else(|| {
                 // Create a dummy sender.
                 let (s, _) = channel();

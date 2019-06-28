@@ -1,7 +1,7 @@
 use base58::ToBase58;
 use concordium_crypto_eddsa_ed25519;
-use snow::params::{CipherChoice,HashChoice,DHChoice};
 use sha2::{Digest, Sha224};
+use snow::params::{CipherChoice, DHChoice, HashChoice, NoiseParams};
 pub const ADDRESS_SCHEME: u8 = 2;
 
 #[derive(Default, Debug)]
@@ -36,14 +36,14 @@ impl KeyPair {
     }
 }
 
-pub fn generate_snow_config( config: &crate::configuration::CryptoConfig ) -> snow::params::NoiseParams {
+pub fn generate_snow_config(config: &crate::configuration::CryptoConfig) -> NoiseParams {
     let dh_choice = match config.dh_choice {
         DHChoice::Curve25519 => "25519",
         DHChoice::Ed448 => "448",
     };
     let cipher_choice = match config.cipher_choice {
-            CipherChoice::ChaChaPoly => "ChaChaPoly",
-            CipherChoice::AESGCM => "AESGCM",
+        CipherChoice::ChaChaPoly => "ChaChaPoly",
+        CipherChoice::AESGCM => "AESGCM",
     };
     let hash_choice = match config.hash_choice {
         HashChoice::SHA256 => "SHA256",
@@ -51,14 +51,13 @@ pub fn generate_snow_config( config: &crate::configuration::CryptoConfig ) -> sn
         HashChoice::Blake2s => "BLAKE2s",
         HashChoice::Blake2b => "BLAKE2b",
     };
-    //format!("Noise_IKpsk2_{}_{}_{}", dh_choice, cipher_choice, hash_choice ).parse().unwrap()
-    "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b".parse().unwrap()
+    format!(
+        "Noise_IKpsk2_{}_{}_{}",
+        dh_choice, cipher_choice, hash_choice
+    )
+    .parse()
+    .unwrap()
 }
-
-pub fn default_noise_params() -> snow::params::NoiseParams {
-    "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b".parse().unwrap()
-}
-
 
 #[cfg(test)]
 mod unit_test {

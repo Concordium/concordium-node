@@ -31,8 +31,8 @@ use crate::{
         get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
         P2PPeer, PeerType, RemotePeer,
     },
-    crypto::generate_snow_config,
     connection::{Connection, ConnectionBuilder, P2PEvent},
+    crypto::generate_snow_config,
     dumper::DumpItem,
     network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
@@ -99,7 +99,7 @@ impl TlsServerBuilder {
                 networks,
                 self.stats_export_service.clone(),
             )));
-            let key_pair = snow::Builder::new(crate::crypto::default_noise_params()).generate_keypair()?;
+            let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
             let mut mself = TlsServer {
                 server,
@@ -169,7 +169,10 @@ impl TlsServerBuilder {
         self
     }
 
-    pub fn set_noise_params( mut self, config: &crate::configuration::CryptoConfig) -> TlsServerBuilder {
+    pub fn set_noise_params(
+        mut self,
+        config: &crate::configuration::CryptoConfig,
+    ) -> TlsServerBuilder {
         self.noise_params = Some(generate_snow_config(config));
         self
     }
@@ -369,6 +372,7 @@ impl TlsServer {
                     .set_network_request_sender(Some(
                         read_or_die!(self.dptr).network_request_sender.clone(),
                     ))
+                    .set_noise_params(self.noise_params.clone())
                     .build()?;
 
                 self.register_message_handlers(&mut conn);
