@@ -24,7 +24,7 @@ pub type VoterVRFPublicKey = Encoded;
 pub type VoterSignKey = Encoded;
 pub type VoterPower = u64;
 
-const BAKER_VRF_KEY: u8 = 32;
+pub const BAKER_VRF_KEY: u8 = 32;
 const BAKER_SIGN_KEY: u8 = 8 + 32; // unnecessary 8B prefix
 const BAKER_INFO: u8 = BAKER_VRF_KEY
     + BAKER_SIGN_KEY
@@ -125,7 +125,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = Cursor::new(bytes);
 
         let election_verify_key = Encoded::new(&read_const_sized!(&mut cursor, BAKER_VRF_KEY));
-        let signature_verify_key = ByteString::new(&read_const_sized!(&mut cursor, BAKER_SIGN_KEY));
+        let signature_verify_key = read_bytestring(&mut cursor, "baker sign verify key")?;
         let lottery_power = NetworkEndian::read_f64(&read_ty!(cursor, LotteryPower));
         let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
 
@@ -145,7 +145,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
-        let _ = cursor.write_all(&self.signature_verify_key);
+        let _ = write_bytestring(&mut cursor, &self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
         let _ = cursor.write_all(&self.account_address.0);
 

@@ -10,7 +10,11 @@ use std::{
     mem::size_of,
 };
 
-use crate::{block::*, common::*};
+use crate::{
+    block::*,
+    common::*,
+    parameters::{BakerElectionVerifyKey, BakerSignVerifyKey, BAKER_VRF_KEY},
+};
 
 const PAYLOAD_MAX_LEN: u32 = 512 * 1024 * 1024; // 512MB
 
@@ -140,12 +144,13 @@ pub enum TransactionType {
     InitContract,
     Update,
     Transfer,
-    DeployCredentials,
+    DeployCredential,
     DeployEncryptionKey,
     AddBaker,
     RemoveBaker,
     UpdateBakerAccount,
     UpdateBakerSignKey,
+    DelegateStake,
 }
 
 impl TryFrom<u8> for TransactionType {
@@ -157,18 +162,21 @@ impl TryFrom<u8> for TransactionType {
             1 => Ok(TransactionType::InitContract),
             2 => Ok(TransactionType::Update),
             3 => Ok(TransactionType::Transfer),
-            4 => Ok(TransactionType::DeployCredentials),
+            4 => Ok(TransactionType::DeployCredential),
             5 => Ok(TransactionType::DeployEncryptionKey),
             6 => Ok(TransactionType::AddBaker),
             7 => Ok(TransactionType::RemoveBaker),
             8 => Ok(TransactionType::UpdateBakerAccount),
             9 => Ok(TransactionType::UpdateBakerSignKey),
+            10 => Ok(TransactionType::DelegateStake),
             n => Err(format_err!("Unsupported TransactionType ({})!", n)),
         }
     }
 }
 
 pub type TyName = u32;
+
+type Proof = ByteString;
 
 #[derive(Debug)]
 pub enum TransactionPayload {
@@ -189,12 +197,29 @@ pub enum TransactionPayload {
         target_address: AccountAddress,
         amount:         Amount,
     },
-    DeployCredentials,
-    DeployEncryptionKey,
-    AddBaker,
-    RemoveBaker,
-    UpdateBakerAccount,
-    UpdateBakerSignKey,
+    DeployCredential(Encoded),
+    DeployEncryptionKey(ByteString),
+    AddBaker {
+        election_verify_key:  BakerElectionVerifyKey,
+        signature_verify_key: BakerSignVerifyKey,
+        account_address:      AccountAddress,
+        proof:                Proof,
+    },
+    RemoveBaker {
+        id:    BakerId,
+        proof: Proof,
+    },
+    UpdateBakerAccount {
+        id:              BakerId,
+        account_address: AccountAddress,
+        proof:           Proof,
+    },
+    UpdateBakerSignKey {
+        id:                   BakerId,
+        signature_verify_key: BakerSignVerifyKey,
+        proof:                Proof,
+    },
+    DelegateStake(BakerId),
 }
 
 impl TransactionPayload {
@@ -206,12 +231,13 @@ impl TransactionPayload {
             InitContract { .. } => TransactionType::InitContract,
             Update { .. } => TransactionType::Update,
             Transfer { .. } => TransactionType::Transfer,
-            DeployCredentials => TransactionType::DeployCredentials,
-            DeployEncryptionKey => TransactionType::DeployEncryptionKey,
-            AddBaker => TransactionType::AddBaker,
-            RemoveBaker => TransactionType::RemoveBaker,
-            UpdateBakerAccount => TransactionType::UpdateBakerAccount,
-            UpdateBakerSignKey => TransactionType::UpdateBakerSignKey,
+            DeployCredential(_) => TransactionType::DeployCredential,
+            DeployEncryptionKey(_) => TransactionType::DeployEncryptionKey,
+            AddBaker { .. } => TransactionType::AddBaker,
+            RemoveBaker { .. } => TransactionType::RemoveBaker,
+            UpdateBakerAccount { .. } => TransactionType::UpdateBakerAccount,
+            UpdateBakerSignKey { .. } => TransactionType::UpdateBakerSignKey,
+            DelegateStake(_) => TransactionType::DelegateStake,
         }
     }
 }
@@ -276,7 +302,62 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                     amount,
                 })
             }
-            _ => unimplemented!("Deserialization of {:?} is not implemented yet!", variant),
+            TransactionType::DeployCredential => {
+                let credential = Encoded::new(&read_sized!(cursor, len - 1));
+
+                Ok(TransactionPayload::DeployCredential(credential))
+            }
+            TransactionType::DeployEncryptionKey => {
+                let ek = read_bytestring(cursor, "encryption key to deploy")?;
+
+                Ok(TransactionPayload::DeployEncryptionKey(ek))
+            }
+            TransactionType::AddBaker => {
+                let election_verify_key = Encoded::new(&read_const_sized!(cursor, BAKER_VRF_KEY));
+                let signature_verify_key = read_bytestring(cursor, "baker sign verify key")?;
+                let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
+                let proof = read_bytestring(cursor, "baker addition proof")?;
+
+                Ok(TransactionPayload::AddBaker {
+                    election_verify_key,
+                    signature_verify_key,
+                    account_address,
+                    proof,
+                })
+            }
+            TransactionType::RemoveBaker => {
+                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+                let proof = read_bytestring(cursor, "baker removal proof")?;
+
+                Ok(TransactionPayload::RemoveBaker { id, proof })
+            }
+            TransactionType::UpdateBakerAccount => {
+                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+                let account_address = AccountAddress(read_ty!(cursor, AccountAddress));
+                let proof = read_bytestring(cursor, "baker update proof")?;
+
+                Ok(TransactionPayload::UpdateBakerAccount {
+                    id,
+                    account_address,
+                    proof,
+                })
+            }
+            TransactionType::UpdateBakerSignKey => {
+                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+                let signature_verify_key = read_bytestring(cursor, "baker sign verify key")?;
+                let proof = read_bytestring(cursor, "baker update proof")?;
+
+                Ok(TransactionPayload::UpdateBakerSignKey {
+                    id,
+                    signature_verify_key,
+                    proof,
+                })
+            }
+            TransactionType::DelegateStake => {
+                let id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+
+                Ok(TransactionPayload::DelegateStake(id))
+            }
         }
     }
 
@@ -320,10 +401,49 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 let _ = cursor.write_all(&target_address.0);
                 let _ = cursor.write_u64::<NetworkEndian>(*amount);
             }
-            _ => unimplemented!(
-                "Serialization of {:?} is not implemented yet!",
-                transaction_type
-            ),
+            TransactionPayload::DeployCredential(credential) => {
+                let _ = cursor.write_all(&credential);
+            }
+            TransactionPayload::DeployEncryptionKey(ek) => {
+                let _ = cursor.write_u64::<NetworkEndian>(ek.len() as u64);
+                let _ = cursor.write_all(&ek);
+            }
+            TransactionPayload::AddBaker {
+                election_verify_key,
+                signature_verify_key,
+                account_address,
+                proof,
+            } => {
+                let _ = cursor.write_all(&election_verify_key);
+                let _ = write_bytestring(&mut cursor, &signature_verify_key);
+                let _ = cursor.write_all(&account_address.0);
+                let _ = write_bytestring(&mut cursor, &proof);
+            }
+            TransactionPayload::RemoveBaker { id, proof } => {
+                let _ = cursor.write_u64::<NetworkEndian>(*id);
+                let _ = write_bytestring(&mut cursor, &proof);
+            }
+            TransactionPayload::UpdateBakerAccount {
+                id,
+                account_address,
+                proof,
+            } => {
+                let _ = cursor.write_u64::<NetworkEndian>(*id);
+                let _ = cursor.write_all(&account_address.0);
+                let _ = write_bytestring(&mut cursor, &proof);
+            }
+            TransactionPayload::UpdateBakerSignKey {
+                id,
+                signature_verify_key,
+                proof,
+            } => {
+                let _ = cursor.write_u64::<NetworkEndian>(*id);
+                let _ = write_bytestring(&mut cursor, &signature_verify_key);
+                let _ = write_bytestring(&mut cursor, &proof);
+            }
+            TransactionPayload::DelegateStake(id) => {
+                let _ = cursor.write_u64::<NetworkEndian>(*id);
+            }
         }
 
         cursor.into_inner().into_boxed_slice()
