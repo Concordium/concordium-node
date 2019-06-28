@@ -51,8 +51,14 @@ pub fn generate_snow_config( config: &crate::configuration::CryptoConfig ) -> sn
         HashChoice::Blake2s => "BLAKE2s",
         HashChoice::Blake2b => "BLAKE2b",
     };
-    format!("Noise_IKpsk2_{}_{}_{}", dh_choice, cipher_choice, hash_choice ).parse().unwrap()
+    //format!("Noise_IKpsk2_{}_{}_{}", dh_choice, cipher_choice, hash_choice ).parse().unwrap()
+    "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b".parse().unwrap()
 }
+
+pub fn default_noise_params() -> snow::params::NoiseParams {
+    "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b".parse().unwrap()
+}
+
 
 #[cfg(test)]
 mod unit_test {

@@ -99,7 +99,7 @@ impl TlsServerBuilder {
                 networks,
                 self.stats_export_service.clone(),
             )));
-            let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
+            let key_pair = snow::Builder::new(crate::crypto::default_noise_params()).generate_keypair()?;
 
             let mut mself = TlsServer {
                 server,

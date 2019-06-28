@@ -64,7 +64,7 @@ impl HandshakeStreamSink {
         } else {
             // The responder does NOT need any key from initiator, so let's create its
             // session.
-            let session = snow::Builder::new(noise_params.clone())
+            let session = snow::Builder::new(crate::crypto::default_noise_params())
                 .prologue(PROLOGUE)
                 .psk(2, PRE_SHARED_KEY)
                 .local_private_key(&keypair.private)
@@ -148,7 +148,7 @@ impl HandshakeStreamSink {
             remote_public_key_vw.len()
         );
 
-        let mut session = snow::Builder::new(self.noise_params.clone())
+        let mut session = snow::Builder::new(crate::crypto::default_noise_params())
             .prologue(PROLOGUE)
             .psk(2, PRE_SHARED_KEY)
             .local_private_key(&self.keypair.private)

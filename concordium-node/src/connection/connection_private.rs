@@ -264,7 +264,7 @@ impl ConnectionPrivateBuilder {
         ) {
             let peer_type = local_peer.peer_type();
             let handshaker = Rc::new(RefCell::new(HandshakeStreamSink::new(
-                noise_params.clone(),
+                crate::crypto::default_noise_params(),
                 key_pair,
                 self.is_initiator,
             )));
