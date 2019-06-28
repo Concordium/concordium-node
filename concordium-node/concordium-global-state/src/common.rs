@@ -328,7 +328,7 @@ pub fn read_bytestring(input: &mut Cursor<&[u8]>, object_name: &str) -> Fallible
     Ok(Encoded(read_sized!(input, object_length)))
 }
 
-pub fn write_bytestring(target: &mut Cursor<Box<[u8]>>, bytes: &[u8]) {
+pub fn write_bytestring<T: Write>(target: &mut T, bytes: &[u8]) {
     let _ = target.write_u64::<NetworkEndian>(bytes.len() as u64);
     let _ = target.write_all(&bytes);
 }
