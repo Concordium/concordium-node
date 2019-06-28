@@ -151,6 +151,7 @@ pub enum TransactionType {
     UpdateBakerAccount,
     UpdateBakerSignKey,
     DelegateStake,
+    UndelegateStake,
 }
 
 impl TryFrom<u8> for TransactionType {
@@ -169,6 +170,7 @@ impl TryFrom<u8> for TransactionType {
             8 => Ok(TransactionType::UpdateBakerAccount),
             9 => Ok(TransactionType::UpdateBakerSignKey),
             10 => Ok(TransactionType::DelegateStake),
+            11 => Ok(TransactionType::UndelegateStake),
             n => Err(format_err!("Unsupported TransactionType ({})!", n)),
         }
     }
@@ -220,6 +222,7 @@ pub enum TransactionPayload {
         proof:                Proof,
     },
     DelegateStake(BakerId),
+    UndelegateStake,
 }
 
 impl TransactionPayload {
@@ -238,6 +241,7 @@ impl TransactionPayload {
             UpdateBakerAccount { .. } => TransactionType::UpdateBakerAccount,
             UpdateBakerSignKey { .. } => TransactionType::UpdateBakerSignKey,
             DelegateStake(_) => TransactionType::DelegateStake,
+            UndelegateStake => TransactionType::UndelegateStake,
         }
     }
 }
@@ -358,6 +362,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
 
                 Ok(TransactionPayload::DelegateStake(id))
             }
+            TransactionType::UndelegateStake => Ok(TransactionPayload::UndelegateStake),
         }
     }
 
@@ -415,13 +420,13 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 proof,
             } => {
                 let _ = cursor.write_all(&election_verify_key);
-                let _ = write_bytestring(&mut cursor, &signature_verify_key);
+                write_bytestring(&mut cursor, &signature_verify_key);
                 let _ = cursor.write_all(&account_address.0);
-                let _ = write_bytestring(&mut cursor, &proof);
+                write_bytestring(&mut cursor, &proof);
             }
             TransactionPayload::RemoveBaker { id, proof } => {
                 let _ = cursor.write_u64::<NetworkEndian>(*id);
-                let _ = write_bytestring(&mut cursor, &proof);
+                write_bytestring(&mut cursor, &proof);
             }
             TransactionPayload::UpdateBakerAccount {
                 id,
@@ -430,7 +435,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
             } => {
                 let _ = cursor.write_u64::<NetworkEndian>(*id);
                 let _ = cursor.write_all(&account_address.0);
-                let _ = write_bytestring(&mut cursor, &proof);
+                write_bytestring(&mut cursor, &proof);
             }
             TransactionPayload::UpdateBakerSignKey {
                 id,
@@ -438,11 +443,14 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for TransactionPayload {
                 proof,
             } => {
                 let _ = cursor.write_u64::<NetworkEndian>(*id);
-                let _ = write_bytestring(&mut cursor, &signature_verify_key);
-                let _ = write_bytestring(&mut cursor, &proof);
+                write_bytestring(&mut cursor, &signature_verify_key);
+                write_bytestring(&mut cursor, &proof);
             }
             TransactionPayload::DelegateStake(id) => {
                 let _ = cursor.write_u64::<NetworkEndian>(*id);
+            }
+            TransactionPayload::UndelegateStake => {
+                let _ = cursor.write(&[TransactionType::UndelegateStake as u8]);
             }
         }
 

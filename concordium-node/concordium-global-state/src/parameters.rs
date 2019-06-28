@@ -145,7 +145,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for BakerInfo {
         let mut cursor = create_serialization_cursor(BAKER_INFO as usize);
 
         let _ = cursor.write_all(&self.election_verify_key);
-        let _ = write_bytestring(&mut cursor, &self.signature_verify_key);
+        write_bytestring(&mut cursor, &self.signature_verify_key);
         let _ = cursor.write_f64::<NetworkEndian>(self.lottery_power);
         let _ = cursor.write_all(&self.account_address.0);
 
