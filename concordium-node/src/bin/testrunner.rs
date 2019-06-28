@@ -16,7 +16,7 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::{
-    lock_or_die, safe_lock, spawn_or_die, RelayOrStopEnvelope, RelayOrStopReceiver,
+    lock_or_die, safe_lock, safe_read, spawn_or_die, RelayOrStopEnvelope, RelayOrStopReceiver,
 };
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -32,16 +32,19 @@ use hyper::{Body, Response, StatusCode};
 use p2p_client::{
     common::{self, PeerType},
     configuration,
-    db::P2PDB,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
-    p2p::*,
+    p2p::{banned_nodes::BannedNode, *},
     stats_export_service::StatsExportService,
     utils,
 };
 use rand::{distributions::Standard, thread_rng, Rng};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc, Arc, Mutex, RwLock,
+use rkv::{Manager, Rkv, StoreOptions};
+use std::{
+    convert::TryFrom,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex, RwLock,
+    },
 };
 
 #[derive(Clone, StateData)]
@@ -347,7 +350,7 @@ fn setup_process_output(
     node: &P2PNode,
     conf: &configuration::Config,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
-    db: P2PDB,
+    kvs_handle: Arc<RwLock<Rkv>>,
 ) {
     let mut _node_self_clone = node.clone();
 
@@ -388,10 +391,10 @@ fn setup_process_output(
                     }
                 },
                 NetworkMessage::NetworkRequest(NetworkRequest::BanNode(ref peer, x), ..) => {
-                    utils::ban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                    utils::ban_node(&mut _node_self_clone, peer, x, &kvs_handle, _no_trust_bans);
                 }
                 NetworkMessage::NetworkRequest(NetworkRequest::UnbanNode(ref peer, x), ..) => {
-                    utils::unban_node(&mut _node_self_clone, peer, x, &db, _no_trust_bans);
+                    utils::unban_node(&mut _node_self_clone, peer, x, &kvs_handle, _no_trust_bans);
                 }
                 NetworkMessage::NetworkResponse(NetworkResponse::PeerList(_, ref peers), ..) => {
                     info!("Received PeerList response, attempting to satisfy desired peers");
@@ -420,6 +423,25 @@ fn setup_process_output(
     });
 }
 
+fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_env)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+
+    {
+        let ban_reader = ban_kvs_env.read()?;
+        let ban_iter = ban_store.iter_start(&ban_reader)?;
+
+        for entry in ban_iter {
+            let (id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::try_from(id_bytes)?;
+
+            node.ban_node(node_to_ban);
+        }
+    }
+
+    Ok(())
+}
+
 fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
 
@@ -428,10 +450,7 @@ fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    let mut db_path = app_prefs.get_user_app_dir();
-    db_path.push("p2p.db");
-
-    let db = P2PDB::new(db_path.as_path());
+    let data_dir_path = app_prefs.get_user_app_dir();
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -451,21 +470,19 @@ fn main() -> Fallible<()> {
 
     let (mut node, pkt_out) = instantiate_node(&conf, &mut app_prefs, &None);
 
-    node.spawn();
+    // Create the key-value store environment
+    let kvs_handle = Manager::singleton()
+        .write()
+        .unwrap()
+        .get_or_create(data_dir_path.as_path(), Rkv::new)
+        .unwrap();
 
-    let db = match db.get_banlist() {
-        Some(nodes) => {
-            info!("Found existing banlist, loading up!");
-            for n in nodes {
-                node.ban_node(n);
-            }
-            db
-        }
-        None => {
-            warn!("Couldn't find existing banlist. Creating new!");
-            db.create_banlist(db_path.as_path())
-        }
+    // Load and apply existing bans
+    if let Err(e) = load_bans(&mut node, &kvs_handle) {
+        error!("{}", e);
     };
+
+    node.spawn();
 
     if !app_prefs.set_config(
         configuration::APP_PREFERENCES_PERSISTED_NODE_ID,
@@ -474,7 +491,7 @@ fn main() -> Fallible<()> {
         error!("Failed to persist own node id");
     }
 
-    setup_process_output(&node, &conf, pkt_out, db);
+    setup_process_output(&node, &conf, pkt_out, kvs_handle);
 
     for connect_to in conf.connection.connect_to {
         match utils::parse_host_port(&connect_to, &dns_resolvers, conf.connection.dnssec_disabled) {

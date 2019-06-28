@@ -8,19 +8,22 @@ use crate::{
         P2PNodeId, PeerType,
     },
     configuration,
-    db::P2PDB,
     failure::Fallible,
     network::{request::RequestedElementType, NetworkId, NetworkMessage, NetworkPacketType},
-    p2p::{banned_nodes::BannedNode, P2PNode},
+    p2p::{
+        banned_nodes::{insert_ban, remove_ban, BannedNode},
+        P2PNode,
+    },
     proto::*,
 };
 use concordium_consensus::{consensus::ConsensusContainer, ffi::ConsensusFfiResponse};
 use futures::future::Future;
 use grpcio::{self, Environment, ServerBuilder};
+use rkv::Rkv;
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{atomic::Ordering, mpsc, Arc, Mutex},
+    sync::{atomic::Ordering, mpsc, Arc, Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -61,7 +64,7 @@ pub struct RpcServerImpl {
     listen_port:  u16,
     listen_addr:  String,
     access_token: String,
-    db:           P2PDB,
+    kvs_handle:   Arc<RwLock<Rkv>>,
     consensus:    Option<ConsensusContainer>,
     dptr:         Arc<Mutex<RpcServerImplShared>>,
 }
@@ -69,7 +72,7 @@ pub struct RpcServerImpl {
 impl RpcServerImpl {
     pub fn new(
         node: P2PNode,
-        db: P2PDB,
+        kvs_handle: Arc<RwLock<Rkv>>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
     ) -> Self {
@@ -78,7 +81,7 @@ impl RpcServerImpl {
             listen_addr: conf.rpc_server_addr.clone(),
             listen_port: conf.rpc_server_port,
             access_token: conf.rpc_server_token.clone(),
-            db,
+            kvs_handle,
             consensus,
             dptr: Arc::new(Mutex::new(RpcServerImplShared::new())),
         }
@@ -706,6 +709,7 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
+
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
@@ -717,26 +721,23 @@ impl P2P for RpcServerImpl {
             } else {
                 None
             };
+
             let f = if let Some(to_ban) = banned_node {
                 if let Ok(mut node) = self.node.lock() {
-                    node.ban_node(to_ban);
-                    let to_db = to_ban.to_db_repr();
-                    let db_done = match to_ban {
-                        BannedNode::ById(_) => {
-                            to_db.0.map_or(false, |ref id| self.db.insert_ban_id(id))
+                    let store_key = to_ban.to_db_repr();
+
+                    match insert_ban(&self.kvs_handle, &store_key) {
+                        Ok(_) => {
+                            node.ban_node(to_ban);
+                            node.send_ban(to_ban);
+                            r.set_value(true);
                         }
-                        _ => to_db
-                            .1
-                            .map_or(false, |ref addr| self.db.insert_ban_addr(addr)),
-                    };
-                    if db_done {
-                        node.send_ban(to_ban);
-                        r.set_value(true);
-                    } else {
-                        error!("There was an error inserting in the database, reverting ban");
-                        node.unban_node(to_ban);
-                        r.set_value(false);
-                    };
+                        Err(e) => {
+                            error!("{}", e);
+                            r.set_value(false);
+                        }
+                    }
+
                     sink.success(r)
                 } else {
                     sink.fail(grpcio::RpcStatus::new(
@@ -764,6 +765,7 @@ impl P2P for RpcServerImpl {
     ) {
         authenticate!(ctx, req, sink, self.access_token, {
             let mut r: SuccessResponse = SuccessResponse::new();
+
             let banned_node = if req.has_node_id() && !req.has_ip() {
                 P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
                     .ok()
@@ -775,26 +777,23 @@ impl P2P for RpcServerImpl {
             } else {
                 None
             };
+
             let f = if let Some(to_unban) = banned_node {
                 if let Ok(mut node) = self.node.lock() {
-                    node.unban_node(to_unban);
-                    let to_db = to_unban.to_db_repr();
-                    let db_done = match to_unban {
-                        BannedNode::ById(_) => {
-                            to_db.0.map_or(false, |ref id| self.db.delete_ban_id(id))
+                    let store_key = to_unban.to_db_repr();
+
+                    match remove_ban(&self.kvs_handle, &store_key) {
+                        Ok(_) => {
+                            node.unban_node(to_unban);
+                            node.send_unban(to_unban);
+                            r.set_value(true);
                         }
-                        _ => to_db
-                            .1
-                            .map_or(false, |ref addr| self.db.delete_ban_addr(addr)),
-                    };
-                    if db_done {
-                        node.send_unban(to_unban);
-                        r.set_value(true);
-                    } else {
-                        error!("There was an error deleting in the database, redoing ban");
-                        node.ban_node(to_unban);
-                        r.set_value(false);
+                        Err(e) => {
+                            error!("{}", e);
+                            r.set_value(false);
+                        }
                     }
+
                     sink.success(r)
                 } else {
                     sink.fail(grpcio::RpcStatus::new(
@@ -1231,8 +1230,7 @@ mod tests {
     use crate::test_utils::wait_direct_message;
     use crate::{
         common::PeerType,
-        configuration::Config,
-        db::P2PDB,
+        configuration::{self, Config},
         network::NetworkMessage,
         proto::concordium_p2p_rpc_grpc::P2PClient,
         rpc::RpcServerImpl,
@@ -1244,6 +1242,7 @@ mod tests {
     use chrono::prelude::Utc;
     use failure::Fallible;
     use grpcio::{ChannelBuilder, EnvBuilder};
+    use rkv::{Manager, Rkv};
     use std::sync::Arc;
     use structopt::StructOpt;
 
@@ -1258,12 +1257,25 @@ mod tests {
     ) {
         let (node, w) = make_node_and_sync(next_available_port(), vec![100], false, nt).unwrap();
 
+        let conf = configuration::parse_config().expect("Can't parse the config file!");
+        let app_prefs = configuration::AppPreferences::new(
+            conf.common.config_dir.to_owned(),
+            conf.common.data_dir.to_owned(),
+        );
+        let data_dir_path = app_prefs.get_user_app_dir();
+
+        let kvs_handle = Manager::singleton()
+            .write()
+            .unwrap()
+            .get_or_create(data_dir_path.as_path(), Rkv::new)
+            .unwrap();
+
         let rpc_port = next_available_port();
         let mut config = Config::from_iter(TESTCONFIG.to_vec());
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
-        let mut rpc_server = RpcServerImpl::new(node, P2PDB::default(), None, &config.cli.rpc);
+        let mut rpc_server = RpcServerImpl::new(node, kvs_handle, None, &config.cli.rpc);
         rpc_server.start_server().expect("rpc");
 
         let env = Arc::new(EnvBuilder::new().build());

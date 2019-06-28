@@ -1,8 +1,10 @@
 use crate::{
     common::{serialize_addr, P2PPeer},
-    db::P2PDB,
     fails::{HostPortParseError, NoDNSResolversAvailable},
-    p2p::{banned_nodes::BannedNode, P2PNode},
+    p2p::{
+        banned_nodes::{insert_ban, remove_ban, BannedNode},
+        P2PNode,
+    },
 };
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -13,6 +15,7 @@ use hacl_star::{
     sha2,
 };
 use rand::rngs::OsRng;
+use rkv::Rkv;
 use snow::Keypair;
 #[cfg(feature = "benchmark")]
 use std::fs;
@@ -22,6 +25,7 @@ use std::{
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
+    sync::RwLock,
 };
 
 pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
@@ -460,17 +464,17 @@ pub fn ban_node(
     node: &mut P2PNode,
     peer: &P2PPeer,
     to_ban: BannedNode,
-    db: &P2PDB,
+    kvs_handle: &RwLock<Rkv>,
     no_trust_bans: bool,
 ) {
     info!("Ban node request for {:?} from {:?}", to_ban, peer);
     node.ban_node(to_ban);
 
-    let to_db = to_ban.to_db_repr();
-    match to_ban {
-        BannedNode::ById(_) => to_db.0.map(|ref id| db.insert_ban_id(id)),
-        _ => to_db.1.map(|ref addr| db.insert_ban_addr(addr)),
-    };
+    let store_key = to_ban.to_db_repr();
+    if let Err(e) = insert_ban(&kvs_handle, &store_key) {
+        error!("{}", e);
+    }
+
     if !no_trust_bans {
         node.send_ban(to_ban);
     }
@@ -480,17 +484,17 @@ pub fn unban_node(
     node: &mut P2PNode,
     peer: &P2PPeer,
     to_unban: BannedNode,
-    db: &P2PDB,
+    kvs_handle: &RwLock<Rkv>,
     no_trust_bans: bool,
 ) {
     info!("Unban node request for {:?} from {:?}", to_unban, peer);
     node.unban_node(to_unban);
 
-    let to_db = to_unban.to_db_repr();
-    match to_unban {
-        BannedNode::ById(_) => to_db.0.map(|ref id| db.delete_ban_id(id)),
-        _ => to_db.1.map(|ref addr| db.delete_ban_addr(addr)),
-    };
+    let store_key = to_unban.to_db_repr();
+    if let Err(e) = remove_ban(&kvs_handle, &store_key) {
+        error!("{}", e);
+    }
+
     if !no_trust_bans {
         node.send_unban(to_unban);
     }

@@ -60,8 +60,6 @@ base58 = "^0.1"
 rkv = "^0.9"
 # Snow : Noise implementation.
 snow = { version = "0.5.2", features = ["hacl-star-accelerated"] }
-# Database dependencies
-rusqlite = { version = "0.17", features = ["bundled"] }
 # gRPC dependencies
 protobuf = "2.0.6"
 futures = "0.1"
