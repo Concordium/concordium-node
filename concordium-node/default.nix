@@ -19,7 +19,7 @@ let
 
 in rustPlatform.buildRustPackage rec {
   name = "concordium-p2p-client-${version}";
-  version = "0.1.35.1";
+  version = "0.1.35.2";
   src = ./.;
   RUST_BACKTRACE = 1;
   hardeningDisable = [ "all" ];
@@ -35,7 +35,7 @@ in rustPlatform.buildRustPackage rec {
     unbound
     gcc
   ];
-  cargoSha256 = "06wzhgsb9k0q54x0myqzbjg1lhpfy5vgj0l61szmpy7z3p7z9mf7";
+  cargoSha256 = "10m0xsidhr4qlqyj34xbf7476vblgrrmgjnxk8rh21zp69a8fqhj";
   meta = with pkgs.stdenv.lib; {
     description = "Concordium AG";
     homepage = "https://www.concordium.com";
