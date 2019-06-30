@@ -14,6 +14,8 @@ import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as Map
 import Data.Serialize
 
+import Data.Void
+
 type ModuleIndex = Word64
 
 -- |Module for storage in block state.
@@ -21,10 +23,10 @@ type ModuleIndex = Word64
 -- be used to recover the interfaces, and should be what is sent over the
 -- network.
 data Module = Module {
-    moduleInterface :: !Interface,
-    moduleValueInterface :: !ValueInterface,
+    moduleInterface :: !(Interface Core.UA),
+    moduleValueInterface :: !(ValueInterface Void),
     moduleIndex :: !ModuleIndex,
-    moduleSource :: Core.Module
+    moduleSource :: Core.Module Core.UA
 }
 
 -- |A collection of modules.
@@ -42,13 +44,13 @@ emptyModules :: Modules
 emptyModules = Modules Map.empty 0 (H.hash "")
 
 -- |Create a collection of modules from a list in reverse order of creation.
-fromModuleList :: [(Core.ModuleRef, Interface, ValueInterface, Core.Module)] -> Modules
+fromModuleList :: [(Core.ModuleRef, Interface Core.UA, ValueInterface Void, Core.Module Core.UA)] -> Modules
 fromModuleList = foldr safePut emptyModules
     where
         safePut (mref, iface, viface, source) m = fromMaybe m $ putInterfaces mref iface viface source m
 
 -- |Get the interfaces for a given module by 'Core.ModuleRef'.
-getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface, ValueInterface)
+getInterfaces :: Core.ModuleRef -> Modules -> Maybe (Interface Core.UA, ValueInterface Void)
 getInterfaces mref m = do
         Module {..} <- Map.lookup mref (_modules m)
         return (moduleInterface, moduleValueInterface)
@@ -56,7 +58,7 @@ getInterfaces mref m = do
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Core.Module -> Modules -> Maybe Modules
+putInterfaces :: Core.ModuleRef -> Interface Core.UA -> ValueInterface Void -> Core.Module Core.UA -> Modules -> Maybe Modules
 putInterfaces mref iface viface source m =
   if Map.member mref (_modules m) then Nothing
   else Just (Modules {
@@ -69,7 +71,7 @@ putInterfaces mref iface viface source m =
 -- |Same as 'putInterfaces', but do not check for existence of a module. Hence
 -- the precondition of this method is that a module with the same hash is not in
 -- the table already
-unsafePutInterfaces :: Core.ModuleRef -> Interface -> ValueInterface -> Core.Module -> Modules -> Modules
+unsafePutInterfaces :: Core.ModuleRef -> Interface Core.UA -> ValueInterface Void -> Core.Module Core.UA -> Modules -> Modules
 unsafePutInterfaces mref iface viface source m =
     Modules {
              _modules = Map.insert mref (Module iface viface (_nextModuleIndex m) source) (_modules m),
