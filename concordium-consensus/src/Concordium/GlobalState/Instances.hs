@@ -28,8 +28,6 @@ import Concordium.GlobalState.Instances.Internal
 import Data.Word
 import Lens.Micro.Platform
 
-import Data.Void
-
 -- |Get the 'InstanceInfo' summary of an 'Instance'.
 instanceInfo :: Instance -> InstanceInfo
 instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters) instanceModel instanceAmount
@@ -37,11 +35,11 @@ instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters
 makeInstance :: 
     Core.ModuleRef     -- ^Module of the contract
     -> Core.TyName     -- ^Contract name
-    -> ContractValue Void  -- ^The contract value
-    -> Core.Type Core.UA Core.ModuleRef     -- ^Message type
-    -> Interface Core.UA          -- ^Module interface
-    -> ValueInterface Void          -- ^Module value interface
-    -> Value Void                   -- ^Initial state
+    -> ContractValue   -- ^The contract value
+    -> Core.Type Core.ModuleRef     -- ^Message type
+    -> Interface                    -- ^Module interface
+    -> ValueInterface               -- ^Module value interface
+    -> Value                        -- ^Initial state
     -> Amount                       -- ^Initial balance
     -> AccountAddress               -- ^Owner/creator of the instance.
     -> ContractAddress              -- ^Address for the instance
@@ -60,15 +58,15 @@ iaddress :: Instance -> ContractAddress
 iaddress = instanceAddress . instanceParameters
 
 -- |The receive method of a smart contract instance.
-ireceiveFun :: Instance -> Expr Void
+ireceiveFun :: Instance -> Expr
 ireceiveFun = instanceReceiveFun . instanceParameters
 
 -- |The message type of a smart contract instance.
-imsgTy :: Instance -> Core.Type Core.UA Core.ModuleRef
+imsgTy :: Instance -> Core.Type Core.ModuleRef
 imsgTy = instanceMessageType . instanceParameters
 
 -- |The module interfaces of a smart contract instance.
-iModuleIface :: Instance -> (Interface Core.UA, ValueInterface Void)
+iModuleIface :: Instance -> (Interface, ValueInterface)
 iModuleIface i = (instanceModuleInterface, instanceModuleValueInterface)
     where
         InstanceParameters{..} = instanceParameters i
@@ -82,7 +80,7 @@ getInstance :: ContractAddress -> Instances -> Maybe Instance
 getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update a given smart contract instance.
-updateInstance :: Amount -> Value Void -> Instance -> Instance
+updateInstance :: Amount -> Value -> Instance -> Instance
 updateInstance amt val i =  i {
                                 instanceModel = val,
                                 instanceAmount = amt,
@@ -91,7 +89,7 @@ updateInstance amt val i =  i {
 
 -- |Update the instance at the specified address with a new amount and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt :: ContractAddress -> Amount -> Value Void -> Instances -> Instances
+updateInstanceAt :: ContractAddress -> Amount -> Value -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
 -- |Create a new smart contract instance.

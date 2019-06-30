@@ -27,8 +27,6 @@ import Concordium.GlobalState.Instances
 import Concordium.GlobalState.Modules hiding (getModule)
 import Concordium.GlobalState.Bakers
 
-import Data.Void
-
 import qualified Concordium.ID.Types as ID
 
 
@@ -158,12 +156,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m
-                  -> ModuleRef
-                  -> Interface Core.UA
-                  -> ValueInterface Void
-                  -> Core.Module Core.UA
-                  -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: UpdatableBlockState m -> ModuleRef -> Interface -> ValueInterface -> Core.Module -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -172,11 +165,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoModifyAccount :: UpdatableBlockState m -> AccountUpdate -> m (UpdatableBlockState m)
   -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
   -- This method is only called when it is known the instance exists, and can thus assume it.
-  bsoModifyInstance :: UpdatableBlockState m
-                    -> ContractAddress
-                    -> Amount
-                    -> Value Void
-                    -> m (UpdatableBlockState m)
+  bsoModifyInstance :: UpdatableBlockState m -> ContractAddress -> Amount -> Value -> m (UpdatableBlockState m)
 
   -- |Notify the block state that the given amount was spent on execution.
   bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
