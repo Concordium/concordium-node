@@ -14,6 +14,8 @@ import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Data.Serialize
 import Data.HashMap.Strict(HashMap)
 
+import Data.Void
+
 -- |The fixed parameters associated with a smart contract instance
 data InstanceParameters = InstanceParameters {
     -- |Address of the instance
@@ -25,17 +27,17 @@ data InstanceParameters = InstanceParameters {
     -- |The name of the contract
     instanceContract :: !Core.TyName,
     -- |The contract's receive function
-    instanceReceiveFun :: !Expr,
+    instanceReceiveFun :: !(Expr Void),
     -- |The interface of 'instanceContractModule'
-    instanceModuleInterface :: !Interface,
+    instanceModuleInterface :: !(Interface Core.UA),
     -- |The value interface of 'instanceContractModule'
-    instanceModuleValueInterface :: !ValueInterface,
+    instanceModuleValueInterface :: !(ValueInterface Void),
     -- |The type of messages the contract receive function supports
-    instanceMessageType :: !(Core.Type Core.ModuleRef),
+    instanceMessageType :: !(Core.Type Core.UA Core.ModuleRef),
     -- |Implementation of the given class sender method. This can also be looked
     -- up through the contract, and we should probably do that, but having it here
     -- simplifies things.
-    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) ImplementsValue),
+    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (ImplementsValue Void)),
     -- |Hash of the fixed parameters
     instanceParameterHash :: !H.Hash
 }
@@ -51,7 +53,7 @@ data Instance = Instance {
     -- |The fixed parameters of the instance
     instanceParameters :: !InstanceParameters,
     -- |The current local state of the instance
-    instanceModel :: !Value,
+    instanceModel :: !(Value Void),
     -- |The current amount of GTU owned by the instance
     instanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -71,7 +73,7 @@ makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put modRef
         put conName
 
-makeInstanceHash :: InstanceParameters -> Value -> Amount -> H.Hash
+makeInstanceHash :: InstanceParameters -> Value Void -> Amount -> H.Hash
 makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
         put (instanceParameterHash params)
         putStorable v
