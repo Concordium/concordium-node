@@ -22,13 +22,14 @@ import Data.ByteString.Builder(toLazyByteString, byteStringHex)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as EL
 
+import Data.Void
 
 -- *Summary of global state to be sent over the network.
 
 data InstanceInfo = InstanceInfo
     {
-     messageType :: !(Core.Type Core.ModuleRef)
-    ,localState :: !Value  -- must be storable
+     messageType :: !(Core.Type Core.UA Core.ModuleRef)
+    ,localState :: !(Value Void)  -- must be storable
     ,instanceAmount :: !Amount
     } deriving(Show)
 
@@ -65,12 +66,12 @@ jsonLiteral l = case l of
 -- |The serialization instances for values are only for storable values. If you
 -- try to serialize with a value which is not storable the methods will fail
 -- raising an exception. 
-jsonStorable :: Value -> JSON.Value
+jsonStorable :: Value Void -> JSON.Value
 jsonStorable (VLiteral l) = jsonLiteral l
 jsonStorable (VAmount (Amount a)) = JSON.toJSON (fromIntegral a :: Integer)
 jsonStorable (VConstructor n vals) =
   JSON.object $ ["name" .= (fromIntegral n :: Word32)] ++ zipWith (\i v -> ("child-" <> fromString (show i)) .= jsonStorable v) [(0::Int)..] vals
 jsonStorable _ = error "FATAL: Trying to serialize a non-storable value. This should not happen."
 
-valueToJSONString :: Value -> String
+valueToJSONString :: Value Void -> String
 valueToJSONString = TL.unpack . AET.encodeToLazyText . jsonStorable
