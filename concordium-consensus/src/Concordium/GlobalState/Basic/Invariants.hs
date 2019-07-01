@@ -17,6 +17,7 @@ import Concordium.GlobalState.Bakers
 import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.AccountTable as AT
 import Concordium.GlobalState.Instances as Instances
+import qualified Concordium.GlobalState.Rewards as Rewards
 
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
