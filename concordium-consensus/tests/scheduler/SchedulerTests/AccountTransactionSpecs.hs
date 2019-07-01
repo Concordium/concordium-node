@@ -26,6 +26,8 @@ import Control.Monad.IO.Class
 
 import SchedulerTests.DummyData
 
+import qualified Acorn.Core as Core
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -75,7 +77,7 @@ transactionsInput =
   ]
 
 testAccountCreation ::
-  PR.Context
+  PR.Context Core.UA
     IO
     ([(Types.Transaction, Types.ValidResult)],
      [(Types.Transaction, Types.FailureKind)],

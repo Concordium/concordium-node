@@ -64,7 +64,7 @@ transactionsInput =
 
 
 testChainMeta ::
-  PR.Context
+  PR.Context Core.UA
     IO
     ([(Types.Transaction, Types.ValidResult)],
      [(Types.Transaction, Types.FailureKind)],

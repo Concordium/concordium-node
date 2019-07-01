@@ -21,6 +21,8 @@ import Concordium.GlobalState.Modules as Mod
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 
+import qualified Acorn.Core as Core
+
 import Lens.Micro.Platform
 
 import SchedulerTests.DummyData
@@ -79,9 +81,9 @@ transactionsInput =
            }      
     ]
 
-runWithIntermediateStates :: PR.Context IO [([(Types.Transaction, Types.ValidResult)],
-                                             [(Types.Transaction, Types.FailureKind)],
-                                             Types.BirkParameters)]
+runWithIntermediateStates :: PR.Context Core.UA IO [([(Types.Transaction, Types.ValidResult)],
+                                                     [(Types.Transaction, Types.FailureKind)],
+                                                     Types.BirkParameters)]
 runWithIntermediateStates = do
   txs <- processTransactions transactionsInput
   let (res, _) = foldl (\(acc, st) tx ->
@@ -94,7 +96,7 @@ runWithIntermediateStates = do
                          txs
   return res
 
-tests :: SpecWith ()
+tests :: Spec
 tests = do
   results <- runIO (PR.evalContext Init.initialContextData runWithIntermediateStates)
   describe "Baker transactions." $ do

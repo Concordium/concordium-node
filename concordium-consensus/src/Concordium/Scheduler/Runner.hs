@@ -23,13 +23,14 @@ import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Acorn.Parser.Runner
+import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
 signTx :: KeyPair -> Types.TransactionHeader -> EncodedPayload -> Types.Transaction
 signTx kp th = Types.signTransaction kp th
 
-transactionHelper :: MonadFail m => TransactionJSON -> Context m Types.Transaction
+transactionHelper :: MonadFail m => TransactionJSON -> Context Core.UA m Types.Transaction
 transactionHelper t = do
   case t of
     (TJSON meta (DeployModule mnameText) keys) ->
@@ -68,7 +69,7 @@ transactionHelper t = do
 --     Left err -> fail $ "Error decoding JSON: " ++ err
 --     Right t -> processTransactions t
 
-processTransactions :: MonadFail m => [TransactionJSON]  -> Context m [Types.Transaction]
+processTransactions :: MonadFail m => [TransactionJSON]  -> Context Core.UA m [Types.Transaction]
 processTransactions = mapM transactionHelper
 
 data PayloadJSON = DeployModule { moduleName :: Text }

@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -25,6 +26,8 @@ import Concordium.GlobalState.Basic.BlockState
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Bakers as Bakers
 
+import qualified Acorn.Core as Core
+
 newtype BSOMonadWrapper r s m a = BSOMonadWrapper (m a)
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s)
 
@@ -33,7 +36,7 @@ instance MonadTrans (BSOMonadWrapper r s) where
     lift a = BSOMonadWrapper a
 
 instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ s, MonadState s m, BlockStateOperations m) 
-    => StaticEnvironmentMonad (BSOMonadWrapper ChainMetadata s m) where
+    => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ChainMetadata s m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = ask
 
@@ -163,7 +166,7 @@ instance (MonadReader ChainMetadata m, UpdatableBlockState m ~ state, MonadState
 
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWST ChainMetadata () BlockState (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ChainMetadata, MonadState BlockState)
-    deriving StaticEnvironmentMonad via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))
+    deriving (StaticEnvironmentMonad Core.UA) via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))
     deriving SchedulerMonad via (BSOMonadWrapper ChainMetadata BlockState (RWST ChainMetadata () BlockState (PureBlockStateMonad Identity)))
 
 runSI :: SchedulerImplementation a -> ChainMetadata -> BlockState -> (a, BlockState)

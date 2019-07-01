@@ -130,7 +130,7 @@ getModuleList hash sfsRef = runStateQuery sfsRef $
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
 
 
-getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe Core.Module)
+getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe (Core.Module Core.UA))
 getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
   resolveBlock hash >>=
     \case Nothing -> return Nothing
