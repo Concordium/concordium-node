@@ -6,7 +6,6 @@ module Concordium.GlobalState.Basic.Invariants where
 
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import Data.Maybe
 import Control.Monad
 import Lens.Micro.Platform
 
@@ -14,15 +13,10 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
-import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.AccountTable as AT
 import Concordium.GlobalState.Instances as Instances
-import qualified Concordium.GlobalState.Rewards as Rewards
-import qualified Concordium.GlobalState.IdentityProviders as IPS
 
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
