@@ -231,3 +231,10 @@ type instance IxValue Instances = Instance
 
 instance Ixed Instances where
     ix z = instances . ix z
+
+instance Show Instances where
+    show (Instances Empty) = "Instances {}"
+    show (Instances (Tree _ t)) = "Instances {\n" ++ (concatMap f $ t ^.. foldIT) ++ "}"
+        where
+            f (Left _) = ""
+            f (Right inst) = show inst <> "\n"

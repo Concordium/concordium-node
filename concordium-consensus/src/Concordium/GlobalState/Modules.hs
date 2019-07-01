@@ -34,6 +34,11 @@ data Modules = Modules {
     _runningHash :: !H.Hash
 }
 
+instance Show Modules where
+    show Modules{..} = "Modules {\n" ++ concatMap f (Map.keys _modules) ++ "}"
+        where
+            f x = show x ++ "\n"
+
 instance HashableTo H.Hash Modules where
     getHash = _runningHash
 
