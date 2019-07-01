@@ -33,6 +33,22 @@ invariantBlockState bs = do
         checkBinary (==) ninstances (instanceCount $ bs ^. blockInstances) "==" "accounted for instances" "all instances"
         totalStake <- foldM (checkBaker delegationMap) 0 (Map.toList $ bs ^. blockBirkParameters . birkBakers . bakerMap)
         checkBinary (==) totalStake (bs ^. blockBirkParameters . birkBakers . bakerTotalStake) "==" "total baker stake" "recorded amount"
+        let untrackedRegIds = Set.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
+        unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
+        let
+            tenc = bs ^. blockBank . Rewards.totalEncryptedGTU
+            tcb = bs ^. blockBank . Rewards.centralBankGTU
+            txc = bs ^. blockBank . Rewards.executionCost
+        checkBinary (==) 
+            (totalBalance + tenc + tcb + txc) 
+            (bs ^. blockBank . Rewards.totalGTU) 
+            "==" 
+            ("Total account balances (" ++ show totalBalance ++
+                ") + total encrypted (" ++ show tenc ++
+                ") + central bank (" ++ show tcb ++ 
+                ") + execution cost (" ++ show txc ++ ")")
+            "Total GTU"
+        checkBinary (==) amp (bs ^. blockAccounts . to Account.accountMap) "==" "computed account map" "recorded account map"
     where
         checkAccount (creds, amp, bal, delegMap, ninsts) (i, acct) = do
             let addr = acct ^. accountAddress

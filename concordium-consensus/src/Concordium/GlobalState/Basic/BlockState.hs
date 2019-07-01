@@ -31,7 +31,7 @@ data BlockState = BlockState {
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
     _blockBirkParameters :: BirkParameters
-}
+} deriving (Show)
 
 makeLenses ''BlockState
 

@@ -22,6 +22,11 @@ data Accounts = Accounts {
     accountRegIds :: !(Set.Set ID.CredentialRegistrationID)
 }
 
+instance Show Accounts where
+    show Accounts{..} = "Accounts {\n" ++ Map.foldMapWithKey showAcct accountMap ++ "accountRegIds = " ++ show accountRegIds ++ "\n}"
+        where
+            showAcct addr ind = show addr ++ " => " ++ maybe "MISSING" show (accountTable ^? ix ind) ++ "\n"
+
 emptyAccounts :: Accounts
 emptyAccounts = Accounts Map.empty Empty Set.empty
 

@@ -18,13 +18,19 @@ data IdentityProviderData = IdentityProviderData {
   -- account to which it will receive rewards. This can change throughout the
   -- lifetime.
   idAccount :: !AccountAddress
-  }
+  } deriving (Show)
 
 -- |The set of all identity providers. Identity providers are identified
 -- uniquely by their public key (the key used to verify signatures).
 newtype IdentityProviders = IdentityProviders {
   idProviders :: HashMap IdentityProviderIdentity IdentityProviderData
   }
+
+instance Show IdentityProviders where
+    show (IdentityProviders m) = "IdentityProviers {\n" ++ concatMap f (HM.elems m) ++ "}"
+        where
+            f x = show x ++ "\n"
+
 
 emptyIdentityProviders :: IdentityProviders
 emptyIdentityProviders = IdentityProviders HM.empty
