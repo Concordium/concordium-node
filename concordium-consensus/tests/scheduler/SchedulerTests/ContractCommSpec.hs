@@ -23,6 +23,7 @@ import Lens.Micro.Platform
 
 import Control.Monad.IO.Class
 
+import qualified Acorn.Core as Core
 import SchedulerTests.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
@@ -91,7 +92,7 @@ transactionsInput =
   ]
 
 testCommCounter ::
-  PR.Context
+  PR.Context Core.UA
     IO
     ([(Types.Transaction, Types.ValidResult)],
      [(Types.Transaction, Types.FailureKind)])

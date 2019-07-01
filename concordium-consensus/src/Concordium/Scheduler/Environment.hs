@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -33,7 +34,7 @@ import qualified Concordium.ID.Types as ID
 -- * Scheduler monad
 
 -- |Information needed to execute transactions.
-class StaticEnvironmentMonad m => SchedulerMonad m where
+class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe Instance)
 
@@ -53,7 +54,7 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
-  commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Core.Module -> m Bool
+  commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Module -> m Bool
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
@@ -138,7 +139,7 @@ class StaticEnvironmentMonad m => SchedulerMonad m where
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not
 -- want to commit it to global state.
-class StaticEnvironmentMonad m => TransactionMonad m where
+class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Execute the code in a temporarily modified environment. This is needed in
   -- nested calls to transactions which might end up failing at the end. Thus we
   -- keep track of changes locally first, and only commit them at the end.
@@ -274,7 +275,7 @@ execLocalT (LocalT st) energy = execStateT (runContT st (return . Right)) (energ
 liftLocal :: Monad m => m a -> LocalT r m a
 liftLocal m = LocalT (ContT (\k -> StateT (\s -> m >>= flip runStateT s . k)))
                                                     
-instance StaticEnvironmentMonad m => StaticEnvironmentMonad (LocalT r m) where
+instance StaticEnvironmentMonad Core.UA m => StaticEnvironmentMonad Core.UA (LocalT r m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = liftLocal getChainMetadata
 
@@ -329,7 +330,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE rejectTransaction #-}
   rejectTransaction reason = LocalT (ContT (\_ -> return (Left reason)))
 
-instance SchedulerMonad m => InterpreterMonad (LocalT r m) where
+instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where
   getCurrentContractState caddr = do
     newStates <- use (_2 . instanceUpdates)
     liftLocal $ do mistance <- getContractInstance caddr

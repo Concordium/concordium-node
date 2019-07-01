@@ -19,6 +19,8 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
 
+import qualified Acorn.Core as Core
+
 import SchedulerTests.DummyData
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
@@ -57,7 +59,7 @@ transactionsInput =
 
 
 testSimpleTransfer
-  :: PR.Context
+  :: PR.Context Core.UA
        IO
        ([(Types.Transaction, Types.ValidResult)],
         [(Types.Transaction, Types.FailureKind)], Types.Amount, Types.Amount)

@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -25,13 +26,15 @@ import Control.Monad.RWS.Strict
 
 import Lens.Micro.Platform
 
+import qualified Acorn.Core as Core
+
 import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ChainMetadata () state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ChainMetadata, MonadTrans)
 
 deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
-    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad (BlockStateMonad state m)
+    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
 
 deriving via (BSOMonadWrapper ChainMetadata state (RWST ChainMetadata () state m))
     instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)

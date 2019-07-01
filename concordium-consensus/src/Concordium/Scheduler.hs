@@ -165,7 +165,7 @@ handleDeployModule ::
   => TransactionHeader -- ^Header of the transaction.
   -> Amount -- ^Amount remaining on sender's account (sender being the account initiating the transaction).
   -> Int -- ^Serialized size of the module. Used for charging execution cost.
-  -> Core.Module -- ^The module to deploy
+  -> Module -- ^The module to deploy
   -> Energy -- ^The amount of energy this transaction is allowed to consume.
   -> m TxResult
 handleDeployModule meta remainingAmount psize mod energy = do
@@ -190,7 +190,7 @@ handleDeployModule meta remainingAmount psize mod energy = do
         return $ TxValid (TxReject (ModuleHashAlreadyExists mhash))
 
 
-handleModule :: TransactionMonad m => TransactionHeader -> Int -> Core.Module -> m (Core.ModuleRef, Interface, ValueInterface)
+handleModule :: TransactionMonad m => TransactionHeader -> Int -> Module -> m (Core.ModuleRef, Interface, ValueInterface)
 handleModule meta msize mod = do
   -- Consume the gas amount required for processing.
   -- This is done even if the transaction is rejected in the end.
@@ -210,7 +210,7 @@ handleInitContract ::
     -> Amount   -- ^The amount to initialize the contract with.
     -> ModuleRef  -- ^Module reference of the contract to initialize.
     -> Core.TyName  -- ^Name of the contract in a module.
-    -> Core.Expr Core.ModuleName  -- ^Parameters of the contract.
+    -> Core.Expr Core.UA Core.ModuleName  -- ^Parameters of the contract.
     -> Int -- ^Serialized size of the parameters. Used for computing typechecking cost.
     -> Energy -- ^Amount of energy this transaction can consume
     -> m TxResult
@@ -231,15 +231,15 @@ handleInitContract meta remainingAmount amount modref cname param paramSize ener
         return (TxValid $ TxSuccess [ContractInitialized modref cname addr])
 
 handleInit
-  :: (TransactionMonad m, InterpreterMonad m)
+  :: (TransactionMonad m, InterpreterMonad NoAnnot m)
      => TransactionHeader
      -> Amount
      -> Amount
      -> Core.ModuleRef
      -> Core.TyName
-     -> Core.Expr Core.ModuleName
+     -> Core.Expr Core.UA Core.ModuleName
      -> Int
-     -> m (ContractValue, Interface, ValueInterface, Core.Type Core.ModuleRef, Value, Amount)
+     -> m (ContractValue, Interface, ValueInterface, Core.Type Core.UA Core.ModuleRef, Value, Amount)
 handleInit meta senderAmount amount modref cname param paramsize = do
   -- decrease available energy and start processing. This will reject the transaction if not enough is available.
   tickEnergy Cost.initPreprocess
@@ -291,7 +291,7 @@ handleUpdateContract ::
     -> Amount -- ^Remaing amount on the sender's account.
     -> ContractAddress -- ^Address of the contract to invoke.
     -> Amount -- ^Amount to invoke the contract's receive method with.
-    -> Core.Expr Core.ModuleName -- ^Message to send to the receive method.
+    -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
     -> Int  -- ^Serialized size of the message.
     -> Energy -- ^Amount of energy this transaction is allowed to consume.
     -> m TxResult
@@ -310,12 +310,12 @@ handleUpdateContract meta remainingAmount cref amount maybeMsg msgSize energy = 
         return $ TxValid (TxReject reason)
  
 handleUpdate
-  :: (TransactionMonad m, InterpreterMonad m)
+  :: (TransactionMonad m, InterpreterMonad NoAnnot m)
      => TransactionHeader
      -> Amount -- amount on the sender account before the transaction
      -> Amount -- amount to send as part of the transaction
      -> ContractAddress
-     -> Core.Expr Core.ModuleName
+     -> Core.Expr Core.UA Core.ModuleName
      -> Int
      -> m [Event]
 handleUpdate meta accountamount amount cref msg msgSize = do
@@ -344,10 +344,10 @@ handleUpdate meta accountamount amount cref msg msgSize = do
 
 -- this will always be run when we know that the contract exists and we can lookup its local state
 handleTransaction ::
-  (TransactionMonad m, InterpreterMonad m)
+  (TransactionMonad m, InterpreterMonad NoAnnot m)
   => AccountAddress -- ^the origin account of the top-level transaction
   -> ContractAddress -- ^the target contract of the transaction
-  -> Expr -- ^the receive function of the contract
+  -> Expr NoAnnot -- ^the receive function of the contract
   -> Address -- ^the invoker of this particular transaction, in general different from the origin
   -> Amount -- ^amount of funds on the sender's account before the execution
   -> Amount -- ^amount that was sent to the contract in the transaction
@@ -427,7 +427,7 @@ combineTx :: Monad m => [Event] -> m [Event] -> m [Event]
 combineTx x ma = (x ++) <$> ma
 
 handleTransfer
-  :: (TransactionMonad m, InterpreterMonad m)
+  :: (TransactionMonad m, InterpreterMonad NoAnnot m)
      => TransactionHeader
      -> Amount -- amount on the sender account before the transaction
      -> Amount -- amount to send as part of the transaction

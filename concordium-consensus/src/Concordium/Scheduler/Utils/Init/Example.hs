@@ -64,7 +64,7 @@ simpleCounterTyCtx = let (_, _, _, tys) = Parser.modNames (first baseStateWithCo
 inCtx :: Text.Text -> Core.Name
 inCtx txt = fromJust (Map.lookup txt simpleCounterCtx)
 
-inCtxTm :: Text.Text -> Core.Expr origin
+inCtxTm :: Text.Text -> Core.Expr Core.UA origin
 inCtxTm = Core.Atom . Core.LocalDef . inCtx
 
 initialTrans :: Int -> [Types.Transaction]
