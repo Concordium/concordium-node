@@ -225,7 +225,8 @@ handleInitContract meta remainingAmount amount modref cname param paramSize ener
         refund <- energyToGtu energy'
         let execCost = thGasAmount meta - energy'
         energyToGtu execCost >>= notifyExecutionCost
-        commitStateAndAccountChanges (increaseAmountCS cs (thSender meta) refund)
+        -- The sender is paid the refund, but charged the initalamount.
+        commitStateAndAccountChanges (modifyAmountCS cs (thSender meta) (amountDiff refund initamount))
         let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
         addr <- putNewInstance ins
         return (TxValid $ TxSuccess [ContractInitialized modref cname addr])

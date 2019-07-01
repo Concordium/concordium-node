@@ -20,6 +20,7 @@ import Concordium.GlobalState.Basic.Invariants
 import Concordium.GlobalState.Instances as Ins
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.Rewards as Rew
 
 import Lens.Micro.Platform
 
@@ -36,7 +37,8 @@ initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState emptyBirkParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000) Acc.emptyAccounts) . 
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
+    (blockBank . Rew.totalGTU .~ 100000)
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
@@ -50,7 +52,7 @@ transactionsInput =
            , metadata = makeHeader alesKP 1 1000
            , keypair = alesKP
            }
-    ,TJSON { payload = InitContract {amount = 100
+    ,TJSON { payload = InitContract {amount = 123
                                     ,contractName = "Simple"
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
@@ -75,7 +77,7 @@ testChainMeta = do
                                          chainMeta
                                          initialBlockState
     case invariantBlockState gs of
-        Left f -> liftIO $ assertFailure f
+        Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
     return (suc, fails, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 

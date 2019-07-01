@@ -5,6 +5,7 @@
 module SchedulerTests.AccountTransactionSpecs where
 
 import Test.Hspec
+import Test.HUnit
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -17,8 +18,11 @@ import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.Basic.Invariants
+import qualified Concordium.GlobalState.Rewards as Rew
 
 import Lens.Micro.Platform
+import Control.Monad.IO.Class
 
 import SchedulerTests.DummyData
 
@@ -32,6 +36,7 @@ initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState emptyBirkParameters & -- NB: We need 6 * deploy account since we still charge the cost even if an account already exists (case 4 in the tests).
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK initialAmount) Acc.emptyAccounts) .
+    (blockBank . Rew.totalGTU .~ initialAmount) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 deployAccountCost :: Types.Energy
@@ -84,7 +89,9 @@ testAccountCreation = do
                                             initialBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFrom [10,11,12,13,14]
-    
+    case invariantBlockState state of
+        Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
+        _ -> return ()
     return (suc, fails, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
 
 checkAccountCreationResult ::

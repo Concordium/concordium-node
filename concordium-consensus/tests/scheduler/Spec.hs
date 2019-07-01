@@ -6,6 +6,7 @@ import qualified SchedulerTests.ChainMetatest(tests)
 import qualified SchedulerTests.FibonacciTest(tests)
 import qualified SchedulerTests.AccountTransactionSpecs(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
+import qualified SchedulerTests.Delegation(tests)
 
 import Test.Hspec
 
@@ -17,3 +18,4 @@ main = do hspec $ do
             SchedulerTests.FibonacciTest.tests
             SchedulerTests.AccountTransactionSpecs.tests
             SchedulerTests.BakerTransactions.tests
+            SchedulerTests.Delegation.tests
