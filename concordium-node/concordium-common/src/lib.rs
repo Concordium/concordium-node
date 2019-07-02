@@ -96,6 +96,10 @@ impl Deref for HashBytes {
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
+impl AsRef<[u8]> for HashBytes {
+    fn as_ref(&self) -> &[u8] { &self }
+}
+
 // a short, 8-character beginning of the SHA
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

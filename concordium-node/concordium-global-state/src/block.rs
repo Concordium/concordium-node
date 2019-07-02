@@ -17,6 +17,7 @@ use crate::{common::*, parameters::*, transaction::*};
 
 const NONCE: u8 = size_of::<BlockHash>() as u8 + PROOF_LENGTH as u8; // should soon be shorter
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
+const CHRONO_DATE_TIME_LEN: u8 = 12;
 
 #[derive(Debug)]
 pub enum Block {
@@ -81,7 +82,7 @@ impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
         match self {
             Block::Genesis(genesis_data) => {
                 [
-                    &[0, 0, 0, 0, 0, 0, 0, 0], // a 0u64 slot id prefix
+                    &[0u8; 8], // a 0u64 slot id prefix
                     &*genesis_data.serialize(),
                 ]
                 .concat()
@@ -307,7 +308,7 @@ impl BlockPtr {
         let genesis_block = Block::Genesis(genesis_data);
         // the genesis block byte representation is the genesis data prefixed with a
         // 0u64 slot id
-        let genesis_block_hash = sha256(&[&[0, 0, 0, 0, 0, 0, 0, 0], genesis_bytes].concat());
+        let genesis_block_hash = sha256(&[&[0u8; 8], genesis_bytes].concat());
         let timestamp = Utc::now(); // TODO: be more precise when Kontrol is there
 
         BlockPtr {
@@ -354,6 +355,30 @@ impl BlockPtr {
                 self.is_ancestor_of(next_candidate)
             }
         }
+    }
+
+    // possibly change to SerializeToBytes::serialize when implementing caching
+    pub fn serialize_to_disk_format(&self) -> Box<[u8]> {
+        fn serialize_date(date: DateTime<Utc>) -> [u8; CHRONO_DATE_TIME_LEN as usize] {
+            unsafe {
+                std::mem::transmute::<DateTime<Utc>, [u8; CHRONO_DATE_TIME_LEN as usize]>(date)
+            }
+        }
+
+        let block = self.block.serialize();
+
+        let mut cursor = create_serialization_cursor(
+            block.len()
+            + size_of::<BlockHeight>()
+            + 2 * CHRONO_DATE_TIME_LEN as usize
+        );
+
+        let _ = cursor.write_all(&block);
+        let _ = cursor.write_u64::<NetworkEndian>(self.height);
+        let _ = cursor.write_all(&serialize_date(self.received));
+        let _ = cursor.write_all(&serialize_date(self.validated));
+
+        cursor.into_inner()
     }
 }
 
