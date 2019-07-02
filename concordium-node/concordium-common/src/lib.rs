@@ -13,6 +13,7 @@ extern crate serde_derive;
 #[macro_use]
 pub mod fails;
 
+pub mod cache;
 pub mod container_view;
 pub mod filters;
 pub mod functor;
