@@ -1559,6 +1559,7 @@ dependencies = [
  "capnpc 0.9.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "cfg-if 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "circular-queue 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "concordium-common 0.0.1",
  "concordium-consensus 0.0.1",
  "concordium-dns 0.0.1",
