@@ -1,9 +1,10 @@
+use circular_queue::CircularQueue;
 use concordium_global_state::{
     common::{HashBytes, SerializeToBytes},
     transaction::Transaction,
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -15,18 +16,21 @@ struct QueueEntry {
     pub since: u64,
 }
 
-#[derive(Default)]
 /// Cache of seen transactions
 pub struct TransactionsCache<'a> {
     hash_map: HashMap<HashBytes, &'a Transaction>,
-    queue:    VecDeque<QueueEntry>,
+    queue:    CircularQueue<QueueEntry>,
+}
+
+impl Default for TransactionsCache<'_> {
+    fn default() -> Self { TransactionsCache::new() }
 }
 
 impl<'a, 'b: 'a> TransactionsCache<'a> {
     pub fn new() -> Self {
         TransactionsCache {
             hash_map: HashMap::new(),
-            queue:    VecDeque::new(),
+            queue:    CircularQueue::with_capacity(MAX_CACHED_TXS),
         }
     }
 
@@ -43,16 +47,16 @@ impl<'a, 'b: 'a> TransactionsCache<'a> {
             let since_the_epoch = start
                 .duration_since(UNIX_EPOCH)
                 .expect("Time went backwards");
-            self.queue.push_back(QueueEntry {
+            if self.queue.len() == self.queue.capacity() {
+                if let Some(elem) = self.queue.iter().next_back() {
+                    self.hash_map.remove(&elem.hash);
+                };
+            }
+            self.queue.push(QueueEntry {
                 hash,
                 since: since_the_epoch.as_secs(),
             });
-            if self.queue.len() >= MAX_CACHED_TXS {
-                self.queue
-                    .pop_front()
-                    .as_ref()
-                    .and_then(|elem| self.hash_map.remove(&elem.hash));
-            }
+
             true
         }
     }

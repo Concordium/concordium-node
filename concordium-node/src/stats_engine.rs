@@ -1,58 +1,61 @@
+use circular_queue::CircularQueue;
 #[cfg(feature = "benchmark")]
 use std::time::Duration;
-use std::{collections::VecDeque, time::SystemTime};
+#[cfg(feature = "benchmark")]
+use std::time::SystemTime;
 
+#[cfg(feature = "benchmark")]
 #[derive(Clone, Copy)]
 pub struct DataPoint {
     size: u64,
     time: u64,
 }
 
+#[cfg(feature = "benchmark")]
 impl DataPoint {
     pub fn new(size: u64, time: u64) -> Self { DataPoint { size, time } }
 }
 
+#[cfg(not(feature = "benchmark"))]
+#[derive(Clone, Copy)]
+pub struct DataPoint;
+
 pub struct StatsEngine {
-    datapoints:  VecDeque<DataPoint>,
-    save_amount: u64,
+    datapoints: CircularQueue<DataPoint>,
 }
 
 impl StatsEngine {
     #[cfg(feature = "benchmark")]
     pub fn new(config: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
-            datapoints:  VecDeque::new(),
-            save_amount: config.tps.tps_stats_save_amount,
+            datapoints: CircularQueue::with_capacity(config.tps.tps_stats_save_amount),
         }
     }
 
     #[cfg(not(feature = "benchmark"))]
     pub fn new(_: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
-            datapoints:  VecDeque::new(),
-            save_amount: 0,
+            datapoints: CircularQueue::with_capacity(1),
         }
     }
 
+    #[cfg(feature = "benchmark")]
     pub fn add_stat(&mut self, size: u64) {
         let _dur = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("can't happen before epoch");
 
-        // Check if we are over amount of stats to save
-        if self.datapoints.len() >= self.save_amount as usize {
-            // We're over capacity, pop oldest element
-            self.datapoints.pop_front();
-        }
-
         // We add the data point with the current amount of milliseconds since epoch.
         // Since Rust doesn't have a method to return millis in u64, we have to manually
         // calculate that
-        self.datapoints.push_back(DataPoint::new(
+        self.datapoints.push(DataPoint::new(
             size,
             (_dur.as_secs() * 1000) + u64::from(_dur.subsec_millis()),
         ));
     }
+
+    #[cfg(not(feature = "benchmark"))]
+    pub fn add_stat(&mut self, _: u64) {}
 
     pub fn clear(&mut self) { self.datapoints.clear(); }
 
@@ -60,8 +63,8 @@ impl StatsEngine {
     pub fn calculate_total_tps_average(&self) -> f64 {
         // Get the first element and the last element in the queue.
         // We use their time fields to calculate total elapsed amount of time.
-        let front_time = self.datapoints.front().map_or(0, |x| x.time);
-        let back_time = self.datapoints.back().map_or(0, |x| x.time);
+        let front_time = self.datapoints.iter().next().map_or(0, |x| x.time);
+        let back_time = self.datapoints.iter().next_back().map_or(0, |x| x.time);
 
         let _dur = back_time - front_time;
 
@@ -92,8 +95,8 @@ impl StatsEngine {
             }
         }
 
-        let front_time = within_slot.front().map_or(0, |x| x.time);
-        let back_time = within_slot.back().map_or(0, |x| x.time);
+        let front_time = within_slot.iter().next().map_or(0, |x| x.time);
+        let back_time = within_slot.iter().next_back().map_or(0, |x| x.time);
 
         let _dur = back_time - front_time;
 
@@ -108,11 +111,12 @@ impl StatsEngine {
     #[cfg(not(feature = "benchmark"))]
     pub fn calculate_last_five_min_tps_average(&self) -> f64 { 0.0 }
 
+    #[cfg(feature = "benchmark")]
     pub fn calculate_total_transferred_data_per_second(&self) -> f64 {
         // Get the first element and the last element in the queue.
         // We use their time fields to calculate total elapsed amount of time.
-        let front_time = self.datapoints.front().map_or(0, |x| x.time);
-        let back_time = self.datapoints.back().map_or(0, |x| x.time);
+        let front_time = self.datapoints.iter().next().map_or(0, |x| x.time);
+        let back_time = self.datapoints.iter().next_back().map_or(0, |x| x.time);
 
         let _dur = back_time - front_time;
 
@@ -123,4 +127,7 @@ impl StatsEngine {
 
         calculated.powi(-1)
     }
+
+    #[cfg(not(feature = "benchmark"))]
+    pub fn calculate_total_transferred_data_per_second(&self) -> f64 { 0.0 }
 }
