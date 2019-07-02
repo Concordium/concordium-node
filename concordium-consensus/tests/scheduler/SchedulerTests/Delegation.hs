@@ -9,8 +9,7 @@ import Test.QuickCheck
 
 import qualified Data.Map as Map
 
-import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
@@ -24,13 +23,14 @@ import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
-import Concordium.Types hiding (accountAddress)
 import Concordium.ID.Account
 import Concordium.Crypto.Ed25519Signature as EdSig
 
 import Concordium.GlobalState.Bakers
+import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
 
 import System.Random
+import Debug.Trace
 
 
 import Lens.Micro.Platform
@@ -77,7 +77,7 @@ addBaker m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = AddBaker (bkr ^. bakerElectionVerifyKey) (bkr ^. bakerSignatureVerifyKey) bkrAcct "<dummy proof>",
-            metadata = makeHeader srcKp srcN Cost.addBaker,
+            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.addBaker),
             keypair = srcKp
         }, m0
             & mAccounts . ix srcAcct . _2 %~ (+1) 
@@ -95,7 +95,7 @@ removeBaker m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = RemoveBaker bkr "<dummy proof>",
-            metadata = makeHeader srcKp srcN Cost.removeBaker,
+            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.removeBaker),
             keypair = srcKp
         }, m0
             & mAccounts . ix srcAcct . _2 %~ (+1)
@@ -107,7 +107,7 @@ delegateStake m0 = do
         bkr <- elements (_mBakers m0)
         return (TJSON {
             payload = DelegateStake bkr,
-            metadata = makeHeader srcKp srcN (Cost.updateStakeDelegate 0),
+            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -116,7 +116,7 @@ undelegateStake m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = UndelegateStake,
-            metadata = makeHeader srcKp srcN (Cost.updateStakeDelegate 0),
+            metadata = makeHeader srcKp srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -126,8 +126,8 @@ simpleTransfer m0 = do
         destAcct <- elements $ Map.keys $ _mAccounts m0
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
-            payload = Transfer {toaddress = Types.AddressAccount destAcct, amount = amt},
-            metadata = makeHeader srcKp srcN 500, -- Is this the right amount?
+            payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
+            metadata = makeHeader srcKp srcN Cost.checkHeader,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -136,7 +136,7 @@ makeTransactions = sized (mt initialModel)
     where
         mt m sz
             | sz > 0 = do
-                tg <- elements $ [addBaker, simpleTransfer] ++ if null (_mBakers m) then [] else [SchedulerTests.Delegation.removeBaker,delegateStake,undelegateStake]
+                tg <- elements $ [addBaker, simpleTransfer] ++ if null (_mBakers m) then [] else [SchedulerTests.Delegation.removeBaker, delegateStake, undelegateStake]
                 (t, m') <- tg m
                 (t :) <$> mt m' (sz - 1)
             | otherwise = return []
@@ -146,8 +146,10 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
     where
         tt tl = do
             transactions <- processTransactions tl
-            let ((_, fails), gs) = Types.runSI (Sch.filterTransactions transactions) Types.dummyChainMeta initialBlockState
-            case invariantBlockState gs >> if null fails then Right () else Left ("some transactions failed: " ++ show fails) of
+            let ((sucs, fails), gs) = EI.runSI (Sch.filterTransactions transactions) dummyChainMeta initialBlockState
+            let rejs = [(z, decodePayload (trPayload z), rr) | (z, TxReject rr) <- sucs]
+            case invariantBlockState gs >> (if null fails then Right () else Left ("some transactions failed: " ++ show fails))
+                >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of
                 Left f -> return $ counterexample f False
                 Right _ -> return $ property True
 

@@ -5,6 +5,7 @@
 module SchedulerTests.ContractCommSpec where
 
 import Test.Hspec
+import Test.HUnit
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -16,6 +17,8 @@ import qualified Concordium.Scheduler as Sch
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.Rewards as Rew
+import Concordium.GlobalState.Basic.Invariants
 
 import qualified Data.Text.IO as TIO
 
@@ -33,6 +36,7 @@ initialBlockState :: BlockState
 initialBlockState = 
   emptyBlockState emptyBirkParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 1000000) Acc.emptyAccounts) .
+    (blockBank . Rew.totalGTU .~ 1000000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
@@ -57,7 +61,7 @@ transactionsInput =
          , metadata = makeHeader alesKP 3 100000
          , keypair = alesKP
          }
-  ,TJSON { payload = Update {amount = 100
+  ,TJSON { payload = Update {amount = 101
                             ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
@@ -100,9 +104,12 @@ testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
     transactions <- processTransactions transactionsInput
-    let (suc, fails) = Types.evalSI (Sch.filterTransactions transactions)
+    let ((suc, fails), endState) = Types.runSI (Sch.filterTransactions transactions)
                                     Types.dummyChainMeta
                                     initialBlockState
+    case invariantBlockState endState of
+        Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
+        _ -> return ()
     return (suc, fails)
 
 checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool

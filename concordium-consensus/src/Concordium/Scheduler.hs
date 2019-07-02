@@ -404,7 +404,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                           transferamount'
                                           (ValueMessage (I.aJust message'))
                                           model'
-                                          contractamount'
+                                          (Ins.instanceAmount cinstance)
                       -- simple transfer to a contract is the same as a call to update with Nothing
                       TSimpleTransfer (AddressContract cref') transferamount' -> do
                         cinstance <- fromJust <$> getCurrentContractInstance cref' -- the only way to send is to first check existence, so this must succeed
@@ -418,7 +418,7 @@ handleTransaction origin cref receivefun txsender senderamount transferamount ma
                                           transferamount'
                                           (ValueMessage I.aNothing)
                                           model'
-                                          contractamount'
+                                          (Ins.instanceAmount cinstance)
                       TSimpleTransfer (AddressAccount acc) transferamount' -> do -- FIXME: This is temporary until accounts have their own functions
                         handleTransferAccount origin acc (AddressContract cref) senderamount'' transferamount'
                         )
