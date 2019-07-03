@@ -67,9 +67,7 @@ impl Block {
         }
     }
 
-    pub fn slot(&self) -> Slot {
-        self.slot
-    }
+    pub fn slot(&self) -> Slot { self.slot }
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
@@ -148,11 +146,8 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
             let proof = Encoded::new(&read_const_sized!(cursor, PROOF_LENGTH));
             let nonce = Encoded::new(&read_const_sized!(cursor, NONCE));
             let last_finalized = HashBytes::from(read_ty!(cursor, BlockHash));
-            let transactions = read_multiple!(
-                cursor,
-                "transactions",
-                Transaction::deserialize(cursor)?
-            );
+            let transactions =
+                read_multiple!(cursor, "transactions", Transaction::deserialize(cursor)?);
             let signature = Encoded::new(&read_const_sized!(cursor, SIGNATURE));
 
             let data = BlockData::Regular(BakedBlock {
@@ -192,7 +187,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 write_multiple!(&mut cursor, finalization_params, Write::write_all);
 
                 cursor.into_inner()
-            },
+            }
             BlockData::Regular(ref data) => {
                 let transactions = serialize_list(&data.transactions);
 
@@ -216,7 +211,7 @@ impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
                 let _ = cursor.write_all(&data.signature);
 
                 cursor.into_inner()
-            },
+            }
         }
     }
 }
@@ -295,7 +290,10 @@ impl BlockPtr {
     pub fn genesis(genesis_bytes: &[u8]) -> Self {
         let mut cursor = Cursor::new(genesis_bytes);
         let genesis_data = BlockData::deserialize((&mut cursor, 0)).expect("Invalid genesis data");
-        let genesis_block = Block { slot: 0, data: genesis_data };
+        let genesis_block = Block {
+            slot: 0,
+            data: genesis_data,
+        };
         // the genesis block byte representation is the genesis data prefixed with a
         // 0u64 slot id
         let genesis_block_hash = sha256(&[&[0u8; 8], genesis_bytes].concat());

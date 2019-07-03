@@ -145,7 +145,7 @@ macro_rules! safe_get_len {
 
 macro_rules! hashed {
     ($variant:ident, $capacity:expr) => {{
-        use hash_hasher::{HashBuildHasher, $variant};
+        use hash_hasher::{$variant, HashBuildHasher};
 
         $variant::with_capacity_and_hasher($capacity, HashBuildHasher::default())
     }};

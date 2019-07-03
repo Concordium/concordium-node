@@ -16,9 +16,16 @@ fn read_block_dump(bytes: &[u8]) {
     let genesis_data = BlockData::deserialize((&mut cursor, 0))
         .expect("Can't serialize the provided data as a GenesisData object!");
 
-    let genesis_block = Block { slot: 0, data: genesis_data };
+    let genesis_block = Block {
+        slot: 0,
+        data: genesis_data,
+    };
 
-    println!("{:#?}\n\nshort hash: {:?}", genesis_block.genesis_data(), genesis_block);
+    println!(
+        "{:#?}\n\nshort hash: {:?}",
+        genesis_block.genesis_data(),
+        genesis_block
+    );
 }
 
 fn main() -> io::Result<()> {

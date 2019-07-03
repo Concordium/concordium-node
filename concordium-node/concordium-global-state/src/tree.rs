@@ -3,11 +3,7 @@ use circular_queue::CircularQueue;
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{
-    collections::BinaryHeap,
-    fmt,
-    rc::Rc,
-};
+use std::{collections::BinaryHeap, fmt, rc::Rc};
 
 use crate::{
     block::*,
@@ -391,20 +387,13 @@ impl<'a> SkovData<'a> {
         // or already in the tree
         let parent_hash = pending_block.block.pointer().unwrap(); // safe
 
-        let parent_block = if let Some(parent_ptr) = self.get_block(&parent_hash, 0)
-        {
+        let parent_block = if let Some(parent_ptr) = self.get_block(&parent_hash, 0) {
             parent_ptr
         } else {
-            let error = SkovError::MissingParentBlock(
-                parent_hash.clone(),
-                pending_block.hash.clone(),
-            );
+            let error =
+                SkovError::MissingParentBlock(parent_hash.clone(), pending_block.hash.clone());
 
-            self.queue_pending_block(
-                AwaitingParentBlock,
-                parent_hash.to_owned(),
-                pending_block,
-            );
+            self.queue_pending_block(AwaitingParentBlock, parent_hash.to_owned(), pending_block);
 
             return SkovResult::Error(error);
         };
@@ -414,17 +403,9 @@ impl<'a> SkovData<'a> {
         // verify that the pending block's last finalized block is in the block tree
         // (which entails that it had been finalized); if not, check the tree candidate
         // queue
-        if self
-            .block_tree
-            .get(&last_finalized)
-            .is_some()
-        {
+        if self.block_tree.get(&last_finalized).is_some() {
             // nothing to do here
-        } else if self
-            .tree_candidates
-            .get(&last_finalized)
-            .is_some()
-        {
+        } else if self.tree_candidates.get(&last_finalized).is_some() {
             let error = SkovError::LastFinalizedNotFinalized(
                 last_finalized.clone(),
                 pending_block.hash.clone(),
@@ -455,10 +436,8 @@ impl<'a> SkovData<'a> {
         // verify if the pending block's last finalized block is actually the last
         // finalized one
         if *last_finalized != self.last_finalized.hash {
-            let error = SkovError::InvalidLastFinalized(
-                last_finalized.clone(),
-                pending_block.hash.clone(),
-            );
+            let error =
+                SkovError::InvalidLastFinalized(last_finalized.clone(), pending_block.hash.clone());
 
             // for now, don't break on unaligned last finalized block
             warn!("{:?}", error);
