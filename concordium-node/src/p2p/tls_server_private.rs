@@ -291,15 +291,15 @@ impl TlsServerPrivate {
 
         let wrap_connection_already_gone_as_non_fatal =
             |token, res: Fallible<()>| -> Fallible<Token> {
-                use std::io::ErrorKind;
+                use crate::connection::fails::PeerTerminatedConnection;
                 match res {
-                    Err(e) => match e.downcast::<std::io::Error>() {
-                        Ok(io_err) => match io_err.kind() {
-                            ErrorKind::NotFound | ErrorKind::NotConnected => Ok(token),
-                            _ => into_err!(Err(io_err)),
-                        },
-                        Err(_) => bail!("Could not understand error"),
-                    },
+                    Err(err) => {
+                        if err.downcast_ref::<PeerTerminatedConnection>().is_some() {
+                            Ok(token)
+                        } else {
+                            Err(err)
+                        }
+                    }
                     _ => Ok(token),
                 }
             };
