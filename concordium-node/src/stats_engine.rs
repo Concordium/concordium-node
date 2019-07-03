@@ -89,7 +89,7 @@ impl StatsEngine {
             .checked_sub(Duration::from_secs(300))
             .expect("less than 5 minutes spent");
 
-        for point in &self.datapoints.iter() {
+        for point in self.datapoints.iter() {
             if Duration::from_millis(point.time) > minusfive {
                 within_slot.push(point);
             }
