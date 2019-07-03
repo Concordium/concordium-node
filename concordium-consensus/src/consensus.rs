@@ -56,7 +56,7 @@ impl fmt::Debug for ConsensusMessage {
         }
 
         let content = match self.variant {
-            PacketType::Block => print_deserialized!(BakedBlock),
+            PacketType::Block => print_deserialized!(Block),
             PacketType::FinalizationRecord => print_deserialized!(FinalizationRecord),
             PacketType::FinalizationMessage => print_deserialized!(FinalizationMessage),
             PacketType::CatchupBlockByHash => {

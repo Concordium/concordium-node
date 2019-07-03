@@ -19,10 +19,9 @@ const NONCE: u8 = size_of::<BlockHash>() as u8 + PROOF_LENGTH as u8; // should s
 const SIGNATURE: u8 = 8 + 64; // FIXME: unnecessary 8B prefix
 const CHRONO_DATE_TIME_LEN: u8 = 12;
 
-#[derive(Debug)]
-pub enum Block {
-    Genesis(GenesisData),
-    Regular(BakedBlock),
+pub struct Block {
+    pub slot: Slot,
+    pub data: BlockData,
 }
 
 impl PartialEq for Block {
@@ -40,61 +39,190 @@ impl Ord for Block {
 }
 
 impl Block {
-    pub fn baker_id(&self) -> BakerId { self.block_data().baker_id }
-
-    pub fn block_data(&self) -> &BakedBlock {
-        match self {
-            Block::Genesis(_) => unreachable!(), // the genesis block is unmistakeable
-            Block::Regular(data) => data,
+    pub fn genesis_data(&self) -> &GenesisData {
+        match self.data {
+            BlockData::Genesis(ref data) => data,
+            BlockData::Regular(_) => unreachable!(), // the genesis block is unmistakeable
         }
     }
 
-    pub fn genesis_data(&self) -> &GenesisData {
-        match self {
-            Block::Genesis(ref data) => data,
-            Block::Regular(_) => unreachable!(), // the genesis block is unmistakeable
+    pub fn block_data(&self) -> &BakedBlock {
+        match self.data {
+            BlockData::Genesis(_) => unreachable!(), // the genesis block is unmistakeable
+            BlockData::Regular(ref data) => data,
         }
     }
 
     pub fn pointer(&self) -> Option<&BlockHash> {
-        match self {
-            Block::Genesis(_) => None,
-            Block::Regular(block) => Some(&block.pointer),
+        match &self.data {
+            BlockData::Genesis(_) => None,
+            BlockData::Regular(ref block) => Some(&block.pointer),
+        }
+    }
+
+    pub fn last_finalized(&self) -> Option<&BlockHash> {
+        match &self.data {
+            BlockData::Genesis(_) => None,
+            BlockData::Regular(ref block) => Some(&block.last_finalized),
         }
     }
 
     pub fn slot(&self) -> Slot {
-        match self {
-            Block::Genesis(_) => 0,
-            Block::Regular(block) => block.slot,
-        }
+        self.slot
     }
 }
 
 impl<'a, 'b> SerializeToBytes<'a, 'b> for Block {
     type Source = &'a [u8];
 
-    fn deserialize(_bytes: &[u8]) -> Fallible<Self> {
-        unimplemented!() // not used directly
+    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let slot = NetworkEndian::read_u64(&read_ty!(&mut cursor, Slot));
+        let data = BlockData::deserialize((&mut cursor, slot))?;
+
+        let block = Block { slot, data };
+
+        check_serialization!(block, cursor);
+
+        Ok(block)
+    }
+
+    fn serialize(&self) -> Box<[u8]> {
+        let block_data = BlockData::serialize(&self.data);
+
+        let mut cursor = create_serialization_cursor(size_of::<Slot>() + block_data.len());
+
+        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
+        let _ = cursor.write_all(&block_data);
+
+        cursor.into_inner()
+    }
+}
+
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let parent = if let Some(ref hash) = self.pointer() {
+            format!(" -> {:?}", hash)
+        } else {
+            String::new()
+        };
+
+        write!(f, "block {:?}{}", sha256(&self.serialize()), parent)
+    }
+}
+
+pub enum BlockData {
+    Genesis(GenesisData),
+    Regular(BakedBlock),
+}
+
+impl<'a, 'b: 'a> SerializeToBytes<'a, 'b> for BlockData {
+    type Source = (&'a mut Cursor<&'b [u8]>, Slot);
+
+    fn deserialize((cursor, slot): Self::Source) -> Fallible<Self> {
+        if slot == 0 {
+            let timestamp = NetworkEndian::read_u64(&read_ty!(cursor, Timestamp));
+            let slot_duration = NetworkEndian::read_u64(&read_ty!(cursor, Duration));
+            let birk_parameters = BirkParameters::deserialize(cursor)?;
+            let baker_accounts =
+                read_multiple!(cursor, "baker accounts", Account::deserialize(cursor)?);
+            let finalization_parameters = read_multiple!(
+                cursor,
+                "finalization parameters",
+                VoterInfo::deserialize(&read_const_sized!(cursor, VOTER_INFO))?
+            );
+
+            let data = BlockData::Genesis(GenesisData {
+                timestamp,
+                slot_duration,
+                birk_parameters,
+                baker_accounts,
+                finalization_parameters,
+            });
+
+            Ok(data)
+        } else {
+            let pointer = HashBytes::from(read_ty!(cursor, BlockHash));
+            let baker_id = NetworkEndian::read_u64(&read_ty!(cursor, BakerId));
+            let proof = Encoded::new(&read_const_sized!(cursor, PROOF_LENGTH));
+            let nonce = Encoded::new(&read_const_sized!(cursor, NONCE));
+            let last_finalized = HashBytes::from(read_ty!(cursor, BlockHash));
+            let transactions = read_multiple!(
+                cursor,
+                "transactions",
+                Transaction::deserialize(cursor)?
+            );
+            let signature = Encoded::new(&read_const_sized!(cursor, SIGNATURE));
+
+            let data = BlockData::Regular(BakedBlock {
+                pointer,
+                baker_id,
+                proof,
+                nonce,
+                last_finalized,
+                transactions,
+                signature,
+            });
+
+            Ok(data)
+        }
     }
 
     fn serialize(&self) -> Box<[u8]> {
         match self {
-            Block::Genesis(genesis_data) => {
-                [
-                    &[0u8; 8], // a 0u64 slot id prefix
-                    &*genesis_data.serialize(),
-                ]
-                .concat()
-                .into_boxed_slice()
-            }
-            Block::Regular(block_data) => block_data.serialize(),
+            BlockData::Genesis(ref data) => {
+                let birk_params = BirkParameters::serialize(&data.birk_parameters);
+                let baker_accounts = serialize_list(&data.baker_accounts);
+                let finalization_params = serialize_list(&data.finalization_parameters);
+
+                let size = size_of::<Timestamp>()
+                    + size_of::<Duration>()
+                    + birk_params.len()
+                    + size_of::<u64>()
+                    + list_len(&baker_accounts)
+                    + size_of::<u64>()
+                    + list_len(&finalization_params);
+                let mut cursor = create_serialization_cursor(size);
+
+                let _ = cursor.write_u64::<NetworkEndian>(data.timestamp);
+                let _ = cursor.write_u64::<NetworkEndian>(data.slot_duration);
+                let _ = cursor.write_all(&birk_params);
+                write_multiple!(&mut cursor, baker_accounts, Write::write_all);
+                write_multiple!(&mut cursor, finalization_params, Write::write_all);
+
+                cursor.into_inner()
+            },
+            BlockData::Regular(ref data) => {
+                let transactions = serialize_list(&data.transactions);
+
+                let mut cursor = create_serialization_cursor(
+                    size_of::<BlockHash>()
+                        + size_of::<BakerId>()
+                        + PROOF_LENGTH
+                        + NONCE as usize
+                        + size_of::<BlockHash>()
+                        + size_of::<u64>()
+                        + list_len(&transactions)
+                        + SIGNATURE as usize,
+                );
+
+                let _ = cursor.write_all(&data.pointer);
+                let _ = cursor.write_u64::<NetworkEndian>(data.baker_id);
+                let _ = cursor.write_all(&data.proof);
+                let _ = cursor.write_all(&data.nonce);
+                let _ = cursor.write_all(&data.last_finalized);
+                write_multiple!(&mut cursor, transactions, Write::write_all);
+                let _ = cursor.write_all(&data.signature);
+
+                cursor.into_inner()
+            },
         }
     }
 }
 
+#[derive(Debug)]
 pub struct BakedBlock {
-    pub slot:           Slot,
     pub pointer:        BlockHash,
     pub baker_id:       BakerId,
     proof:              Encoded,
@@ -104,81 +232,6 @@ pub struct BakedBlock {
     signature:          Encoded,
 }
 
-// this is a very debug method used only by the Display impl of ConsensusMessage
-impl fmt::Debug for BakedBlock {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "block {:?} -> {:?}",
-            sha256(&self.serialize()),
-            self.pointer
-        )
-    }
-}
-
-impl<'a, 'b> SerializeToBytes<'a, 'b> for BakedBlock {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let slot = NetworkEndian::read_u64(&read_ty!(&mut cursor, Slot));
-        let pointer = HashBytes::from(read_ty!(&mut cursor, BlockHash));
-        let baker_id = NetworkEndian::read_u64(&read_ty!(&mut cursor, BakerId));
-        let proof = Encoded::new(&read_const_sized!(&mut cursor, PROOF_LENGTH));
-        let nonce = Encoded::new(&read_const_sized!(&mut cursor, NONCE));
-        let last_finalized = HashBytes::from(read_ty!(&mut cursor, BlockHash));
-        let transactions = read_multiple!(
-            &mut cursor,
-            "transactions",
-            Transaction::deserialize(&mut cursor)?
-        );
-        let signature = Encoded::new(&read_const_sized!(&mut cursor, SIGNATURE));
-
-        let block = BakedBlock {
-            slot,
-            pointer,
-            baker_id,
-            proof,
-            nonce,
-            last_finalized,
-            transactions,
-            signature,
-        };
-
-        check_serialization!(block, cursor);
-
-        Ok(block)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let transactions = serialize_list(&self.transactions);
-
-        let mut cursor = create_serialization_cursor(
-            size_of::<Slot>()
-                + size_of::<BlockHash>()
-                + size_of::<BakerId>()
-                + PROOF_LENGTH
-                + NONCE as usize
-                + size_of::<BlockHash>()
-                + size_of::<u64>()
-                + list_len(&transactions)
-                + SIGNATURE as usize,
-        );
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.slot);
-        let _ = cursor.write_all(&self.pointer);
-        let _ = cursor.write_u64::<NetworkEndian>(self.baker_id);
-        let _ = cursor.write_all(&self.proof);
-        let _ = cursor.write_all(&self.nonce);
-        let _ = cursor.write_all(&self.last_finalized);
-        write_multiple!(&mut cursor, transactions, Write::write_all);
-        let _ = cursor.write_all(&self.signature);
-
-        cursor.into_inner()
-    }
-}
-
 #[derive(Debug)]
 pub struct GenesisData {
     timestamp:                   Timestamp,
@@ -186,60 +239,6 @@ pub struct GenesisData {
     birk_parameters:             BirkParameters,
     baker_accounts:              Box<[Account]>,
     pub finalization_parameters: Box<[VoterInfo]>,
-}
-
-impl<'a, 'b> SerializeToBytes<'a, 'b> for GenesisData {
-    type Source = &'a [u8];
-
-    fn deserialize(bytes: &[u8]) -> Fallible<Self> {
-        let mut cursor = Cursor::new(bytes);
-
-        let timestamp = NetworkEndian::read_u64(&read_ty!(&mut cursor, Timestamp));
-        let slot_duration = NetworkEndian::read_u64(&read_ty!(&mut cursor, Duration));
-        let birk_parameters = BirkParameters::deserialize(&mut cursor)?;
-        let baker_accounts =
-            read_multiple!(cursor, "baker accounts", Account::deserialize(&mut cursor)?);
-        let finalization_parameters = read_multiple!(
-            cursor,
-            "finalization parameters",
-            VoterInfo::deserialize(&read_const_sized!(&mut cursor, VOTER_INFO))?
-        );
-
-        let data = GenesisData {
-            timestamp,
-            slot_duration,
-            birk_parameters,
-            baker_accounts,
-            finalization_parameters,
-        };
-
-        check_serialization!(data, cursor);
-
-        Ok(data)
-    }
-
-    fn serialize(&self) -> Box<[u8]> {
-        let birk_params = BirkParameters::serialize(&self.birk_parameters);
-        let baker_accounts = serialize_list(&self.baker_accounts);
-        let finalization_params = serialize_list(&self.finalization_parameters);
-
-        let size = size_of::<Timestamp>()
-            + size_of::<Duration>()
-            + birk_params.len()
-            + size_of::<u64>()
-            + list_len(&baker_accounts)
-            + size_of::<u64>()
-            + list_len(&finalization_params);
-        let mut cursor = create_serialization_cursor(size);
-
-        let _ = cursor.write_u64::<NetworkEndian>(self.timestamp);
-        let _ = cursor.write_u64::<NetworkEndian>(self.slot_duration);
-        let _ = cursor.write_all(&birk_params);
-        write_multiple!(&mut cursor, baker_accounts, Write::write_all);
-        write_multiple!(&mut cursor, finalization_params, Write::write_all);
-
-        cursor.into_inner()
-    }
 }
 
 pub type BakerId = u64;
@@ -257,7 +256,7 @@ pub type BlockHash = HashBytes;
 #[derive(Debug)]
 pub struct PendingBlock {
     pub hash:     BlockHash,
-    pub block:    BakedBlock,
+    pub block:    Block,
     pub received: DateTime<Utc>,
 }
 
@@ -265,7 +264,7 @@ impl PendingBlock {
     pub fn new(bytes: &[u8]) -> Fallible<Self> {
         Ok(Self {
             hash:     sha256(bytes),
-            block:    BakedBlock::deserialize(bytes)?,
+            block:    Block::deserialize(bytes)?,
             received: Utc::now(),
         })
     }
@@ -281,16 +280,6 @@ impl Hash for PendingBlock {
     fn hash<H: Hasher>(&self, state: &mut H) { self.hash.hash(state) }
 }
 
-impl From<BakedBlock> for PendingBlock {
-    fn from(block: BakedBlock) -> Self {
-        Self {
-            hash: sha256(&block.serialize()),
-            block,
-            received: Utc::now(),
-        }
-    }
-}
-
 pub struct BlockPtr {
     pub hash:           BlockHash,
     pub block:          Block,
@@ -304,8 +293,9 @@ pub struct BlockPtr {
 
 impl BlockPtr {
     pub fn genesis(genesis_bytes: &[u8]) -> Self {
-        let genesis_data = GenesisData::deserialize(genesis_bytes).expect("Invalid genesis data");
-        let genesis_block = Block::Genesis(genesis_data);
+        let mut cursor = Cursor::new(genesis_bytes);
+        let genesis_data = BlockData::deserialize((&mut cursor, 0)).expect("Invalid genesis data");
+        let genesis_block = Block { slot: 0, data: genesis_data };
         // the genesis block byte representation is the genesis data prefixed with a
         // 0u64 slot id
         let genesis_block_hash = sha256(&[&[0u8; 8], genesis_bytes].concat());
@@ -332,7 +322,7 @@ impl BlockPtr {
 
         Self {
             hash: pb.hash,
-            block: Block::Regular(pb.block),
+            block: pb.block,
             parent: Some(parent),
             last_finalized: Some(last_finalized),
             height,

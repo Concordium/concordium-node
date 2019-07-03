@@ -390,59 +390,63 @@ impl<'a> SkovData<'a> {
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
         // verify that the pending block's parent block is among tree candidates
         // or already in the tree
-        let parent_block = if let Some(parent_ptr) = self.get_block(&pending_block.block.pointer, 0)
+        let parent_hash = pending_block.block.pointer().unwrap(); // safe
+
+        let parent_block = if let Some(parent_ptr) = self.get_block(&parent_hash, 0)
         {
             parent_ptr
         } else {
             let error = SkovError::MissingParentBlock(
-                pending_block.block.pointer.clone(),
+                parent_hash.clone(),
                 pending_block.hash.clone(),
             );
 
             self.queue_pending_block(
                 AwaitingParentBlock,
-                pending_block.block.pointer.to_owned(),
+                parent_hash.to_owned(),
                 pending_block,
             );
 
             return SkovResult::Error(error);
         };
 
+        let last_finalized = pending_block.block.last_finalized().unwrap(); // safe
+
         // verify that the pending block's last finalized block is in the block tree
         // (which entails that it had been finalized); if not, check the tree candidate
         // queue
         if self
             .block_tree
-            .get(&pending_block.block.last_finalized)
+            .get(&last_finalized)
             .is_some()
         {
             // nothing to do here
         } else if self
             .tree_candidates
-            .get(&pending_block.block.last_finalized)
+            .get(&last_finalized)
             .is_some()
         {
             let error = SkovError::LastFinalizedNotFinalized(
-                pending_block.block.last_finalized.clone(),
+                last_finalized.clone(),
                 pending_block.hash.clone(),
             );
 
             self.queue_pending_block(
                 AwaitingLastFinalizedFinalization,
-                pending_block.block.last_finalized.clone(),
+                last_finalized.clone(),
                 pending_block,
             );
 
             return SkovResult::Error(error);
         } else {
             let error = SkovError::MissingLastFinalizedBlock(
-                pending_block.block.last_finalized.clone(),
+                last_finalized.clone(),
                 pending_block.hash.clone(),
             );
 
             self.queue_pending_block(
                 AwaitingLastFinalizedBlock,
-                pending_block.block.last_finalized.clone(),
+                last_finalized.clone(),
                 pending_block,
             );
 
@@ -451,9 +455,9 @@ impl<'a> SkovData<'a> {
 
         // verify if the pending block's last finalized block is actually the last
         // finalized one
-        if pending_block.block.last_finalized != self.last_finalized.hash {
+        if *last_finalized != self.last_finalized.hash {
             let error = SkovError::InvalidLastFinalized(
-                pending_block.block.last_finalized.clone(),
+                last_finalized.clone(),
                 pending_block.hash.clone(),
             );
 
