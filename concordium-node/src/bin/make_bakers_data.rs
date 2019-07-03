@@ -37,7 +37,7 @@ struct ConfigCli {
 pub fn main() -> Fallible<()> {
     let conf = ConfigCli::from_args();
 
-    let env = Env::default().filter_or("MY_LOG_LEVEL", "info");
+    let env = Env::default().filter_or("LOG_LEVEL", "info");
     let mut log_builder = Builder::from_env(env);
     log_builder.init();
 
