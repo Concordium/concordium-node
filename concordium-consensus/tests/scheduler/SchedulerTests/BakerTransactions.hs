@@ -18,6 +18,8 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.Basic.Invariants
+import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 
@@ -35,6 +37,7 @@ initialBlockState =
   emptyBlockState emptyBirkParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
                       (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
+    (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 baker0 :: Types.BakerInfo
@@ -81,12 +84,12 @@ transactionsInput =
            }      
     ]
 
-runWithIntermediateStates :: PR.Context Core.UA IO [([(Types.Transaction, Types.ValidResult)],
+runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.Transaction, Types.ValidResult)],
                                                      [(Types.Transaction, Types.FailureKind)],
-                                                     Types.BirkParameters)]
+                                                     Types.BirkParameters)], BlockState)
 runWithIntermediateStates = do
   txs <- processTransactions transactionsInput
-  let (res, _) = foldl (\(acc, st) tx ->
+  let (res, state) = foldl (\(acc, st) tx ->
                             let ((suc, failtx), st') =
                                   Types.runSI (Sch.filterTransactions [tx])
                                               Types.dummyChainMeta
@@ -94,12 +97,16 @@ runWithIntermediateStates = do
                             in (acc ++ [(suc, failtx, st' ^. blockBirkParameters)], st'))
                          ([], initialBlockState)
                          txs
-  return res
+  return (res, state)
 
 tests :: Spec
 tests = do
-  results <- runIO (PR.evalContext Init.initialContextData runWithIntermediateStates)
+  (results, endState) <- runIO (PR.evalContext Init.initialContextData runWithIntermediateStates)
   describe "Baker transactions." $ do
+    specify "Result state satisfies invariant" $
+        case invariantBlockState endState of
+            Left f -> expectationFailure f
+            Right _ -> return ()
     specify "Correct number of transactions" $
         length results == length transactionsInput
     specify "Adding three bakers from initial empty state" $

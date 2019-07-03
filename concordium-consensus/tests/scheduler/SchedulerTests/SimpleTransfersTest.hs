@@ -5,8 +5,10 @@
 module SchedulerTests.SimpleTransfersTest where
 
 import Test.Hspec
+import Test.HUnit
 
 import Lens.Micro.Platform
+import Control.Monad.IO.Class
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -18,6 +20,8 @@ import qualified Concordium.Scheduler as Sch
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Account as Acc
 import Concordium.GlobalState.Modules as Mod
+import Concordium.GlobalState.Rewards as Rew
+import Concordium.GlobalState.Basic.Invariants
 
 import qualified Acorn.Core as Core
 
@@ -31,6 +35,7 @@ initialBlockState =
   emptyBlockState emptyBirkParameters &
     (blockAccounts .~ Acc.putAccount (mkAccount alesVK 100000)
                       (Acc.putAccount (mkAccount thomasVK 100000) Acc.emptyAccounts)) .
+    (blockBank . Rew.totalGTU .~ 200000) .
     (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
 
 transactionsInput :: [TransactionJSON]
@@ -68,7 +73,9 @@ testSimpleTransfer = do
     let ((suc, fails), gstate) = Types.runSI (Sch.filterTransactions transactions)
                                              Types.dummyChainMeta
                                              initialBlockState
-    
+    case invariantBlockState gstate of
+        Left f -> liftIO $ assertFailure f
+        Right _ -> return ()
     return (suc,
             fails,
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
