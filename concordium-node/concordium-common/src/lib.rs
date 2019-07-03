@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 use byteorder::{NetworkEndian, ReadBytesExt};
+use failure::Fallible;
 
 use std::{fmt, ops::Deref};
 
@@ -122,4 +123,13 @@ impl fmt::Display for HashBytes {
             len = SHA256 as usize,
         )
     }
+}
+
+pub trait SerializeToBytes<'a, 'b>
+where
+    Self: Sized, {
+    type Source; // either a byte slice or a mutable cursor (when total size is unknown)
+
+    fn deserialize(source: Self::Source) -> Fallible<Self>;
+    fn serialize(&self) -> Box<[u8]>;
 }

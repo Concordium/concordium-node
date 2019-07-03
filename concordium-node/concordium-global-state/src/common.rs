@@ -13,7 +13,7 @@ use std::{
     ops::Deref,
 };
 
-pub use concordium_common::{HashBytes, SHA256};
+pub use concordium_common::{HashBytes, SerializeToBytes, SHA256};
 pub use ec_vrf_ed25519 as vrf;
 pub use ec_vrf_ed25519::{Proof, Sha256, PROOF_LENGTH};
 pub use eddsa_ed25519 as sig;
@@ -342,12 +342,3 @@ pub fn list_len<T: AsRef<[u8]>>(list: &[T]) -> usize {
 }
 
 pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
-
-pub trait SerializeToBytes<'a, 'b>
-where
-    Self: Sized, {
-    type Source; // either a byte slice or a mutable cursor (when total size is unknown)
-
-    fn deserialize(source: Self::Source) -> Fallible<Self>;
-    fn serialize(&self) -> Box<[u8]>;
-}
