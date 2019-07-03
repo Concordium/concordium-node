@@ -15,8 +15,8 @@ static A: System = System;
 use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
-    make_atomic_callback, safe_write, spawn_or_die, write_or_die, RelayOrStopEnvelope,
-    RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper, cache::Cache,
+    cache::Cache, make_atomic_callback, safe_write, spawn_or_die, write_or_die,
+    RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{

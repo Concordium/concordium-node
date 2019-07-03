@@ -345,13 +345,20 @@ impl<'a> SkovData<'a> {
         let mut finalization_list = Vec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
         finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
-        let finalized_blocks = kvs_env.open_single("blocks", StoreOptions::create()).unwrap();
+        let finalized_blocks = kvs_env
+            .open_single("blocks", StoreOptions::create())
+            .unwrap();
         let serialized_genesis = [&[0u8; 8], genesis_data].concat();
         {
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
             finalized_blocks.clear(&mut kvs_writer) // don't actually persist yet
                 .expect("Can't clear the block store");
-            finalized_blocks.put(&mut kvs_writer, genesis_block_ptr.hash.clone(), &Value::Blob(&serialized_genesis))
+            finalized_blocks
+                .put(
+                    &mut kvs_writer,
+                    genesis_block_ptr.hash.clone(),
+                    &Value::Blob(&serialized_genesis),
+                )
                 .expect("Can't store the genesis block!");
         }
 
@@ -572,7 +579,12 @@ impl<'a> SkovData<'a> {
 
         {
             let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
-            self.finalized_blocks.put(&mut kvs_writer, target_hash.clone(), &Value::Blob(&target_block.serialize_to_disk_format()))
+            self.finalized_blocks
+                .put(
+                    &mut kvs_writer,
+                    target_hash.clone(),
+                    &Value::Blob(&target_block.serialize_to_disk_format()),
+                )
                 .expect("Can't store the genesis block!");
         }
 

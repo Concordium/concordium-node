@@ -28,14 +28,11 @@ use concordium_global_state::{
     block::{BakedBlock, Delta, PendingBlock},
     common::{HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
-    tree::{Skov, SkovReq, SkovReqBody, SkovResult},
     transaction::Transaction,
+    tree::{Skov, SkovReq, SkovReqBody, SkovResult},
 };
 
-use crate::{
-    common::P2PNodeId,
-    configuration, network::NetworkId, p2p::*,
-};
+use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
 
 pub fn start_baker(
     conf: &configuration::BakerConfig,
@@ -161,7 +158,8 @@ pub fn handle_pkt_out(
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<SkovReq>,
     _transactions_cache: &Cache<Transaction>, /* TODO: When Skov has a Transaction Table, the
-                                               * references to the transactions have to be stored
+                                               * references to the transactions have to be
+                                               * stored
                                                * into this cache */
 ) -> Fallible<()> {
     ensure!(

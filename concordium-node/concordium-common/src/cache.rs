@@ -75,18 +75,19 @@ impl<T> Cache<T> {
 
 /// Cache of seen transactions
 pub struct DiskCache<'a, 'b, T: SerializeToBytes<'a, 'b>> {
-    store: SingleStore,
-    cache: Cache<T>,
+    store:   SingleStore,
+    cache:   Cache<T>,
     phantom: PhantomData<(&'a T, &'b T)>,
 }
 
 impl<'a, 'b, T: SerializeToBytes<'a, 'b>> DiskCache<'a, 'b, T> {
     pub fn insert(&mut self, store_handle: &Rkv, hash: HashBytes, elem: T) -> Fallible<()> {
-
         if let Some(entry) = self.cache.insert(hash.clone(), elem) {
             let mut store_writer = store_handle.write().expect("Can't write to the store!");
 
-            Ok(self.store.put(&mut store_writer, hash, &Value::Blob(&entry.serialize()))?)
+            Ok(self
+                .store
+                .put(&mut store_writer, hash, &Value::Blob(&entry.serialize()))?)
         } else {
             Ok(())
         }

@@ -368,9 +368,7 @@ impl BlockPtr {
         let block = self.block.serialize();
 
         let mut cursor = create_serialization_cursor(
-            block.len()
-            + size_of::<BlockHeight>()
-            + 2 * CHRONO_DATE_TIME_LEN as usize
+            block.len() + size_of::<BlockHeight>() + 2 * CHRONO_DATE_TIME_LEN as usize,
         );
 
         let _ = cursor.write_all(&block);
