@@ -1,9 +1,10 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
+use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
 use std::{
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::BinaryHeap,
     fmt,
     rc::Rc,
 };
@@ -268,7 +269,7 @@ impl<'a> Skov<'a> {
 
     #[doc(hidden)]
     pub fn display_state(&self) {
-        fn sorted_block_map(map: &HashMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
+        fn sorted_block_map(map: &HashedMap<HashBytes, Rc<BlockPtr>>) -> Vec<&Rc<BlockPtr>> {
             map.values().collect::<BinaryHeap<_>>().into_sorted_vec()
         }
 
@@ -302,7 +303,7 @@ impl<'a> Skov<'a> {
 ///
 /// The key is the missing block's hash and the values are affected pending
 /// blocks.
-type PendingQueue = HashMap<BlockHash, HashSet<PendingBlock>>;
+type PendingQueue = HashedMap<BlockHash, HashedSet<PendingBlock>>;
 
 /// Holds the global state objects.
 #[allow(dead_code)]
@@ -310,7 +311,7 @@ pub struct SkovData<'a> {
     /// the kvs handle
     kvs_env: &'a Rkv,
     /// finalized blocks AKA the blockchain
-    block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
+    block_tree: HashedMap<BlockHash, Rc<BlockPtr>>,
     /// persistent storage for finalized blocks
     finalized_blocks: SingleStore,
     /// finalization records; the blocks they point to are in the tree
@@ -321,7 +322,7 @@ pub struct SkovData<'a> {
     last_finalized: Rc<BlockPtr>,
     /// valid blocks (parent and last finalized blocks are already in Skov)
     /// pending finalization
-    tree_candidates: HashMap<BlockHash, Rc<BlockPtr>>,
+    tree_candidates: HashedMap<BlockHash, Rc<BlockPtr>>,
     /// blocks waiting for their parent to be added to the tree
     awaiting_parent_block: PendingQueue,
     /// blocks waiting for their last finalized block to actually be finalized
@@ -329,7 +330,7 @@ pub struct SkovData<'a> {
     /// blocks waiting for their last finalized block to be included in the tree
     awaiting_last_finalized_block: PendingQueue,
     /// finalization records that point to blocks not present in the tree
-    inapplicable_finalization_records: HashMap<BlockHash, FinalizationRecord>,
+    inapplicable_finalization_records: HashedMap<BlockHash, FinalizationRecord>,
     /// contains transactions
     transaction_table: TransactionTable,
 }
@@ -362,7 +363,7 @@ impl<'a> SkovData<'a> {
                 .expect("Can't store the genesis block!");
         }
 
-        let mut block_tree = HashMap::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
+        let mut block_tree = hashed!(HashedMap, SKOV_LONG_PREALLOCATION_SIZE);
         block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
         let genesis_block_ref = block_tree.values().next().unwrap(); // safe; we just put it there
@@ -376,13 +377,11 @@ impl<'a> SkovData<'a> {
             finalization_list,
             genesis_block_ptr,
             last_finalized,
-            tree_candidates: HashMap::with_capacity(SKOV_SHORT_PREALLOCATION_SIZE),
-            awaiting_parent_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
-            awaiting_last_finalized_finalization: HashMap::with_capacity(
-                SKOV_ERR_PREALLOCATION_SIZE,
-            ),
-            awaiting_last_finalized_block: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
-            inapplicable_finalization_records: HashMap::with_capacity(SKOV_ERR_PREALLOCATION_SIZE),
+            tree_candidates: hashed!(HashedMap, SKOV_SHORT_PREALLOCATION_SIZE),
+            awaiting_parent_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
+            awaiting_last_finalized_finalization: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
+            awaiting_last_finalized_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
+            inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
         }
     }
