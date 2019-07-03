@@ -39,23 +39,21 @@ pub fn process_network_requests(
             let rc_conn_opt = tls_server_locked.find_connection_by_token(network_request.token);
             match rc_conn_opt {
                 Some(ref rc_conn) => {
-                    if let Err(err) =
-                        write_or_die!(rc_conn).async_send_from_poll_loop(network_request.data)
-                    {
-                        use std::io::ErrorKind;
-                        // If this unwrap fails, we must panic here - as this error must be an
-                        // `std::io::Error` type here.
-                        let downcasted_error = err.downcast::<std::io::Error>().unwrap();
-                        match downcasted_error.kind() {
-                            ErrorKind::NotFound | ErrorKind::NotConnected => {
-                                trace!("Attempting to write to a socket that has already gone away")
-                            }
-                            _ => error!(
-                                "Network raw request error on connection {}: {}",
+                    let mut borrowed_mut_conn = write_or_die!(rc_conn);
+                    if !borrowed_mut_conn.is_closed() {
+                        if let Err(err) =
+                            borrowed_mut_conn.async_send_from_poll_loop(network_request.data)
+                        {
+                            borrowed_mut_conn.close();
+                            error!(
+                                "Network raw request error on connection {}: {}, and the \
+                                 connection will be closed.",
                                 usize::from(network_request.token),
-                                downcasted_error
-                            ),
+                                err
+                            );
                         }
+                    } else {
+                        trace!("Attempted to write to an already closed connection");
                     }
                 }
                 None => error!(

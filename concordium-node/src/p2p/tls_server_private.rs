@@ -293,13 +293,13 @@ impl TlsServerPrivate {
             |token, res: Fallible<()>| -> Fallible<Token> {
                 use std::io::ErrorKind;
                 match res {
-                    Err(e) => {
-                        let downcasted_error = e.downcast::<std::io::Error>()?;
-                        match downcasted_error.kind() {
+                    Err(e) => match e.downcast::<std::io::Error>() {
+                        Ok(io_err) => match io_err.kind() {
                             ErrorKind::NotFound | ErrorKind::NotConnected => Ok(token),
-                            _ => into_err!(Err(downcasted_error)),
-                        }
-                    }
+                            _ => into_err!(Err(io_err)),
+                        },
+                        Err(_) => bail!("Could not understand error"),
+                    },
                     _ => Ok(token),
                 }
             };
@@ -318,8 +318,8 @@ impl TlsServerPrivate {
 
         let filter_predicate_stable_conn_and_no_handshake = |conn: &Connection| -> bool {
             conn.failed_pkts() >= MAX_FAILED_PACKETS_ALLOWED
-                || !conn.is_post_handshake()
-                    && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+                || (!conn.is_post_handshake()
+                    && conn.last_seen() + MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp)
         };
 
         // Kill nodes which are no longer seen and also closing connections
