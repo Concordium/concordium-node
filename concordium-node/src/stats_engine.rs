@@ -81,7 +81,7 @@ impl StatsEngine {
 
     #[cfg(feature = "benchmark")]
     pub fn calculate_last_five_min_tps_average(&self) -> f64 {
-        let mut within_slot = VecDeque::new();
+        let mut within_slot = CircularQueue::with_capacity(self.datapoints.capacity());
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("can't happen before epoch");
