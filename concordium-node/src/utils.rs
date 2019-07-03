@@ -542,11 +542,11 @@ pub fn get_config_and_logging_setup(
 
     // Prepare the logger
     let env = if conf.common.trace {
-        Env::default().filter_or("MY_LOG_LEVEL", "trace")
+        Env::default().filter_or("LOG_LEVEL", "trace")
     } else if conf.common.debug {
-        Env::default().filter_or("MY_LOG_LEVEL", "debug")
+        Env::default().filter_or("LOG_LEVEL", "debug")
     } else {
-        Env::default().filter_or("MY_LOG_LEVEL", "info")
+        Env::default().filter_or("LOG_LEVEL", "info")
     };
 
     let mut log_builder = Builder::from_env(env);
