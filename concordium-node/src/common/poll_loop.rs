@@ -42,11 +42,20 @@ pub fn process_network_requests(
                     if let Err(err) =
                         write_or_die!(rc_conn).async_send_from_poll_loop(network_request.data)
                     {
-                        error!(
-                            "Network raw request error on connection {}: {}",
-                            usize::from(network_request.token),
-                            err
-                        );
+                        use std::io::ErrorKind;
+                        // If this unwrap fails, we must panic here - as this error must be an
+                        // `std::io::Error` type here.
+                        let downcasted_error = err.downcast::<std::io::Error>().unwrap();
+                        match downcasted_error.kind() {
+                            ErrorKind::NotFound | ErrorKind::NotConnected => {
+                                trace!("Attempting to write to a socket that has already gone away")
+                            }
+                            _ => error!(
+                                "Network raw request error on connection {}: {}",
+                                usize::from(network_request.token),
+                                downcasted_error
+                            ),
+                        }
                     }
                 }
                 None => error!(
