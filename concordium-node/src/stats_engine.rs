@@ -28,7 +28,7 @@ impl StatsEngine {
     #[cfg(feature = "benchmark")]
     pub fn new(config: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
-            datapoints: CircularQueue::with_capacity(config.tps.tps_stats_save_amount),
+            datapoints: CircularQueue::with_capacity(config.tps.tps_stats_save_amount as usize),
         }
     }
 
@@ -89,9 +89,9 @@ impl StatsEngine {
             .checked_sub(Duration::from_secs(300))
             .expect("less than 5 minutes spent");
 
-        for point in &self.datapoints {
+        for point in &self.datapoints.iter() {
             if Duration::from_millis(point.time) > minusfive {
-                within_slot.push_back(point);
+                within_slot.push(point);
             }
         }
 
