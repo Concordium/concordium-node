@@ -73,7 +73,7 @@ impl<T> Cache<T> {
     }
 }
 
-/// Cache of seen transactions
+/// A cache dumping overflowing entries as blobs to a key-value store.
 pub struct DiskCache<'a, 'b, T: SerializeToBytes<'a, 'b>> {
     store:   SingleStore,
     cache:   Cache<T>,
