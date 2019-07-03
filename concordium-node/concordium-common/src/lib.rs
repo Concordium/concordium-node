@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 use byteorder::{NetworkEndian, ReadBytesExt};
+use failure::Fallible;
 
 use std::{fmt, ops::Deref};
 
@@ -13,6 +14,7 @@ extern crate serde_derive;
 #[macro_use]
 pub mod fails;
 
+pub mod cache;
 pub mod container_view;
 pub mod filters;
 pub mod functor;
@@ -96,6 +98,10 @@ impl Deref for HashBytes {
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
+impl AsRef<[u8]> for HashBytes {
+    fn as_ref(&self) -> &[u8] { &self }
+}
+
 // a short, 8-character beginning of the SHA
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -117,4 +123,13 @@ impl fmt::Display for HashBytes {
             len = SHA256 as usize,
         )
     }
+}
+
+pub trait SerializeToBytes<'a, 'b>
+where
+    Self: Sized, {
+    type Source; // either a byte slice or a mutable cursor (when total size is unknown)
+
+    fn deserialize(source: Self::Source) -> Fallible<Self>;
+    fn serialize(&self) -> Box<[u8]>;
 }

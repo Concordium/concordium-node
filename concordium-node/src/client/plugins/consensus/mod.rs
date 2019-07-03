@@ -14,7 +14,7 @@ use std::{
     mem,
 };
 
-use concordium_common::{RelayOrStopEnvelope, RelayOrStopSender, UCursor};
+use concordium_common::{cache::Cache, RelayOrStopEnvelope, RelayOrStopSender, UCursor};
 
 use concordium_consensus::{
     consensus,
@@ -28,13 +28,11 @@ use concordium_global_state::{
     block::{BakedBlock, Delta, PendingBlock},
     common::{HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
+    transaction::Transaction,
     tree::{Skov, SkovReq, SkovReqBody, SkovResult},
 };
 
-use crate::{
-    client::plugins::consensus::transactions_cache::TransactionsCache, common::P2PNodeId,
-    configuration, network::NetworkId, p2p::*,
-};
+use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
 
 pub fn start_baker(
     conf: &configuration::BakerConfig,
@@ -159,9 +157,10 @@ pub fn handle_pkt_out(
     peer_id: P2PNodeId,
     mut msg: UCursor,
     skov_sender: &RelayOrStopSender<SkovReq>,
-    _transactions_cache: &TransactionsCache, /* TODO: When Skov has a Transaction Table, the
-                                              * references to the transactions have to be stored
-                                              * into this cache */
+    _transactions_cache: &Cache<Transaction>, /* TODO: When Skov has a Transaction Table, the
+                                               * references to the transactions have to be
+                                               * stored
+                                               * into this cache */
 ) -> Fallible<()> {
     ensure!(
         msg.len() >= msg.position() + PAYLOAD_TYPE_LENGTH,
@@ -439,5 +438,3 @@ fn send_catchup_finalization_messages_by_point_to_consensus(
     }
     Ok(())
 }
-
-pub mod transactions_cache;

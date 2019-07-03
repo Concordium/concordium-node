@@ -58,7 +58,7 @@ base64 = "^0.10.1"
 sha2 = "0"
 base58 = "^0.1"
 rkv = "^0.9"
-circular-queue = "0.2.0"
+circular-queue = "^0.2"
 # Snow : Noise implementation.
 snow = { version = "0.5.2", features = ["hacl-star-accelerated"] }
 # gRPC dependencies

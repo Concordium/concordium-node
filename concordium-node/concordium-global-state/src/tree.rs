@@ -1,6 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
-use rkv::Rkv;
+use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
 use std::{
     collections::{BinaryHeap, HashMap, HashSet},
@@ -142,8 +142,8 @@ impl fmt::Display for SkovError {
 }
 
 /// Holds the global state and related statistics.
-pub struct Skov {
-    pub data:  SkovData,
+pub struct Skov<'a> {
+    pub data:  SkovData<'a>,
     pub stats: SkovStats,
 }
 
@@ -200,7 +200,7 @@ macro_rules! get_object {
     }
 }
 
-impl Skov {
+impl<'a> Skov<'a> {
     add_entry!(
         /// Attempts to include a `PendingBlock` in the block tree candidate
         /// queue.
@@ -254,7 +254,7 @@ impl Skov {
     );
 
     #[doc(hidden)]
-    pub fn new(genesis_data: &[u8], kvs_env: &Rkv) -> Self {
+    pub fn new(genesis_data: &[u8], kvs_env: &'a Rkv) -> Self {
         const MOVING_AVERAGE_QUEUE_LEN: usize = 16;
 
         Self {
@@ -306,11 +306,13 @@ type PendingQueue = HashMap<BlockHash, HashSet<PendingBlock>>;
 
 /// Holds the global state objects.
 #[allow(dead_code)]
-pub struct SkovData {
-    /// the persistent key-value store
-    // finalized_blocks: SingleStore,
+pub struct SkovData<'a> {
+    /// the kvs handle
+    kvs_env: &'a Rkv,
     /// finalized blocks AKA the blockchain
     block_tree: HashMap<BlockHash, Rc<BlockPtr>>,
+    /// persistent storage for finalized blocks
+    finalized_blocks: SingleStore,
     /// finalization records; the blocks they point to are in the tree
     finalization_list: Vec<FinalizationRecord>,
     /// the genesis block
@@ -332,8 +334,8 @@ pub struct SkovData {
     transaction_table: TransactionTable,
 }
 
-impl SkovData {
-    fn new(genesis_data: &[u8], _kvs_env: &Rkv) -> Self {
+impl<'a> SkovData<'a> {
+    fn new(genesis_data: &[u8], kvs_env: &'a Rkv) -> Self {
         const SKOV_LONG_PREALLOCATION_SIZE: usize = 128;
         const SKOV_SHORT_PREALLOCATION_SIZE: usize = 16;
         const SKOV_ERR_PREALLOCATION_SIZE: usize = 16;
@@ -343,6 +345,23 @@ impl SkovData {
         let mut finalization_list = Vec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
         finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
 
+        let finalized_blocks = kvs_env
+            .open_single("blocks", StoreOptions::create())
+            .unwrap();
+        let serialized_genesis = [&[0u8; 8], genesis_data].concat();
+        {
+            let mut kvs_writer = kvs_env.write().unwrap(); // infallible
+            finalized_blocks.clear(&mut kvs_writer) // don't actually persist yet
+                .expect("Can't clear the block store");
+            finalized_blocks
+                .put(
+                    &mut kvs_writer,
+                    genesis_block_ptr.hash.clone(),
+                    &Value::Blob(&serialized_genesis),
+                )
+                .expect("Can't store the genesis block!");
+        }
+
         let mut block_tree = HashMap::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
         block_tree.insert(genesis_block_ptr.hash.clone(), genesis_block_ptr);
 
@@ -351,7 +370,8 @@ impl SkovData {
         let genesis_block_ptr = Rc::clone(genesis_block_ref);
 
         Self {
-            // finalized_blocks: kvs_env.open_single("blocks", StoreOptions::create()).unwrap();,
+            kvs_env,
+            finalized_blocks,
             block_tree,
             finalization_list,
             genesis_block_ptr,
@@ -556,6 +576,17 @@ impl SkovData {
         // drop the now-redundant old pending finalization records
         self.inapplicable_finalization_records
             .retain(|_, rec| rec.index > record.index);
+
+        {
+            let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
+            self.finalized_blocks
+                .put(
+                    &mut kvs_writer,
+                    target_hash.clone(),
+                    &Value::Blob(&target_block.serialize_to_disk_format()),
+                )
+                .expect("Can't store the genesis block!");
+        }
 
         self.last_finalized = Rc::clone(&target_block);
         self.block_tree.insert(target_hash, target_block);
