@@ -128,7 +128,7 @@ invariantSkovFinalization (SkovFinalizationState sd@SkovData{..} FinalizationSta
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _skovFinalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
-        checkBinary (==) _finsHeight (bpHeight lfb + max 1 ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
+        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
         -- This test assumes that this party should be a member of the finalization committee
         when (null _finsCurrentRound) $ Left "No current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -304,7 +304,7 @@ initialiseStates n = do
                 (Bakers (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
                     (fromIntegral n)
                     (fromIntegral n)) -- next available baker id
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 0
+            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps
         return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps bakerAccounts nAccounts)) | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 
