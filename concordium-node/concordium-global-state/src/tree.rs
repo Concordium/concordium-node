@@ -279,7 +279,7 @@ impl<'a> Skov<'a> {
             self.data.last_finalized.hash,
             self.data
                 .finalization_list
-                .iter()
+                .values()
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
             sorted_block_map(&self.data.tree_candidates),
@@ -314,7 +314,7 @@ pub struct SkovData<'a> {
     /// persistent storage for finalized blocks
     finalized_blocks: SingleStore,
     /// finalization records; the blocks they point to are in the tree
-    finalization_list: Vec<FinalizationRecord>,
+    finalization_list: HashMap<HashBytes, FinalizationRecord>, // possibly use a LinkedHashMap
     /// the genesis block
     genesis_block_ptr: Rc<BlockPtr>,
     /// the last finalized block
@@ -342,8 +342,11 @@ impl<'a> SkovData<'a> {
 
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = Vec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
-        finalization_list.push(FinalizationRecord::genesis(&genesis_block_ptr));
+        let mut finalization_list = HashMap::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
+        finalization_list.insert(
+            genesis_block_ptr.hash.clone(),
+            FinalizationRecord::genesis(&genesis_block_ptr),
+        );
 
         let finalized_blocks = kvs_env
             .open_single("blocks", StoreOptions::create())
@@ -479,9 +482,9 @@ impl<'a> SkovData<'a> {
 
         // the block is now in the tree candidate queue; run housekeeping that
         // can possibly promote some other queued pending blocks
+        self.refresh_finalization_record_queue(&housekeeping_hash);
         self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
-        self.refresh_finalization_record_queue(&housekeeping_hash);
 
         if insertion_result.is_none() {
             SkovResult::SuccessfulEntry
@@ -518,10 +521,7 @@ impl<'a> SkovData<'a> {
     }
 
     fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
-        self.finalization_list
-            .iter()
-            .rev() // it's most probable that it's near the end
-            .find(|&rec| rec.block_pointer == *hash)
+        self.finalization_list.get(&hash)
     }
 
     fn get_finalization_record_by_idx(
@@ -529,8 +529,7 @@ impl<'a> SkovData<'a> {
         idx: FinalizationIndex,
     ) -> Option<&FinalizationRecord> {
         self.finalization_list
-            .iter()
-            .rev() // it's most probable that it's near the end
+            .values()
             .find(|&rec| rec.index == idx)
     }
 
@@ -539,18 +538,19 @@ impl<'a> SkovData<'a> {
     pub fn get_last_finalized_height(&self) -> BlockHeight { self.last_finalized.height }
 
     pub fn get_next_finalization_index(&self) -> FinalizationIndex {
-        &self.finalization_list.last().unwrap().index + 1 // safe; always available
+        self.get_last_finalized_height() + 1
     }
 
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
-        if Some(&record) == self.finalization_list.last() {
+        let last_finalized_idx = self.get_last_finalized_height(); // safe, always there
+
+        if record.index == last_finalized_idx {
             // we always get N-1 duplicate finalization records from the last round
             return SkovResult::SuccessfulEntry;
         }
 
         // check if the record's index is in the future; if it is, keep the record
         // for later and await further blocks
-        let last_finalized_idx = self.finalization_list.last().unwrap().index; // safe, always there
         if record.index > last_finalized_idx + 1 {
             let error = SkovError::FutureFinalizationRecord(record.index, last_finalized_idx);
             self.inapplicable_finalization_records
@@ -577,20 +577,13 @@ impl<'a> SkovData<'a> {
         self.inapplicable_finalization_records
             .retain(|_, rec| rec.index > record.index);
 
-        {
-            let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
-            self.finalized_blocks
-                .put(
-                    &mut kvs_writer,
-                    target_hash.clone(),
-                    &Value::Blob(&target_block.serialize_to_disk_format()),
-                )
-                .expect("Can't store the genesis block!");
+        // we don't want to break the natural order when catching up
+        if target_block.height > self.last_finalized.height {
+            self.last_finalized = Rc::clone(&target_block);
         }
+        self.block_tree.insert(target_hash.clone(), target_block);
 
-        self.last_finalized = Rc::clone(&target_block);
-        self.block_tree.insert(target_hash, target_block);
-        self.finalization_list.push(record);
+        self.finalization_list.insert(target_hash, record);
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
@@ -667,6 +660,8 @@ impl<'a> SkovData<'a> {
             format!(
                 "\ninapplicable finalization records: {:?}",
                 self.inapplicable_finalization_records
+                    .keys()
+                    .collect::<Vec<_>>()
             )
         } else {
             String::new()

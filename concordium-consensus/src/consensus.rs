@@ -1,4 +1,4 @@
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::{ByteOrder, LittleEndian, NetworkEndian};
 
 use concordium_common::{
     into_err, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
@@ -71,6 +71,15 @@ impl fmt::Debug for ConsensusMessage {
                 format!(
                     "catch-up request for the finalization record for block {:?}",
                     hash
+                )
+            }
+            PacketType::CatchupFinalizationRecordByIndex => {
+                let idx = NetworkEndian::read_u64(
+                    &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
+                );
+                format!(
+                    "catch-up request for the finalization record at index {}",
+                    idx
                 )
             }
             p => format!("{}", p),
