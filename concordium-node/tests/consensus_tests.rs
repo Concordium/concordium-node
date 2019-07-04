@@ -1,17 +1,12 @@
-#[macro_use]
-extern crate log;
 #[cfg(not(target_os = "windows"))]
 extern crate grpciounix as grpcio;
 #[cfg(target_os = "windows")]
 extern crate grpciowin as grpcio;
 
-#[cfg(test)]
+#[cfg(feature = "non-existing")]
 mod tests {
-    use concordium_common::{
-        functor::{FilterFunctor, Functorable},
-        spawn_or_die,
-    };
-    use concordium_consensus::consensus::*;
+    use concordium_common::{spawn_or_die, RelayOrStopEnvelope};
+    use concordium_consensus::{consensus::*, ffi::*};
     use grpcio::{ChannelBuilder, EnvBuilder};
     use p2p_client::{
         common::PeerType, configuration::Config, db::P2PDB, network::NetworkMessage,
@@ -21,8 +16,10 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc,
     };
+    use structopt::StructOpt;
 
     static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
+    const TESTCONFIG: &[&str] = &["no-bootstrap"];
 
     /// It returns next port available and it ensures that next `slot_size`
     /// ports will be available too.
@@ -43,20 +40,23 @@ mod tests {
 
     #[test]
     pub fn test_consensus_tests() {
-        ConsensusContainer::start_haskell();
+        #[cfg(feature = "profiling")]
+        start_haskell(false, false);
+        #[cfg(not(feature = "profiling"))]
+        start_haskell();
         test_grpc_consensus();
-        ConsensusContainer::stop_haskell();
+        stop_haskell();
     }
 
     pub fn test_grpc_consensus() {
         let port_node = next_port_offset(2);
 
-        let (pkt_in, _pkt_out) = mpsc::channel::<Arc<NetworkMessage>>();
+        let (pkt_in, _pkt_out) = mpsc::channel::<RelayOrStopEnvelope<Arc<NetworkMessage>>>();
 
         let (genesis_data, private_data) = ConsensusContainer::generate_data(0, 1)
             .unwrap_or_else(|_| panic!("Couldn't read haskell data"));
-        let mut consensus_container = ConsensusContainer::new(genesis_data);
-        &consensus_container.start_baker(0, private_data[&0].clone());
+        let mut consensus_container = ConsensusContainer::default();
+        &consensus_container.start_baker(0, genesis_data, private_data[&0].clone());
 
         let (sender, receiver) = mpsc::channel();
         let _guard = spawn_or_die!("Log loop", move || loop {
@@ -65,20 +65,17 @@ mod tests {
             }
         });
 
-        let mut config = Config::new(Some("127.0.0.1".to_owned()), 18888 + port_node, vec![], 100);
+        let mut config = Config::from_iter(TESTCONFIG.to_vec()).add_options(
+            Some("127.0.0.1".to_owned()),
+            18888 + port_node,
+            vec![],
+            100,
+        );
         config.cli.rpc.rpc_server_port = 11000 + port_node;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
 
-        let node = P2PNode::new(
-            None,
-            &config,
-            pkt_in,
-            Some(sender),
-            PeerType::Node,
-            None,
-            Arc::new(FilterFunctor::new("Broadcasting_checks")),
-        );
+        let node = P2PNode::new(None, &config, pkt_in, Some(sender), PeerType::Node, None);
 
         let mut rpc_serv = RpcServerImpl::new(
             node,
@@ -111,6 +108,6 @@ mod tests {
             Ok(ref res) => assert!(!res.payload.is_empty()),
             _ => panic!("Didn't get respones back from sending query"),
         }
-        consensus_container.stop_baker(0);
+        consensus_container.stop_baker();
     }
 }

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 for i in `seq 0 99`;
 do
 	echo $i

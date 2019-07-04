@@ -2,6 +2,8 @@ syntax = "proto3";
 
 import "google/protobuf/wrappers.proto";
 
+package concordium;
+
 message NumberResponse {
   uint64 value = 1;
 }
@@ -62,7 +64,7 @@ message P2PNetworkMessage {
   uint64 sent_at = 2;
   string sender = 3;
   uint32 network_id = 4;
-  string message_id = 5;
+  bytes message_id = 5;
   oneof payload {
     MessageDirect message_direct = 20;
     MessageBroadcast message_broadcast = 21;
@@ -114,7 +116,35 @@ message ContractInstanceAddress {
   bytes payload = 1;
 }
 
+message GetAddressInfoRequest {
+  string block_hash = 1;
+  string address = 2;
+}
+
+message GetModuleSourceRequest {
+  string block_hash = 1;
+  string module_ref = 2;
+}
+
+message TpsRequest {
+  uint32 network_id = 1;
+  string id = 2;
+  string directory = 3;
+}
+
+message DumpRequest {
+  string file = 1;
+  bool raw = 2;
+}
+
 message Empty {}
+
+message RetransmitRequestMessage {
+  string id = 1;
+  uint32 element_type = 2;
+  google.protobuf.UInt64Value since = 3;
+  uint32 network_id = 4;
+}
 
 service P2P {
   // Suggest this peer connects to submitted peer details
@@ -151,9 +181,20 @@ service P2P {
   rpc GetBranches(Empty) returns (SuccessfulJsonPayloadResponse) {}
   // Submit a local transaction
   rpc SendTransaction(SendTransactionRequest) returns (SuccessResponse) {}
-  rpc GetLastFinalAccountList(Empty) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalInstances(Empty) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalAccountInfo(AccountAddress) returns (SuccessfulBytePayloadResponse) {}
-  rpc GetLastFinalInstanceInfo(ContractInstanceAddress) returns (SuccessfulBytePayloadResponse) {}
+
+  rpc GetAccountList(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetInstances(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetAccountInfo(GetAddressInfoRequest) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetInstanceInfo(GetAddressInfoRequest) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetRewardStatus(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetBirkParameters(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetModuleList(BlockHash) returns (SuccessfulJsonPayloadResponse) {}
+  rpc GetModuleSource(GetModuleSourceRequest) returns (SuccessfulBytePayloadResponse) {}
+
   rpc GetBannedPeers(Empty) returns (PeerListResponse) {}
+  rpc Shutdown(Empty) returns (SuccessResponse) {}
+  rpc TpsTest(TpsRequest) returns (SuccessResponse) {}
+  rpc DumpStart(DumpRequest) returns (SuccessResponse) {}
+  rpc DumpStop(Empty) returns (SuccessResponse) {}
+  rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
 }

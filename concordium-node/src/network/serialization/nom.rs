@@ -10,13 +10,19 @@ use nom::{verbose_errors::Context, IResult};
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
     network::{
-        protocol_message_type::ProtocolMessageType, NetworkId, NetworkMessage, NetworkPacket,
-        NetworkPacketBuilder, NetworkRequest, NetworkResponse, PROTOCOL_MESSAGE_ID_LENGTH,
-        PROTOCOL_MESSAGE_TYPE_LENGTH, PROTOCOL_NAME, PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH,
-        PROTOCOL_NETWORK_ID_LENGTH, PROTOCOL_NODE_ID_LENGTH, PROTOCOL_SENT_TIMESTAMP_LENGTH,
-        PROTOCOL_VERSION,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
+        NetworkRequest, NetworkResponse, ProtocolMessageType, ProtocolPacketType,
+        ProtocolRequestType, ProtocolResponseType, PROTOCOL_NAME,
     },
 };
+
+pub const PROTOCOL_VERSION_STR: &str = "001";
+pub const PROTOCOL_MESSAGE_ID_LENGTH: usize = 32;
+pub const PROTOCOL_NETWORK_CONTENT_SIZE_LENGTH: usize = 10;
+pub const PROTOCOL_NETWORK_ID_LENGTH: usize = 5;
+pub const PROTOCOL_NODE_ID_LENGTH: usize = 16;
+pub const PROTOCOL_SENT_TIMESTAMP_LENGTH: usize = 12;
+pub const PROTOCOL_MESSAGE_TYPE_LENGTH: usize = 2;
 
 fn localhost_peer() -> P2PPeer {
     P2PPeerBuilder::default()
@@ -38,11 +44,10 @@ fn s11n_to_timestamp(input: &[u8]) -> Result<u64, std::num::ParseIntError> {
     Ok(u64::from_le_bytes(bytes))
 }
 
-fn s11n_msg_id(input: &[u8]) -> IResult<&[u8], &str> {
+fn s11n_msg_id(input: &[u8]) -> IResult<&[u8], &[u8]> {
     let (ref input, ref msg_id_slice) = take!(input, PROTOCOL_MESSAGE_ID_LENGTH)?;
-    let msg_id_str: &str = str::from_utf8(&msg_id_slice).unwrap_or("");
 
-    Ok((input, msg_id_str))
+    Ok((input, msg_id_slice))
 }
 
 fn s11n_network_id(input: &[u8]) -> IResult<&[u8], u16> {
@@ -86,7 +91,7 @@ named!(
         (
             NetworkPacketBuilder::default()
                 .peer( localhost_peer())
-                .message_id( msg_id.to_string())
+                .message_id(MessageId::new(msg_id))
                 .network_id( NetworkId::from(network_id))
                 .message(UCursor::from( content.to_vec()))
                 .build_direct( receiver_id )
@@ -97,45 +102,72 @@ named!(
 
 fn s11n_message_id(input: &[u8], timestamp: u64) -> IResult<&[u8], NetworkMessage> {
     let (ref input, ref msg_id_slice) = take!(input, PROTOCOL_MESSAGE_TYPE_LENGTH)?;
-    let msg_id: &str = str::from_utf8(&msg_id_slice).unwrap_or("");
-    match ProtocolMessageType::try_from(msg_id) {
-        Ok(msg_type) => match msg_type {
-            ProtocolMessageType::RequestPing => Ok((
-                &input,
-                NetworkMessage::NetworkRequest(
-                    NetworkRequest::Ping(localhost_peer()),
-                    Some(timestamp),
-                    Some(get_current_stamp()),
-                ),
-            )),
-            ProtocolMessageType::ResponsePong => Ok((
-                &input,
-                NetworkMessage::NetworkResponse(
-                    NetworkResponse::Pong(localhost_peer()),
-                    Some(timestamp),
-                    Some(get_current_stamp()),
-                ),
-            )),
-            ProtocolMessageType::DirectMessage => {
-                s11n_network_packet_direct(input).map(|result_packet_direct| {
-                    let (input, packet_direct) = result_packet_direct;
-                    (
-                        input,
-                        NetworkMessage::NetworkPacket(
-                            packet_direct,
-                            Some(timestamp),
-                            Some(get_current_stamp()),
-                        ),
-                    )
-                })
+    let msg_id_str = str::from_utf8(&msg_id_slice).unwrap_or("");
+    if let Ok(msg_id) = ProtocolMessageType::try_from(msg_id_str) {
+        match msg_id {
+            ProtocolMessageType::Request => {
+                let (ref input, ref request_type_slice) =
+                    take!(*input, PROTOCOL_MESSAGE_TYPE_LENGTH)?;
+                let request_type_str = str::from_utf8(&request_type_slice).unwrap_or("");
+                if let Ok(request_type) = ProtocolRequestType::try_from(request_type_str) {
+                    if request_type == ProtocolRequestType::Ping {
+                        return Ok((
+                            &input,
+                            NetworkMessage::NetworkRequest(
+                                NetworkRequest::Ping(localhost_peer()),
+                                Some(timestamp),
+                                Some(get_current_stamp()),
+                            ),
+                        ));
+                    }
+                }
             }
-            _ => Ok((&input, NetworkMessage::InvalidMessage)),
-        },
-        Err(_) => Err(nom::Err::Error(Context::Code(
-            msg_id_slice,
-            nom::ErrorKind::Tag,
-        ))),
+            ProtocolMessageType::Response => {
+                let (ref input, ref response_type_slice) =
+                    take!(*input, PROTOCOL_MESSAGE_TYPE_LENGTH)?;
+                let response_type_str = str::from_utf8(&response_type_slice).unwrap_or("");
+                if let Ok(request_type) = ProtocolResponseType::try_from(response_type_str) {
+                    if request_type == ProtocolResponseType::Pong {
+                        return Ok((
+                            &input,
+                            NetworkMessage::NetworkResponse(
+                                NetworkResponse::Pong(localhost_peer()),
+                                Some(timestamp),
+                                Some(get_current_stamp()),
+                            ),
+                        ));
+                    }
+                }
+            }
+            ProtocolMessageType::Packet => {
+                let (ref input, ref packet_type_slice) =
+                    take!(*input, PROTOCOL_MESSAGE_TYPE_LENGTH)?;
+                let packet_type_str = str::from_utf8(&packet_type_slice).unwrap_or("");
+                if let Ok(packet_type) = ProtocolPacketType::try_from(packet_type_str) {
+                    if packet_type == ProtocolPacketType::Direct {
+                        return s11n_network_packet_direct(input).map(|result_packet_direct| {
+                            let (input, packet_direct) = result_packet_direct;
+                            (
+                                input,
+                                NetworkMessage::NetworkPacket(
+                                    packet_direct,
+                                    Some(timestamp),
+                                    Some(get_current_stamp()),
+                                ),
+                            )
+                        });
+                    }
+                }
+            }
+        };
+
+        return Ok((input, NetworkMessage::InvalidMessage));
     }
+
+    Err(nom::Err::Error(Context::Code(
+        msg_id_slice,
+        nom::ErrorKind::Tag,
+    )))
 }
 
 // It parses time-stamp from a 16 bytes array as hexadecimal value.
@@ -162,7 +194,7 @@ named!(s11n_network_response_pong, eof!());
 named!( s11n_network_message_parse<&[u8], NetworkMessage>,
     do_parse!(
         tag!( PROTOCOL_NAME)        >>
-        tag!( PROTOCOL_VERSION)     >>
+        tag!( PROTOCOL_VERSION_STR) >>
         timestamp: s11n_timestamp   >>
         msg: apply!( s11n_message_id, timestamp) >>
         (msg)
@@ -178,25 +210,27 @@ pub fn s11n_network_message(input: &[u8]) -> IResult<&[u8], NetworkMessage> {
 mod unit_test {
     use nom::{verbose_errors::Context, IResult};
 
-    use super::{localhost_peer, s11n_network_message};
+    use super::{localhost_peer, s11n_network_message, PROTOCOL_VERSION_STR};
     use crate::network::{
-        NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkRequest,
-        NetworkResponse, ProtocolMessageType, PROTOCOL_NAME, PROTOCOL_VERSION,
+        packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
+        NetworkResponse, ProtocolMessageType, ProtocolPacketType, ProtocolRequestType,
+        ProtocolResponseType, PROTOCOL_NAME,
     };
-    use concordium_common::{ContainerView, UCursor};
+    use concordium_common::{ContainerView, UCursor, SHA256};
 
     fn ut_s11n_nom_001_data() -> Vec<(String, IResult<&'static [u8], NetworkMessage>)> {
         let direct_message_content = ContainerView::from(b"Hello world!".to_vec());
-        let direct_message_message_id = NetworkPacket::generate_message_id();
+        let direct_message_message_id = MessageId::new(&[0u8; SHA256 as usize]);
 
         vec![
             (
                 format!(
-                    "{}{}{}{}",
+                    "{}{}{}{}{}",
                     PROTOCOL_NAME,
-                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION_STR,
                     base64::encode(&0u64.to_le_bytes()[..]),
-                    ProtocolMessageType::RequestPing,
+                    ProtocolMessageType::Request,
+                    ProtocolRequestType::Ping,
                 ),
                 Ok((
                     &b""[..],
@@ -209,11 +243,12 @@ mod unit_test {
             ),
             (
                 format!(
-                    "{}{}{}{}",
+                    "{}{}{}{}{}",
                     PROTOCOL_NAME,
-                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION_STR,
                     base64::encode(&11529215046068469760u64.to_le_bytes()[..]),
-                    ProtocolMessageType::RequestPing
+                    ProtocolMessageType::Request,
+                    ProtocolRequestType::Ping
                 ),
                 Ok((
                     &b""[..],
@@ -248,11 +283,12 @@ mod unit_test {
             (
                 // Limit: Max timestamp
                 format!(
-                    "{}{}{}{}",
+                    "{}{}{}{}{}",
                     PROTOCOL_NAME,
-                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION_STR,
                     base64::encode(&u64::max_value().to_le_bytes()[..]),
-                    ProtocolMessageType::ResponsePong
+                    ProtocolMessageType::Response,
+                    ProtocolResponseType::Pong
                 ),
                 Ok((
                     &b""[..],
@@ -265,13 +301,14 @@ mod unit_test {
             ),
             (
                 format!(
-                    "{}{}{}{}{}{}{}{:010}{}",
+                    "{}{}{}{}{}{}{}{}{:010}{}",
                     PROTOCOL_NAME,
-                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION_STR,
                     base64::encode(&10u64.to_le_bytes()[..]),
-                    ProtocolMessageType::DirectMessage,
+                    ProtocolMessageType::Packet,
+                    ProtocolPacketType::Direct,
                     localhost_peer().id(),
-                    direct_message_message_id,
+                    std::str::from_utf8(&direct_message_message_id).unwrap(),
                     NetworkId::from(111u16),
                     direct_message_content.len(),
                     std::str::from_utf8(direct_message_content.as_slice()).unwrap()

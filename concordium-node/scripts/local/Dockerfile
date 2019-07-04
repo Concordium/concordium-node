@@ -1,11 +1,14 @@
 FROM archlinux/base
  
-RUN pacman -Sy &&\
+RUN pacman -Sy && \
     pacman -Syyu --noconfirm && \
-    pacman -S protobuf cmake go clang git libtool rustup make \
-        m4 pkgconf autoconf automake ldns file which boost patch \
-        libunwind libdwarf elfutils unbound openssh dos2unix --noconfirm && \
-    pacman -Scc --noconfirm
+    pacman -S protobuf cmake clang git libtool rustup make m4 pkgconf autoconf automake \
+        file which boost patch libunwind libdwarf elfutils unbound llvm numactl --noconfirm && \
+    pacman -Scc --noconfirm && \
+    rustup default stable && \
+    git clone https://github.com/libffi/libffi.git && \
+    cd libffi && ./autogen.sh && ./configure && make -j$(nproc) && make install && \
+    rm -rf libffi
 
 COPY assets/repos/p2p-client/scripts/start.sh /build-project/
 WORKDIR /build-project
@@ -19,9 +22,9 @@ RUN \
 
 ### Baker id gen
 RUN \
-    rustup install nightly-2019-03-22 && \
+    rustup install nightly && \
     cd baker_id_gen.git && \
-    cargo +nightly-2019-03-22 build --release && \
+    cargo +nightly build --release && \
     mv target/release/baker_id_gen .. && \
     cd .. && \
     rm -rf baker_id_gen.git
@@ -29,7 +32,8 @@ RUN \
 ### P2P client
 RUN \
     cd p2p-client && \
-    cargo build
+    rm -rf deps/static-libs/vanilla && \
+    cargo build --features=profiling
 
 RUN chmod +x /build-project/start.sh
 

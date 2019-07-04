@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Setup any dependencies and build Haskell code
 ./scripts/local-setup-unix-deps.sh

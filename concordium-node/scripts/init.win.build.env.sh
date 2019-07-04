@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Checkout grpc source
 (cd deps/windows/grpc-rs-0.4.0/grpc-sys && git clone https://github.com/pingcap/grpc.git && cd grpc && git checkout 1de249c && git submodule update --init --recursive && cd third_party/boringssl && git checkout master && git pull)

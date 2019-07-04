@@ -46,7 +46,7 @@ struct P2PPeer {
 
 struct NetworkPacketDirect{
     peer @0 :P2PPeer;
-    msgId @1 :Text;
+    msgId @1 :Data;
     receiver @2 :P2PNodeId;
     networkId @3 :UInt16;
     msg @4 :Data;

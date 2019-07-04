@@ -1,12 +1,9 @@
 use crate::network::{NetworkMessage, NetworkPacket, NetworkRequest, NetworkResponse};
 use concordium_common::{
     fails::FunctorError,
-    functor::{FuncResult, FunctorResult, Functorable, UnitFunction, UnitFunctor},
+    functor::{FuncResult, FunctorResult, UnitFunction, UnitFunctor},
 };
-use std::{
-    rc::Rc,
-    sync::{Arc, RwLock},
-};
+use std::{rc::Rc, sync::Arc};
 
 pub type NetworkMessageCW = UnitFunction<NetworkMessage>;
 pub type NetworkRequestCW = UnitFunction<NetworkRequest>;
@@ -32,10 +29,10 @@ impl Default for MessageHandler {
 impl MessageHandler {
     pub fn new() -> Self {
         MessageHandler {
-            request_parser:  UnitFunctor::<NetworkRequest>::new("Network::Request"),
-            response_parser: UnitFunctor::<NetworkResponse>::new("Network::Response"),
-            packet_parser:   UnitFunctor::<NetworkPacket>::new("Network::Package"),
-            general_parser:  UnitFunctor::<NetworkMessage>::new("General NetworkMessage"),
+            request_parser:  UnitFunctor::<NetworkRequest>::new(),
+            response_parser: UnitFunctor::<NetworkResponse>::new(),
+            packet_parser:   UnitFunctor::<NetworkPacket>::new(),
+            general_parser:  UnitFunctor::<NetworkMessage>::new(),
             invalid_handler: Rc::new(|| Ok(())),
             unknown_handler: Rc::new(|| Ok(())),
         }
@@ -72,7 +69,7 @@ impl MessageHandler {
     }
 
     /// It merges into `this` all parsers from `other` `MessageHandler`.
-    pub fn merge(&mut self, other: &MessageHandler) -> &mut Self {
+    pub fn add(&mut self, other: &MessageHandler) -> &mut Self {
         for cb in other.general_parser.callbacks().iter() {
             self.add_callback(Arc::clone(&cb));
         }
@@ -113,10 +110,6 @@ impl MessageHandler {
     }
 }
 
-pub trait MessageManager {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>>;
-}
-
 #[cfg(test)]
 mod message_handler_unit_test {
     use crate::{
@@ -127,7 +120,7 @@ mod message_handler_unit_test {
     use concordium_common::functor::FuncResult;
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
-        sync::{Arc, RwLock},
+        sync::Arc,
     };
 
     fn request_handler_func_1(_nr: &NetworkRequest) -> FuncResult<()> { Ok(()) }
@@ -166,8 +159,8 @@ mod integration_test {
         common::{P2PNodeId, P2PPeerBuilder, PeerType},
         connection::{MessageHandler, PacketHandler},
         network::{
-            NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum, NetworkPacketBuilder,
-            NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket as NetworkPacketEnum,
+            NetworkPacketBuilder, NetworkRequest, NetworkResponse,
         },
     };
     use concordium_common::{functor::FuncResult, UCursor};
@@ -176,7 +169,7 @@ mod integration_test {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, RwLock,
+            Arc,
         },
     };
 
@@ -210,7 +203,7 @@ mod integration_test {
             NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(p2p_peer.clone())
-                    .message_id("MSG-ID-1".to_string())
+                    .message_id(MessageId::new(&[1u8; 32]))
                     .network_id(NetworkId::from(100))
                     .message(inner_msg.clone())
                     .build_broadcast()
@@ -221,7 +214,7 @@ mod integration_test {
             NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(p2p_peer)
-                    .message_id("MSG-ID-2".to_string())
+                    .message_id(MessageId::new(&[2u8; 32]))
                     .network_id(NetworkId::from(100))
                     .message(inner_msg)
                     .build_direct(node_id)

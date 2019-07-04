@@ -1,6 +1,8 @@
 use app_dirs2::*;
+use failure::{bail, Fallible};
 use preferences::{Preferences, PreferencesMap};
 use semver::Version;
+use snow::params::{CipherChoice, DHChoice, HashChoice};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
@@ -9,7 +11,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-const APP_INFO: AppInfo = AppInfo {
+pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
     author: "Concordium",
 };
@@ -74,6 +76,7 @@ pub struct PrometheusConfig {
     pub prometheus_push_interval: u64,
 }
 
+#[cfg(feature = "benchmark")]
 #[derive(StructOpt, Debug)]
 /// Flags related to TPS (only used in Cli)
 pub struct TpsConfig {
@@ -81,11 +84,6 @@ pub struct TpsConfig {
     pub enable_tps_test: bool,
     #[structopt(long = "tps-test-recv-id", help = "Receiver of TPS test")]
     pub tps_test_recv_id: Option<String>,
-    #[structopt(
-        long = "tps-test-data-dir",
-        help = "Directory containing files to perform TPS test independent of other layers"
-    )]
-    pub tps_test_data_dir: Option<String>,
     #[structopt(
         long = "tps-stats-save-amount",
         help = "Amount of stats to save for TPS statistics",
@@ -107,7 +105,7 @@ pub struct BakerConfig {
     pub baker_id: Option<u64>,
     #[structopt(
         long = "num-bakers",
-        help = "Amount of bakers in the network",
+        help = "Number of bakers in the network",
         default_value = "60"
     )]
     pub baker_num_bakers: u64,
@@ -117,31 +115,20 @@ pub struct BakerConfig {
         default_value = "0"
     )]
     pub baker_genesis: u64,
+    #[cfg(feature = "profiling")]
     #[structopt(
-        long = "baker-min-peer-satisfaction-percentage",
-        help = "The minimum percentage of peers satisfied out of desired peers to start baking",
-        default_value = "50"
+        long = "heap-profiling",
+        help = "Profile the heap [(`cost`,-hc), (`type`, -hy), (`module`, -hm), (`description`, \
+                -hd)] in the Haskell subsystem",
+        default_value = "none"
     )]
-    pub baker_min_peer_satisfaction_percentage: u8,
+    pub heap_profiling: String,
+    #[cfg(feature = "profiling")]
     #[structopt(
-        long = "retransmit-times",
-        help = "Times to request transmit from peers",
-        default_value = "10"
+        long = "time-profiling",
+        help = "Profile the time in the Haskell subsystem"
     )]
-    pub baker_retransmit_request_times: u16,
-    #[structopt(
-        long = "retransmit-request-interval",
-        help = "Time in seconds between retransmit requests",
-        default_value = "120"
-    )]
-    pub baker_retransmit_request_interval: u16,
-    #[structopt(
-        long = "retransmit-request-since",
-        help = "Each retransmit will request messages since current time minus this amount of \
-                seconds in the past",
-        default_value = "300"
-    )]
-    pub baker_retransmit_request_since: u16,
+    pub time_profiling: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -178,8 +165,32 @@ pub struct ConnectionConfig {
         default_value = "50"
     )]
     pub desired_nodes: u8,
+    #[structopt(
+        long = "max-resend-attempts",
+        help = "Maximum number of times a packet is attempted to be resent",
+        default_value = "5"
+    )]
+    pub max_resend_attempts: u8,
+    #[structopt(
+        long = "max-allowed-nodes",
+        help = "Maximum nodes to allow a connection to"
+    )]
+    pub max_allowed_nodes: Option<u8>,
+    #[structopt(
+        long = "max-allowed-nodes-percentage",
+        help = "Maximum nodes to allow a connection to is set as a percentage of desired-nodes \
+                (minimum 100, to set it to desired-nodes",
+        default_value = "150"
+    )]
+    pub max_allowed_nodes_percentage: u16,
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_bootstrap_dns: bool,
+    #[structopt(
+        long = "relay-broadcast-percentage",
+        help = "The percentage of peers to relay broadcasted messages to",
+        default_value = "1.0"
+    )]
+    pub relay_broadcast_percentage: f64,
     #[structopt(
         long = "bootstrap-server",
         help = "DNS name to resolve bootstrap nodes from",
@@ -188,6 +199,11 @@ pub struct ConnectionConfig {
     pub bootstrap_server: String,
     #[structopt(long = "no-trust-broadcasts", help = "Don't blindly relay broadcasts")]
     pub no_trust_broadcasts: bool,
+    #[structopt(
+        long = "global-state-catch-up-requests",
+        help = "Should global state produce catch-up requests"
+    )]
+    pub global_state_catch_up_requests: bool,
     #[structopt(
         long = "connect-to",
         short = "c",
@@ -213,6 +229,34 @@ pub struct ConnectionConfig {
         default_value = "/etc/resolv.conf"
     )]
     pub resolv_conf: String,
+    #[structopt(
+        long = "gossip-seen-message-ids-size",
+        help = "Size of kept history of seen message ids when gossiping",
+        default_value = "1000"
+    )]
+    pub gossip_seen_message_ids_size: usize,
+}
+
+#[derive(StructOpt, Debug)]
+pub struct CryptoConfig {
+    #[structopt(
+        long = "dh-algorithm",
+        help = "DH algorithm to use (25519, 448)",
+        default_value = "25519"
+    )]
+    pub dh_choice: DHChoice,
+    #[structopt(
+        long = "cipher-algorithm",
+        help = "Cipher algorithm to use (ChaChaPoly, AESGCM)",
+        default_value = "ChaChaPoly"
+    )]
+    pub cipher_choice: CipherChoice,
+    #[structopt(
+        long = "hash-algorithm",
+        help = "Hashing algorithm to use (SHA256, SHA512, BLAKE2s, BLAKE2b)",
+        default_value = "BLAKE2b"
+    )]
+    pub hash_choice: HashChoice,
 }
 
 #[derive(StructOpt, Debug)]
@@ -287,6 +331,7 @@ pub struct CliConfig {
     pub test_runner_url: Option<String>,
     #[structopt(flatten)]
     pub baker: BakerConfig,
+    #[cfg(feature = "benchmark")]
     #[structopt(flatten)]
     pub tps: TpsConfig,
     #[structopt(flatten)]
@@ -336,104 +381,52 @@ pub struct Config {
     pub bootstrapper: BootstrapperConfig,
     #[structopt(flatten)]
     pub testrunner: TestRunnerConfig,
+    #[structopt(flatten)]
+    pub crypto: CryptoConfig,
 }
 
-//#[cfg(test)]
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            common: CommonConfig {
-                external_ip:      None,
-                external_port:    None,
-                id:               None,
-                listen_port:      8888,
-                listen_address:   None,
-                debug:            false,
-                trace:            false,
-                network_ids:      vec![1000],
-                config_dir:       None,
-                data_dir:         None,
-                no_log_timestamp: false,
-                no_trust_bans:    false,
-                min_peers_bucket: 100,
-                print_config:     false,
-            },
-            #[cfg(feature = "instrumentation")]
-            prometheus: PrometheusConfig {
-                prometheus_listen_addr:   "127.0.0.1".to_owned(),
-                prometheus_listen_port:   9090,
-                prometheus_server:        false,
-                prometheus_push_gateway:  None,
-                prometheus_job_name:      "p2p_node_push".to_owned(),
-                prometheus_instance_name: None,
-                prometheus_push_username: None,
-                prometheus_push_password: None,
-                prometheus_push_interval: 2,
-            },
-            connection: ConnectionConfig {
-                desired_nodes:       50,
-                no_bootstrap_dns:    false,
-                bootstrap_server:    "bootstrap.p2p.concordium.com".to_owned(),
-                no_trust_broadcasts: false,
-                connect_to:          vec![],
-                dnssec_disabled:     false,
-                dns_resolver:        vec![],
-                bootstrap_node:      vec![],
-                resolv_conf:         "/etc/resolv.conf".to_owned(),
-            },
-            cli: CliConfig {
-                no_network:      false,
-                test_runner_url: None,
-                baker:           BakerConfig {
-                    baker_id: None,
-                    baker_num_bakers: 60,
-                    baker_genesis: 0,
-                    baker_min_peer_satisfaction_percentage: 50,
-                    baker_retransmit_request_interval: 120,
-                    baker_retransmit_request_since: 300,
-                    baker_retransmit_request_times: 10,
-                },
-                tps:             TpsConfig {
-                    enable_tps_test:       false,
-                    tps_test_recv_id:      None,
-                    tps_test_data_dir:     None,
-                    tps_stats_save_amount: 10000,
-                    tps_message_count:     1000,
-                },
-                rpc:             RpcCliConfig {
-                    no_rpc_server:    false,
-                    rpc_server_port:  10000,
-                    rpc_server_addr:  "127.0.0.1".to_owned(),
-                    rpc_server_token: "rpcadmin".to_owned(),
-                },
-            },
-            bootstrapper: BootstrapperConfig { max_nodes: 10000 },
-            testrunner: TestRunnerConfig {
-                listen_http_port:    8950,
-                listen_http_address: "0.0.0.0".to_owned(),
-            },
-        }
-    }
-}
-
-//#[cfg(test)]
 impl Config {
-    pub fn new(
+    pub fn add_options(
+        mut self,
         listen_address: Option<String>,
         listen_port: u16,
         network_ids: Vec<u16>,
         min_peers_bucket: usize,
     ) -> Self {
-        let mut config = Config::default();
-        config.common.listen_address = listen_address;
-        config.common.listen_port = listen_port;
-        config.common.network_ids = network_ids;
-        config.common.min_peers_bucket = min_peers_bucket;
-        config
+        self.common.listen_address = listen_address;
+        self.common.listen_port = listen_port;
+        self.common.network_ids = network_ids;
+        self.common.min_peers_bucket = min_peers_bucket;
+        self
     }
 }
 
-pub fn parse_config() -> Config { Config::from_args() }
+pub fn parse_config() -> Fallible<Config> {
+    let conf = Config::from_args();
+    if conf.connection.max_allowed_nodes_percentage < 100 {
+        bail!(
+            "Can't provide a lower percentage than 100, as that would limit the maximum amount of \
+             nodes to less than the desired nodes is set to"
+        );
+    }
+
+    if let Some(max_allowed_nodes) = conf.connection.max_allowed_nodes {
+        if max_allowed_nodes < conf.connection.desired_nodes {
+            bail!(
+                "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes \
+                 must be greater or equal to desired amounnt of nodes"
+            );
+        }
+    }
+
+    if conf.connection.relay_broadcast_percentage < 0.0
+        || conf.connection.relay_broadcast_percentage > 1.0
+    {
+        bail!("Percentage of peers to relay broadcasted packets to, must be between 0.0 and 1.0");
+    }
+
+    Ok(conf)
+}
 
 #[derive(Clone, Debug)]
 pub struct AppPreferences {

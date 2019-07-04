@@ -11,7 +11,7 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/)
 * libclang >= 6.0
 * [HACL*](https://github.com/mitls/hacl-c)
-* Stack (GHC-8.6.4)
+* Stack (GHC-8.6.5)
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features
@@ -20,9 +20,16 @@ This repository uses git lfs for storing binary dependencies, and relies on git 
 * s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
 * s11n_serde_json - enables serialization using [serde_json](https://crates.io/crates/serde_json) (only used in benches)
 * s11n_capnp - enables serialization using [capnp](https://crates.io/crates/capnp) (only used in benches)
+* instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
+* benchmark - enables the TPS testing
+* network_dump - makes the network dumping capabilites available.
+* static - build against static haskell libraries in GIT LFS (Linux only)
+* profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above (Windows build is special, for that see cross-compilation build environment setup script in scripts/init.win.build.env.sh for further details), and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/init.build.env.sh#L16) for details).
+
+Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux).
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
@@ -36,3 +43,12 @@ $> cargo test --all
 
 ## Running a complete network locally
 Use docker-compose and follow instructions in [scripts/local/README.md](/scripts/local)
+
+## Nix
+Currently this project only sports support for Nix on Linux platforms.
+### Development
+All `zsh` wrapper functions wraps around `nix-shell`, and if dropping into a `nix-shell` directly remember to use the cargo flag `--features=static` to build against the static libraries in LFS.
+### Install binaries as a package
+```
+$> nix-env -f . -i
+```
