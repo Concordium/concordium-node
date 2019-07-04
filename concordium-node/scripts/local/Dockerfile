@@ -32,7 +32,8 @@ RUN \
 ### P2P client
 RUN \
     cd p2p-client && \
-    cargo build --features=static
+    rm -rf deps/static-libs/vanilla && \
+    cargo build --features=profiling
 
 RUN chmod +x /build-project/start.sh
 

@@ -13,7 +13,9 @@ each service defined in `docker-compose.yml` overwrites its `entrypoint` to run
 specific launcher script.
 
 ## Requirements
-To use this you must have rsync, docker, and docker-compose installed.
+To use this you must have rsync, docker, and docker-compose installed. Secondly,
+as this image is quite storage heavy due to static linking - it is recommended to
+use a `Base Device Size` of a minimum of 20GB.
 
 ## Advantages
 
