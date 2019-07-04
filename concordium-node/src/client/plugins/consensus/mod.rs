@@ -197,7 +197,7 @@ pub fn handle_pkt_out(
             (body, false)
         }
         CatchupFinalizationRecordByIndex => {
-            let idx = NetworkEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
+            let idx = LittleEndian::read_u64(&content[..mem::size_of::<FinalizationIndex>()]);
             let body = Some(SkovReqBody::GetFinalizationRecordByIdx(idx));
             (body, false)
         }
@@ -264,6 +264,7 @@ pub fn handle_global_state_request(
                 let return_type = match packet_type {
                     PacketType::CatchupBlockByHash => PacketType::Block,
                     PacketType::CatchupFinalizationRecordByHash => PacketType::FinalizationRecord,
+                    PacketType::CatchupFinalizationRecordByIndex => PacketType::FinalizationRecord,
                     _ => unreachable!("Impossible packet type in a query result!"),
                 };
 
