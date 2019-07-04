@@ -1,16 +1,18 @@
-use std::ops::{Deref, Index, IndexMut};
-use std::slice;
+use std::{
+    ops::{Deref, Index, IndexMut},
+    slice,
+};
 
 /// A vector-like collection designed to hold contiguous elements with
 /// specific indices.
 pub struct IndexedVec<T> {
-    inner: Vec<Option<T>>
+    inner: Vec<Option<T>>,
 }
 
 impl<T> IndexedVec<T> {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            inner: Vec::with_capacity(cap)
+            inner: Vec::with_capacity(cap),
         }
     }
 
@@ -23,40 +25,38 @@ impl<T> IndexedVec<T> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&T> {
-        self.inner[index].as_ref()
-    }
+    pub fn get(&self, index: usize) -> Option<&T> { self.inner[index].as_ref() }
 }
 
 impl<T> Index<usize> for IndexedVec<T> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
-        self.inner[index].as_ref().expect("The IndexedVec is not contiguous!")
+        self.inner[index]
+            .as_ref()
+            .expect("The IndexedVec is not contiguous!")
     }
 }
 
 impl<T> IndexMut<usize> for IndexedVec<T> {
     fn index_mut(&mut self, index: usize) -> &mut T {
-        self.inner[index].as_mut().expect("The IndexedVec is not contiguous!")
+        self.inner[index]
+            .as_mut()
+            .expect("The IndexedVec is not contiguous!")
     }
 }
 
 impl<T> Deref for IndexedVec<T> {
     type Target = [Option<T>];
 
-    fn deref(&self) -> &Self::Target {
-        self.inner.as_slice()
-    }
+    fn deref(&self) -> &Self::Target { self.inner.as_slice() }
 }
 
 impl<'a, T> IntoIterator for &'a IndexedVec<T> {
-    type Item = &'a Option<T>;
     type IntoIter = slice::Iter<'a, Option<T>>;
+    type Item = &'a Option<T>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.inner.iter()
-    }
+    fn into_iter(self) -> Self::IntoIter { self.inner.iter() }
 }
 
 #[cfg(test)]

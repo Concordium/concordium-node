@@ -4,11 +4,7 @@ use concordium_common::indexed_vec::IndexedVec;
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{
-    collections::BinaryHeap,
-    fmt,
-    rc::Rc,
-};
+use std::{collections::BinaryHeap, fmt, rc::Rc};
 
 use crate::{
     block::*,

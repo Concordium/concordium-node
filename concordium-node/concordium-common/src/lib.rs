@@ -35,8 +35,8 @@ pub mod fails;
 pub mod cache;
 pub mod container_view;
 pub mod filters;
-pub mod indexed_vec;
 pub mod functor;
+pub mod indexed_vec;
 pub mod stats_export_service;
 pub mod ucursor;
 
