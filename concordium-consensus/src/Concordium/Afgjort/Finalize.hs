@@ -78,9 +78,9 @@ data FinalizationCommittee = FinalizationCommittee {
 }
 
 makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
-makeFinalizationCommittee (FinalizationParameters voters) = FinalizationCommittee {..}
+makeFinalizationCommittee (FinalizationParameters {..}) = FinalizationCommittee {..}
     where
-        parties = Vec.fromList $ zipWith makeParty [0..] voters
+        parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
         makeParty pix (VoterInfo psk pvk pow) = PartyInfo pix pow psk pvk
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
@@ -180,6 +180,7 @@ data FinalizationState = FinalizationState {
     _finsIndex :: FinalizationIndex,
     _finsHeight :: BlockHeight,
     _finsCommittee :: FinalizationCommittee,
+    _finsMinSkip :: BlockHeight,
     _finsPendingMessages :: Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature))),
     _finsCurrentRound :: Maybe FinalizationRound
 }
@@ -198,6 +199,9 @@ class FinalizationStateLenses s where
     finHeight = finState . finsHeight
     finCommittee :: Lens' s FinalizationCommittee
     finCommittee = finState . finsCommittee
+    -- |The minimum distance between finalized blocks will be @1 + finMinSkip@.
+    finMinSkip :: Lens' s BlockHeight
+    finMinSkip = finState . finsMinSkip
     -- |All received finalization messages for the current and future finalization indexes.
     -- (Previously, this was just future messages, but now we store all of them for catch-up purposes.)
     finPendingMessages :: Lens' s (Map FinalizationIndex (Map BlockHeight (Set (Party, WMVBAMessage, Sig.Signature))))
@@ -208,12 +212,13 @@ class FinalizationStateLenses s where
 instance FinalizationStateLenses FinalizationState where
     finState = id
 
-initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationCommittee -> FinalizationState
-initialFinalizationState FinalizationInstance{..} genHash com = FinalizationState {
+initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> FinalizationState
+initialFinalizationState FinalizationInstance{..} genHash finParams = FinalizationState {
     _finsSessionId = FinalizationSessionId genHash 0,
     _finsIndex = 1,
-    _finsHeight = 1,
+    _finsHeight = 1 + finalizationMinimumSkip finParams,
     _finsCommittee = com,
+    _finsMinSkip = finalizationMinimumSkip finParams,
     _finsPendingMessages = Map.empty,
     _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
         [] -> Nothing
@@ -223,7 +228,9 @@ initialFinalizationState FinalizationInstance{..} genHash com = FinalizationStat
             roundMe = partyIndex p,
             roundWMVBA = initialWMVBAState
         }
-}
+    }
+    where
+        com = makeFinalizationCommittee finParams
 
 data FinalizationOutputEvent
     = BroadcastFinalizationMessage FinalizationMessage
@@ -438,7 +445,8 @@ notifyBlockFinalized FinalizationRecord{..} bp = do
         -- Discard finalization messages from old round
         finPendingMessages . at finalizationIndex .= Nothing
         let newFinDelay = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
-        finHeight .= bpHeight bp + max 1 ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+        fs <- use finMinSkip
+        finHeight .= bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do

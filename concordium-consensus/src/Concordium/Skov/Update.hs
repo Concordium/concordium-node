@@ -586,7 +586,7 @@ initialSkovFinalizationState :: FinalizationInstance -> GenesisData -> BlockStat
 initialSkovFinalizationState finInst gen initBS = SkovFinalizationState{..}
     where
         _sfsSkov = Basic.initialSkovData gen initBS
-        _sfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
+        _sfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sfsSkov)) (genesisFinalizationParameters gen)
 
 -- |Implementation of the 'SkovMonad' with finalization.
 newtype FSM m a = FinalizationSkovMonad {runFinalizationSkovMonad :: RWST FinalizationInstance (Endo [SkovFinalizationEvent]) SkovFinalizationState m a}
@@ -654,7 +654,7 @@ initialSkovBufferedFinalizationState :: FinalizationInstance -> GenesisData -> B
 initialSkovBufferedFinalizationState finInst gen initBS = SkovBufferedFinalizationState{..}
     where
         _sbfsSkov = Basic.initialSkovData gen initBS
-        _sbfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbfsSkov)) (makeFinalizationCommittee (genesisFinalizationParameters gen))
+        _sbfsFinalization = initialFinalizationState finInst (bpHash (Basic._skovGenesisBlockPointer _sbfsSkov)) (genesisFinalizationParameters gen)
         _sbfsBuffer = emptyFinalizationBuffer
 
 -- |Implementation of the 'SkovMonad' with buffered finalization.

@@ -37,8 +37,9 @@ makeGenesisData ::
     -> Word
     -> Duration
     -> ElectionDifficulty
+    -> BlockHeight -- ^Minimum finalization interval - 1
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genTime nBakers slotTime elecDiff = (GenesisData genTime
+makeGenesisData genTime nBakers slotTime elecDiff finMinSkip = (GenesisData genTime
                                                slotTime -- slot time in seconds
                                                bps
                                                bakerAccounts
@@ -51,5 +52,5 @@ makeGenesisData genTime nBakers slotTime elecDiff = (GenesisData genTime
                                 (sum [_bakerStake binfo | (_, binfo) <- bakers])
                                 (fromIntegral nBakers) -- next available baker id (since baker ids start with 0
                              )
-        fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers]
+        fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, BakerInfo vrfk vvk _ _) <- bakers] finMinSkip
         (bakers, bakerAccounts) = unzip (makeBakers nBakers)

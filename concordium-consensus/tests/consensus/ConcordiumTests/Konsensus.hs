@@ -304,7 +304,7 @@ initialiseStates n = do
                 (Bakers (Map.fromList [(i, b) | (i, (b, _, _)) <- bis])
                     (fromIntegral n)
                     (fromIntegral n)) -- next available baker id
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis]
+            fps = FinalizationParameters [VoterInfo vvk vrfk 1 | (_, (BakerInfo vrfk vvk _ _, _, _)) <- bis] 0
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts fps
         return $ Vec.fromList [(bid, fininst, initialSkovFinalizationState fininst gen (Example.initialState bps bakerAccounts nAccounts)) | (_, (_, bid, _)) <- bis, let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid)] 

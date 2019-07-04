@@ -96,7 +96,7 @@ makeGenesisData genTime nBakers cbkgen cbkbaker = do
     callGenesisDataCallback cbkgen (encode genData)
     mapM_ (\bkr@(BakerIdentity (BakerId bid) _ _ _ _) -> callBakerIdentityCallback cbkbaker bid (encode bkr)) bakersPrivate
     where
-        (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5
+        (genData, bakers) = S.makeGenesisData genTime (fromIntegral nBakers) 10 0.5 9
         bakersPrivate = map fst bakers
 
 -- | External function that logs in Rust a message using standard Rust log output

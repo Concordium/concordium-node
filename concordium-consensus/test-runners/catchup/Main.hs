@@ -90,7 +90,7 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
         loop = do
             msg <- readChan inp
             connected <- readIORef connectedRef
-            when connected $ case msg of
+            if connected then case msg of
                 MsgNewBlock block -> do
                     let bh = getHash block :: BlockHash
                     sfs <- readMVar sfsRef
@@ -121,6 +121,15 @@ relay inp sfsRef connectedRef monitor loopback outps = loop
                         Left bh -> Get.getBlockFinalization src bh
                         Right fi -> Get.getIndexedFinalization src fi
                     forM_ mf $ \fr -> writeChan loopback (IEMessage $ MsgFinalizationRecordReceived src fr)
+            else case msg of
+                MsgNewBlock block -> do
+                    let bh = getHash block :: BlockHash
+                    sfs <- readMVar sfsRef
+                    bp <- runSilentLogger $ flip evalSSM (sfs ^. skov) (resolveBlock bh)
+                    -- when (isNothing bp) $ error "Block is missing!"
+                    writeChan monitor (Left (bh, block, bpState <$> bp))
+                MsgFinalizationRecord fr -> writeChan monitor (Right fr)
+                _ -> return ()
             loop
 
 toggleConnection :: LogMethod IO -> MVar SkovBufferedFinalizationState -> IORef Bool -> Chan InEvent -> [Chan InEvent] -> IO ()
@@ -161,7 +170,7 @@ main :: IO ()
 main = do
     let n = 20
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5
+    let (gen, bis) = makeGenesisData now n 1 0.5 9
     let iState = Example.initialState (genesisBirkParameters gen) (genesisBakerAccounts gen) nContracts
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bid, _) -> do
