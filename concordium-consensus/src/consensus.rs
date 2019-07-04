@@ -73,6 +73,15 @@ impl fmt::Debug for ConsensusMessage {
                     hash
                 )
             }
+            PacketType::CatchupFinalizationRecordByIndex => {
+                let idx = LittleEndian::read_u64(
+                    &self.payload[..mem::size_of::<FinalizationIndex>() as usize],
+                );
+                format!(
+                    "catch-up request for the finalization record at index {}",
+                    idx
+                )
+            }
             p => format!("{}", p),
         };
 

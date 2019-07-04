@@ -43,9 +43,6 @@ use get_if_addrs;
 use ipconfig;
 use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
 
-#[cfg(test)]
-use std::cell::RefCell;
-
 use std::{
     collections::HashSet,
     net::{
@@ -1361,9 +1358,9 @@ impl P2PNode {
 
 #[cfg(test)]
 impl P2PNode {
-    pub fn deregister_connection(&self, conn: &RefCell<Connection>) -> Fallible<()> {
+    pub fn deregister_connection(&self, conn: &RwLock<Connection>) -> Fallible<()> {
         let mut locked_poll = safe_write!(self.poll)?;
-        conn.borrow().deregister(&mut locked_poll)
+        read_or_die!(conn).deregister(&mut locked_poll)
     }
 }
 

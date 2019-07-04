@@ -88,6 +88,9 @@ function testnet_bootstrap() {
        $binary \
       --listen-port $((10900+$bootstrap_id)) \
       --id $((9900000000000000+$bootstrap_id))"
+    if [ $# > 0 ] ; then
+        cmd="$cmd $@"
+    fi
     if (( $NIXOS == 1 )); then 
       cmd="nix-shell --run '$cmd'"
     fi
@@ -116,7 +119,7 @@ function testnet_node() {
     echo "bootstrappercount can't be less than 1"
     return 2
   fi
-  if [ "$3" != 'none' ];
+  if [ "$3" != "none" ];
     then
       profiling="valgrind --tool="$3" "
       binary="./target/debug/p2p_client-cli"
@@ -126,8 +129,9 @@ function testnet_node() {
   fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
+  shift
   (
-    cmd="${profiling}\
+    cmd="$profiling \
        $binary \
       --listen-port $((10800+$instanceid)) \
       --id $((9800000000000000+$instanceid))\
@@ -136,10 +140,14 @@ function testnet_node() {
       do
         cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
       done
+    if [ $# > 0 ] ; then
+        cmd="$cmd $@"
+    fi
+    
     if (( $NIXOS == 1 )); then 
       cmd="nix-shell --run '$cmd'"
     fi
-    cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
+    ( cd $CONCORDIUM_P2P_DIR && eval "$cmd"  )
   )
 }
 

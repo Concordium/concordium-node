@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Haskell binding needs proper library path to function
 export LD_LIBRARY_PATH=/usr/local/lib

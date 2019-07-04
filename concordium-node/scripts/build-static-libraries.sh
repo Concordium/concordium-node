@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 pacman -Sy
 pacman -Syyu --noconfirm
 pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
@@ -52,8 +52,6 @@ cabal new-update
 (cd
 cabal new-install hpack)
 
-sed -i -z -e 's/\s*- -shared//g' /build/Concordium/package.yaml
-sed -i -z -e 's/\s*when:\s*- condition: os(windows)\s*then:\s*ghc-options: -static[^\n]*\n\s*else:\s*ghc-options: -dynamic//g' /build/Concordium/package.yaml
 sed -i '/executable/,$d' /build/Concordium/package.yaml
 
 (cd /build/acorn
@@ -71,7 +69,7 @@ sed -i '/executable/,$d' /build/Concordium/package.yaml
 
 cd /build
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal new-build all
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal new-build all --flags="-dynamic"
 
 echo "Let's copy the needed concordium libraries"
 for lib in $(find . -type f -name "*inplace.a"); do

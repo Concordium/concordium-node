@@ -28,7 +28,7 @@ impl StatsEngine {
     #[cfg(feature = "benchmark")]
     pub fn new(config: &crate::configuration::CliConfig) -> Self {
         StatsEngine {
-            datapoints: CircularQueue::with_capacity(config.tps.tps_stats_save_amount),
+            datapoints: CircularQueue::with_capacity(config.tps.tps_stats_save_amount as usize),
         }
     }
 
@@ -81,7 +81,7 @@ impl StatsEngine {
 
     #[cfg(feature = "benchmark")]
     pub fn calculate_last_five_min_tps_average(&self) -> f64 {
-        let mut within_slot = VecDeque::new();
+        let mut within_slot = CircularQueue::with_capacity(self.datapoints.capacity());
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("can't happen before epoch");
@@ -89,9 +89,9 @@ impl StatsEngine {
             .checked_sub(Duration::from_secs(300))
             .expect("less than 5 minutes spent");
 
-        for point in &self.datapoints {
+        for point in self.datapoints.iter() {
             if Duration::from_millis(point.time) > minusfive {
-                within_slot.push_back(point);
+                within_slot.push(point);
             }
         }
 

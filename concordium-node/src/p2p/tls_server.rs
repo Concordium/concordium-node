@@ -15,7 +15,6 @@ use mio::{
 use snow::Keypair;
 
 use std::{
-    cell::RefCell,
     collections::HashSet,
     net::SocketAddr,
     rc::Rc,
@@ -210,7 +209,7 @@ impl TlsServer {
     }
 
     #[inline]
-    pub fn find_connection_by_token(&self, token: Token) -> Option<Rc<RefCell<Connection>>> {
+    pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<RwLock<Connection>>> {
         read_or_die!(self.dptr)
             .find_connection_by_token(token)
             .cloned()
@@ -393,7 +392,7 @@ impl TlsServer {
                     );
                     let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
 
-                    let mut conn = rc_conn.borrow_mut();
+                    let mut conn = write_or_die!(rc_conn);
                     conn.async_send(UCursor::from(handshake_request_data))?;
                     conn.set_measured_handshake_sent();
                 }

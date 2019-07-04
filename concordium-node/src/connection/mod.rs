@@ -467,7 +467,7 @@ mod tests {
         let priv_tls = safe_read!(priv_tls)?;
         let conn_node = priv_tls.find_connection_by_id(bootstrapper.id()).unwrap();
         node.deregister_connection(conn_node)?;
-        let mut conn_node = conn_node.borrow_mut();
+        let mut conn_node = write_or_die!(conn_node);
 
         // Deregister connection on the bootstrapper side
         let tls = Arc::clone(&bootstrapper.tls_server);
@@ -475,7 +475,7 @@ mod tests {
         let priv_tls = safe_read!(priv_tls)?;
         let conn_bootstrapper = priv_tls.find_connection_by_id(node.id()).unwrap();
         bootstrapper.deregister_connection(conn_bootstrapper)?;
-        let mut conn_bootstrapper = conn_bootstrapper.borrow_mut();
+        let mut conn_bootstrapper = write_or_die!(conn_bootstrapper);
 
         // Assert that a Node accepts every packet
         match conn_node.validate_packet_type_test(&[]) {

@@ -39,15 +39,21 @@ pub fn process_network_requests(
             let rc_conn_opt = tls_server_locked.find_connection_by_token(network_request.token);
             match rc_conn_opt {
                 Some(ref rc_conn) => {
-                    if let Err(err) = rc_conn
-                        .borrow_mut()
-                        .async_send_from_poll_loop(network_request.data)
-                    {
-                        error!(
-                            "Network raw request error on connection {}: {}",
-                            usize::from(network_request.token),
-                            err
-                        );
+                    let mut borrowed_mut_conn = write_or_die!(rc_conn);
+                    if !borrowed_mut_conn.is_closed() {
+                        if let Err(err) =
+                            borrowed_mut_conn.async_send_from_poll_loop(network_request.data)
+                        {
+                            borrowed_mut_conn.close();
+                            error!(
+                                "Network raw request error on connection {}: {}, and the \
+                                 connection will be closed.",
+                                usize::from(network_request.token),
+                                err
+                            );
+                        }
+                    } else {
+                        trace!("Attempted to write to an already closed connection");
                     }
                 }
                 None => error!(

@@ -114,12 +114,14 @@ impl ConnectionPrivate {
 
     #[inline]
     pub fn deregister(&self, poll: &mut Poll) -> Fallible<()> {
-        into_err!(poll.deregister(&self.socket))
+        map_io_error_to_fail!(poll.deregister(&self.socket))
     }
 
     /// It shuts `socket` down.
     #[inline]
-    pub fn shutdown(&mut self) -> Fallible<()> { into_err!(self.socket.shutdown(Shutdown::Both)) }
+    pub fn shutdown(&mut self) -> Fallible<()> {
+        map_io_error_to_fail!(self.socket.shutdown(Shutdown::Both))
+    }
 
     /// This function is called when `poll` indicates that `socket` is ready to
     /// write or/and read.
