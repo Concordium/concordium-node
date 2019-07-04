@@ -17,7 +17,7 @@ s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_json = ["serde_json", "s11n_serde"]
 s11n_serde_cbor = ["serde_cbor", "s11n_serde"]
 s11n_nom = ["nom"]
-instrumentation = ["prometheus", "reqwest", "serde", "serde_derive", "serde_json", "gotham", "gotham_derive", "hyper", "mime", "tokio", "num_cpus"]
+instrumentation = ["concordium-common/instrumentation", "serde", "serde_json", "serde_derive", "gotham", "mime", "gotham_derive", "hyper", "reqwest"]
 benchmark = []
 network_dump = []
 static = ["concordium-consensus/static"]
@@ -65,19 +65,17 @@ snow = { version = "0.5.2", features = ["hacl-star-accelerated"] }
 protobuf = "2.0.6"
 futures = "0.1"
 # Feature gated dependencies
+gotham = { version = "0.3", optional = true }
+gotham_derive = { version = "0.3", optional = true }
+hyper = { version = "0.12", optional = true }
+reqwest = { version = "^0.9", default-features = false, optional = true }
+mime = { version = "0.3", optional = true }
 serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
 serde_derive = { version = "1.0", optional = true }
 capnp = { version = "^0.9", optional = true }
 serde_cbor = { version = "0.9.0", optional = true }
 nom = { version = "4.2.0", features = ["verbose-errors"],  optional = true }
-gotham = { version = "0.3", optional = true }
-gotham_derive = { version = "0.3", optional = true }
-reqwest = { version = "^0.9", default-features = false, optional = true }
-hyper = { version = "0.12", optional = true }
-mime = { version = "0.3", optional = true }
-num_cpus = { version = "1.10.0", optional = true }
-tokio = { version = "0.1.19", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "^0.1.9" }
@@ -92,12 +90,6 @@ grpciounix = { package = 'grpcio', version = "0.4.4", default-features = false, 
   "protobuf-codec"
 ] }
 grpc = "0.6.1"
-
-[dependencies.prometheus]
-git = "https://github.com/pingcap/rust-prometheus.git"
-default-features = false
-features = ["gen", "push", "protobuf"]
-optional = true
 
 [build-dependencies]
 walkdir = "2"

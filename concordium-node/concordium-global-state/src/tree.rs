@@ -719,6 +719,8 @@ pub struct SkovStats {
     errors:                     Vec<SkovError>,
 }
 
+type StatsSnapshot = (u64, u64, u64, u64, u64, u64);
+
 impl SkovStats {
     fn new(timing_queue_len: usize) -> Self {
         Self {
@@ -733,34 +735,57 @@ impl SkovStats {
                                                                 * beginning */
         }
     }
+
+    pub fn query_stats(&self) -> StatsSnapshot {
+        (
+            get_avg_duration(&self.block_arrival_times),
+            wma(
+                self.add_block_timings.iter().cloned(),
+                self.add_block_timings.len() as u64,
+            ),
+            wma(
+                self.query_block_timings.iter().cloned(),
+                self.query_block_timings.len() as u64,
+            ),
+            get_avg_duration(&self.finalization_times),
+            wma(
+                self.add_finalization_timings.iter().cloned(),
+                self.add_finalization_timings.len() as u64,
+            ),
+            wma(
+                self.query_finalization_timings.iter().cloned(),
+                self.query_finalization_timings.len() as u64,
+            ),
+        )
+    }
+}
+
+fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+
+    let mass: u64 = (1..=n).sum();
+    let sum = values.enumerate().fold(0, |sum, (i, val)| {
+        let weight = n - (i as u64);
+        sum + val * weight
+    });
+
+    sum / mass
+}
+
+fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
+    let diffs = times
+        .iter()
+        .zip(times.iter().skip(1))
+        .map(|(&t1, &t2)| t1 - t2)
+        .map(|diff| diff.num_milliseconds() as u64);
+
+    wma(diffs, times.len() as u64) / 1000 // milliseconds to seconds
 }
 
 impl fmt::Display for SkovStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
-            if n == 0 {
-                return 0;
-            }
-
-            let mass: u64 = (1..=n).sum();
-            let sum = values.enumerate().fold(0, |sum, (i, val)| {
-                let weight = n - (i as u64);
-                sum + val * weight
-            });
-
-            sum / mass
-        }
-
-        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
-            let diffs = times
-                .iter()
-                .zip(times.iter().skip(1))
-                .map(|(&t1, &t2)| t1 - t2)
-                .map(|diff| diff.num_milliseconds() as u64);
-
-            wma(diffs, times.len() as u64) / 1000 // milliseconds to seconds
-        }
-
         write!(
             f,
             "block receipt/entry/query: {}s/{}us/{}us; finalization receipt/entry/query: \
