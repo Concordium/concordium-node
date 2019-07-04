@@ -1,20 +1,31 @@
 use std::{
     env,
     fs::File,
-    io::{self, Read},
+    io::{self, Cursor, Read},
 };
 
 use concordium_global_state::{
-    block::GenesisData,
-    common::{sha256, SerializeToBytes},
+    block::{Block, BlockData},
+    common::SerializeToBytes,
 };
 
 // for now it only reads genesis data, as only that is currently being dumped
 fn read_block_dump(bytes: &[u8]) {
-    let data = GenesisData::deserialize(bytes)
+    let mut cursor = Cursor::new(bytes);
+
+    let genesis_data = BlockData::deserialize((&mut cursor, 0))
         .expect("Can't serialize the provided data as a GenesisData object!");
 
-    println!("{:#?}\n\nshort hash: {:?}", data, sha256(bytes));
+    let genesis_block = Block {
+        slot: 0,
+        data: genesis_data,
+    };
+
+    println!(
+        "{:#?}\n\nshort hash: {:?}",
+        genesis_block.genesis_data(),
+        genesis_block
+    );
 }
 
 fn main() -> io::Result<()> {

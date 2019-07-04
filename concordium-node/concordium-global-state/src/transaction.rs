@@ -2,6 +2,7 @@
 
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use failure::{ensure, format_err, Fallible};
+use hash_hasher::HashedMap;
 
 use std::{
     collections::HashMap,
@@ -466,7 +467,7 @@ pub struct AccountNonFinalizedTransactions {
 
 #[derive(Debug, Default)]
 pub struct TransactionTable {
-    map: HashMap<TransactionHash, (Transaction, Slot)>,
+    map: HashedMap<TransactionHash, (Transaction, Slot)>,
     non_finalized_transactions: HashMap<AccountAddress, AccountNonFinalizedTransactions>,
 }
 

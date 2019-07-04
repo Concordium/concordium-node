@@ -143,6 +143,15 @@ macro_rules! safe_get_len {
     }};
 }
 
+macro_rules! hashed {
+    ($variant:ident, $capacity:expr) => {{
+        hash_hasher::$variant::with_capacity_and_hasher(
+            $capacity,
+            hash_hasher::HashBuildHasher::default(),
+        )
+    }};
+}
+
 pub mod block;
 pub mod common;
 pub mod finalization;

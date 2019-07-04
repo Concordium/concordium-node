@@ -1,9 +1,9 @@
 use circular_queue::CircularQueue;
 use failure::Fallible;
+use hash_hasher::HashedMap;
 use rkv::{Rkv, SingleStore, Value};
 
 use std::{
-    collections::HashMap,
     marker::PhantomData,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -19,14 +19,14 @@ struct QueueEntry {
 
 /// A temporary cache
 pub struct Cache<T> {
-    hash_map: HashMap<HashBytes, T>,
+    hash_map: HashedMap<HashBytes, T>,
     queue:    CircularQueue<QueueEntry>,
 }
 
 impl<T> Default for Cache<T> {
     fn default() -> Self {
         Self {
-            hash_map: HashMap::new(),
+            hash_map: HashedMap::default(),
             queue:    CircularQueue::with_capacity(DEFAULT_CACHE_SIZE),
         }
     }

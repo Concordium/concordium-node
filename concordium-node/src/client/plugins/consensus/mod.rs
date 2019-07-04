@@ -25,7 +25,7 @@ use concordium_consensus::{
 };
 
 use concordium_global_state::{
-    block::{BakedBlock, Delta, PendingBlock},
+    block::{Block, Delta, PendingBlock},
     common::{HashBytes, SerializeToBytes, SHA256},
     finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
     transaction::Transaction,
@@ -396,7 +396,7 @@ fn send_block_to_consensus(
         info!(
             "Peer {}'s {:?} was sent to our consensus layer",
             peer_id,
-            BakedBlock::deserialize(content)?
+            Block::deserialize(content)?
         );
     } else {
         error!(
@@ -404,7 +404,7 @@ fn send_block_to_consensus(
              {:?})",
             peer_id,
             consensus_response,
-            BakedBlock::deserialize(content)?,
+            Block::deserialize(content)?,
         );
     }
 
