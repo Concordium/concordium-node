@@ -3,7 +3,11 @@ use circular_queue::CircularQueue;
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{collections::BinaryHeap, fmt, rc::Rc};
+use std::{
+    collections::{BinaryHeap, HashMap},
+    fmt,
+    rc::Rc,
+};
 
 use crate::{
     block::*,
