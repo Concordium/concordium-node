@@ -59,7 +59,7 @@ pub struct StreamWouldBlock;
 pub struct StreamConnectionReset;
 
 #[derive(Debug, Fail)]
-#[fail(display = "Connection was peer terminated connection")]
+#[fail(display = "Connection was terminated by remote peer")]
 pub struct PeerTerminatedConnection;
 
 #[macro_export]

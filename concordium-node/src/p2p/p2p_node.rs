@@ -1358,7 +1358,7 @@ impl P2PNode {
 
 #[cfg(test)]
 impl P2PNode {
-    pub fn deregister_connection(&self, conn: &Arc<RwLock<Connection>>) -> Fallible<()> {
+    pub fn deregister_connection(&self, conn: &RwLock<Connection>) -> Fallible<()> {
         let mut locked_poll = safe_write!(self.poll)?;
         read_or_die!(conn).deregister(&mut locked_poll)
     }
