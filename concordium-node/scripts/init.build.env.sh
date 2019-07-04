@@ -1,5 +1,4 @@
-#!/bin/sh
-
+#!/usr/bin/env bash
 ( cd deps/internal/crypto/rust-src &&
   LD_LIBRARY_PATH=/usr/local/lib cargo build --release &&
   cp target/release/libec_vrf_ed25519.so /usr/local/lib &&
@@ -9,7 +8,11 @@
   cp target/release/libelgamal.so /usr/local/lib &&
   cp target/release/libsha_2.so /usr/local/lib && cargo clean)
 
-CONSENSUS_VERSION=$(cat CONSENSUS_VERSION)
+if [ -f "CONSENSUS_VERSION" ] ; then
+    CONSENSUS_VERSION=$(cat CONSENSUS_VERSION)
+else
+    CONSENSUS_VERSION=`git submodule | grep consensus | head -n1 | awk '{print $1}'`
+fi
 
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 

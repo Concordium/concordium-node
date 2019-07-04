@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	LIBEXTENSION="dylib"
     PLATFORM="osx"

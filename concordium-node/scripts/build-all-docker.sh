@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 if [ "$#" -ne 1 ]
 then
   echo "Usage: ./build-all-docker.sh VERSION-TAG"

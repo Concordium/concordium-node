@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 pacman -Sy
 pacman -Syyu --noconfirm
 pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils --noconfirm
