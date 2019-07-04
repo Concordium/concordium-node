@@ -15,8 +15,11 @@ static A: System = System;
 use byteorder::{NetworkEndian, WriteBytesExt};
 
 use concordium_common::{
-    cache::Cache, make_atomic_callback, safe_write, spawn_or_die, write_or_die,
-    RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender, RelayOrStopSenderHelper,
+    cache::Cache,
+    make_atomic_callback, safe_write, spawn_or_die,
+    stats_export_service::{StatsExportService, StatsServiceMode},
+    write_or_die, RelayOrStopEnvelope, RelayOrStopReceiver, RelayOrStopSender,
+    RelayOrStopSenderHelper,
 };
 use concordium_consensus::{consensus, ffi};
 use concordium_global_state::{
@@ -38,7 +41,6 @@ use p2p_client::{
     p2p::*,
     rpc::RpcServerImpl,
     stats_engine::StatsEngine,
-    stats_export_service::{StatsExportService, StatsServiceMode},
     utils::{self, get_config_and_logging_setup, load_bans},
 };
 
@@ -184,11 +186,11 @@ fn tps_setup_process_output(_: &configuration::CliConfig) -> (bool, u64) { (fals
 fn setup_process_output(
     node: &P2PNode,
     kvs_handle: Arc<RwLock<Rkv>>,
-    conf: &configuration::Config,
+    (conf, app_prefs): (&configuration::Config, &configuration::AppPreferences),
     baker: &mut consensus::ConsensusContainer,
     pkt_out: RelayOrStopReceiver<Arc<NetworkMessage>>,
     (skov_receiver, skov_sender): (RelayOrStopReceiver<SkovReq>, RelayOrStopSender<SkovReq>),
-    app_prefs: &configuration::AppPreferences,
+    stats: &Option<Arc<RwLock<StatsExportService>>>,
 ) -> Vec<std::thread::JoinHandle<()>> {
     let _no_trust_bans = conf.common.no_trust_bans;
     let _no_trust_broadcasts = conf.connection.no_trust_broadcasts;
@@ -200,6 +202,7 @@ fn setup_process_output(
     let transactions_cache = Cache::default();
     let _network_id = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
     let data_dir_path = app_prefs.get_user_app_dir();
+    let stats_clone = stats.clone();
 
     let genesis_data = baker.get_genesis_data().unwrap();
     let mut node_clone = node.clone();
@@ -225,6 +228,7 @@ fn setup_process_output(
                         true,
                         request,
                         &mut skov,
+                        &stats_clone,
                     ) {
                         error!("There's an issue with a global state request: {}", e);
                     }
@@ -522,6 +526,7 @@ fn main() -> Fallible<()> {
             Arc::clone(&cli_kvs_handle),
             baker.clone(),
             &conf.cli.rpc,
+            &stats_export_service,
         );
         serv.start_server()?;
         Some(serv)
@@ -538,11 +543,11 @@ fn main() -> Fallible<()> {
         setup_process_output(
             &node,
             cli_kvs_handle,
-            &conf,
+            (&conf, &app_prefs),
             baker,
             pkt_out,
             (skov_receiver, skov_sender.clone()),
-            &app_prefs,
+            &stats_export_service,
         )
     } else {
         vec![]

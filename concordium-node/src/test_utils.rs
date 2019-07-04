@@ -3,9 +3,11 @@ use crate::{
     configuration::Config,
     network::{NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::p2p_node::P2PNode,
-    stats_export_service::{StatsExportService, StatsServiceMode},
 };
-use concordium_common::UCursor;
+use concordium_common::{
+    stats_export_service::{StatsExportService, StatsServiceMode},
+    UCursor,
+};
 use failure::Fallible;
 use std::{
     cell::RefCell,

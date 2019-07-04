@@ -1,7 +1,7 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use std::{cell::Cell, net::SocketAddr, thread, time, rc::Rc, sync::Mutex};
+        use std::{net::SocketAddr, thread, time, sync::Mutex};
         use gotham::{
             handler::IntoResponse,
             helpers::http::response::create_response,
@@ -72,7 +72,13 @@ cfg_if! {
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
             resend_queue_size: IntGauge,
-            tokio_runtime: Rc<Cell<Option<Runtime>>>
+            tokio_runtime: Arc<Mutex<Option<Runtime>>>,
+            skov_block_receipt: IntGauge,
+            skov_block_entry: IntGauge,
+            skov_block_query: IntGauge,
+            skov_finalization_receipt: IntGauge,
+            skov_finalization_entry: IntGauge,
+            skov_finalization_query: IntGauge,
         }
     }
 }
@@ -92,6 +98,12 @@ pub struct StatsExportService {
     invalid_network_packets_received: Arc<AtomicUsize>,
     queue_size: Arc<AtomicUsize>,
     resend_queue_size: Arc<AtomicUsize>,
+    skov_block_receipt: Arc<AtomicUsize>,
+    skov_block_entry: Arc<AtomicUsize>,
+    skov_block_query: Arc<AtomicUsize>,
+    skov_finalization_receipt: Arc<AtomicUsize>,
+    skov_finalization_entry: Arc<AtomicUsize>,
+    skov_finalization_query: Arc<AtomicUsize>,
 }
 
 impl StatsExportService {
@@ -161,6 +173,30 @@ impl StatsExportService {
             registry.register(Box::new(rs.clone()))?;
         }
 
+        let sbr_opts = Opts::new("skov_block_receipt", "skov block receipt");
+        let sbr = IntGauge::with_opts(sbr_opts)?;
+        registry.register(Box::new(sbr.clone()))?;
+
+        let sbe_opts = Opts::new("skov_block_entry", "skov block entry");
+        let sbe = IntGauge::with_opts(sbe_opts)?;
+        registry.register(Box::new(sbe.clone()))?;
+
+        let sbq_opts = Opts::new("skov_block_query", "skov block query");
+        let sbq = IntGauge::with_opts(sbq_opts)?;
+        registry.register(Box::new(sbq.clone()))?;
+
+        let sfr_opts = Opts::new("skov_finalization_receipt", "skov finalization receipt");
+        let sfr = IntGauge::with_opts(sfr_opts)?;
+        registry.register(Box::new(sfr.clone()))?;
+
+        let sfe_opts = Opts::new("skov_finalization_entry", "skov finalization receipt");
+        let sfe = IntGauge::with_opts(sfe_opts)?;
+        registry.register(Box::new(sfe.clone()))?;
+
+        let sfq_opts = Opts::new("skov_finalization_query", "skov finalization receipt");
+        let sfq = IntGauge::with_opts(sfq_opts)?;
+        registry.register(Box::new(sfq.clone()))?;
+
         Ok(StatsExportService {
             mode,
             registry,
@@ -175,7 +211,13 @@ impl StatsExportService {
             invalid_network_packets_received: inpr,
             queue_size: qs,
             resend_queue_size: rqs,
-            tokio_runtime: Rc::new(Cell::new(None)),
+            tokio_runtime: Arc::new(Mutex::new(None)),
+            skov_block_receipt: sbr,
+            skov_block_entry: sbe,
+            skov_block_query: sbq,
+            skov_finalization_receipt: sfr,
+            skov_finalization_entry: sfe,
+            skov_finalization_query: sfq,
         })
     }
 
@@ -194,6 +236,12 @@ impl StatsExportService {
             invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
             queue_size: Arc::new(AtomicUsize::new(0)),
             resend_queue_size: Arc::new(AtomicUsize::new(0)),
+            skov_block_receipt: Arc::new(AtomicUsize::new(0)),
+            skov_block_entry: Arc::new(AtomicUsize::new(0)),
+            skov_block_query: Arc::new(AtomicUsize::new(0)),
+            skov_finalization_receipt: Arc::new(AtomicUsize::new(0)),
+            skov_finalization_entry: Arc::new(AtomicUsize::new(0)),
+            skov_finalization_query: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -321,6 +369,54 @@ impl StatsExportService {
         return self.queue_size.load(Ordering::Relaxed) as i64;
     }
 
+    pub fn set_skov_block_receipt(&mut self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.skov_block_receipt.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.skov_block_receipt
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_skov_block_entry(&mut self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.skov_block_entry.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.skov_block_entry
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_skov_block_query(&mut self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.skov_block_query.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.skov_block_query
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_skov_finalization_receipt(&mut self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.skov_finalization_receipt.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.skov_finalization_receipt
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_skov_finalization_entry(&mut self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.skov_finalization_entry.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.skov_finalization_entry
+            .store(value as usize, Ordering::Relaxed);
+    }
+
+    pub fn set_skov_finalization_query(&mut self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        return self.skov_finalization_query.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.skov_finalization_query
+            .store(value as usize, Ordering::Relaxed);
+    }
+
     #[cfg(feature = "instrumentation")]
     fn metrics(state: State) -> (State, String) {
         let state_data = PrometheusStateData::borrow_from(&state);
@@ -365,14 +461,18 @@ impl StatsExportService {
             .build()
             .unwrap();
         gotham::start_on_executor(listen_addr, self_clone.router(), runtime.executor());
-        self.tokio_runtime.set(Some(runtime));
+        if let Ok(mut locked_tokio) = self.tokio_runtime.lock() {
+            *locked_tokio = Some(runtime);
+        }
     }
 
     #[cfg(feature = "instrumentation")]
     pub fn stop_server(&mut self) {
-        let inner = self.tokio_runtime.take();
-        if inner.is_some() {
-            inner.unwrap().shutdown_now();
+        if let Ok(mut locked_tokio) = self.tokio_runtime.lock() {
+            if (&*locked_tokio).is_some() {
+                let old_v = std::mem::replace(&mut *locked_tokio, None);
+                old_v.map(tokio::runtime::Runtime::shutdown_now);
+            }
         }
     }
 
@@ -421,6 +521,30 @@ impl StatsExportService {
         _: Option<String>,
         _: Option<String>,
     ) {
+    }
+
+    #[cfg(feature = "instrumentation")]
+    pub fn get_skov_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
+        (
+            self.skov_block_receipt.get() as u32,
+            self.skov_block_query.get() as u32,
+            self.skov_block_entry.get() as u32,
+            self.skov_finalization_receipt.get() as u32,
+            self.skov_finalization_query.get() as u32,
+            self.skov_finalization_entry.get() as u32,
+        )
+    }
+
+    #[cfg(not(feature = "instrumentation"))]
+    pub fn get_skov_stats(&self) -> (u32, u32, u32, u32, u32, u32) {
+        (
+            self.skov_block_receipt.load(Ordering::Relaxed) as u32,
+            self.skov_block_query.load(Ordering::Relaxed) as u32,
+            self.skov_block_entry.load(Ordering::Relaxed) as u32,
+            self.skov_finalization_receipt.load(Ordering::Relaxed) as u32,
+            self.skov_finalization_query.load(Ordering::Relaxed) as u32,
+            self.skov_finalization_entry.load(Ordering::Relaxed) as u32,
+        )
     }
 }
 

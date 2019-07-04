@@ -6,8 +6,9 @@ use crate::{
     },
     dumper::DumpItem,
     network::{Buckets, NetworkId},
-    stats_export_service::StatsExportService,
 };
+
+use concordium_common::stats_export_service::StatsExportService;
 
 use failure::Fallible;
 use mio::{net::TcpStream, Token};

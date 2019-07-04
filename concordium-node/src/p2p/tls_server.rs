@@ -4,6 +4,7 @@ use crate::connection::network_handler::message_processor::{
 };
 use concordium_common::{
     functor::{UnitFunction, UnitFunctor},
+    stats_export_service::StatsExportService,
     UCursor,
 };
 
@@ -38,7 +39,6 @@ use crate::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
         tls_server_private::TlsServerPrivate,
     },
-    stats_export_service::StatsExportService,
     utils::clone_snow_keypair,
 };
 

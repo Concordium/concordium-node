@@ -146,6 +146,21 @@ message RetransmitRequestMessage {
   uint32 network_id = 4;
 }
 
+message GRPCSkovStats {
+  uint32 skov_block_receipt = 1; // in seconds
+  uint32 skov_block_entry = 2; // in us
+  uint32 skov_block_query = 3; // in us
+  uint32 skov_finalization_receipt = 4; // in seconds
+  uint32 skov_finalization_entry = 5; // in us
+  uint32 skov_finalization_query = 6; // in us
+}
+
+message SuccesfulStructResponse {
+  oneof payload {
+    GRPCSkovStats skov_stats = 1;
+  }
+}
+
 service P2P {
   // Suggest this peer connects to submitted peer details
   rpc PeerConnect (PeerConnectRequest) returns (SuccessResponse) {}
@@ -197,4 +212,5 @@ service P2P {
   rpc DumpStart(DumpRequest) returns (SuccessResponse) {}
   rpc DumpStop(Empty) returns (SuccessResponse) {}
   rpc RetransmitRequest(RetransmitRequestMessage) returns (SuccessResponse) {}
+  rpc GetSkovStats(Empty) returns (SuccesfulStructResponse) {}
 }

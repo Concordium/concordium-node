@@ -22,9 +22,8 @@ use crate::{
     },
     dumper::DumpItem,
     network::{Buckets, NetworkId},
-    stats_export_service::StatsExportService,
 };
-use concordium_common::UCursor;
+use concordium_common::{stats_export_service::StatsExportService, UCursor};
 
 /// It is just a helper struct to facilitate sharing information with
 /// message handlers, which are set up from _inside_ `Connection`.

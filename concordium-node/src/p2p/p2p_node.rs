@@ -28,13 +28,12 @@ use crate::{
         peer_statistics::PeerStatistic,
         tls_server::{TlsServer, TlsServerBuilder},
     },
-    stats_export_service::StatsExportService,
     utils,
 };
 use chrono::prelude::*;
 use concordium_common::{
-    filters::FilterResult, functor::UnitFunction, RelayOrStopSender, RelayOrStopSenderHelper,
-    UCursor,
+    filters::FilterResult, functor::UnitFunction, stats_export_service::StatsExportService,
+    RelayOrStopSender, RelayOrStopSenderHelper, UCursor,
 };
 use failure::{err_msg, Error, Fallible};
 #[cfg(not(target_os = "windows"))]

@@ -5,9 +5,11 @@ use crate::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkRequest,
         NetworkResponse,
     },
-    stats_export_service::StatsExportService,
 };
-use concordium_common::{functor::FuncResult, RelayOrStopSender, RelayOrStopSenderHelper};
+use concordium_common::{
+    functor::FuncResult, stats_export_service::StatsExportService, RelayOrStopSender,
+    RelayOrStopSenderHelper,
+};
 use std::{
     collections::HashSet,
     ops::Deref,

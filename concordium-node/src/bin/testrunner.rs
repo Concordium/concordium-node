@@ -16,7 +16,8 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::{
-    lock_or_die, safe_lock, spawn_or_die, RelayOrStopEnvelope, RelayOrStopReceiver,
+    lock_or_die, safe_lock, spawn_or_die, stats_export_service::StatsExportService,
+    RelayOrStopEnvelope, RelayOrStopReceiver,
 };
 use failure::Fallible;
 use gotham::{
@@ -33,7 +34,6 @@ use p2p_client::{
     configuration,
     network::{NetworkId, NetworkMessage, NetworkPacketType, NetworkRequest, NetworkResponse},
     p2p::*,
-    stats_export_service::StatsExportService,
     utils::{self, get_config_and_logging_setup, load_bans},
 };
 use rand::{distributions::Standard, thread_rng, Rng};
