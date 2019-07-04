@@ -39,8 +39,11 @@ data VoterInfo = VoterInfo {
 } deriving (Eq, Generic, Show)
 instance Serialize VoterInfo where
 
-data FinalizationParameters = FinalizationParameters [VoterInfo]
-    deriving (Eq, Generic, Show)
+data FinalizationParameters = FinalizationParameters {
+    finalizationCommittee :: [VoterInfo],
+    -- |The minimum interval between finalizations will be @1 + finalizationMinimumSkip@
+    finalizationMinimumSkip :: BlockHeight
+} deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
 
 -- | Time in seconds since the epoch
