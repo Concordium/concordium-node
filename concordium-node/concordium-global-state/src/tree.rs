@@ -481,7 +481,7 @@ impl<'a> SkovData<'a> {
         // can possibly promote some other queued pending blocks
         self.refresh_pending_queue(AwaitingParentBlock, &housekeeping_hash);
         self.refresh_pending_queue(AwaitingLastFinalizedBlock, &housekeeping_hash);
-        // self.refresh_finalization_record_queue(&housekeeping_hash);
+        self.refresh_finalization_record_queue(&housekeeping_hash);
 
         if insertion_result.is_none() {
             SkovResult::SuccessfulEntry
@@ -547,15 +547,17 @@ impl<'a> SkovData<'a> {
             // we always get N-1 duplicate finalization records from the last round
             return SkovResult::SuccessfulEntry;
         }
+
         // check if the record's index is in the future; if it is, keep the record
         // for later and await further blocks
-        // let last_finalized_idx = self.finalization_list.last().unwrap().index; //
-        // safe, always there if record.index > last_finalized_idx + 1 {
-        // let error = SkovError::FutureFinalizationRecord(record.index,
-        // last_finalized_idx); self.inapplicable_finalization_records
-        // .insert(record.block_pointer.clone(), record);
-        // return SkovResult::Error(error);
-        // }
+        let last_finalized_idx = self.finalization_list.last().unwrap().index; // safe, always there
+        if record.index > last_finalized_idx + 1 {
+            let error = SkovError::FutureFinalizationRecord(record.index, last_finalized_idx);
+            self.inapplicable_finalization_records
+                .insert(record.block_pointer.clone(), record);
+            return SkovResult::Error(error);
+        }
+
         let housekeeping_hash = record.block_pointer.clone();
 
         let target_pair = self.tree_candidates.remove_entry(&record.block_pointer);
@@ -641,7 +643,7 @@ impl<'a> SkovData<'a> {
         }
     }
 
-    fn _refresh_finalization_record_queue(&mut self, target_hash: &HashBytes) {
+    fn refresh_finalization_record_queue(&mut self, target_hash: &HashBytes) {
         if let Some(applicable_record) = self.inapplicable_finalization_records.remove(target_hash)
         {
             debug!(
