@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Haskell binding needs proper library path to function
 export LD_LIBRARY_PATH=/usr/local/lib
@@ -22,19 +22,9 @@ then
     ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
 fi
 
-if [ -n "$NUM_BAKERS" ];
-then
-    ARGS="$ARGS --num-bakers $NUM_BAKERS"
-fi
-
 if [ -n "$BAKER_ID" ];
 then
     ARGS="$ARGS --baker-id $(echo $BAKER_ID | cut -d'-' -f2)"
-fi
-
-if [ -n "$BAKER_MIN_PEER_SATISFACTION_PERCENTAGE" ];
-then
-    ARGS="$ARGS --baker-min-peer-satisfaction-percentage $BAKER_MIN_PEER_SATISFACTION_PERCENTAGE"
 fi
 
 if [ -n "$PROMETHEUS_METRICS_SERVER" ];
@@ -63,6 +53,19 @@ then
     ARGS="$ARGS --override-data-dir $DATA_DIR"
     mkdir -p $DATA_DIR
     cd $DATA_DIR
+fi
+
+if [ -n "$NUM_BAKERS" ];
+then
+    ARGS="$ARGS --num-bakers $NUM_BAKERS"
+    if [ -n "$DATA_DIR" ];
+    then
+        cd /genesis-data
+        tar -xvf $NUM_BAKERS-bakers.tar.gz
+        cd genesis_data/
+        cp * $DATA_DIR/
+        cd $DATA_DIR
+    fi
 fi
 
 if [ -n "$BOOTSTRAP_FIRST_NODE" ];
@@ -100,23 +103,72 @@ then
     ARGS="$ARGS --listen-http-port $LISTEN_HTTP_PORT"
 fi
 
+if [ -n "$MAX_ALLOWED_NODES" ];
+then
+    ARGS="$ARGS --max-allowed-nodes $MAX_NODES"
+fi
+
+if [ -n "$MAX_ALLOWED_NODES_PERCENTAGE" ];
+then
+    ARGS="$ARGS --max-allowed-nodes-percentage $MAX_NODES_PERCENTAGE"
+fi
+
 if [ -n "$EXTRA_ARGS" ];
 then
     ARGS="$ARGS $EXTRA_ARGS"
 fi
 
+if [ -n "$ARTIFICIAL_DELAY" ];
+then
+    sleep $ARTIFICIAL_DELAY
+fi
+
+if [ -n "$SEEN_MESSAGE_IDS_SIZE" ];
+then
+    ARGS="$ARGS --gossip-seen-message-ids-size $SEEN_MESSAGE_IDS_SIZE"
+fi
+
+if [ -n "$MAX_RESEND_ATTEMPTS" ];
+then
+    ARGS="$ARGS --max-resend-attempts $MAX_RESEND_ATTEMPTS"
+fi
+
+if [ -n "$RELAY_BROADCAST_PERCENTAGE" ];
+then
+    ARGS="$ARGS --relay-broadcast-percentage $RELAY_BROADCAST_PERCENTAGE"
+fi
+
+if [ -n "$GLOBAL_STATE_CATCH_UP_REQUESTS" ];
+then
+    ARGS="$ARGS --global-state-catch-up-requests"
+fi
+
+if [ -n "$NOISE_CRYPTO_DH_ALGORITHM" ];
+then
+    ARGS="$NOISE_ARGS --dh-algorithm $NOISE_CRYPTO_DH_ALGORITHM"
+fi
+
+if [ -n "$CRYPTO_CIPHER_ALGORITHM" ];
+then
+    ARGS="$ARGS --cipher-algorithm $NOISE_CRYPTO_CIPHER_ALGORITHM"
+fi
+
+if [ -n "$NOISE_CRYPTO_HASH_ALGORITHM" ];
+then
+    ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
+fi
 
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
-    
-    /build-project/p2p_client-cli \
+
+    /p2p_client-cli \
     --enable-tps-test-recv \
     --external-ip 10.96.0.15 \
     $ARGS
 
 elif [ "$MODE" == "tps_sender" ]; then
-	echo "Sender!\n"
-    
+    echo "Sender!\n"
+
     mkdir -p $DATA_DIR/tps_test
 
     echo "Generating data\n"
@@ -124,24 +176,24 @@ elif [ "$MODE" == "tps_sender" ]; then
 
     for i in `seq 0 $(($TPS_MESSAGE_COUNT - 1))`;
     do
-	    echo $i
-	    dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
+        echo $i
+        dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
     done
 
     # Echo to cron file
 
-    /build-project/p2p_client-cli \
+    /p2p_client-cli \
     --tps-test-data-dir $DATA_DIR/tps_test \
     --baker-id 1 \
     --connect-to 10.96.0.15:8888 \
     --external-ip 10.96.0.16 \
     $ARGS
-elif [ "$MODE" == "basic" ]; then   
-    /build-project/p2p_client-cli $ARGS
+elif [ "$MODE" == "basic" ]; then
+    /p2p_client-cli $ARGS
 elif [ "$MODE" == "bootstrapper" ]; then
-    /build-project/p2p_bootstrapper-cli $ARGS
-elif [ "$MODE" == "testrunner" ]; then  
-    /build-project/testrunner $ARGS 
+    /p2p_bootstrapper-cli $ARGS
+elif [ "$MODE" == "testrunner" ]; then
+    /testrunner $ARGS
 
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`

@@ -166,12 +166,18 @@ macro_rules! send_or_die {
 /// If the OS refuses to create a new thread, this would result in a `panic`.
 #[macro_export]
 macro_rules! spawn_or_die {
+    ($name:expr, $func:block) => {
+        spawn_or_die!($name, move || {
+            $func
+            info!("Stopping {}", std::thread::current().name().unwrap());
+        })
+    };
     ($name:expr, $func:expr) => {
         std::thread::Builder::new()
             .name($name.to_owned())
             .spawn($func)
             .expect("OS refused to create a new thread")
-    };
+    }
 }
 
 #[derive(Debug, Fail)]

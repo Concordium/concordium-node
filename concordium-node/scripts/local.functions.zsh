@@ -1,14 +1,17 @@
 #####
 # Define an export for CONCORDIUM_P2P_DIR pointing to
-# the p2p-client checked out dir on your disk, and 
+# the p2p-client checked out dir on your disk, and
 # include this file in your .zshrc or the like.
+# 
+# For overrides such as feature gates et all, use the
+# environment variables CONCORDIUM_P2P_EXTRA_ARGS
 #
-# Then use the functions below to easily startup a 
+# Then use the functions below to easily startup a
 # local environment of nodes.
 #
 # Example (one bootstrapper, and two nodes)
 # testnet_bootstrap 1
-# testnet_node 1 1 
+# testnet_node 1 1
 #
 # For further examples simply use the functions without
 # any arguments.
@@ -16,67 +19,135 @@
 # When included by zsh this file also exports local
 # LD_LIBRARY_PATH overrides.
 #
+# Notes NixOS : Everything is wrapped in a nix-shell
+# when the functions are used on a NixOS distro.
+#
 #####
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  CONCORDIUM_GHC_PLATFORM="osx"
+else
+  CONCORDIUM_GHC_PLATFORM="linux"
+fi
+
+if (( ${+NIX_PATH} )); then
+  NIXOS=1
+  if (( ${+CONCORDIUM_P2P_EXTRA_ARGS} )); then
+    CONCORDIUM_P2P_EXTRA_ARGS="$CONCORDIUM_P2P_EXTRA_ARGS --features=static"
+  else
+    CONCORDIUM_P2P_EXTRA_ARGS="--features=static"
+  fi
+else
+  NIXOS=0
+fi
 
 export CONCORDIUM_GHC_VERSION=$(stack ghc -- --version --short | awk '{ print $NF }')
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:~/.stack/programs/x86_64-linux/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
+
+if (( ${+LD_LIBRARY_PATH} )); then
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
+else
+  export LD_LIBRARY_PATH=/usr/local/lib:~/.stack/programs/x86_64-$CONCORDIUM_GHC_PLATFORM/ghc-tinfo6-$CONCORDIUM_GHC_VERSION/lib/ghc-$CONCORDIUM_GHC_VERSION/rts
+fi
+
+NIGHTLY_FMT_VERSION="nightly-2019-03-22"
 
 #####
-# Start up a testnet bootstrapper of instance id 1.
+# testnet_bootstrap and testnet_node can be run with
+# valgrind profiling by passing the name of the desired
+# tool (callgrind / massif / memcheck etc.) or "none"
+# for no profiling
+#####
+
+#####
+# Start up a testnet bootstrapper of instance id 1 and no profiling.
 #
-# testnet_bootstrap 1
+# testnet_bootstrap 1 none
 #
-# or for a debug edition
-#
-# testnet_bootstrap 1 --debug
+# the build determines the run mode (debug/release)
+# (if running with profiling the built binary is used, but otherwise it's
+# rebuilt with cargo every run)
 #
 #####
 function testnet_bootstrap() {
-  if (( $# < 1 ))
+  if (( $# < 2 ))
     then
-    echo "Usage: testnet_bootstrap instanceid"
+    echo "Usage: testnet_bootstrap instanceid profiling"
     return 1
+  fi
+  if [ "$2" != 'none' ];
+    then
+      profiling="valgrind --tool="$2" "
+      binary="./target/debug/p2p_bootstrapper-cli"
+    else
+      profiling=""
+      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_bootstrapper-cli --"
   fi
   bootstrap_id=$1; shift
   (
-    cd $CONCORDIUM_P2P_DIR && \
-    cargo run --bin p2p_bootstrapper-cli -- \
+    cmd="${profiling}\
+       $binary \
       --listen-port $((10900+$bootstrap_id)) \
-      --id $((9900000000000000+$bootstrap_id)) \
-      $@
+      --id $((9900000000000000+$bootstrap_id))"
+    if [ $# > 0 ] ; then
+        cmd="$cmd $@"
+    fi
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
+    cd $CONCORDIUM_P2P_DIR && eval "$cmd"
   )
 }
 
 #####
 # Start up a testnet node of instance id 1 connection
-# to 1 bootstrappers in the network.
+# to 1 bootstrappers in the network and with heap profiling.
 #
-# testnet_node 1 1
+# testnet_node 1 1 massif
 #
-# or for a debug edition
-#
-# testnet_node 1 1 --debug
+# the build determines the run mode (debug/release)
+# (if running with profiling the built binary is used, but otherwise it's
+# rebuilt with cargo every run)
 #
 #####
 function testnet_node() {
-  if (( $# < 2 ))
+  if (( $# < 3 ))
   then
-    echo "Usage: testnet_node instanceid bootstrapper_count"
+    echo "Usage: testnet_node instanceid bootstrapper_count profiling"
     return 1
   elif (( $2 <1 ))
   then
     echo "bootstrappercount can't be less than 1"
     return 2
   fi
+  if [ "$3" != "none" ];
+    then
+      profiling="valgrind --tool="$3" "
+      binary="./target/debug/p2p_client-cli"
+    else
+      profiling=""
+      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli --"
+  fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
+  shift
   (
-    cmd="cargo run --bin p2p_client-cli -- --listen-port $((10800+$instanceid)) --id $((9800000000000000+$instanceid))"
+    cmd="$profiling \
+       $binary \
+      --listen-port $((10800+$instanceid)) \
+      --id $((9800000000000000+$instanceid))\
+      --rpc-server-port $((10000+$instanceid))"
     for n ({1..$bootstrappercount})
-    do
-      cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
-    done
-    cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
+      do
+        cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
+      done
+    if [ $# > 0 ] ; then
+        cmd="$cmd $@"
+    fi
+    
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
+    ( cd $CONCORDIUM_P2P_DIR && eval "$cmd"  )
   )
 }
 
@@ -106,8 +177,8 @@ function testnet_docker_compose() {
 }
 
 #####
-# Start a tps receiver node, expecting 1000 packets 
-# 
+# Start a tps receiver node, expecting 1000 packets
+#
 # c_tps_recv 1000
 #
 #####
@@ -118,20 +189,23 @@ function c_tps_recv() {
     return 1
   fi
   (
-    cd $CONCORDIUM_P2P_DIR && \
-    cargo run --bin p2p_client-cli -- \
+    cmd="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli -- \
       --bootstrap-node=127.0.0.1:9999 \
       --no-dnssec \
       --listen-port 9990 \
       --id 05c2198f706ebede \
       --tps-message-count $1 \
-      --enable-tps-test-recv
+      --enable-tps-test-recv"
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
+    cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
   )
 }
 
 #####
-# Start a tps sender node, expecting 1000 packets 
-# 
+# Start a tps sender node, expecting 1000 packets
+#
 # c_tps_recv 1000
 #
 #####
@@ -142,8 +216,7 @@ function c_tps_send() {
     return 1
   fi
   (
-    cd $CONCORDIUM_P2P_DIR && \
-    cargo run --bin p2p_client-cli -- \
+    cmd="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli -- \
       --bootstrap-node=127.0.0.1:9999 \
       --no-dnssec \
       --listen-port 9991 \
@@ -151,13 +224,17 @@ function c_tps_send() {
       --tps-message-count $1 \
       --tps-test-data-dir /tmp/datatest \
       --tps-test-recv-id 05c2198f706ebede \
-      --connect-to 127.0.0.1:9990
+      --connect-to 127.0.0.1:9990"
+    if (( $NIXOS == 1 )); then 
+      cmd="nix-shell --run '$cmd'"
+    fi
+    cd $CONCORDIUM_P2P_DIR && eval "$cmd $@"
   )
 }
 
 #####
 # Generate 1000 dummy test paylods of 1MB for c_tps_send()
-# 
+#
 # c_make_test_pkts 1000 1m
 #
 #####
@@ -184,4 +261,39 @@ c_make_test_pkts() {
     echo "Generating test packet $n"
     dd if=/dev/urandom of=/tmp/datatest/test-$n bs=1 count=$2 > /dev/null 2>&1
   done
+}
+
+#####
+# Clear the console screen and clear buffer
+#
+#####
+alias clear_screen='printf "\033c"'
+
+#####
+# Run rustfmt on all modules in project
+#
+#####
+lint_fmt() {
+  echo "Formatting code with $NIGHTLY_FMT_VERSION"
+  ( cd $CONCORDIUM_P2P_DIR && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-common && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-consensus && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-global-state && cargo +$NIGHTLY_FMT_VERSION fmt)
+  ( cd $CONCORDIUM_P2P_DIR/concordium-dns && cargo +$NIGHTLY_FMT_VERSION fmt)
+}
+
+#####
+# Run nix-shell for p2p-client
+#
+#####
+concordium_p2p_nix_shell() {
+   if [[ -f /etc/NIXOS ]]; then
+       (
+        cd $CONCORDIUM_P2P_DIR &&
+            printf "Entering nix-shell environment for p2p-client\n"
+            nix-shell $@
+       )
+    else
+       printf "Not a NixOS environment!\n"
+   fi
 }

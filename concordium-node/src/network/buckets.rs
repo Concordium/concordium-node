@@ -1,8 +1,7 @@
-use rand::{rngs::OsRng, seq::IteratorRandom};
+use rand::seq::IteratorRandom;
 use std::{
     collections::HashSet,
     hash::{Hash, Hasher},
-    sync::RwLock,
 };
 
 use crate::{
@@ -29,10 +28,6 @@ impl Hash for Node {
 pub type Bucket = HashSet<Node>;
 pub struct Buckets {
     pub buckets: Vec<Bucket>,
-}
-
-lazy_static! {
-    static ref RNG: RwLock<OsRng> = { RwLock::new(OsRng::new().unwrap()) };
 }
 
 impl Default for Buckets {
@@ -108,13 +103,10 @@ impl Buckets {
         amount: usize,
         networks: &HashSet<NetworkId>,
     ) -> Vec<P2PPeer> {
-        if let Ok(ref mut rng) = safe_write!(RNG) {
-            self.get_all_nodes(Some(sender), networks)
-                .into_iter()
-                .choose_multiple(&mut **rng, amount)
-        } else {
-            vec![]
-        }
+        let mut rng = rand::thread_rng();
+        self.get_all_nodes(Some(sender), networks)
+            .into_iter()
+            .choose_multiple(&mut rng, amount)
     }
 }
 

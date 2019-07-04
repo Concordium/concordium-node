@@ -1,28 +1,40 @@
+pub mod poll_loop;
+pub use poll_loop::{process_network_requests, NetworkRawRequest};
+
 pub mod counter;
+pub mod p2p_node_id;
+pub mod p2p_peer;
+pub mod serialization;
+
+pub use self::{
+    p2p_node_id::P2PNodeId,
+    p2p_peer::{P2PPeer, P2PPeerBuilder},
+};
 
 use concordium_common::UCursor;
 
 pub mod fails;
 
 use chrono::prelude::*;
-use failure::{bail, Fallible};
-use rand::{
-    self,
-    distributions::{Distribution, Uniform},
-};
+use failure::{bail, Error, Fallible};
 use std::{
-    cmp::Ordering,
     fmt,
-    hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
 
-use crate::network::{PROTOCOL_NODE_ID_LENGTH, PROTOCOL_PORT_LENGTH};
+use crate::{
+    common::serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    network::PROTOCOL_PORT_LENGTH,
+};
 
 const PROTOCOL_IP4_LENGTH: usize = 12;
 const PROTOCOL_IP6_LENGTH: usize = 32;
 pub const PROTOCOL_IP_TYPE_LENGTH: usize = 3;
+
+const PEER_TYPE_NODE: u8 = 0;
+const PEER_TYPE_BOOTSTRAPPER: u8 = 1;
+pub const TESTCONFIG: &[&str] = &["no-bootstrap"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -41,6 +53,32 @@ impl fmt::Display for PeerType {
                 PeerType::Bootstrapper => "Bootstrapper",
             }
         )
+    }
+}
+
+impl Serializable for PeerType {
+    #[inline]
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        match self {
+            PeerType::Node => PEER_TYPE_NODE,
+            PeerType::Bootstrapper => PEER_TYPE_BOOTSTRAPPER,
+        }
+        .serialize(archive)
+    }
+}
+
+impl Deserializable for PeerType {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<PeerType>
+    where
+        A: ReadArchive, {
+        match u8::deserialize(archive)? {
+            PEER_TYPE_NODE => Ok(PeerType::Node),
+            PEER_TYPE_BOOTSTRAPPER => Ok(PeerType::Bootstrapper),
+            _ => bail!("Unsupported PeerType"),
+        }
     }
 }
 
@@ -77,7 +115,7 @@ impl RemotePeer {
             RemotePeer::PreHandshake(peer_type, addr) => Ok(RemotePeer::PostHandshake(
                 P2PPeer::from(peer_type, id, addr),
             )),
-            _ => bail!(fails::RemotePeerAlreadyPromoted::new(id, addr)),
+            _ => Err(Error::from(fails::RemotePeerAlreadyPromoted::new(id, addr))),
         }
     }
 
@@ -99,44 +137,6 @@ impl RemotePeer {
         match self {
             RemotePeer::PostHandshake(peer) => peer.peer_type(),
             RemotePeer::PreHandshake(peer_type, ..) => *peer_type,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Builder)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-#[builder(build_fn(skip))]
-pub struct P2PPeer {
-    id: P2PNodeId,
-    pub addr: SocketAddr,
-    #[builder(setter(skip))]
-    last_seen: u64,
-    peer_type: PeerType,
-}
-
-impl P2PPeerBuilder {
-    pub fn build(&mut self) -> Fallible<P2PPeer> {
-        let id = self.id.unwrap_or_else(P2PNodeId::default);
-        self.id(id);
-
-        if let Some((peer_type, (id, addr))) = self
-            .peer_type
-            .iter()
-            .zip(self.id.iter().zip(self.addr.iter()))
-            .next()
-        {
-            Ok(P2PPeer {
-                peer_type: *peer_type,
-                addr:      *addr,
-                id:        *id,
-                last_seen: get_current_stamp(),
-            })
-        } else {
-            bail!(fails::MissingFieldsError::new(
-                self.peer_type,
-                self.id,
-                self.addr
-            ))
         }
     }
 }
@@ -242,9 +242,9 @@ pub fn deserialize_ip(pkt: &mut UCursor) -> Fallible<IpAddr> {
     match ip_type {
         b"IP4" => deserialize_ip4(pkt),
         b"IP6" => deserialize_ip6(pkt),
-        _ => bail!(fails::InvalidIpType::new(
-            str::from_utf8(ip_type)?.to_owned()
-        )),
+        _ => Err(Error::from(fails::InvalidIpType::new(
+            str::from_utf8(ip_type)?.to_owned(),
+        ))),
     }
 }
 
@@ -258,113 +258,24 @@ pub fn deserialize_ip_port(pkt: &mut UCursor) -> Fallible<(IpAddr, u16)> {
     Ok((ip_addr, port))
 }
 
-impl P2PPeer {
-    pub fn from(peer_type: PeerType, id: P2PNodeId, addr: SocketAddr) -> Self {
-        P2PPeer {
-            peer_type,
-            id,
-            addr,
-            last_seen: get_current_stamp(),
-        }
-    }
-
-    pub fn serialize(&self) -> String { format!("{}{}", self.id, serialize_addr(self.addr)) }
-
-    pub fn deserialize(pkt: &mut UCursor) -> Fallible<P2PPeer> {
-        let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-
-        ensure!(
-            pkt.len() >= pkt.position() + min_packet_size as u64,
-            "P2PPeer package needs {} bytes",
-            min_packet_size
-        );
-
-        let view = pkt.read_into_view(min_packet_size)?;
-        let buf = view.as_slice();
-
-        let node_id = P2PNodeId::from_str(str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?;
-        trace!(
-            "deserialized {:?} to {:?}",
-            &buf[..PROTOCOL_NODE_ID_LENGTH],
-            node_id
-        );
-
-        let (ip_addr, port) = deserialize_ip_port(pkt)?;
-
-        P2PPeerBuilder::default()
-            .id(node_id)
-            .addr(SocketAddr::new(ip_addr, port))
-            .peer_type(PeerType::Node)
-            .build()
-    }
-
-    pub fn id(&self) -> P2PNodeId { self.id }
-
-    pub fn ip(&self) -> IpAddr { self.addr.ip() }
-
-    pub fn port(&self) -> u16 { self.addr.port() }
-
-    pub fn last_seen(&self) -> u64 { self.last_seen }
-
-    pub fn peer_type(&self) -> PeerType { self.peer_type }
-}
-
-impl PartialEq for P2PPeer {
-    fn eq(&self, other: &P2PPeer) -> bool { self.id == other.id() }
-}
-
-impl Eq for P2PPeer {}
-
-impl Hash for P2PPeer {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.id.hash(state); }
-}
-
-impl Ord for P2PPeer {
-    fn cmp(&self, other: &P2PPeer) -> Ordering { self.id.cmp(&other.id()) }
-}
-
-impl PartialOrd for P2PPeer {
-    fn partial_cmp(&self, other: &P2PPeer) -> Option<Ordering> { Some(self.cmp(other)) }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub struct P2PNodeId(pub u64);
-
-impl Default for P2PNodeId {
-    fn default() -> Self {
-        let mut rng = rand::thread_rng();
-        let n = Uniform::from(0..u64::max_value()).sample(&mut rng);
-        P2PNodeId(n)
-    }
-}
-
-impl fmt::Display for P2PNodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:016x}", self.0) }
-}
-
-impl FromStr for P2PNodeId {
-    type Err = failure::Error;
-
-    fn from_str(s: &str) -> Fallible<Self> {
-        match u64::from_str_radix(s, 16) {
-            Ok(n) => Ok(P2PNodeId(n)),
-            Err(e) => bail!("Invalid Node Id ({})", e),
-        }
-    }
-}
-
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
 
 pub fn get_current_stamp_b64() -> String { base64::encode(&get_current_stamp().to_le_bytes()[..]) }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketDirection {
+    Inbound,
+    Outbound,
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
+        common::serialization::{deserialize_from_memory, serialize_into_memory},
         network::{
             NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
+            NetworkRequest, NetworkResponse, PROTOCOL_VERSION,
         },
         p2p::banned_nodes::tests::dummy_ban_node,
     };
@@ -413,38 +324,51 @@ mod tests {
             }
         }};
         ($msg:ident, $msg_type:ident, $deserialized:expr, $zk:expr, $nets:expr) => {{
-            assert!(match $deserialized {
+            match $deserialized {
                 NetworkMessage::$msg($msg::$msg_type(_, nets2, zk2), ..) => {
-                    $zk == zk2 && $nets == nets2
+                    assert_eq!($zk, zk2);
+                    assert_eq!($nets, nets2);
                 }
-                _ => false,
-            })
+                _ => panic!("invalid network message"),
+            }
         }};
     }
 
     macro_rules! net_test {
         ($msg:ident, $msg_type:ident) => {{
             let self_peer = self_peer();
-            let test_msg = create_message!($msg, $msg_type, self_peer.clone().peer().unwrap());
-            let serialized = UCursor::from(test_msg.serialize());
-            let deserialized = NetworkMessage::deserialize(
+            let test_msg = NetworkMessage::$msg(
+                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap()),
+                Some(get_current_stamp()),
+                None,
+            );
+            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+
+            let deserialized = deserialize_from_memory::<NetworkMessage>(
+                test_msg_data,
                 self_peer.clone(),
                 self_peer.peer().unwrap().ip(),
-                serialized,
-            );
+            )
+            .unwrap();
             net_assertion!($msg, $msg_type, deserialized)
         }};
         ($msg:ident, $msg_type:ident, $nets:expr) => {{
             let self_peer = self_peer();
             let nets = $nets;
-            let test_msg =
-                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets);
-            let serialized = UCursor::from(test_msg.serialize());
-            let deserialized = NetworkMessage::deserialize(
+            let test_msg = NetworkMessage::$msg(
+                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets),
+                Some(get_current_stamp()),
+                None,
+            );
+            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+
+            let deserialized = deserialize_from_memory::<NetworkMessage>(
+                test_msg_data,
                 self_peer.clone(),
                 self_peer.peer().unwrap().ip(),
-                serialized,
-            );
+            )
+            .unwrap();
+
             net_assertion!($msg, $msg_type, deserialized, nets)
         }};
         ($msg:ident, $msg_type:ident, $zk:expr, $nets:expr) => {{
@@ -454,14 +378,20 @@ mod tests {
                 .into_iter()
                 .map(|net: u16| NetworkId::from(net))
                 .collect();
-            let test_msg =
-                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets, zk);
-            let serialized = UCursor::from(test_msg.serialize());
-            let deserialized = NetworkMessage::deserialize(
+            let test_msg = NetworkMessage::$msg(
+                create_message!($msg, $msg_type, self_peer.clone().peer().unwrap(), nets, zk),
+                Some(get_current_stamp()),
+                None,
+            );
+            let test_msg_data = serialize_into_memory(&test_msg, 256).unwrap();
+
+            let deserialized = deserialize_from_memory::<NetworkMessage>(
+                test_msg_data,
                 self_peer.clone(),
                 self_peer.peer().unwrap().ip(),
-                serialized,
-            );
+            )
+            .unwrap();
+
             net_assertion!($msg, $msg_type, deserialized, zk, nets)
         }};
     }
@@ -577,19 +507,16 @@ mod tests {
             .network_id(NetworkId::from(100))
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_direct(P2PNodeId::default())?;
-        let serialized = msg.serialize();
-        let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
-        let mut deserialized = NetworkMessage::deserialize(self_peer.clone(), ipaddr, s11n_cursor);
 
-        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
-            if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
-                assert_eq!(packet.network_id, NetworkId::from(100));
-                assert_eq!(packet.message.read_all_into_view()?, text_msg);
-            } else {
-                bail!("It should be a direct message");
-            }
+        let msg_serialized = serialize_into_memory(&msg, 256)?;
+        let mut packet =
+            deserialize_from_memory::<NetworkPacket>(msg_serialized, self_peer.clone(), ipaddr)?;
+
+        if let NetworkPacketType::DirectMessage(..) = packet.packet_type {
+            assert_eq!(packet.network_id, NetworkId::from(100));
+            assert_eq!(packet.message.read_all_into_view()?, text_msg);
         } else {
-            bail!("It should be a network packet message");
+            bail!("It should be a direct message");
         }
 
         Ok(())
@@ -607,19 +534,15 @@ mod tests {
             .message(UCursor::build_from_view(text_msg.clone()))
             .build_broadcast()?;
 
-        let serialized = msg.serialize();
-        let s11n_cursor = UCursor::build_from_view(ContainerView::from(serialized));
-        let mut deserialized = NetworkMessage::deserialize(self_peer.clone(), ipaddr, s11n_cursor);
+        let serialized = serialize_into_memory(&msg, 256)?;
+        let mut packet =
+            deserialize_from_memory::<NetworkPacket>(serialized, self_peer.clone(), ipaddr)?;
 
-        if let NetworkMessage::NetworkPacket(ref mut packet, ..) = deserialized {
-            if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
-                assert_eq!(packet.network_id, NetworkId::from(100));
-                assert_eq!(packet.message.read_all_into_view()?, text_msg);
-            } else {
-                bail!("Expected broadcast message");
-            }
+        if let NetworkPacketType::BroadcastedMessage = packet.packet_type {
+            assert_eq!(packet.network_id, NetworkId::from(100));
+            assert_eq!(packet.message.read_all_into_view()?, text_msg);
         } else {
-            bail!("Expected network packet message");
+            bail!("Expected broadcast message");
         }
         Ok(())
     }
@@ -656,28 +579,46 @@ mod tests {
 
     #[test]
     fn resp_invalid_version() {
-        let deserialized = NetworkMessage::deserialize(
+        let ping = NetworkMessage::NetworkRequest(
+            NetworkRequest::Ping(self_peer().peer().unwrap()),
+            None,
+            None,
+        );
+        let mut ping_data = serialize_into_memory(&ping, 128).unwrap();
+
+        // Force and error in version protocol:
+        //  + 13 bytes (PROTOCOL_NAME)
+        //  + 1 byte due to endianess (Version is stored as u16)
+        ping_data[13 + 1] = (PROTOCOL_VERSION + 1) as u8;
+
+        let deserialized = deserialize_from_memory::<NetworkMessage>(
+            ping_data,
             self_peer(),
             IpAddr::from([127, 0, 0, 1]),
-            UCursor::from(b"CONCORDIUMP2P0021001".to_vec()),
         );
-        assert!(match deserialized {
-            NetworkMessage::InvalidMessage => true,
-            _ => false,
-        })
+
+        assert!(deserialized.is_err());
     }
 
     #[test]
     fn resp_invalid_protocol() {
-        let deserialized = NetworkMessage::deserialize(
+        let ping = NetworkMessage::NetworkRequest(
+            NetworkRequest::Ping(self_peer().peer().unwrap()),
+            None,
+            None,
+        );
+        let mut ping_data = serialize_into_memory(&ping, 128).unwrap();
+
+        // Force and error in protocol name:
+        ping_data[1] = b'X';
+
+        let deserialized = deserialize_from_memory::<NetworkMessage>(
+            ping_data,
             self_peer(),
             IpAddr::from([127, 0, 0, 1]),
-            UCursor::from(b"CONC0RD1UMP2P0021001".to_vec()),
         );
-        assert!(match deserialized {
-            NetworkMessage::InvalidMessage => true,
-            _ => false,
-        })
+
+        assert!(deserialized.is_err())
     }
 
     #[test]

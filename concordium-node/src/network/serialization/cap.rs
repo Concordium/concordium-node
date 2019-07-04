@@ -2,8 +2,8 @@ mod s11n {
     use crate::{
         common::{P2PNodeId, P2PPeer, PeerType},
         network::{
-            NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder, NetworkPacketType,
-            NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder,
+            NetworkPacketType, NetworkRequest, NetworkResponse,
         },
         p2p_capnp,
     };
@@ -81,7 +81,7 @@ mod s11n {
 
         let packet = NetworkPacketBuilder::default()
             .peer(peer.to_owned())
-            .message_id(msg_id.to_string())
+            .message_id(MessageId::new(msg_id))
             .network_id(NetworkId::from(network_id))
             .message(UCursor::from(msg.to_vec()))
             .build_direct(receiver_id)
@@ -270,7 +270,7 @@ mod s11n {
     fn write_network_packet_direct(
         builder: &mut p2p_capnp::network_packet_direct::Builder,
         peer: &P2PPeer,
-        msg_id: &str,
+        msg_id: &MessageId,
         receiver: P2PNodeId,
         network_id: u16,
         msg: &[u8],
@@ -417,13 +417,14 @@ mod unit_test {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use super::{deserialize, save_network_message};
-    use concordium_common::UCursor;
+    use concordium_common::{UCursor, SHA256};
     use std::str::FromStr;
 
     use crate::{
         common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
         network::{
-            NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest, NetworkResponse,
+            packet::MessageId, NetworkId, NetworkMessage, NetworkPacketBuilder, NetworkRequest,
+            NetworkResponse,
         },
     };
 
@@ -460,7 +461,7 @@ mod unit_test {
             NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; SHA256 as usize]))
                     .network_id(NetworkId::from(111u16))
                     .message(UCursor::from(direct_message_content))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())

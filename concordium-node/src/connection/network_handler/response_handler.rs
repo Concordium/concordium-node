@@ -1,5 +1,5 @@
 use crate::network::NetworkResponse;
-use concordium_common::functor::{FunctorResult, Functorable, UnitFunction, UnitFunctor};
+use concordium_common::functor::{FunctorResult, UnitFunction, UnitFunctor};
 
 pub struct ResponseHandler {
     pub pong_handler:      UnitFunctor<NetworkResponse>,
@@ -15,25 +15,25 @@ impl Default for ResponseHandler {
 impl ResponseHandler {
     pub fn new() -> Self {
         ResponseHandler {
-            pong_handler:      UnitFunctor::<NetworkResponse>::new("Network::Response::Pong"),
-            find_node_handler: UnitFunctor::<NetworkResponse>::new("Network::Response::FindNode"),
-            peer_list_handler: UnitFunctor::<NetworkResponse>::new("Network::Response::PeerList"),
-            handshake_handler: UnitFunctor::<NetworkResponse>::new("Network::Response::Handshake"),
+            pong_handler:      UnitFunctor::<NetworkResponse>::new(),
+            find_node_handler: UnitFunctor::<NetworkResponse>::new(),
+            peer_list_handler: UnitFunctor::<NetworkResponse>::new(),
+            handshake_handler: UnitFunctor::<NetworkResponse>::new(),
         }
     }
 
     pub fn process_message(&self, msg: &NetworkResponse) -> FunctorResult<()> {
         match msg {
-            ref pong_inner_pkt @ NetworkResponse::Pong(_) => {
+            ref pong_inner_pkt @ NetworkResponse::Pong(..) => {
                 self.pong_handler.run_callbacks(pong_inner_pkt)
             }
-            ref find_node_inner_pkt @ NetworkResponse::FindNode(_, _) => {
+            ref find_node_inner_pkt @ NetworkResponse::FindNode(..) => {
                 self.find_node_handler.run_callbacks(find_node_inner_pkt)
             }
-            ref peer_list_inner_pkt @ NetworkResponse::PeerList(_, _) => {
+            ref peer_list_inner_pkt @ NetworkResponse::PeerList(..) => {
                 self.peer_list_handler.run_callbacks(peer_list_inner_pkt)
             }
-            ref handshake_inner_pkt @ NetworkResponse::Handshake(_, _, _) => {
+            ref handshake_inner_pkt @ NetworkResponse::Handshake(..) => {
                 self.handshake_handler.run_callbacks(handshake_inner_pkt)
             }
         }

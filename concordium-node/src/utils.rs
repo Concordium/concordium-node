@@ -1,25 +1,35 @@
 use crate::{
+    self as p2p_client,
     common::{serialize_addr, P2PPeer},
-    db::P2PDB,
+    configuration,
     fails::{HostPortParseError, NoDNSResolversAvailable},
-    p2p::{banned_nodes::BannedNode, P2PNode},
+    p2p::{
+        banned_nodes::{insert_ban, remove_ban, BannedNode},
+        P2PNode,
+    },
 };
 use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use concordium_dns::dns;
-use failure::Fallible;
+use env_logger::{Builder, Env};
+use failure::{Error, Fallible};
 use hacl_star::{
     ed25519::{keypair, PublicKey, SecretKey, Signature},
     sha2,
 };
 use rand::rngs::OsRng;
+use rkv::{Rkv, StoreOptions};
+use snow::Keypair;
+#[cfg(feature = "benchmark")]
+use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
-    fs,
+    convert::TryFrom,
     io::Cursor,
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
+    sync::RwLock,
 };
 
 pub fn sha256(input: &str) -> [u8; 32] { sha256_bytes(input.as_bytes()) }
@@ -32,6 +42,14 @@ pub fn sha256_bytes(input: &[u8]) -> [u8; 32] {
 
 pub fn to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// It transforms an hexadecimal string `hex` into binary data.
+pub fn from_hex_string(hex: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
+    (0..hex.len())
+        .step_by(2)
+        .map(|idx| u8::from_str_radix(&hex[idx..idx + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()
 }
 
 pub fn parse_ip_port(input: &str) -> Option<SocketAddr> {
@@ -114,11 +132,11 @@ pub fn parse_host_port(
             if let Ok(port) = port.parse::<u16>() {
                 Ok(vec![SocketAddr::new(ip, port)])
             } else {
-                bail!(HostPortParseError::new(input.to_owned()))
+                return Err(Error::from(HostPortParseError::new(input.to_owned())));
             }
         } else {
             match port.parse::<u16>() {
-                Err(_) => bail!(HostPortParseError::new(input.to_owned())), // couldn't parse port
+                Err(_) => Err(Error::from(HostPortParseError::new(input.to_owned()))), /* couldn't parse port */
                 Ok(port) => {
                     let resolver_addresses = resolvers
                         .iter()
@@ -154,13 +172,13 @@ pub fn parse_host_port(
                             .map(ToOwned::to_owned)
                             .collect::<Vec<_>>())
                     } else {
-                        bail!(NoDNSResolversAvailable)
+                        Err(Error::from(NoDNSResolversAvailable))
                     }
                 }
             }
         }
     } else {
-        bail!(HostPortParseError::new(input.to_owned())) // No colon in host:post
+        Err(Error::from(HostPortParseError::new(input.to_owned()))) // No colon in host:post
     }
 }
 
@@ -429,6 +447,7 @@ pub fn read_peers_from_dns_entries(
 
 pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng::new().unwrap()).0).0 }
 
+#[cfg(feature = "benchmark")]
 pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     let mut ret = Vec::new();
 
@@ -445,21 +464,40 @@ pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
     ret
 }
 
+pub fn load_bans(node: &mut P2PNode, kvs_env: &RwLock<Rkv>) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_env)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+
+    {
+        let ban_reader = ban_kvs_env.read()?;
+        let ban_iter = ban_store.iter_start(&ban_reader)?;
+
+        for entry in ban_iter {
+            let (id_bytes, _expiry) = entry?;
+            let node_to_ban = BannedNode::try_from(id_bytes)?;
+
+            node.ban_node(node_to_ban);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn ban_node(
     node: &mut P2PNode,
     peer: &P2PPeer,
     to_ban: BannedNode,
-    db: &P2PDB,
+    kvs_handle: &RwLock<Rkv>,
     no_trust_bans: bool,
 ) {
     info!("Ban node request for {:?} from {:?}", to_ban, peer);
     node.ban_node(to_ban);
 
-    let to_db = to_ban.to_db_repr();
-    match to_ban {
-        BannedNode::ById(_) => to_db.0.map(|ref id| db.insert_ban_id(id)),
-        _ => to_db.1.map(|ref addr| db.insert_ban_addr(addr)),
-    };
+    let store_key = to_ban.to_db_repr();
+    if let Err(e) = insert_ban(&kvs_handle, &store_key) {
+        error!("{}", e);
+    }
+
     if !no_trust_bans {
         node.send_ban(to_ban);
     }
@@ -469,20 +507,71 @@ pub fn unban_node(
     node: &mut P2PNode,
     peer: &P2PPeer,
     to_unban: BannedNode,
-    db: &P2PDB,
+    kvs_handle: &RwLock<Rkv>,
     no_trust_bans: bool,
 ) {
     info!("Unban node request for {:?} from {:?}", to_unban, peer);
     node.unban_node(to_unban);
 
-    let to_db = to_unban.to_db_repr();
-    match to_unban {
-        BannedNode::ById(_) => to_db.0.map(|ref id| db.delete_ban_id(id)),
-        _ => to_db.1.map(|ref addr| db.delete_ban_addr(addr)),
-    };
+    let store_key = to_unban.to_db_repr();
+    if let Err(e) = remove_ban(&kvs_handle, &store_key) {
+        error!("{}", e);
+    }
+
     if !no_trust_bans {
         node.send_unban(to_unban);
     }
+}
+
+/// It clones `kp`. `snow::Keypair` does not derive `Clone` in current version.
+pub fn clone_snow_keypair(kp: &Keypair) -> Keypair {
+    Keypair {
+        private: kp.private.clone(),
+        public:  kp.public.clone(),
+    }
+}
+
+pub fn get_config_and_logging_setup(
+) -> Fallible<(configuration::Config, configuration::AppPreferences)> {
+    // Get config and app preferences
+    let conf = configuration::parse_config()?;
+    let app_prefs = configuration::AppPreferences::new(
+        conf.common.config_dir.to_owned(),
+        conf.common.data_dir.to_owned(),
+    );
+
+    // Prepare the logger
+    let env = if conf.common.trace {
+        Env::default().filter_or("LOG_LEVEL", "trace")
+    } else if conf.common.debug {
+        Env::default().filter_or("LOG_LEVEL", "debug")
+    } else {
+        Env::default().filter_or("LOG_LEVEL", "info")
+    };
+
+    let mut log_builder = Builder::from_env(env);
+    if conf.common.no_log_timestamp {
+        log_builder.default_format_timestamp(false);
+    }
+    log_builder.init();
+
+    p2p_client::setup_panics();
+
+    info!(
+        "Starting up {} version {}!",
+        p2p_client::APPNAME,
+        p2p_client::VERSION
+    );
+    info!(
+        "Application data directory: {:?}",
+        app_prefs.get_user_app_dir()
+    );
+    info!(
+        "Application config directory: {:?}",
+        app_prefs.get_user_config_dir()
+    );
+
+    Ok((conf, app_prefs))
 }
 
 #[cfg(test)]

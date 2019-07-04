@@ -4,10 +4,19 @@ extern crate criterion;
 use concordium_common::UCursor;
 
 use p2p_client::{
-    common::{P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType},
-    network::{NetworkId, NetworkPacket, NetworkPacketBuilder},
+    common::{
+        get_current_stamp,
+        serialization::{Serializable, WriteArchiveAdapter},
+        P2PNodeId, P2PPeer, P2PPeerBuilder, PeerType,
+    },
+    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketBuilder},
 };
+
+use failure::Fallible;
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+
 use std::{
+    io::{Seek, SeekFrom, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
 };
@@ -23,26 +32,44 @@ pub fn localhost_peer() -> P2PPeer {
         .unwrap()
 }
 
-pub fn make_direct_message_header(content_size: usize) -> Vec<u8> {
-    let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed").unwrap();
+pub fn make_direct_message_into_disk(content_size: usize) -> Fallible<UCursor> {
+    // 1. Generate payload on disk
+    let mut payload = UCursor::build_from_temp_file()?;
+    let mut pending_content_size = content_size;
+    while pending_content_size != 0 {
+        let chunk: String = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(std::cmp::min(4096, pending_content_size))
+            .collect();
+        pending_content_size -= chunk.len();
+
+        payload.write_all(chunk.as_bytes())?;
+    }
+
+    payload.seek(SeekFrom::Start(0))?;
+
+    // 2. Generate packet.
+    let p2p_node_id = P2PNodeId::from_str("000000002dd2b6ed")?;
     let pkt = NetworkPacketBuilder::default()
         .peer(P2PPeer::from(
             PeerType::Node,
             p2p_node_id,
-            SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), 8888),
+            SocketAddr::new(IpAddr::from_str("127.0.0.1")?, 8888),
         ))
         .message_id(NetworkPacket::generate_message_id())
-        .network_id(NetworkId::from(111u16))
-        .message(UCursor::from(vec![]))
-        .build_direct(P2PNodeId::from_str("100000002dd2b6ed").unwrap())
-        .unwrap();
+        .network_id(NetworkId::from(111))
+        .message(payload)
+        .build_direct(p2p_node_id)?;
+    let message = NetworkMessage::NetworkPacket(pkt, Some(get_current_stamp()), None);
 
-    let mut h = pkt.serialize();
+    // 3. Serialize package into archive (on disk)
+    let archive_cursor = UCursor::build_from_temp_file()?;
+    let mut archive = WriteArchiveAdapter::from(archive_cursor);
+    message.serialize(&mut archive)?;
 
-    // chop the last 10 bytes which are the length of the message
-    h.truncate(h.len() - 10);
-    h.append(&mut format!("{:010}", content_size).into_bytes());
-    h
+    let mut out_cursor = archive.into_inner();
+    out_cursor.seek(SeekFrom::Start(0))?;
+    Ok(out_cursor)
 }
 
 #[cfg(any(
@@ -58,39 +85,21 @@ mod common {
 
 mod network {
     pub mod message {
-        use crate::make_direct_message_header;
+        use crate::{localhost_peer, make_direct_message_into_disk};
         use concordium_common::{ContainerView, UCursor};
         use p2p_client::{
-            common::{P2PPeerBuilder, PeerType, RemotePeer},
-            network::NetworkMessage,
+            common::{
+                get_current_stamp,
+                serialization::{
+                    Deserializable, ReadArchiveAdapter, Serializable, WriteArchiveAdapter,
+                },
+                P2PPeerBuilder, PeerType, RemotePeer,
+            },
+            network::{NetworkMessage, NetworkResponse},
         };
-        use rand::{distributions::Alphanumeric, thread_rng, Rng};
-        use std::{
-            io::Write,
-            net::{IpAddr, Ipv4Addr, SocketAddr},
-        };
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
         use criterion::Criterion;
-
-        fn make_direct_message_into_disk(content_size: usize) -> UCursor {
-            let header = make_direct_message_header(content_size);
-            let mut cursor = UCursor::build_from_temp_file().unwrap();
-            let _ = cursor.write_all(header.as_slice());
-
-            let mut pending_content_size = content_size;
-            while pending_content_size != 0 {
-                let chunk: String = thread_rng()
-                    .sample_iter(&Alphanumeric)
-                    .take(std::cmp::min(4096, pending_content_size))
-                    .collect();
-                pending_content_size -= chunk.len();
-
-                let _ = cursor.write_all(chunk.as_bytes());
-            }
-
-            assert_eq!(cursor.len(), (content_size + header.len()) as u64);
-            cursor
-        }
 
         pub fn bench_s11n_001_direct_message_256(b: &mut Criterion) {
             bench_s11n_001_direct_message(b, 256)
@@ -129,14 +138,10 @@ mod network {
         }
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
-            let content: String = thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(content_size)
-                .collect();
-
-            let mut pkt: Vec<u8> = make_direct_message_header(content.len());
-            pkt.append(&mut content.into_bytes());
-            let data = ContainerView::from(pkt);
+            let mut cursor = make_direct_message_into_disk(content_size).unwrap();
+            cursor
+                .swap_to_memory()
+                .expect("Cannot move cursor to memory");
 
             let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
             let local_peer = P2PPeerBuilder::default()
@@ -150,13 +155,14 @@ mod network {
             );
 
             c.bench_function(&bench_id, move |b| {
-                let cloned_data = data.clone();
+                let cloned_cursor = cursor.clone();
                 let peer = RemotePeer::PostHandshake(local_peer.clone());
                 let ip = local_ip;
 
                 b.iter(move || {
-                    let s11n_cursor = UCursor::build_from_view(cloned_data.clone());
-                    NetworkMessage::deserialize(peer.clone(), ip.clone(), s11n_cursor)
+                    let mut archive =
+                        ReadArchiveAdapter::new(cloned_cursor.clone(), peer.clone(), ip);
+                    NetworkMessage::deserialize(&mut archive)
                 })
             });
         }
@@ -187,7 +193,7 @@ mod network {
 
         fn bench_s11n_001_direct_message_from_disk(c: &mut Criterion, content_size: usize) {
             // Create serialization data in memory and then move to disk
-            let cursor_on_disk = make_direct_message_into_disk(content_size);
+            let cursor_on_disk = make_direct_message_into_disk(content_size).unwrap();
 
             // Local stuff
             let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -207,12 +213,119 @@ mod network {
                 let peer = RemotePeer::PostHandshake(local_peer.clone());
 
                 b.iter(move || {
-                    let s11n_cursor = cursor.clone();
-                    NetworkMessage::deserialize(peer.clone(), local_ip.clone(), s11n_cursor)
+                    let mut archive =
+                        ReadArchiveAdapter::new(cursor.clone(), peer.clone(), local_ip);
+
+                    NetworkMessage::deserialize(&mut archive)
                 })
             });
         }
 
+        pub fn bench_s11n_get_peers_50(c: &mut Criterion) { bench_s11n_get_peers(c, 50) }
+
+        pub fn bench_s11n_get_peers_100(c: &mut Criterion) { bench_s11n_get_peers(c, 100) }
+
+        pub fn bench_s11n_get_peers_200(c: &mut Criterion) { bench_s11n_get_peers(c, 200) }
+
+        fn bench_s11n_get_peers(c: &mut Criterion, size: usize) {
+            let me = localhost_peer();
+            let mut peers = vec![];
+            peers.resize_with(size, || localhost_peer());
+
+            let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+            let peer_list_msg = NetworkMessage::NetworkResponse(
+                NetworkResponse::PeerList(me.clone(), peers),
+                Some(get_current_stamp()),
+                None,
+            );
+
+            let bench_id = format!(
+                "Benchmark deserialization of PeerList Response with {} peers ",
+                size
+            );
+
+            c.bench_function(&bench_id, move |b| {
+                let mut archive = WriteArchiveAdapter::from(vec![]);
+                let _ = peer_list_msg.serialize(&mut archive).unwrap();
+                let peer_list_msg_data = ContainerView::from(archive.into_inner());
+
+                let cursor = UCursor::build_from_view(peer_list_msg_data);
+                let peer = me.clone();
+
+                b.iter(move || {
+                    let remote_peer = RemotePeer::PostHandshake(peer.clone());
+                    let mut archive =
+                        ReadArchiveAdapter::new(cursor.clone(), remote_peer, local_ip);
+                    NetworkMessage::deserialize(&mut archive).unwrap()
+                })
+            });
+        }
+    }
+
+    pub mod connection {
+        use concordium_common::UCursor;
+        use criterion::Criterion;
+        use p2p_client::{
+            common::PeerType,
+            network::NetworkId,
+            test_utils::{
+                connect_and_wait_handshake, make_node_and_sync, next_available_port, setup_logger,
+                wait_direct_message,
+            },
+        };
+        use rand::{distributions::Standard, thread_rng, Rng};
+
+        pub fn bench_config(sample_size: usize) -> Criterion {
+            Criterion::default().sample_size(sample_size)
+        }
+
+        // P2P Communication Benchmark
+        // ============================
+        pub fn p2p_net_64b(c: &mut Criterion) { p2p_net(c, 64); }
+        pub fn p2p_net_4k(c: &mut Criterion) { p2p_net(c, 4 * 1024); }
+        pub fn p2p_net_64k(c: &mut Criterion) { p2p_net(c, 64 * 1024); }
+        pub fn p2p_net_8m(c: &mut Criterion) { p2p_net(c, 8 * 1024 * 1024); }
+        pub fn p2p_net_32m(c: &mut Criterion) { p2p_net(c, 32 * 1024 * 1024); }
+        pub fn p2p_net_128m(c: &mut Criterion) { p2p_net(c, 128 * 1024 * 1024); }
+
+        fn p2p_net(c: &mut Criterion, size: usize) {
+            setup_logger();
+
+            // Create nodes and connect them.
+            let (mut node_1, msg_waiter_1) =
+                make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+            let (node_2, msg_waiter_2) =
+                make_node_and_sync(next_available_port(), vec![100], true, PeerType::Node).unwrap();
+            connect_and_wait_handshake(&mut node_1, &node_2, &msg_waiter_1).unwrap();
+
+            // let mut msg = make_direct_message_into_disk().unwrap();
+            let msg = thread_rng()
+                .sample_iter(&Standard)
+                .take(size)
+                .collect::<Vec<u8>>();
+            let uc = UCursor::from(msg);
+            let bench_id = format!("Benchmark P2P network using messages of {} bytes", size);
+
+            c.bench_function(&bench_id, move |b| {
+                let cursor = uc.clone();
+                let net_id = NetworkId::from(100);
+
+                b.iter(|| {
+                    // Send.
+                    node_1
+                        .send_message_from_cursor(
+                            Some(node_2.id()),
+                            net_id,
+                            None,
+                            cursor.clone(),
+                            false,
+                        )
+                        .unwrap();
+                    let msg_recv = wait_direct_message(&msg_waiter_2).unwrap();
+                    assert_eq!(uc.len(), msg_recv.len());
+                });
+            });
+        }
     }
 }
 
@@ -224,8 +337,8 @@ mod serialization {
         use p2p_client::{
             common::P2PNodeId,
             network::{
-                serialization::cbor::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder,
+                packet::MessageId, serialization::cbor::s11n_network_message, NetworkId,
+                NetworkMessage, NetworkPacketBuilder,
             },
         };
 
@@ -244,7 +357,7 @@ mod serialization {
             let dm = NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; 32]))
                     .network_id(NetworkId::from(100u16))
                     .message(UCursor::from(content.into_bytes()))
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
@@ -299,8 +412,8 @@ mod serialization {
         use p2p_client::{
             common::P2PNodeId,
             network::{
-                serialization::json::s11n_network_message, NetworkId, NetworkMessage,
-                NetworkPacketBuilder,
+                packet::MessageId, serialization::json::s11n_network_message, NetworkId,
+                NetworkMessage, NetworkPacketBuilder,
             },
         };
 
@@ -319,7 +432,7 @@ mod serialization {
             let dm = NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; 32]))
                     .network_id(NetworkId::from(100u16))
                     .message(content_cursor)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
@@ -368,27 +481,40 @@ mod serialization {
 
     #[cfg(feature = "s11n_nom")]
     pub mod nom {
-
-        use p2p_client::network::serialization::nom::s11n_network_message;
-
-        use crate::make_direct_message_header;
+        use crate::localhost_peer;
+        use p2p_client::network::{
+            serialization::nom::s11n_network_message, NetworkId, NetworkPacket,
+            ProtocolMessageType, ProtocolPacketType, PROTOCOL_NAME,
+        };
 
         use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
         use criterion::Criterion;
 
         fn bench_s11n_001_direct_message(c: &mut Criterion, content_size: usize) {
+            let header = format!(
+                "{}{}{}{}{}{}{}{}{:010}",
+                PROTOCOL_NAME,
+                "001",
+                base64::encode(&10u64.to_le_bytes()[..]),
+                ProtocolMessageType::Packet,
+                ProtocolPacketType::Direct,
+                localhost_peer().id(),
+                NetworkPacket::generate_message_id(),
+                NetworkId::from(111u16),
+                content_size
+            );
+
             let content: String = thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(content_size)
                 .collect();
 
-            let mut pkt = make_direct_message_header(content.len());
-            pkt.append(&mut content.into_bytes());
+            let pkt: String = [header, content].concat();
 
             let bench_id = format!("Benchmark NOM using {} bytes", content_size);
             c.bench_function(&bench_id, move |b| {
-                let data = &pkt.clone()[..];
+                let data = pkt.as_bytes();
                 b.iter(move || s11n_network_message(data));
             });
         }
@@ -431,6 +557,7 @@ mod serialization {
         use p2p_client::{
             common::{P2PNodeId, P2PPeerBuilder, PeerType},
             network::{
+                packet::MessageId,
                 serialization::cap::{deserialize, save_network_message},
                 NetworkId, NetworkMessage, NetworkPacketBuilder,
             },
@@ -459,7 +586,7 @@ mod serialization {
             let mut dm = NetworkMessage::NetworkPacket(
                 NetworkPacketBuilder::default()
                     .peer(localhost_peer())
-                    .message_id(format!("{:064}", 100))
+                    .message_id(MessageId::new(&[0u8; 32]))
                     .network_id(NetworkId::from(111u16))
                     .message(content_cursor)
                     .build_direct(P2PNodeId::from_str(&"2A").unwrap())
@@ -527,6 +654,13 @@ criterion_group!(
     network::message::bench_s11n_001_direct_message_4g,
 );
 
+criterion_group!(
+    s11n_get_peers,
+    network::message::bench_s11n_get_peers_50,
+    network::message::bench_s11n_get_peers_100,
+    network::message::bench_s11n_get_peers_200
+);
+
 #[cfg(feature = "s11n_serde_cbor")]
 criterion_group!(
     s11n_cbor_benches,
@@ -583,7 +717,24 @@ criterion_group!(
 #[cfg(not(feature = "s11n_capnp"))]
 criterion_group!(s11n_capnp_benches, common::nop_bench);
 
+criterion_group!(
+    name = p2p_net_small_benches;
+    config = network::connection::bench_config(10);
+    targets = network::connection::p2p_net_64b, network::connection::p2p_net_4k,
+    network::connection::p2p_net_64k );
+
+criterion_group!(
+    name = p2p_net_big_benches;
+    config = network::connection::bench_config(2);
+    targets = network::connection::p2p_net_8m,
+    network::connection::p2p_net_32m,
+    network::connection::p2p_net_128m
+);
+
 criterion_main!(
+    p2p_net_big_benches,
+    p2p_net_small_benches,
+    s11n_get_peers,
     s11n_custom_benches,
     s11n_cbor_benches,
     s11n_json_benches,

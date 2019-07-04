@@ -11,28 +11,28 @@ edition = "2018"
 [features]
 default = []
 valgrind = []
+static = []
+profiling = ["static"]
 
 [dependencies]
-chrono = "0.4.0"
 concordium-common = { path = "../concordium-common" }
+concordium-global-state = { path = "../concordium-global-state" }
+# curve_arithmetic = { path = "../deps/internal/crypto/rust-src/curve_arithmetic" }
+dodis-yampolskiy-prf = { path = "../deps/internal/crypto/rust-src/dodis_yampolskiy_prf" }
 ec_vrf_ed25519_sha256 = { path = "../deps/internal/crypto/rust-src/ec_vrf_ed25519_sha256" }
 eddsa_ed25519 = { path = "../deps/internal/crypto/rust-src/eddsa_ed25519" }
+elgamal = { path = "../deps/internal/crypto/rust-src/elgamal" }
+pedersen-scheme = { path = "../deps/internal/crypto/rust-src/pedersen_scheme" }
+ps_sig = { path = "../deps/internal/crypto/rust-src/ps_sig" }
+sha_2 = { path = "../deps/internal/crypto/rust-src/sha_2" }
 libc = "0.2"
 log = "0.4"
-lazy_static = "1.1.0"
-byteorder = "1"
-env_logger = "0.6"
-failure = "0.1.5"
-
-[target.'cfg(windows)'.dependencies]
-curryrswin = { path = "../deps/windows/curryrs", features = [
-  "threaded"
-], package = "curryrs" }
-
-[target.'cfg(unix)'.dependencies]
-curryrsunix = { version = "^0.2.0", features = [
-  "threaded"
-], package = "curryrs" }
+lazy_static = "^1.2"
+byteorder = "^1.3.2"
+failure = "^0.1.5"
 
 [build-dependencies]
-bindgen = "0.49"
+walkdir = "2"
+
+[lib]
+crate_type = ["rlib"]

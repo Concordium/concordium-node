@@ -11,3 +11,5 @@ path
 .vscode
 concordium.test.key
 win_build
+scripts/local
+.git

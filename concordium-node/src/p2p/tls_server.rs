@@ -1,11 +1,19 @@
 use super::fails;
-use concordium_common::functor::{Functorable, UnitFunction, UnitFunctor};
-use failure::{bail, Fallible};
+use crate::connection::network_handler::message_processor::{
+    MessageManager, MessageProcessor, ProcessResult,
+};
+use concordium_common::{
+    functor::{UnitFunction, UnitFunctor},
+    UCursor,
+};
+
+use failure::{Error, Fallible};
 use mio::{
     net::{TcpListener, TcpStream},
     Event, Poll, Token,
 };
-use rustls::{ClientConfig, ClientSession, ServerConfig, ServerSession};
+use snow::Keypair;
+
 use std::{
     collections::HashSet,
     net::SocketAddr,
@@ -16,17 +24,22 @@ use std::{
         Arc, RwLock,
     },
 };
-use webpki::DNSNameRef;
 
 use crate::{
-    common::{P2PNodeId, P2PPeer, PeerType, RemotePeer},
-    connection::{Connection, ConnectionBuilder, MessageHandler, MessageManager, P2PEvent},
-    network::{Buckets, NetworkId, NetworkRequest},
+    common::{
+        get_current_stamp, serialization::serialize_into_memory, NetworkRawRequest, P2PNodeId,
+        P2PPeer, PeerType, RemotePeer,
+    },
+    connection::{Connection, ConnectionBuilder, P2PEvent},
+    crypto::generate_snow_config,
+    dumper::DumpItem,
+    network::{Buckets, NetworkId, NetworkMessage, NetworkRequest},
     p2p::{
         banned_nodes::BannedNode, peer_statistics::PeerStatistic,
         tls_server_private::TlsServerPrivate,
     },
     stats_export_service::StatsExportService,
+    utils::clone_snow_keypair,
 };
 
 pub type PreHandshakeCW = UnitFunction<SocketAddr>;
@@ -34,14 +47,14 @@ pub type PreHandshake = UnitFunctor<SocketAddr>;
 
 pub struct TlsServerBuilder {
     server:                  Option<TcpListener>,
-    server_tls_config:       Option<Arc<ServerConfig>>,
-    client_tls_config:       Option<Arc<ClientConfig>>,
     event_log:               Option<Sender<P2PEvent>>,
     self_peer:               Option<P2PPeer>,
     buckets:                 Option<Arc<RwLock<Buckets>>>,
     stats_export_service:    Option<Arc<RwLock<StatsExportService>>>,
     blind_trusted_broadcast: Option<bool>,
     networks:                Option<HashSet<NetworkId>>,
+    max_allowed_peers:       Option<u16>,
+    noise_params:            Option<snow::params::NoiseParams>,
 }
 
 impl Default for TlsServerBuilder {
@@ -52,14 +65,14 @@ impl TlsServerBuilder {
     pub fn new() -> TlsServerBuilder {
         TlsServerBuilder {
             server:                  None,
-            server_tls_config:       None,
-            client_tls_config:       None,
             event_log:               None,
             self_peer:               None,
             buckets:                 None,
             stats_export_service:    None,
             blind_trusted_broadcast: None,
             networks:                None,
+            max_allowed_peers:       None,
+            noise_params:            None,
         }
     }
 
@@ -67,60 +80,53 @@ impl TlsServerBuilder {
         if let (
             Some(networks),
             Some(server),
-            Some(server_tls_config),
-            Some(client_tls_config),
             Some(self_peer),
             Some(buckets),
             Some(blind_trusted_broadcast),
+            Some(max_allowed_peers),
+            Some(noise_params),
         ) = (
             self.networks,
             self.server,
-            self.server_tls_config,
-            self.client_tls_config,
             self.self_peer,
             self.buckets,
             self.blind_trusted_broadcast,
+            self.max_allowed_peers,
+            self.noise_params,
         ) {
             let mdptr = Arc::new(RwLock::new(TlsServerPrivate::new(
                 networks,
                 self.stats_export_service.clone(),
             )));
+            let key_pair = snow::Builder::new(noise_params.clone()).generate_keypair()?;
 
             let mut mself = TlsServer {
                 server,
                 next_id: AtomicUsize::new(2),
-                server_tls_config,
-                client_tls_config,
+                key_pair,
                 event_log: self.event_log,
                 self_peer,
                 stats_export_service: self.stats_export_service,
                 buckets,
-                message_handler: Arc::new(RwLock::new(MessageHandler::new())),
+                message_processor: Arc::new(RwLock::new(MessageProcessor::new())),
                 dptr: mdptr,
                 blind_trusted_broadcast,
-                prehandshake_validations: PreHandshake::new("TlsServer::Accept"),
+                prehandshake_validations: PreHandshake::new(),
+                log_dumper: None,
+                max_allowed_peers,
+                noise_params,
             };
 
             mself.add_default_prehandshake_validations();
             mself.setup_default_message_handler();
             Ok(mself)
         } else {
-            bail!(fails::MissingFieldsOnTlsServerBuilder)
+            Err(Error::from(fails::MissingFieldsOnTlsServerBuilder))
         }
     }
 
     pub fn set_server(mut self, s: TcpListener) -> TlsServerBuilder {
         self.server = Some(s);
-        self
-    }
-
-    pub fn set_server_tls_config(mut self, c: Arc<ServerConfig>) -> TlsServerBuilder {
-        self.server_tls_config = Some(c);
-        self
-    }
-
-    pub fn set_client_tls_config(mut self, c: Arc<ClientConfig>) -> TlsServerBuilder {
-        self.client_tls_config = Some(c);
         self
     }
 
@@ -156,21 +162,36 @@ impl TlsServerBuilder {
         self.networks = Some(n);
         self
     }
+
+    pub fn set_max_allowed_peers(mut self, max_allowed_peers: u16) -> TlsServerBuilder {
+        self.max_allowed_peers = Some(max_allowed_peers);
+        self
+    }
+
+    pub fn set_noise_params(
+        mut self,
+        config: &crate::configuration::CryptoConfig,
+    ) -> TlsServerBuilder {
+        self.noise_params = Some(generate_snow_config(config));
+        self
+    }
 }
 
 pub struct TlsServer {
     server:                   TcpListener,
     next_id:                  AtomicUsize,
-    server_tls_config:        Arc<ServerConfig>,
-    client_tls_config:        Arc<ClientConfig>,
+    key_pair:                 Keypair,
     event_log:                Option<Sender<P2PEvent>>,
     self_peer:                P2PPeer,
     buckets:                  Arc<RwLock<Buckets>>,
     stats_export_service:     Option<Arc<RwLock<StatsExportService>>>,
-    message_handler:          Arc<RwLock<MessageHandler>>,
+    message_processor:        Arc<RwLock<MessageProcessor>>,
     dptr:                     Arc<RwLock<TlsServerPrivate>>,
     blind_trusted_broadcast:  bool,
     prehandshake_validations: PreHandshake,
+    log_dumper:               Option<Sender<DumpItem>>,
+    max_allowed_peers:        u16,
+    noise_params:             snow::params::NoiseParams,
 }
 
 impl TlsServer {
@@ -180,6 +201,18 @@ impl TlsServer {
                 error!("Couldn't send error {:?}", e)
             }
         }
+    }
+
+    #[inline]
+    pub fn set_network_request_sender(&mut self, sender: Sender<NetworkRawRequest>) {
+        write_or_die!(self.dptr).set_network_request_sender(sender);
+    }
+
+    #[inline]
+    pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<RwLock<Connection>>> {
+        read_or_die!(self.dptr)
+            .find_connection_by_token(token)
+            .cloned()
     }
 
     pub fn get_self_peer(&self) -> P2PPeer { self.self_peer.clone() }
@@ -221,6 +254,7 @@ impl TlsServer {
 
     pub fn accept(&mut self, poll: &mut Poll, self_peer: P2PPeer) -> Fallible<()> {
         let (socket, addr) = self.server.accept()?;
+
         debug!(
             "Accepting new connection from {:?} to {:?}:{}",
             addr,
@@ -229,21 +263,18 @@ impl TlsServer {
         );
 
         if let Err(e) = self.prehandshake_validations.run_callbacks(&addr) {
-            bail!(e);
+            return Err(Error::from(e));
         }
-
         self.log_event(P2PEvent::ConnectEvent(addr));
 
-        let tls_session = ServerSession::new(&self.server_tls_config);
         let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
-
         let networks = self.networks();
+        let key_pair = clone_snow_keypair(&self.key_pair);
 
-        let mut conn = ConnectionBuilder::new()
+        let mut conn = ConnectionBuilder::default()
             .set_socket(socket)
             .set_token(token)
-            .set_server_session(Some(tls_session))
-            .set_client_session(None)
+            .set_key_pair(key_pair)
             .set_local_peer(self_peer)
             .set_remote_peer(RemotePeer::PreHandshake(PeerType::Node, addr))
             .set_stats_export_service(self.stats_export_service.clone())
@@ -251,9 +282,17 @@ impl TlsServer {
             .set_local_end_networks(networks)
             .set_buckets(Arc::clone(&self.buckets))
             .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
+            .set_log_dumper(self.log_dumper.clone())
+            .set_network_request_sender(Some(
+                read_or_die!(self.dptr).network_request_sender.clone(),
+            ))
+            .set_noise_params(self.noise_params.clone())
             .build()?;
 
         self.register_message_handlers(&mut conn);
+
+        conn.setup_pre_handshake();
+        conn.setup_post_handshake();
 
         let register_status = conn.register(poll);
         safe_write!(self.dptr)?.add_connection(conn);
@@ -269,14 +308,25 @@ impl TlsServer {
         peer_id_opt: Option<P2PNodeId>,
         self_peer: &P2PPeer,
     ) -> Fallible<()> {
+        if peer_type == PeerType::Node {
+            let current_peer_count = read_or_die!(self.dptr)
+                .connections_posthandshake_count(Some(PeerType::Bootstrapper));
+            if current_peer_count > self.max_allowed_peers {
+                return Err(Error::from(fails::MaxmimumAmountOfPeers {
+                    max_allowed_peers: self.max_allowed_peers,
+                    number_of_peers:   current_peer_count,
+                }));
+            }
+        }
+
         if peer_type == PeerType::Node && self.is_unreachable(addr) {
             error!("Node marked as unreachable, so not allowing the connection");
-            bail!(fails::UnreachablePeerError);
+            return Err(Error::from(fails::UnreachablePeerError));
         }
 
         // Avoid duplicate ip+port peers
         if self_peer.addr == addr {
-            bail!(fails::DuplicatePeerError);
+            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
         }
 
         // Avoid duplicate Id entries
@@ -285,7 +335,7 @@ impl TlsServer {
                 .find_connection_by_id(peer_id)
                 .is_some()
             {
-                bail!(fails::DuplicatePeerError);
+                return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
             }
         }
 
@@ -294,7 +344,7 @@ impl TlsServer {
             .find_connection_by_ip_addr(addr)
             .is_some()
         {
-            bail!(fails::DuplicatePeerError);
+            return Err(Error::from(fails::DuplicatePeerError { peer_id_opt, addr }));
         }
 
         match TcpStream::connect(&addr) {
@@ -302,20 +352,14 @@ impl TlsServer {
                 if let Some(ref service) = &self.stats_export_service {
                     safe_write!(service)?.conn_received_inc();
                 };
-                let tls_session = ClientSession::new(
-                    &self.client_tls_config,
-                    DNSNameRef::try_from_ascii_str(&"node.concordium.com")
-                        .unwrap_or_else(|e| panic!("The error is: {:?}", e)),
-                );
-
                 let token = Token(self.next_id.fetch_add(1, Ordering::SeqCst));
-
                 let networks = self.networks();
-                let mut conn = ConnectionBuilder::new()
+                let keypair = clone_snow_keypair(&self.key_pair);
+                let mut conn = ConnectionBuilder::default()
                     .set_socket(socket)
                     .set_token(token)
-                    .set_server_session(None)
-                    .set_client_session(Some(tls_session))
+                    .set_key_pair(keypair)
+                    .set_as_initiator(true)
                     .set_local_peer(self_peer.clone())
                     .set_remote_peer(RemotePeer::PreHandshake(peer_type, addr))
                     .set_stats_export_service(self.stats_export_service.clone())
@@ -323,9 +367,16 @@ impl TlsServer {
                     .set_local_end_networks(Arc::clone(&networks))
                     .set_buckets(Arc::clone(&self.buckets))
                     .set_blind_trusted_broadcast(self.blind_trusted_broadcast)
+                    .set_log_dumper(self.log_dumper.clone())
+                    .set_network_request_sender(Some(
+                        read_or_die!(self.dptr).network_request_sender.clone(),
+                    ))
+                    .set_noise_params(self.noise_params.clone())
                     .build()?;
 
                 self.register_message_handlers(&mut conn);
+                conn.setup_pre_handshake();
+                conn.setup_post_handshake();
                 conn.register(poll)?;
 
                 safe_write!(self.dptr)?.add_connection(conn);
@@ -334,15 +385,15 @@ impl TlsServer {
                 let self_peer = self.get_self_peer();
 
                 if let Some(ref rc_conn) = safe_read!(self.dptr)?.find_connection_by_token(token) {
-                    let mut conn = rc_conn.borrow_mut();
-                    conn.serialize_bytes(
-                        &NetworkRequest::Handshake(
-                            self_peer,
-                            safe_read!(networks)?.clone(),
-                            vec![],
-                        )
-                        .serialize(),
-                    )?;
+                    let handshake_request = NetworkMessage::NetworkRequest(
+                        NetworkRequest::Handshake(self_peer, safe_read!(networks)?.clone(), vec![]),
+                        Some(get_current_stamp()),
+                        None,
+                    );
+                    let handshake_request_data = serialize_into_memory(&handshake_request, 256)?;
+
+                    let mut conn = write_or_die!(rc_conn);
+                    conn.async_send(UCursor::from(handshake_request_data))?;
                     conn.set_measured_handshake_sent();
                 }
                 Ok(())
@@ -356,13 +407,17 @@ impl TlsServer {
         }
     }
 
+    pub fn get_all_current_peers(&self, peer_type: Option<PeerType>) -> Box<[P2PNodeId]> {
+        read_or_die!(self.dptr).get_all_current_peers(peer_type)
+    }
+
     #[inline]
-    pub fn conn_event(&mut self, event: &Event) -> Fallible<()> {
+    pub fn conn_event(&mut self, event: &Event) -> Fallible<ProcessResult> {
         write_or_die!(self.dptr).conn_event(event)
     }
 
-    pub fn cleanup_connections(&self, poll: &mut Poll) -> Fallible<()> {
-        write_or_die!(self.dptr).cleanup_connections(self.peer_type(), poll)
+    pub fn cleanup_connections(&self, max_peers_number: u16, poll: &mut Poll) -> Fallible<()> {
+        write_or_die!(self.dptr).cleanup_connections(self.peer_type(), max_peers_number, poll)
     }
 
     pub fn liveness_check(&self) -> Fallible<()> { write_or_die!(self.dptr).liveness_check() }
@@ -375,12 +430,14 @@ impl TlsServer {
     ///   returns `true`.
     /// * `send_status` - It will called after each sent, to notify the result
     ///   of the operation.
+    ///  # Returns
+    /// * connections the packet was written to
     pub fn send_over_all_connections(
         &self,
-        data: &[u8],
+        data: UCursor,
         filter_conn: &dyn Fn(&Connection) -> bool,
-        send_status: &dyn Fn(&Connection, Fallible<usize>),
-    ) {
+        send_status: &dyn Fn(&Connection, Fallible<()>),
+    ) -> usize {
         write_or_die!(self.dptr).send_over_all_connections(data, filter_conn, send_status)
     }
 
@@ -395,7 +452,7 @@ impl TlsServer {
         let cloned_dptr = Arc::clone(&self.dptr);
         let banned_nodes = Rc::clone(&read_or_die!(cloned_dptr).banned_peers);
         let to_disconnect = Rc::clone(&read_or_die!(cloned_dptr).to_disconnect);
-        write_or_die!(self.message_handler).add_request_callback(make_atomic_callback!(
+        write_or_die!(self.message_processor).add_request_action(make_atomic_callback!(
             move |req: &NetworkRequest| {
                 if let NetworkRequest::Handshake(ref peer, ..) = req {
                     if banned_nodes.borrow().is_id_banned(peer.id()) {
@@ -409,10 +466,10 @@ impl TlsServer {
 
     /// It adds all message handler callback to this connection.
     fn register_message_handlers(&self, conn: &mut Connection) {
-        let mh = &read_or_die!(self.message_handler);
-        Rc::clone(&conn.common_message_handler)
+        let mh = &read_or_die!(self.message_processor);
+        Rc::clone(&conn.common_message_processor)
             .borrow_mut()
-            .merge(mh);
+            .add(mh);
     }
 
     fn add_default_prehandshake_validations(&mut self) {
@@ -424,13 +481,36 @@ impl TlsServer {
         let cloned_dptr = Arc::clone(&self.dptr);
         make_atomic_callback!(move |sockaddr: &SocketAddr| {
             if safe_read!(cloned_dptr)?.addr_is_banned(*sockaddr) {
-                bail!(fails::BannedNodeRequestedConnectionError);
+                Err(Error::from(fails::BannedNodeRequestedConnectionError))
+            } else {
+                Ok(())
             }
-            Ok(())
         })
+    }
+
+    pub fn dump_start(&mut self, log_dumper: Sender<DumpItem>) {
+        self.log_dumper = Some(log_dumper);
+        write_or_die!(self.dptr).dump_all_connections(self.log_dumper.clone());
+    }
+
+    pub fn dump_stop(&mut self) {
+        self.log_dumper = None;
+        write_or_die!(self.dptr).dump_all_connections(None);
+    }
+
+    pub fn add_notification(&self, func: UnitFunction<NetworkMessage>) {
+        write_or_die!(self.message_processor).add_notification(Arc::clone(&func));
+        write_or_die!(self.dptr).add_notification(func);
     }
 }
 
+#[cfg(test)]
+impl TlsServer {
+    pub fn get_private_tls(&self) -> Arc<RwLock<TlsServerPrivate>> { Arc::clone(&self.dptr) }
+}
+
 impl MessageManager for TlsServer {
-    fn message_handler(&self) -> Arc<RwLock<MessageHandler>> { Arc::clone(&self.message_handler) }
+    fn message_processor(&self) -> Arc<RwLock<MessageProcessor>> {
+        Arc::clone(&self.message_processor)
+    }
 }

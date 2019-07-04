@@ -77,19 +77,22 @@ pub mod fails;
 pub mod common;
 pub mod configuration;
 pub mod connection;
-pub mod db;
 
 pub mod client;
 pub mod crypto;
+#[macro_use]
 pub mod network;
 pub mod p2p;
 
 pub mod stats_export_service;
 
+pub mod dumper;
 pub mod proto;
 pub mod rpc;
 pub mod stats_engine;
 pub mod utils;
+
+pub mod test_utils;
 
 #[cfg(feature = "s11n_capnp")]
 pub mod p2p_capnp;

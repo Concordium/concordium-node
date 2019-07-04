@@ -87,20 +87,21 @@ impl UCursor {
     pub fn build_from_view(view: ContainerView) -> Self { UCursor::Memory(Cursor::new(view)) }
 
     #[inline]
-    pub fn sub(&self, offset: u64) -> Result<Self> {
+    pub fn sub(&self, offset: u64) -> Result<Self> { self.sub_range(offset, self.len() - offset) }
+
+    pub fn sub_range(&self, offset: u64, len: u64) -> Result<Self> {
         let ic = match self {
             UCursor::Memory(ref cursor) => {
-                UCursor::build_from_view(cursor.get_ref().sub(offset as usize))
+                UCursor::build_from_view(cursor.get_ref().sub_range(offset as usize, len as usize))
             }
             UCursor::File(ref uc_file) => {
                 let mut other = uc_file.try_clone()?;
                 other.offset += offset;
-                other.len -= offset;
+                other.len = std::cmp::min(len, other.len - offset);
 
                 UCursor::File(other)
             }
         };
-
         Ok(ic)
     }
 
@@ -135,6 +136,10 @@ impl UCursor {
 
     #[inline]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
+
+    /// It returns `true` if this cursor has been consumed.
+    #[inline]
+    pub fn is_eof(&self) -> bool { self.position() >= self.len() }
 
     pub fn read_into_view(&mut self, size: usize) -> Result<ContainerView> {
         match self {

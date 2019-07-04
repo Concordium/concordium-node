@@ -63,13 +63,15 @@ cfg_if! {
             registry: Registry,
             pkts_received_counter: IntCounter,
             pkts_sent_counter: IntCounter,
+            pkts_dropped_counter: IntCounter,
+            pkts_resend_counter: IntCounter,
             peers_gauge: IntGauge,
             connections_received: IntCounter,
             invalid_packets_received: IntCounter,
             unknown_packets_received: IntCounter,
             invalid_network_packets_received: IntCounter,
             queue_size: IntGauge,
-            queue_resent: IntCounter,
+            resend_queue_size: IntGauge,
             tokio_runtime: Rc<Cell<Option<Runtime>>>
         }
     }
@@ -81,13 +83,15 @@ pub struct StatsExportService {
     mode: StatsServiceMode,
     pkts_received_counter: Arc<AtomicUsize>,
     pkts_sent_counter: Arc<AtomicUsize>,
+    pkts_dropped_counter: Arc<AtomicUsize>,
+    pkts_resend_counter: Arc<AtomicUsize>,
     peers_gauge: Arc<AtomicUsize>,
     connections_received: Arc<AtomicUsize>,
     invalid_packets_received: Arc<AtomicUsize>,
     unknown_packets_received: Arc<AtomicUsize>,
     invalid_network_packets_received: Arc<AtomicUsize>,
     queue_size: Arc<AtomicUsize>,
-    queue_resent: Arc<AtomicUsize>,
+    resend_queue_size: Arc<AtomicUsize>,
 }
 
 impl StatsExportService {
@@ -104,6 +108,18 @@ impl StatsExportService {
         let qs = IntGauge::with_opts(qs_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
             registry.register(Box::new(qs.clone()))?;
+        }
+
+        let rqs_opts = Opts::new("resend_queue_size", "current queue size");
+        let rqs = IntGauge::with_opts(rqs_opts)?;
+        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
+            registry.register(Box::new(rqs.clone()))?;
+        }
+
+        let dp_opts = Opts::new("packets_dropped", "dropped packets");
+        let dp = IntCounter::with_opts(dp_opts)?;
+        if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
+            registry.register(Box::new(dp.clone()))?;
         }
 
         let cr_opts = Opts::new("conn_received", "connections received");
@@ -139,10 +155,10 @@ impl StatsExportService {
             registry.register(Box::new(inpr.clone()))?;
         }
 
-        let qrs_opts = Opts::new("queue_resent", "items in queue that needed to be resent");
-        let qrs = IntCounter::with_opts(qrs_opts)?;
+        let rs_opts = Opts::new("packets_resend", "items in queue that needed to be resend");
+        let rs = IntCounter::with_opts(rs_opts)?;
         if mode == StatsServiceMode::NodeMode || mode == StatsServiceMode::BootstrapperMode {
-            registry.register(Box::new(qrs.clone()))?;
+            registry.register(Box::new(rs.clone()))?;
         }
 
         Ok(StatsExportService {
@@ -150,13 +166,15 @@ impl StatsExportService {
             registry,
             pkts_received_counter: prc,
             pkts_sent_counter: psc,
+            pkts_dropped_counter: dp,
+            pkts_resend_counter: rs,
             peers_gauge: pg,
             connections_received: cr,
             invalid_packets_received: ipr,
             unknown_packets_received: upr,
             invalid_network_packets_received: inpr,
             queue_size: qs,
-            queue_resent: qrs,
+            resend_queue_size: rqs,
             tokio_runtime: Rc::new(Cell::new(None)),
         })
     }
@@ -167,13 +185,15 @@ impl StatsExportService {
             mode,
             pkts_received_counter: Arc::new(AtomicUsize::new(0)),
             pkts_sent_counter: Arc::new(AtomicUsize::new(0)),
+            pkts_dropped_counter: Arc::new(AtomicUsize::new(0)),
+            pkts_resend_counter: Arc::new(AtomicUsize::new(0)),
             peers_gauge: Arc::new(AtomicUsize::new(0)),
             connections_received: Arc::new(AtomicUsize::new(0)),
             invalid_packets_received: Arc::new(AtomicUsize::new(0)),
             unknown_packets_received: Arc::new(AtomicUsize::new(0)),
             invalid_network_packets_received: Arc::new(AtomicUsize::new(0)),
             queue_size: Arc::new(AtomicUsize::new(0)),
-            queue_resent: Arc::new(AtomicUsize::new(0)),
+            resend_queue_size: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -203,6 +223,13 @@ impl StatsExportService {
         self.pkts_sent_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.pkts_sent_counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn pkt_dropped_inc(&mut self) {
+        #[cfg(feature = "instrumentation")]
+        self.pkts_dropped_counter.inc();
+        #[cfg(not(feature = "instrumentation"))]
+        self.pkts_dropped_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn pkt_sent_inc_by(&mut self, to_add: i64) {
@@ -258,6 +285,20 @@ impl StatsExportService {
         self.queue_size.fetch_sub(1, Ordering::Relaxed);
     }
 
+    pub fn resend_queue_size_inc(&mut self) {
+        #[cfg(feature = "instrumentation")]
+        self.resend_queue_size.inc();
+        #[cfg(not(feature = "instrumentation"))]
+        self.resend_queue_size.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn resend_queue_size_dec(&mut self) {
+        #[cfg(feature = "instrumentation")]
+        self.resend_queue_size.dec();
+        #[cfg(not(feature = "instrumentation"))]
+        self.resend_queue_size.fetch_sub(1, Ordering::Relaxed);
+    }
+
     pub fn queue_size_inc_by(&mut self, to_add: i64) {
         #[cfg(feature = "instrumentation")]
         self.queue_size.add(to_add);
@@ -266,12 +307,11 @@ impl StatsExportService {
             .fetch_add(to_add as usize, Ordering::Relaxed);
     }
 
-    pub fn queue_resent_inc_by(&mut self, to_add: i64) {
+    pub fn pkt_resend_inc(&mut self) {
         #[cfg(feature = "instrumentation")]
-        self.queue_resent.inc_by(to_add);
+        self.pkts_resend_counter.inc();
         #[cfg(not(feature = "instrumentation"))]
-        self.queue_resent
-            .fetch_add(to_add as usize, Ordering::Relaxed);
+        self.pkts_resend_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn queue_size(&self) -> i64 {

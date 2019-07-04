@@ -1,14 +1,11 @@
-use crate::{
-    common::{deserialize_ip, serialize_ip, P2PNodeId},
-    network::PROTOCOL_NODE_ID_LENGTH,
+use crate::common::{
+    serialization::{Deserializable, ReadArchive, Serializable, WriteArchive},
+    P2PNodeId,
 };
-use concordium_common::UCursor;
-use failure::{bail, Fallible};
-use std::{
-    collections::HashSet,
-    net::IpAddr,
-    str::{self, FromStr},
-};
+use failure::{self, format_err, Fallible};
+use rkv::{Rkv, StoreOptions, Value};
+
+use std::{collections::HashSet, convert::TryFrom, net::IpAddr, sync::RwLock};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -22,42 +19,35 @@ pub enum BannedNode {
 }
 
 impl BannedNode {
-    pub fn serialize(&self) -> String {
+    pub fn to_db_repr(&self) -> Box<[u8]> {
         match self {
-            BannedNode::ById(id) => format!("0{}", id.to_string()),
-            BannedNode::ByAddr(addr) => format!("1{}", serialize_ip(*addr)),
+            BannedNode::ById(id) => id.to_string().into_bytes().into_boxed_slice(),
+            BannedNode::ByAddr(addr) => addr.to_string().into_bytes().into_boxed_slice(),
         }
     }
+}
 
-    /// Consumes [partially] a `UCursor` for deserializing a `BannedNode`
-    pub fn deserialize(pkt: &mut UCursor) -> Fallible<BannedNode> {
-        let view = pkt.read_into_view(1)?;
-        let buf = view.as_slice();
+impl TryFrom<&[u8]> for BannedNode {
+    type Error = failure::Error;
 
-        let banned_node = match buf {
-            b"0" => BannedNode::ById({
-                let min_packet_size = PROTOCOL_NODE_ID_LENGTH;
-                ensure!(
-                    pkt.len() >= pkt.position() + min_packet_size as u64,
-                    "Node ID chunk needs {} bytes",
-                    min_packet_size
-                );
-
-                let view = pkt.read_into_view(min_packet_size)?;
-                let buf = view.as_slice();
-                P2PNodeId::from_str(&str::from_utf8(&buf[..PROTOCOL_NODE_ID_LENGTH])?)?
-            }),
-            b"1" => BannedNode::ByAddr(deserialize_ip(pkt)?),
-            _ => bail!("Unrecognized slice for deserializing BannedNode"),
-        };
-
-        Ok(banned_node)
-    }
-
-    pub fn to_db_repr(&self) -> (Option<String>, Option<String>) {
-        match self {
-            BannedNode::ById(id) => (Some(id.to_string()), None),
-            BannedNode::ByAddr(addr) => (None, Some(addr.to_string())),
+    fn try_from(bytes: &[u8]) -> Fallible<Self> {
+        match bytes.len() {
+            4 => {
+                let mut arr = [0u8; 4];
+                arr.copy_from_slice(bytes);
+                Ok(BannedNode::ByAddr(IpAddr::from(arr)))
+            }
+            8 => {
+                let mut arr = [0u8; 8];
+                arr.copy_from_slice(bytes);
+                Ok(BannedNode::ById(P2PNodeId(u64::from_le_bytes(arr))))
+            }
+            16 => {
+                let mut arr = [0u8; 16];
+                arr.copy_from_slice(bytes);
+                Ok(BannedNode::ByAddr(IpAddr::from(arr)))
+            }
+            n => Err(format_err!("Invalid ban id length ({})!", n)),
         }
     }
 }
@@ -105,6 +95,58 @@ impl BannedNodes {
 
     /// Lookup of a tuple `(IdAddr, u16)`
     pub fn is_addr_banned(&self, addr: IpAddr) -> bool { self.by_addr.contains(&addr) }
+}
+
+impl Serializable for BannedNode {
+    fn serialize<A>(&self, archive: &mut A) -> Fallible<()>
+    where
+        A: WriteArchive, {
+        match self {
+            BannedNode::ById(id) => {
+                0u8.serialize(archive)?;
+                id.serialize(archive)
+            }
+            BannedNode::ByAddr(addr) => {
+                1u8.serialize(archive)?;
+                addr.serialize(archive)
+            }
+        }
+    }
+}
+
+impl Deserializable for BannedNode {
+    #[inline]
+    fn deserialize<A>(archive: &mut A) -> Fallible<BannedNode>
+    where
+        A: ReadArchive, {
+        let bn = match u8::deserialize(archive)? {
+            0 => BannedNode::ById(P2PNodeId::deserialize(archive)?),
+            1 => BannedNode::ByAddr(IpAddr::deserialize(archive)?),
+            _ => bail!("Unsupported type of `BanNode`"),
+        };
+
+        Ok(bn)
+    }
+}
+
+pub fn insert_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_handle)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+    let mut writer = ban_kvs_env.write()?;
+    // TODO: insert ban expiry timestamp as the Value
+    ban_store.put(&mut writer, id, &Value::U64(0))?;
+
+    Ok(())
+}
+
+pub fn remove_ban(kvs_handle: &RwLock<Rkv>, id: &[u8]) -> Fallible<()> {
+    let ban_kvs_env = safe_read!(kvs_handle)?;
+    let ban_store = ban_kvs_env.open_single("bans", StoreOptions::create())?;
+    let mut writer = ban_kvs_env.write()?;
+
+    ban_store.delete(&mut writer, id)?;
+
+    Ok(())
 }
 
 #[cfg(test)]
