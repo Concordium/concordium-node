@@ -1,10 +1,11 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
+use concordium_common::indexed_vec::IndexedVec;
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
 use std::{
-    collections::{BinaryHeap, HashMap},
+    collections::BinaryHeap,
     fmt,
     rc::Rc,
 };
@@ -280,7 +281,8 @@ impl<'a> Skov<'a> {
             self.data.last_finalized.hash,
             self.data
                 .finalization_list
-                .values()
+                .iter()
+                .filter_map(|e| e.as_ref())
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
             sorted_block_map(&self.data.tree_candidates),
@@ -315,7 +317,7 @@ pub struct SkovData<'a> {
     /// persistent storage for finalized blocks
     finalized_blocks: SingleStore,
     /// finalization records; the blocks they point to are in the tree
-    finalization_list: HashMap<HashBytes, FinalizationRecord>, // possibly use a LinkedHashMap
+    finalization_list: IndexedVec<FinalizationRecord>,
     /// the genesis block
     genesis_block_ptr: Rc<BlockPtr>,
     /// the last finalized block
@@ -343,11 +345,8 @@ impl<'a> SkovData<'a> {
 
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = HashMap::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
-        finalization_list.insert(
-            genesis_block_ptr.hash.clone(),
-            FinalizationRecord::genesis(&genesis_block_ptr),
-        );
+        let mut finalization_list = IndexedVec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
+        finalization_list.insert(0, FinalizationRecord::genesis(&genesis_block_ptr));
 
         let finalized_blocks = kvs_env
             .open_single("blocks", StoreOptions::create())
@@ -507,16 +506,18 @@ impl<'a> SkovData<'a> {
     }
 
     fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
-        self.finalization_list.get(&hash)
+        self.finalization_list
+            .iter()
+            .rev()
+            .filter_map(|e| e.as_ref())
+            .find(|&rec| rec.block_pointer == *hash)
     }
 
     fn get_finalization_record_by_idx(
         &self,
         idx: FinalizationIndex,
     ) -> Option<&FinalizationRecord> {
-        self.finalization_list
-            .values()
-            .find(|&rec| rec.index == idx)
+        self.finalization_list.get(idx as usize)
     }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }
@@ -581,7 +582,7 @@ impl<'a> SkovData<'a> {
                 .expect("Can't store the genesis block!");
         }
 
-        self.finalization_list.insert(target_hash, record);
+        self.finalization_list.insert(record.index as usize, record);
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
