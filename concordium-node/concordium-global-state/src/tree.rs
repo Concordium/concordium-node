@@ -581,7 +581,19 @@ impl<'a> SkovData<'a> {
         if target_block.height > self.last_finalized.height {
             self.last_finalized = Rc::clone(&target_block);
         }
-        self.block_tree.insert(target_hash.clone(), target_block);
+        self.block_tree
+            .insert(target_hash.clone(), Rc::clone(&target_block));
+
+        {
+            let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
+            self.finalized_blocks
+                .put(
+                    &mut kvs_writer,
+                    target_hash.clone(),
+                    &Value::Blob(&target_block.serialize_to_disk_format()),
+                )
+                .expect("Can't store the genesis block!");
+        }
 
         self.finalization_list.insert(target_hash, record);
 
