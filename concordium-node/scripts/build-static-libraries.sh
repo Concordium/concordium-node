@@ -13,7 +13,7 @@ rm -r bootstrapped_out
 cp /manifests/cabal.project           /build
 cp /manifests/cabal.project.local     /build
 
-rustup default stable
+rustup default 1.36.0
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
 for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*_p.a"); do
