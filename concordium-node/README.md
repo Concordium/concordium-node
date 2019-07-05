@@ -3,7 +3,7 @@
 This repository uses git lfs for storing binary dependencies, and relies on git submodules for internal component dependencies. Therefore the git lfs extension needs to be installed, and to update the code remember to pull submodules too recursively.
 
 ## Dependencies to build the project
-* Rust (stable 1.35+)
+* Rust (stable 1.35+, and stable 1.36.0 (a53f9df32 2019-07-03) for using static libraries)
 * openssl >= 1.0.1
 * cmake
 * go >=1.10
