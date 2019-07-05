@@ -122,6 +122,7 @@ instance (SkovLenses s, Monad m, MonadState s m) => TS.TreeStateMonad (SkovTreeS
     markFinalized bh fr = use (blockTable . at bh) >>= \case
             Just (TS.BlockAlive bp) -> blockTable . at bh ?= TS.BlockFinalized bp fr
             _ -> return ()
+    markPending pb = blockTable . at (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = use finalizationList >>= \case
