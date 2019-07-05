@@ -83,6 +83,7 @@ function testnet_bootstrap() {
       binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_bootstrapper-cli --"
   fi
   bootstrap_id=$1; shift
+  shift
   (
     cmd="${profiling}\
        $binary \
