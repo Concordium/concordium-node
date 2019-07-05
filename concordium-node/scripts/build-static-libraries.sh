@@ -29,10 +29,10 @@ for l in /target/profiling/ghc/libHSrts_p.a \
              /target/vanilla/ghc/libCffi.a \
              /target/vanilla/ghc/libHSrts.a \
              /target/vanilla/ghc/libHSCabal-2.4.0.1.a \
-             /target/vanilla/ghc/libHSghc-8.6.5.a \
-             /target/vanilla/ghc/libHSghc-boot-8.6.5.a \
-             /target/vanilla/ghc/libHSghc-heap-8.6.5.a \
-             /target/vanilla/ghc/libHSghci-8.6.5.a \
+             /target/vanilla/ghc/libHSghc-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHSghc-boot-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHSghc-heap-$GHC_VERSION.a \
+             /target/vanilla/ghc/libHSghci-$GHC_VERSION.a \
              /target/vanilla/ghc/libHShpc-0.6.0.3.a \
              /target/vanilla/ghc/libHSterminfo-0.4.1.2.a \
              $(find /target/vanilla/ghc -name "libffi*") \
@@ -67,6 +67,8 @@ sed -i '/executable/,$d' /build/Concordium/package.yaml
  cd /build/scheduler
  hpack)
 
+rm -rf ~/.cabal/store/ghc-$GHC_VERSION
+
 cd /build
 
 LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal new-build all --flags="-dynamic"
@@ -81,11 +83,11 @@ for lib in $(find . -type f -name "*_p.a"); do
 done
 
 echo "Let's copy the needed cabal libraries"
-for lib in $(find ~/.cabal/store/ghc-8.6.5/ -type f -name "*[^_p].a"); do
+for lib in $(find ~/.cabal/store/ghc-$GHC_VERSION/ -type f -name "*[^_p].a"); do
     cp $lib /target/vanilla/cabal;
 done
 
-for lib in $(find ~/.cabal/store/ghc-8.6.5/ -type f -name "*_p.a"); do
+for lib in $(find ~/.cabal/store/ghc-$GHC_VERSION/ -type f -name "*_p.a"); do
     cp $lib /target/profiling/cabal;
 done
 
