@@ -31,12 +31,14 @@ data BlockStatus bp =
     BlockAlive !bp
     | BlockDead
     | BlockFinalized !bp !FinalizationRecord
+    | BlockPending !PendingBlock
   deriving(Eq)
 
 instance Show (BlockStatus m) where
     show (BlockAlive _) = "Alive"
     show (BlockDead) = "Dead"
     show (BlockFinalized _ _) = "Finalized"
+    show (BlockPending _) = "Pending"
 
 -- |Branches of a tree represented as a sequence, ordered by height above the last
 -- finalized block, of lists of block pointers.  The blocks in the branches should
@@ -76,6 +78,9 @@ class (Eq (BlockPointer m),
     --
     -- Precondition: The block must be alive.
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
+    -- |Mark a block as pending (i.e. awaiting parent or finalization of
+    --  last finalized block)
+    markPending :: PendingBlock -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointer m)
@@ -231,6 +236,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     makeLiveBlock b parent lastFin st time = lift $ makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
     markFinalized bh fr = lift $ markFinalized bh fr
+    markPending = lift . markPending
     getGenesisBlockPointer = lift getGenesisBlockPointer
     getGenesisData = lift getGenesisData
     getLastFinalized = lift getLastFinalized
@@ -269,6 +275,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (BSMTra
     {-# INLINE makeLiveBlock #-}
     {-# INLINE markDead #-}
     {-# INLINE markFinalized #-}
+    {-# INLINE markPending #-}
     {-# INLINE getGenesisBlockPointer #-}
     {-# INLINE getGenesisData #-}
     {-# INLINE getLastFinalized #-}
