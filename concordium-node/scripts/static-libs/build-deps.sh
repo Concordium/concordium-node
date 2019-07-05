@@ -88,7 +88,10 @@ for l in $rootdir/target/profiling/ghc/libHSrts_p.a \
              $(find $rootdir/target/vanilla/ghc -name "libffi*") \
              $(find $rootdir/target/vanilla/ghc -name "*[debug|l].a"); do
     rm $l;
-done)
+done
+
+strip --strip-debug $rootdir/target/vanilla/ghc/lib* $rootdir/target/profiling/ghc/lib*
+)
 
 # Install cabal if needed
 
