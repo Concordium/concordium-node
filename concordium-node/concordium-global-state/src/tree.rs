@@ -527,7 +527,7 @@ impl<'a> SkovData<'a> {
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
         let last_finalized_idx = self.get_last_finalized_height(); // safe, always there
 
-        if record.index == last_finalized_idx {
+        if record.block_pointer == self.last_finalized.hash {
             // we always get N-1 duplicate finalization records from the last round
             return SkovResult::SuccessfulEntry;
         }
@@ -582,7 +582,7 @@ impl<'a> SkovData<'a> {
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
-        self.prune_candidate_list();
+        self.refresh_candidate_list();
 
         // a new finalization record was registered; check for any blocks pending their
         // last finalized block's finalization
@@ -643,7 +643,17 @@ impl<'a> SkovData<'a> {
         }
     }
 
-    fn prune_candidate_list(&mut self) {
+    fn refresh_candidate_list(&mut self) {
+        // after a finalization round, the blocks that were not directly finalized, but
+        // are a part of the tree, need to be promoted to the tree
+        let mut finalized_parent = self.last_finalized.block.pointer().unwrap().to_owned();
+        while let Some(ptr) = self.tree_candidates.remove(&finalized_parent) {
+            let parent_hash = ptr.block.pointer().unwrap().to_owned(); // safe, always available
+            self.block_tree.insert(ptr.hash.clone(), ptr);
+            finalized_parent = parent_hash;
+        }
+
+        // afterwards, the candidates with surplus height can be removed
         let current_height = self.last_finalized.height;
 
         self.tree_candidates
