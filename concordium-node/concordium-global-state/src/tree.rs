@@ -1,13 +1,10 @@
 use chrono::prelude::{DateTime, Utc};
 use circular_queue::CircularQueue;
+use concordium_common::indexed_vec::IndexedVec;
 use hash_hasher::{HashedMap, HashedSet};
 use rkv::{Rkv, SingleStore, StoreOptions, Value};
 
-use std::{
-    collections::{BinaryHeap, HashMap},
-    fmt,
-    rc::Rc,
-};
+use std::{collections::BinaryHeap, fmt, rc::Rc};
 
 use crate::{
     block::*,
@@ -280,7 +277,8 @@ impl<'a> Skov<'a> {
             self.data.last_finalized.hash,
             self.data
                 .finalization_list
-                .values()
+                .iter()
+                .filter_map(|e| e.as_ref())
                 .map(|rec| &rec.block_pointer)
                 .collect::<Vec<_>>(),
             sorted_block_map(&self.data.tree_candidates),
@@ -315,7 +313,7 @@ pub struct SkovData<'a> {
     /// persistent storage for finalized blocks
     finalized_blocks: SingleStore,
     /// finalization records; the blocks they point to are in the tree
-    finalization_list: HashMap<HashBytes, FinalizationRecord>, // possibly use a LinkedHashMap
+    finalization_list: IndexedVec<FinalizationRecord>,
     /// the genesis block
     genesis_block_ptr: Rc<BlockPtr>,
     /// the last finalized block
@@ -343,11 +341,8 @@ impl<'a> SkovData<'a> {
 
         let genesis_block_ptr = Rc::new(BlockPtr::genesis(genesis_data));
 
-        let mut finalization_list = HashMap::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
-        finalization_list.insert(
-            genesis_block_ptr.hash.clone(),
-            FinalizationRecord::genesis(&genesis_block_ptr),
-        );
+        let mut finalization_list = IndexedVec::with_capacity(SKOV_LONG_PREALLOCATION_SIZE);
+        finalization_list.insert(0, FinalizationRecord::genesis(&genesis_block_ptr));
 
         let finalized_blocks = kvs_env
             .open_single("blocks", StoreOptions::create())
@@ -507,16 +502,18 @@ impl<'a> SkovData<'a> {
     }
 
     fn get_finalization_record_by_hash(&self, hash: &HashBytes) -> Option<&FinalizationRecord> {
-        self.finalization_list.get(&hash)
+        self.finalization_list
+            .iter()
+            .rev()
+            .filter_map(|e| e.as_ref())
+            .find(|&rec| rec.block_pointer == *hash)
     }
 
     fn get_finalization_record_by_idx(
         &self,
         idx: FinalizationIndex,
     ) -> Option<&FinalizationRecord> {
-        self.finalization_list
-            .values()
-            .find(|&rec| rec.index == idx)
+        self.finalization_list.get(idx as usize)
     }
 
     pub fn get_last_finalized_slot(&self) -> Slot { self.last_finalized.block.slot() }
@@ -581,7 +578,7 @@ impl<'a> SkovData<'a> {
                 .expect("Can't store the genesis block!");
         }
 
-        self.finalization_list.insert(target_hash, record);
+        self.finalization_list.insert(record.index as usize, record);
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
@@ -719,6 +716,8 @@ pub struct SkovStats {
     errors:                     Vec<SkovError>,
 }
 
+type StatsSnapshot = (u64, u64, u64, u64, u64, u64);
+
 impl SkovStats {
     fn new(timing_queue_len: usize) -> Self {
         Self {
@@ -733,34 +732,57 @@ impl SkovStats {
                                                                 * beginning */
         }
     }
+
+    pub fn query_stats(&self) -> StatsSnapshot {
+        (
+            get_avg_duration(&self.block_arrival_times),
+            wma(
+                self.add_block_timings.iter().cloned(),
+                self.add_block_timings.len() as u64,
+            ),
+            wma(
+                self.query_block_timings.iter().cloned(),
+                self.query_block_timings.len() as u64,
+            ),
+            get_avg_duration(&self.finalization_times),
+            wma(
+                self.add_finalization_timings.iter().cloned(),
+                self.add_finalization_timings.len() as u64,
+            ),
+            wma(
+                self.query_finalization_timings.iter().cloned(),
+                self.query_finalization_timings.len() as u64,
+            ),
+        )
+    }
+}
+
+fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+
+    let mass: u64 = (1..=n).sum();
+    let sum = values.enumerate().fold(0, |sum, (i, val)| {
+        let weight = n - (i as u64);
+        sum + val * weight
+    });
+
+    sum / mass
+}
+
+fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
+    let diffs = times
+        .iter()
+        .zip(times.iter().skip(1))
+        .map(|(&t1, &t2)| t1 - t2)
+        .map(|diff| diff.num_milliseconds() as u64);
+
+    wma(diffs, times.len() as u64) / 1000 // milliseconds to seconds
 }
 
 impl fmt::Display for SkovStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn wma(values: impl Iterator<Item = u64>, n: u64) -> u64 {
-            if n == 0 {
-                return 0;
-            }
-
-            let mass: u64 = (1..=n).sum();
-            let sum = values.enumerate().fold(0, |sum, (i, val)| {
-                let weight = n - (i as u64);
-                sum + val * weight
-            });
-
-            sum / mass
-        }
-
-        fn get_avg_duration(times: &CircularQueue<DateTime<Utc>>) -> u64 {
-            let diffs = times
-                .iter()
-                .zip(times.iter().skip(1))
-                .map(|(&t1, &t2)| t1 - t2)
-                .map(|diff| diff.num_milliseconds() as u64);
-
-            wma(diffs, times.len() as u64) / 1000 // milliseconds to seconds
-        }
-
         write!(
             f,
             "block receipt/entry/query: {}s/{}us/{}us; finalization receipt/entry/query: \

@@ -11,6 +11,24 @@ use std::{fmt, ops::Deref};
 #[macro_use]
 extern crate serde_derive;
 
+#[cfg(feature = "instrumentation")]
+#[macro_use]
+extern crate log;
+
+#[macro_use]
+extern crate cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "instrumentation")] {
+        #[macro_use]
+        extern crate prometheus;
+        #[macro_use]
+        extern crate gotham_derive;
+        extern crate hyper;
+        extern crate mime;
+    }
+}
+
 #[macro_use]
 pub mod fails;
 
@@ -18,7 +36,12 @@ pub mod cache;
 pub mod container_view;
 pub mod filters;
 pub mod functor;
+pub mod indexed_vec;
+pub mod stats_export_service;
 pub mod ucursor;
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 
 pub use self::{container_view::ContainerView, ucursor::UCursor};
 

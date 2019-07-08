@@ -3,15 +3,14 @@
 This repository uses git lfs for storing binary dependencies, and relies on git submodules for internal component dependencies. Therefore the git lfs extension needs to be installed, and to update the code remember to pull submodules too recursively.
 
 ## Dependencies to build the project
-* Rust (stable 1.34+)
+* Rust (stable 1.35+, and stable 1.36.0 (a53f9df32 2019-07-03) for using static libraries)
 * openssl >= 1.0.1
 * cmake
 * go >=1.10
 * protobuf >= 3.5.1
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/)
 * libclang >= 6.0
-* [HACL*](https://github.com/mitls/hacl-c)
-* Stack (GHC-8.6.5)
+* Stack (GHC-8.6.5, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features

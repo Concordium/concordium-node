@@ -3,15 +3,13 @@
 GHCVER=8.6.5
 
 # This script assumes you have:
-# - GHC with fPIC
-# - Cabal with the path to binaries already in your $PATH
+# - GHC with fPIC (see build-deps.sh)
+# - Cabal with the path to binaries already in your $PATH (see build-deps.sh)
 # - Cargo
+# - hpack 0.31.2 (cabal new-install hpack & move the bin somewhere else)
 
 rootdir=$(pwd)
 consensus_dir=$rootdir/../../deps/internal/consensus
-
-(cd
-cabal new-install hpack)
 
 ## Prepare our stuff for cabal
 cp cabal.project           $consensus_dir
@@ -20,8 +18,6 @@ cp cabal.project.local     $consensus_dir
  hpack
  cd $consensus_dir/Concordium
  hpack
- # cd $consensus_dir/crypto
- # hpack
  cd $consensus_dir/globalstate-mockup/globalstate
  hpack
  cd $consensus_dir/globalstate-mockup/globalstate-types
@@ -86,5 +82,7 @@ done)
      rm $lib;
  done
  rm *.o)
+
+strip --strip-debug $rootdir/target/vanilla/cabal/libHS* $rootdir/target/vanilla/concordium/libHS* $rootdir/target/profiling/cabal/libHS* $rootdir/target/profiling/concordium/libHS*
 
 echo "Done! In the target directory you will find all the libraries. Copy/mv all the subdirs to p2p-client/deps/static-libs/"

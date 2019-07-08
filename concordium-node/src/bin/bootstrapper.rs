@@ -14,7 +14,9 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{RelayOrStopEnvelope, RelayOrStopReceiver};
+use concordium_common::{
+    stats_export_service::StatsServiceMode, RelayOrStopEnvelope, RelayOrStopReceiver,
+};
 use env_logger::{Builder, Env};
 use failure::Error;
 use p2p_client::{
@@ -23,7 +25,6 @@ use p2p_client::{
     configuration,
     network::{NetworkMessage, NetworkRequest},
     p2p::*,
-    stats_export_service::StatsServiceMode,
     utils::{self, load_bans},
 };
 use rkv::{Manager, Rkv};

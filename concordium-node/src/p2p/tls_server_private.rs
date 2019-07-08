@@ -26,9 +26,8 @@ use crate::{
         peer_statistics::PeerStatistic,
         unreachable_nodes::UnreachableNodes,
     },
-    stats_export_service::StatsExportService,
 };
-use concordium_common::{functor::UnitFunction, UCursor};
+use concordium_common::{functor::UnitFunction, stats_export_service::StatsExportService, UCursor};
 
 const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
 const MAX_UNREACHABLE_MARK_TIME: u64 = 86_400_000;

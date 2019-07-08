@@ -23,7 +23,7 @@ RUN ./init.build.env.sh && \
     #cp target/x86_64-unknown-linux-gnu/debug/address_sanitizer* sanitized/ && \
     #cp target/x86_64-unknown-linux-gnu/debug/p2p_client-* sanitized/ && \
     cargo clean && \
-    #rustup default stable  && \
+    #rustup default 1.36.0  && \
     # Clean
     rm -rf ~/.cargo ~/.rustup && \
     rm -rf deps src benches tests src concordium-common && \
