@@ -398,9 +398,14 @@ fn start_consensus_threads(
             .read()
             .expect("Can't unlock the kvs env for Skov!");
 
-        let mut skov = baker_clone.baker
+        let mut skov = baker_clone
+            .baker
             .read()
-            .map(|optional_baker| optional_baker.as_ref().map(|baker| Skov::new(&baker.genesis_data, &skov_kvs_env)))
+            .map(|optional_baker| {
+                optional_baker
+                    .as_ref()
+                    .map(|baker| Skov::new(&baker.genesis_data, &skov_kvs_env))
+            })
             .expect("Could not instantiate Skov!")
             .expect("Could not instantiate Skov!");
 

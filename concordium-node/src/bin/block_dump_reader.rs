@@ -22,11 +22,7 @@ fn read_block_dump(bytes: &[u8]) {
         data: genesis_data,
     };
 
-    println!(
-        "{:#?}\n\n{:?}",
-        genesis_block.genesis_data(),
-        genesis_block
-    );
+    println!("{:#?}\n\n{:?}", genesis_block.genesis_data(), genesis_block);
 }
 
 fn main() -> io::Result<()> {

@@ -383,9 +383,9 @@ extern "C" {
 }
 
 pub struct ConsensusBaker {
-    _id:          BakerId,
+    _id:              BakerId,
     pub genesis_data: Bytes,
-    runner:       AtomicPtr<baker_runner>,
+    runner:           AtomicPtr<baker_runner>,
 }
 
 impl ConsensusBaker {
