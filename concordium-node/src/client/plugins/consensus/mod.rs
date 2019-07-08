@@ -38,7 +38,7 @@ use concordium_global_state::{
 
 use crate::{common::P2PNodeId, configuration, network::NetworkId, p2p::*};
 
-pub fn start_baker(
+pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     app_prefs: &configuration::AppPreferences,
 ) -> Option<consensus::ConsensusContainer> {
