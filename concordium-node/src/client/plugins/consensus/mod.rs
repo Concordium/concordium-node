@@ -30,7 +30,7 @@ use concordium_consensus::{
 
 use concordium_global_state::{
     block::{Block, Delta, PendingBlock},
-    common::{HashBytes, SerializeToBytes, SHA256},
+    common::{HashBytes, SerializeToBytes, sha256, SHA256},
     finalization::{FinalizationIndex, FinalizationMessage, FinalizationRecord},
     transaction::Transaction,
     tree::{Skov, SkovReq, SkovReqBody, SkovResult},
@@ -151,6 +151,8 @@ fn get_baker_data(
             Err(e) => bail!("Can't open the private data file ({})!", e),
         }
     };
+
+    debug!("Obtained genesis data {:?}", sha256(&[&[0u8; 8], given_genesis.as_slice()].concat()));
 
     Ok((given_genesis, given_private_data))
 }
