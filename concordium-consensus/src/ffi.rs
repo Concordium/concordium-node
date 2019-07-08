@@ -383,9 +383,9 @@ extern "C" {
 }
 
 pub struct ConsensusBaker {
-    pub id:           BakerId,
+    _id:          BakerId,
     pub genesis_data: Bytes,
-    pub runner:       AtomicPtr<baker_runner>,
+    runner:       AtomicPtr<baker_runner>,
 }
 
 impl ConsensusBaker {
@@ -419,7 +419,7 @@ impl ConsensusBaker {
         // 2x identical 32B-long byte sequences
 
         ConsensusBaker {
-            id:           baker_id,
+            _id:          baker_id,
             genesis_data: genesis_data.into_boxed_slice(),
             runner:       AtomicPtr::new(baker),
         }
