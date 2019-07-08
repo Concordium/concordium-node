@@ -23,7 +23,7 @@ fn read_block_dump(bytes: &[u8]) {
     };
 
     println!(
-        "{:#?}\n\nshort hash: {:?}",
+        "{:#?}\n\n{:?}",
         genesis_block.genesis_data(),
         genesis_block
     );
