@@ -347,18 +347,13 @@ impl<'a> SkovData<'a> {
         let finalized_blocks = kvs_env
             .open_single("blocks", StoreOptions::create())
             .unwrap();
-        let serialized_genesis = [&[0u8; 8], genesis_data].concat();
+
         {
+            // don't actually persist blocks yet
             let mut kvs_writer = kvs_env.write().unwrap(); // infallible
-            finalized_blocks.clear(&mut kvs_writer) // don't actually persist yet
-                .expect("Can't clear the block store");
             finalized_blocks
-                .put(
-                    &mut kvs_writer,
-                    genesis_block_ptr.hash.clone(),
-                    &Value::Blob(&serialized_genesis),
-                )
-                .expect("Can't store the genesis block!");
+                .clear(&mut kvs_writer)
+                .expect("Can't clear the block store");
         }
 
         let mut block_tree = hashed!(HashedMap, SKOV_LONG_PREALLOCATION_SIZE);
@@ -368,7 +363,9 @@ impl<'a> SkovData<'a> {
         let last_finalized = Rc::clone(genesis_block_ref);
         let genesis_block_ptr = Rc::clone(genesis_block_ref);
 
-        Self {
+        let genesis_to_store = Rc::clone(genesis_block_ref);
+
+        let mut skov = Self {
             kvs_env,
             finalized_blocks,
             block_tree,
@@ -381,7 +378,24 @@ impl<'a> SkovData<'a> {
             awaiting_last_finalized_block: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             inapplicable_finalization_records: hashed!(HashedMap, SKOV_ERR_PREALLOCATION_SIZE),
             transaction_table: TransactionTable::default(),
-        }
+        };
+
+        // store the genesis block
+        skov.store_block(&genesis_to_store);
+
+        skov
+    }
+
+    fn store_block(&mut self, block_ptr: &BlockPtr) {
+        let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
+
+        self.finalized_blocks
+            .put(
+                &mut kvs_writer,
+                block_ptr.hash.clone(),
+                &Value::Blob(&block_ptr.serialize()),
+            )
+            .expect("Can't store a block!");
     }
 
     fn add_block(&mut self, pending_block: PendingBlock) -> SkovResult {
@@ -527,7 +541,7 @@ impl<'a> SkovData<'a> {
     fn add_finalization(&mut self, record: FinalizationRecord) -> SkovResult {
         let last_finalized_idx = self.get_last_finalized_height(); // safe, always there
 
-        if record.index == last_finalized_idx {
+        if record.block_pointer == self.last_finalized.hash {
             // we always get N-1 duplicate finalization records from the last round
             return SkovResult::SuccessfulEntry;
         }
@@ -564,25 +578,15 @@ impl<'a> SkovData<'a> {
         if target_block.height > self.last_finalized.height {
             self.last_finalized = Rc::clone(&target_block);
         }
+
         self.block_tree
             .insert(target_hash.clone(), Rc::clone(&target_block));
-
-        {
-            let mut kvs_writer = self.kvs_env.write().unwrap(); // infallible
-            self.finalized_blocks
-                .put(
-                    &mut kvs_writer,
-                    target_hash.clone(),
-                    &Value::Blob(&target_block.serialize_to_disk_format()),
-                )
-                .expect("Can't store the genesis block!");
-        }
-
+        self.store_block(&target_block);
         self.finalization_list.insert(record.index as usize, record);
 
         // prune the tree candidate queue, as some of the blocks can probably be dropped
         // now
-        self.prune_candidate_list();
+        self.refresh_candidate_list();
 
         // a new finalization record was registered; check for any blocks pending their
         // last finalized block's finalization
@@ -643,7 +647,18 @@ impl<'a> SkovData<'a> {
         }
     }
 
-    fn prune_candidate_list(&mut self) {
+    fn refresh_candidate_list(&mut self) {
+        // after a finalization round, the blocks that were not directly finalized, but
+        // are a part of the tree, need to be promoted to the tree
+        let mut finalized_parent = self.last_finalized.block.pointer().unwrap().to_owned();
+        while let Some(ptr) = self.tree_candidates.remove(&finalized_parent) {
+            let parent_hash = ptr.block.pointer().unwrap().to_owned(); // safe, always available
+            self.store_block(&ptr);
+            self.block_tree.insert(ptr.hash.clone(), ptr);
+            finalized_parent = parent_hash;
+        }
+
+        // afterwards, the candidates with surplus height can be removed
         let current_height = self.last_finalized.height;
 
         self.tree_candidates
